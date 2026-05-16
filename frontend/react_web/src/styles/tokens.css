@@ -1,0 +1,117 @@
+/*
+ * Bestie — design tokens
+ * Shared with Flutter via mirrored constants in flutter_apps/shared_design_system.
+ * Premium, minimal, productivity-focused.
+ */
+
+:root {
+  /* ---------- color: neutral surface ---------- */
+  --c-bg:           #f6f7fb;
+  --c-bg-soft:      #eef0f6;
+  --c-surface:      #ffffff;
+  --c-surface-1:    #fbfcfe;
+  --c-surface-2:    #f3f5fa;
+  --c-border:       #e6e8ef;
+  --c-border-strong:#d3d6e0;
+
+  /* ---------- color: text ---------- */
+  --c-text:         #0f1216;
+  --c-text-soft:    #4a5160;
+  --c-text-muted:   #8b93a3;
+  --c-text-faint:   #b8bdc8;
+  --c-text-invert:  #ffffff;
+
+  /* ---------- color: brand ---------- */
+  --c-brand:        #5b8cff;
+  --c-brand-soft:   #e7efff;
+  --c-brand-strong: #3a6df0;
+  --c-accent:       #7c5cff;
+
+  /* ---------- color: status ---------- */
+  --c-success:      #10b981;
+  --c-warning:      #f59e0b;
+  --c-danger:       #ef4444;
+  --c-info:         #0ea5e9;
+
+  /* clients always render in this red regardless of theme */
+  --c-client:       #e0254a;
+  --c-client-soft:  #fde7ec;
+
+  /* ---------- shadows (soft, layered) ---------- */
+  --sh-1: 0 1px 2px rgba(15, 18, 22, 0.04), 0 1px 1px rgba(15, 18, 22, 0.02);
+  --sh-2: 0 4px 12px rgba(15, 18, 22, 0.06), 0 1px 2px rgba(15, 18, 22, 0.04);
+  --sh-3: 0 12px 32px rgba(15, 18, 22, 0.10), 0 2px 6px rgba(15, 18, 22, 0.05);
+  --sh-pop: 0 20px 48px rgba(15, 18, 22, 0.18);
+
+  /* ---------- radii ---------- */
+  --r-xs: 6px;
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 20px;
+  --r-pill: 999px;
+
+  /* ---------- spacing scale ---------- */
+  --s-0:  4px;
+  --s-1:  8px;
+  --s-2:  12px;
+  --s-3:  16px;
+  --s-4:  20px;
+  --s-5:  24px;
+  --s-6:  32px;
+  --s-7:  40px;
+  --s-8:  56px;
+
+  /* ---------- type ---------- */
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --fs-xs:   12px;
+  --fs-sm:   13px;
+  --fs-base: 14px;
+  --fs-md:   15px;
+  --fs-lg:   17px;
+  --fs-xl:   20px;
+  --fs-2xl:  24px;
+  --fs-3xl:  30px;
+  --fs-4xl:  36px;
+
+  --lh-tight: 1.25;
+  --lh-normal: 1.45;
+  --lh-loose: 1.6;
+
+  /* ---------- motion ---------- */
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-fast: 120ms;
+  --dur:      200ms;
+  --dur-slow: 360ms;
+
+  /* ---------- layout ---------- */
+  --sidebar-w: 268px;
+  --sidebar-w-collapsed: 64px;
+  --topbar-h: 56px;
+}
+
+/* Dark theme — applied by .theme-dark on <html> */
+.theme-dark {
+  --c-bg:           #0d1014;
+  --c-bg-soft:      #11151b;
+  --c-surface:      #151a21;
+  --c-surface-1:    #181d25;
+  --c-surface-2:    #1d232c;
+  --c-border:       #232a35;
+  --c-border-strong:#303949;
+
+  --c-text:         #eef1f6;
+  --c-text-soft:    #c4cad6;
+  --c-text-muted:   #8f97a6;
+  --c-text-faint:   #5f6675;
+
+  --c-brand-soft:   #1e2b4d;
+  --c-client-soft:  #3a121e;
+
+  --sh-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --sh-2: 0 6px 14px rgba(0, 0, 0, 0.4);
+  --sh-3: 0 18px 38px rgba(0, 0, 0, 0.5);
+  --sh-pop: 0 24px 56px rgba(0, 0, 0, 0.6);
+}

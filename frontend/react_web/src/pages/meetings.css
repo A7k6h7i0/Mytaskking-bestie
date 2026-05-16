@@ -1,0 +1,62 @@
+.mt { display: flex; flex-direction: column; gap: var(--s-4); }
+.mt__head { display: flex; justify-content: space-between; align-items: end; }
+.mt__head h1 { margin: 0; font-size: var(--fs-2xl); font-weight: 700; }
+.mt__head p { color: var(--c-text-muted); margin: 4px 0 0; }
+
+.mt__create {
+  display: grid;
+  grid-template-columns: 1fr 200px auto;
+  gap: var(--s-3);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  padding: var(--s-4);
+  align-items: end;
+}
+.mt__select { display: flex; flex-direction: column; gap: 6px; }
+.mt__select span { font-size: var(--fs-sm); font-weight: 600; color: var(--c-text-soft); }
+.mt__select select {
+  height: 38px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--c-border);
+  padding: 0 10px;
+  background: var(--c-surface);
+}
+.mt__create-actions { display: flex; gap: 8px; }
+
+.mt__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--s-3);
+}
+
+.mt__card {
+  display: flex; flex-direction: column;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  padding: var(--s-3) var(--s-4);
+  box-shadow: var(--sh-1);
+  transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+  border-top: 3px solid var(--c-brand);
+}
+.mt__card:hover { transform: translateY(-1px); box-shadow: var(--sh-2); }
+.mt__card--voice { border-top-color: var(--c-info); }
+.mt__card--video { border-top-color: var(--c-brand); }
+.mt__card--webinar { border-top-color: var(--c-accent); }
+.mt__card--livestream { border-top-color: var(--c-danger); }
+
+.mt__card header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.mt__mode {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--c-text-muted);
+}
+.mt__slug { font-family: var(--font-mono); font-size: 11px; color: var(--c-text-faint); }
+
+.mt__card h3 { margin: 0 0 4px; font-size: var(--fs-md); font-weight: 700; }
+.mt__card p { color: var(--c-text-muted); font-size: var(--fs-xs); margin: 0 0 12px; }
+.mt__card footer { display: flex; gap: 6px; margin-top: auto; }
+
+.mt__empty { padding: var(--s-5); color: var(--c-text-muted); text-align: center; grid-column: 1 / -1; }

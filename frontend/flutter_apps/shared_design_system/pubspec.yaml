@@ -1,0 +1,13 @@
+name: bestie_design
+description: Shared design tokens, theme, and base widgets used across all Bestie Flutter apps.
+version: 1.0.0
+publish_to: "none"
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  google_fonts: ^6.2.1

@@ -1,0 +1,1099 @@
+// Bestie — full domain schema
+// Provider can be swapped to "mysql" without changing models.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// IDENTITY & AUTH
+// ---------------------------------------------------------------------------
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  EMPLOYEE
+  TELECALLER
+  CLIENT
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  EXPIRED
+}
+
+model User {
+  id              String     @id @default(cuid())
+  userId          String     @unique                       // login id assigned by admin
+  passwordHash    String
+  role            Role
+  status          UserStatus @default(ACTIVE)
+  name            String
+  email           String?
+  phone           String?
+  avatarUrl       String?
+  departmentId    String?
+  department      Department? @relation(fields: [departmentId], references: [id])
+
+  // Client-specific
+  isClient        Boolean    @default(false)
+  clientCompany   String?
+  accessStartsAt  DateTime?
+  accessEndsAt    DateTime?  // hard expiry — server enforces on every request
+
+  lastSeenAt      DateTime?
+  createdById     String?
+  createdBy       User?      @relation("UserCreatedBy", fields: [createdById], references: [id])
+  createdUsers    User[]     @relation("UserCreatedBy")
+
+  refreshTokens   RefreshToken[]
+  channelMembers  ChannelMember[]
+  messages        Message[]
+  messageReactions MessageReaction[]
+  messageReceipts  MessageReceipt[]
+  tasksAssigned   TaskAssignee[]
+  tasksCreated    Task[]              @relation("TaskCreatedBy")
+  taskComments    TaskComment[]
+  callsInitiated  Call[]              @relation("CallInitiator")
+  callParticipants CallParticipant[]
+  telecallerLeads Lead[]              @relation("LeadOwner")
+  telecallerCalls TelecallerCall[]
+  notifications   Notification[]
+  deviceTokens    DeviceToken[]
+  activities      ActivityLog[]
+  filesUploaded   FileAsset[]         @relation("FileUploadedBy")
+  savedItems      SavedItem[]
+  calendarEvents  CalendarEvent[]     @relation("CalendarEventOwner")
+  eventAttendees  CalendarAttendee[]
+  announcements   Announcement[]     @relation("AnnouncementAuthor")
+
+  // multi-tenancy (nullable today; non-null after tenant migration)
+  tenantId        String?
+
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@index([role])
+  @@index([status])
+  @@index([isClient])
+  @@index([tenantId])
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  tokenHash String   @unique
+  userAgent String?
+  ip        String?
+  revokedAt DateTime?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Department {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  members   User[]
+  createdAt DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// CHANNELS & CHAT
+// ---------------------------------------------------------------------------
+
+enum ChannelKind {
+  DM                // 1:1
+  GROUP             // internal team
+  PROJECT           // project channel
+  ANNOUNCEMENT      // broadcast
+  CLIENT            // client collaboration channel (mixed: clients + employees)
+}
+
+enum ChannelVisibility {
+  PUBLIC            // anyone in org can join
+  PRIVATE           // invite-only
+}
+
+model Channel {
+  id             String            @id @default(cuid())
+  name           String?
+  description    String?
+  kind           ChannelKind
+  visibility     ChannelVisibility @default(PRIVATE)
+  isClientChannel Boolean          @default(false)        // contains at least one client
+  pinned         Boolean           @default(false)
+  archived       Boolean           @default(false)
+  // policies — defaults applied to new members
+  defaultCanPost      Boolean      @default(true)
+  defaultCanUpload    Boolean      @default(true)
+  defaultCanInvite    Boolean      @default(false)
+  defaultCanCreateTask Boolean     @default(true)
+  retentionDays  Int?                                     // null = forever
+  createdById    String
+  tenantId       String?
+  members        ChannelMember[]
+  messages       Message[]
+  calls          Call[]
+  announcements  Announcement[]
+  pinnedMessageIds String[]
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([kind])
+  @@index([isClientChannel])
+  @@index([tenantId])
+}
+
+enum ChannelMemberRole {
+  OWNER
+  ADMIN
+  MODERATOR
+  MEMBER
+  READONLY
+}
+
+model ChannelMember {
+  id           String            @id @default(cuid())
+  channel      Channel           @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  channelId    String
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId       String
+  memberRole   ChannelMemberRole @default(MEMBER)
+  role         String            @default("member")  // legacy free-form; prefer memberRole
+  canPost      Boolean           @default(true)
+  canUpload    Boolean           @default(true)
+  canInvite    Boolean           @default(false)
+  canCreateTask Boolean          @default(true)
+  mutedUntil   DateTime?
+  lastReadAt   DateTime?
+  joinedAt     DateTime          @default(now())
+
+  @@unique([channelId, userId])
+  @@index([userId])
+}
+
+enum MessageKind {
+  TEXT
+  IMAGE
+  FILE
+  VOICE_NOTE
+  SYSTEM
+  CALL_EVENT
+}
+
+enum MessageStatus {
+  SENDING
+  SENT
+  DELIVERED
+  SEEN
+  FAILED
+}
+
+model Message {
+  id          String       @id @default(cuid())
+  channel     Channel      @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  channelId   String
+  author      User         @relation(fields: [authorId], references: [id])
+  authorId    String
+  kind        MessageKind  @default(TEXT)
+  body        String?
+  status      MessageStatus @default(SENT)               // per-author aggregate; receipts are authoritative
+  attachments FileAsset[]  @relation("MessageAttachments")
+  replyToId   String?
+  replyTo     Message?     @relation("MessageReply", fields: [replyToId], references: [id])
+  replies     Message[]    @relation("MessageReply")
+  // threading — `threadRootId` denormalizes the top-of-thread for fast lookups.
+  // For root messages it equals `id`. For deep replies it equals the original root.
+  threadRootId    String?
+  threadReplies   Message[] @relation("ThreadReplies")
+  threadRoot      Message?  @relation("ThreadReplies", fields: [threadRootId], references: [id])
+  threadReplyCount Int      @default(0)
+  threadLastReplyAt DateTime?
+  reactions   MessageReaction[]
+  receipts    MessageReceipt[]
+  pinned      Boolean      @default(false)
+  editedAt    DateTime?
+  deletedAt   DateTime?
+  createdAt   DateTime     @default(now())
+
+  @@index([channelId, createdAt])
+  @@index([authorId])
+  @@index([threadRootId, createdAt])
+}
+
+enum ReceiptState {
+  DELIVERED
+  SEEN
+}
+
+model MessageReceipt {
+  id        String       @id @default(cuid())
+  message   Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  messageId String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  state     ReceiptState
+  at        DateTime     @default(now())
+
+  @@unique([messageId, userId, state])
+  @@index([messageId])
+  @@index([userId])
+}
+
+model MessageReaction {
+  id        String   @id @default(cuid())
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  messageId String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  emoji     String
+  createdAt DateTime @default(now())
+
+  @@unique([messageId, userId, emoji])
+}
+
+// ---------------------------------------------------------------------------
+// TASKS
+// ---------------------------------------------------------------------------
+
+enum TaskStatus {
+  BACKLOG
+  TODO
+  IN_PROGRESS
+  REVIEW
+  DONE
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model TaskBoard {
+  id        String   @id @default(cuid())
+  name      String
+  channelId String?
+  tasks     Task[]
+  createdAt DateTime @default(now())
+}
+
+model Task {
+  id          String        @id @default(cuid())
+  board       TaskBoard?    @relation(fields: [boardId], references: [id])
+  boardId     String?
+  title       String
+  description String?
+  status      TaskStatus    @default(TODO)
+  priority    TaskPriority  @default(MEDIUM)
+  dueAt       DateTime?
+  order       Int           @default(0)               // for kanban ordering
+  createdBy   User          @relation("TaskCreatedBy", fields: [createdById], references: [id])
+  createdById String
+  assignees   TaskAssignee[]
+  subtasks    Subtask[]
+  comments    TaskComment[]
+  attachments FileAsset[]   @relation("TaskAttachments")
+  channelId   String?
+  tenantId    String?
+  // automation hooks — set when this task was spawned by a recurring rule
+  spawnedByAutomationId String?
+  recurrenceCron       String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([status, order])
+  @@index([dueAt])
+  @@index([tenantId])
+}
+
+model TaskAssignee {
+  id     String @id @default(cuid())
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  @@unique([taskId, userId])
+}
+
+model Subtask {
+  id        String   @id @default(cuid())
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId    String
+  title     String
+  done      Boolean  @default(false)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+}
+
+model TaskComment {
+  id        String   @id @default(cuid())
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId    String
+  author    User     @relation(fields: [authorId], references: [id])
+  authorId  String
+  body      String
+  createdAt DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// VOICE CALLS (Agora)
+// ---------------------------------------------------------------------------
+
+enum CallKind {
+  ONE_TO_ONE
+  GROUP
+}
+
+enum CallStatus {
+  RINGING
+  ACTIVE
+  ENDED
+  MISSED
+  FAILED
+}
+
+model Call {
+  id            String         @id @default(cuid())
+  channelName   String         @unique               // Agora channel name
+  kind          CallKind
+  status        CallStatus     @default(RINGING)
+  channel       Channel?       @relation(fields: [channelId], references: [id])
+  channelId     String?
+  initiator     User           @relation("CallInitiator", fields: [initiatorId], references: [id])
+  initiatorId   String
+  participants  CallParticipant[]
+  startedAt     DateTime?
+  endedAt       DateTime?
+  recordingUrl  String?
+  createdAt     DateTime       @default(now())
+
+  @@index([initiatorId])
+  @@index([status])
+}
+
+model CallParticipant {
+  id        String   @id @default(cuid())
+  call      Call     @relation(fields: [callId], references: [id], onDelete: Cascade)
+  callId    String
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  joinedAt  DateTime?
+  leftAt    DateTime?
+  muted     Boolean  @default(false)
+
+  @@unique([callId, userId])
+}
+
+// ---------------------------------------------------------------------------
+// TELECALLER CRM (Exotel)
+// ---------------------------------------------------------------------------
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  INTERESTED
+  FOLLOWUP
+  WON
+  LOST
+}
+
+model Lead {
+  id           String       @id @default(cuid())
+  name         String
+  phone        String
+  company      String?
+  email        String?
+  status       LeadStatus   @default(NEW)
+  owner        User?        @relation("LeadOwner", fields: [ownerId], references: [id])
+  ownerId      String?
+  source       String?
+  notes        String?
+  nextFollowAt DateTime?
+  tags         String[]
+  tenantId     String?
+  calls        TelecallerCall[]
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@index([ownerId, status])
+  @@index([phone])
+  @@index([tenantId])
+}
+
+enum CallDirection {
+  OUTBOUND
+  INBOUND
+}
+
+model TelecallerCall {
+  id            String        @id @default(cuid())
+  lead          Lead?         @relation(fields: [leadId], references: [id])
+  leadId        String?
+  agent         User          @relation(fields: [agentId], references: [id])
+  agentId       String
+  direction     CallDirection @default(OUTBOUND)
+  externalCallId String?      @unique               // Exotel Sid
+  fromNumber    String?
+  toNumber      String
+  status        String?
+  durationSec   Int?
+  recordingUrl  String?
+  startedAt     DateTime?
+  endedAt       DateTime?
+  notes         String?
+  createdAt     DateTime      @default(now())
+
+  @@index([agentId, createdAt])
+  @@index([leadId])
+}
+
+// ---------------------------------------------------------------------------
+// FILES
+// ---------------------------------------------------------------------------
+
+enum FileBackend {
+  CLOUDINARY
+  R2
+}
+
+model FileAsset {
+  id           String      @id @default(cuid())
+  backend      FileBackend
+  url          String                                     // canonical public URL
+  key          String?                                    // backend object key (R2) or public_id (Cloudinary)
+  mimeType     String
+  size         Int
+  width        Int?
+  height       Int?
+  originalName String?
+  category     String?                                    // free-form category (e.g. "contracts", "screenshots")
+  previewUrl   String?                                    // PDF first-page render / thumbnail
+  currentVersion Int       @default(1)
+  tenantId     String?
+  uploadedBy   User        @relation("FileUploadedBy", fields: [uploadedById], references: [id])
+  uploadedById String
+  messages     Message[]   @relation("MessageAttachments")
+  tasks        Task[]      @relation("TaskAttachments")
+  versions     FileVersion[] @relation("FileVersions")
+  createdAt    DateTime    @default(now())
+
+  @@index([uploadedById])
+  @@index([category])
+  @@index([tenantId])
+}
+
+// ---------------------------------------------------------------------------
+// NOTIFICATIONS (FCM)
+// ---------------------------------------------------------------------------
+
+enum DevicePlatform {
+  ANDROID
+  IOS
+  WEB
+  WINDOWS
+  MACOS
+}
+
+model DeviceToken {
+  id        String         @id @default(cuid())
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  token     String         @unique
+  platform  DevicePlatform
+  createdAt DateTime       @default(now())
+  lastSeenAt DateTime?
+
+  @@index([userId])
+}
+
+enum NotificationKind {
+  CHAT
+  MENTION
+  TASK
+  CALL
+  LEAD_FOLLOWUP
+  SYSTEM
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  kind      NotificationKind
+  title     String
+  body      String
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId, readAt])
+}
+
+// ---------------------------------------------------------------------------
+// ACTIVITY LOG (for dashboard feed + audit)
+// ---------------------------------------------------------------------------
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  actor     User?    @relation(fields: [actorId], references: [id])
+  actorId   String?
+  kind      String
+  entity    String?
+  entityId  String?
+  payload   Json?
+  createdAt DateTime @default(now())
+
+  @@index([kind, createdAt])
+  @@index([actorId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// SAVED / STARRED ITEMS (bookmarks, favorites)
+// ---------------------------------------------------------------------------
+
+enum SavedKind {
+  MESSAGE
+  FILE
+  TASK
+  CHANNEL
+  LEAD
+}
+
+model SavedItem {
+  id        String    @id @default(cuid())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  kind      SavedKind
+  refId     String
+  note      String?
+  createdAt DateTime  @default(now())
+
+  @@unique([userId, kind, refId])
+  @@index([userId, kind])
+}
+
+// ---------------------------------------------------------------------------
+// ANNOUNCEMENTS — pinned banners, broadcasts, scheduled alerts
+// ---------------------------------------------------------------------------
+
+enum AnnouncementScope {
+  GLOBAL
+  CHANNEL
+  CLIENTS_ONLY
+  EMPLOYEES_ONLY
+}
+
+enum AnnouncementPriority {
+  INFO
+  IMPORTANT
+  URGENT
+}
+
+model Announcement {
+  id          String               @id @default(cuid())
+  title       String
+  body        String
+  scope       AnnouncementScope    @default(GLOBAL)
+  priority    AnnouncementPriority @default(INFO)
+  channel     Channel?             @relation(fields: [channelId], references: [id])
+  channelId   String?
+  author      User                 @relation("AnnouncementAuthor", fields: [authorId], references: [id])
+  authorId    String
+  pinned      Boolean              @default(true)
+  publishAt   DateTime             @default(now())
+  expiresAt   DateTime?
+  acknowledgedBy String[]                                  // userIds who dismissed
+  createdAt   DateTime             @default(now())
+
+  @@index([scope, publishAt])
+  @@index([channelId])
+}
+
+// ---------------------------------------------------------------------------
+// CALENDAR & SCHEDULING
+// ---------------------------------------------------------------------------
+
+enum EventKind {
+  MEETING
+  TASK_DEADLINE
+  REMINDER
+  CALL
+  GENERAL
+}
+
+enum EventRecurrence {
+  NONE
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+model CalendarEvent {
+  id          String         @id @default(cuid())
+  title       String
+  description String?
+  kind        EventKind      @default(MEETING)
+  startsAt    DateTime
+  endsAt      DateTime?
+  allDay      Boolean        @default(false)
+  recurrence  EventRecurrence @default(NONE)
+  location    String?
+  channelId   String?
+  taskId      String?
+  callId      String?
+  owner       User           @relation("CalendarEventOwner", fields: [ownerId], references: [id])
+  ownerId     String
+  attendees   CalendarAttendee[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([startsAt])
+  @@index([ownerId, startsAt])
+}
+
+enum AttendeeStatus {
+  INVITED
+  ACCEPTED
+  DECLINED
+  TENTATIVE
+}
+
+model CalendarAttendee {
+  id       String         @id @default(cuid())
+  event    CalendarEvent  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventId  String
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId   String
+  status   AttendeeStatus @default(INVITED)
+
+  @@unique([eventId, userId])
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// WORKSPACE SETTINGS (key/value, namespaced)
+// ---------------------------------------------------------------------------
+
+model WorkspaceSetting {
+  id        String   @id @default(cuid())
+  scope     String                                          // "branding" | "permissions" | "notifications" | "retention" | …
+  key       String
+  value     Json
+  updatedById String?
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@unique([scope, key])
+  @@index([scope])
+}
+
+// ---------------------------------------------------------------------------
+// FILE VERSIONS (advanced file mgmt)
+// ---------------------------------------------------------------------------
+
+model FileVersion {
+  id           String      @id @default(cuid())
+  fileId       String
+  file         FileAsset   @relation("FileVersions", fields: [fileId], references: [id], onDelete: Cascade)
+  version      Int
+  url          String
+  key          String?
+  size         Int
+  uploadedById String
+  createdAt    DateTime    @default(now())
+
+  @@unique([fileId, version])
+  @@index([fileId])
+}
+
+// ---------------------------------------------------------------------------
+// DOWNLOAD TRACKING
+// ---------------------------------------------------------------------------
+
+model FileDownload {
+  id        String   @id @default(cuid())
+  fileId    String
+  userId    String
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([fileId, createdAt])
+  @@index([userId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// MULTI-TENANCY (forward-prepared; single tenant today)
+//
+// `tenantId` is added to all top-level resources as nullable so existing data
+// migrates trivially. The runtime helper `services/tenant.js` resolves the
+// current tenant from JWT claims and scopes every Prisma query when the
+// feature flag `multiTenant.enabled` is on.
+// ---------------------------------------------------------------------------
+
+model Tenant {
+  id          String   @id @default(cuid())
+  slug        String   @unique                          // "acme" → acme.bestie.app
+  name        String
+  branding    Json?                                     // { logoUrl, primary, … }
+  storagePrefix String? @unique                         // R2/Cloudinary folder prefix
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// SESSIONS — enterprise device / IP / suspicious-login tracking
+// ---------------------------------------------------------------------------
+
+enum SessionStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+  FORCED_OUT
+}
+
+model Session {
+  id           String        @id @default(cuid())
+  userId       String
+  refreshTokenId String?     @unique                    // links back to RefreshToken row
+  status       SessionStatus @default(ACTIVE)
+  ip           String?
+  userAgent    String?
+  device       String?                                  // parsed device name
+  platform     String?                                  // "web" | "ios" | "android" | "windows" | "macos"
+  country      String?
+  city         String?
+  riskScore    Int           @default(0)                // 0–100 — populated by suspicious-login heuristic
+  firstSeenAt  DateTime      @default(now())
+  lastSeenAt   DateTime      @default(now())
+  revokedAt    DateTime?
+
+  @@index([userId, status])
+  @@index([userId, lastSeenAt])
+}
+
+// ---------------------------------------------------------------------------
+// ADVANCED RBAC — permission grants beyond the legacy `Role` enum
+// ---------------------------------------------------------------------------
+
+model PermissionGrant {
+  id        String   @id @default(cuid())
+  // exactly one of (userId, roleName) is set — userId overrides the role grant
+  userId    String?
+  roleName  String?                                     // mirrors `Role` enum values
+  key       String                                      // e.g. "task.delete", "channel.manage", "file.view_client"
+  allow     Boolean  @default(true)
+  scope     Json?                                       // optional: { channelId, taskId, fileId, … }
+  createdAt DateTime @default(now())
+
+  @@index([userId, key])
+  @@index([roleName, key])
+}
+
+model RoleTemplate {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  permissions String[]                                  // array of permission keys
+  builtin     Boolean  @default(false)                  // protected from deletion
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// NOTIFICATION PREFERENCES — per-user category opt-outs + mute windows
+// ---------------------------------------------------------------------------
+
+model NotificationPreference {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  channels     Json     @default("{}")                  // { chat:"all"|"mentions"|"off", task:"all"|"off", … }
+  muteUntil    DateTime?                                // global mute (DND)
+  quietHoursStart Int?                                  // 0–23, local TZ
+  quietHoursEnd   Int?
+  timezone     String?
+  updatedAt    DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// PRESENCE STATUS — persisted last-known status (transient online via socket)
+// ---------------------------------------------------------------------------
+
+enum PresenceStatus {
+  ACTIVE
+  AWAY
+  BUSY
+  IN_MEETING
+  INVISIBLE
+}
+
+model UserPresence {
+  userId    String          @id
+  status    PresenceStatus  @default(ACTIVE)
+  customStatus String?                                  // free-form, e.g. "🌴 vacation"
+  expiresAt DateTime?                                   // auto-clear at this time
+  updatedAt DateTime        @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// FILE ACCESS POLICIES — enterprise sharing
+// ---------------------------------------------------------------------------
+
+enum FileVisibility {
+  PRIVATE                                                // only uploader + grants
+  CHANNEL                                                // members of fileAsset.channelId
+  TENANT                                                 // anyone in the tenant
+  PUBLIC                                                 // anyone with the link (rare)
+}
+
+model FileAccessPolicy {
+  id            String         @id @default(cuid())
+  fileId        String         @unique
+  visibility    FileVisibility @default(PRIVATE)
+  channelId     String?
+  expiresAt     DateTime?                                // null = no expiry
+  watermark     Boolean        @default(false)
+  preventDownload Boolean      @default(false)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([fileId])
+}
+
+model FileGrant {
+  id        String   @id @default(cuid())
+  fileId    String
+  userId    String
+  canDownload Boolean @default(true)
+  expiresAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@unique([fileId, userId])
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// TASK AUTOMATIONS — recurring tasks, triggers, escalations
+// ---------------------------------------------------------------------------
+
+enum AutomationTrigger {
+  TASK_OVERDUE
+  TASK_CREATED
+  TASK_STATUS_CHANGED
+  RECURRING_SCHEDULE
+  LEAD_STATUS_CHANGED
+  CHANNEL_INACTIVE
+}
+
+enum AutomationAction {
+  MOVE_TASK_STATUS
+  REASSIGN_TASK
+  NOTIFY_USER
+  NOTIFY_MANAGER
+  CREATE_TASK
+  POST_MESSAGE
+}
+
+model Automation {
+  id          String              @id @default(cuid())
+  name        String
+  description String?
+  enabled     Boolean             @default(true)
+  trigger     AutomationTrigger
+  triggerData Json?                                      // e.g. { cron: "0 9 * * 1" }
+  action      AutomationAction
+  actionData  Json?                                      // e.g. { status: "BACKLOG", notifyUserId: "..." }
+  scope       Json?                                      // e.g. { channelId, projectId }
+  lastRunAt   DateTime?
+  createdById String
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([trigger, enabled])
+}
+
+// ---------------------------------------------------------------------------
+// FEATURE FLAGS
+// ---------------------------------------------------------------------------
+
+enum FlagRolloutKind {
+  GLOBAL                                                   // on/off for everyone
+  ROLE                                                     // gated by Role
+  USER                                                     // gated by explicit user assignment
+  TENANT                                                   // gated by tenant id
+  PERCENT                                                  // % of users — sticky hash on userId
+}
+
+model FeatureFlag {
+  key         String          @id                          // dot-namespaced, e.g. "ai.task_summary"
+  description String?
+  enabled     Boolean         @default(false)
+  rollout     FlagRolloutKind @default(GLOBAL)
+  payload     Json?                                        // optional config delivered alongside the flag
+  percent     Int?                                         // 0–100 for PERCENT rollouts
+  roles       String[]                                     // when rollout=ROLE
+  tenantIds   String[]                                     // when rollout=TENANT
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+}
+
+model FeatureFlagAssignment {
+  id        String   @id @default(cuid())
+  flagKey   String
+  userId    String
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@unique([flagKey, userId])
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// EVENT OUTBOX — transactional outbox pattern for the event bus.
+// Modules write events here in the same transaction as their state changes;
+// a publisher drains them to the configured bus (in-process today; Kafka/
+// Rabbit/SQS tomorrow). Once delivered, rows are marked dispatched.
+// ---------------------------------------------------------------------------
+
+enum OutboxStatus {
+  PENDING
+  DISPATCHED
+  FAILED
+}
+
+model OutboxEvent {
+  id           String       @id @default(cuid())
+  topic        String                                       // e.g. "task.created"
+  payload      Json
+  tenantId     String?
+  status       OutboxStatus @default(PENDING)
+  attempts     Int          @default(0)
+  lastError    String?
+  dispatchedAt DateTime?
+  createdAt    DateTime     @default(now())
+
+  @@index([status, createdAt])
+  @@index([topic])
+}
+
+// ---------------------------------------------------------------------------
+// MEDIA PROCESSING JOBS
+// ---------------------------------------------------------------------------
+
+enum MediaJobKind {
+  IMAGE_COMPRESS
+  IMAGE_THUMBNAIL
+  AUDIO_OPTIMIZE
+  VIDEO_TRANSCODE
+  PDF_PREVIEW
+  CHUNK_REASSEMBLY
+}
+
+enum MediaJobStatus {
+  QUEUED
+  RUNNING
+  DONE
+  FAILED
+}
+
+model MediaJob {
+  id        String         @id @default(cuid())
+  kind      MediaJobKind
+  fileId    String?
+  input     Json
+  output    Json?
+  status    MediaJobStatus @default(QUEUED)
+  attempts  Int            @default(0)
+  error     String?
+  startedAt DateTime?
+  finishedAt DateTime?
+  createdAt DateTime       @default(now())
+
+  @@index([status, kind])
+}
+
+// ---------------------------------------------------------------------------
+// MEETING ROOMS — video-ready Agora rooms (voice today)
+// ---------------------------------------------------------------------------
+
+enum MeetingMode {
+  VOICE
+  VIDEO
+  WEBINAR
+  LIVESTREAM
+}
+
+model MeetingRoom {
+  id           String      @id @default(cuid())
+  slug         String      @unique
+  name         String
+  mode         MeetingMode @default(VOICE)
+  channelName  String      @unique
+  hostId       String
+  scheduledAt  DateTime?
+  endedAt      DateTime?
+  recordingUrl String?
+  tenantId     String?
+  createdAt    DateTime    @default(now())
+
+  @@index([hostId])
+  @@index([tenantId])
+}
+
+// ---------------------------------------------------------------------------
+// WORKSPACE THEMES & DASHBOARD WIDGETS
+// ---------------------------------------------------------------------------
+
+model WorkspaceTheme {
+  id           String   @id @default(cuid())
+  tenantId     String?
+  name         String                                       // e.g. "Default", "Midnight"
+  mode         String                                       // "light" | "dark"
+  tokens       Json                                         // CSS variable overrides
+  isDefault    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  @@unique([tenantId, name])
+}
+
+model DashboardWidget {
+  id        String   @id @default(cuid())
+  userId    String
+  kind      String                                          // "stat" | "list" | "chart" | "calendar" | "activity" | …
+  config    Json
+  position  Int      @default(0)
+  visible   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, position])
+}
+
+// ---------------------------------------------------------------------------
+// TRUSTED DEVICES — opt-in long-lived device trust
+// ---------------------------------------------------------------------------
+
+model TrustedDevice {
+  id           String   @id @default(cuid())
+  userId       String
+  fingerprint  String                                       // SHA256 of UA + platform + browser-issued device id
+  label        String?
+  trustedUntil DateTime
+  createdAt    DateTime @default(now())
+
+  @@unique([userId, fingerprint])
+  @@index([userId])
+}

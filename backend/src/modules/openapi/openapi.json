@@ -1,0 +1,233 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Bestie API",
+    "version": "1.0.0",
+    "description": "Enterprise collaboration platform — REST + Socket.IO. See /docs/API.md for full prose reference and /docs/ARCHITECTURE.md for system design."
+  },
+  "servers": [{ "url": "/api/v1" }],
+  "security": [{ "bearerAuth": [] }],
+  "tags": [
+    { "name": "auth" }, { "name": "employees" }, { "name": "clients" },
+    { "name": "channels" }, { "name": "chat" }, { "name": "tasks" },
+    { "name": "calls" }, { "name": "telecaller" }, { "name": "notifications" },
+    { "name": "dashboard" }, { "name": "files" }, { "name": "audit" },
+    { "name": "search" }, { "name": "saved" }, { "name": "settings" },
+    { "name": "calendar" }, { "name": "announcements" }, { "name": "sessions" },
+    { "name": "permissions" }, { "name": "presence" }, { "name": "analytics" },
+    { "name": "automations" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": { "type": "string" },
+              "message": { "type": "string" },
+              "details": {}
+            }
+          }
+        }
+      },
+      "Envelope": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "data": {},
+          "meta": { "type": "object" },
+          "traceId": { "type": "string" }
+        }
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "userId": { "type": "string" },
+          "name": { "type": "string" },
+          "role": { "type": "string", "enum": ["SUPER_ADMIN", "ADMIN", "EMPLOYEE", "TELECALLER", "CLIENT"] },
+          "isClient": { "type": "boolean" },
+          "avatarUrl": { "type": "string", "nullable": true },
+          "status": { "type": "string", "enum": ["ACTIVE", "SUSPENDED", "EXPIRED"] }
+        }
+      },
+      "Channel": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string", "nullable": true },
+          "kind": { "type": "string", "enum": ["DM", "GROUP", "PROJECT", "ANNOUNCEMENT", "CLIENT"] },
+          "isClientChannel": { "type": "boolean" }
+        }
+      },
+      "Message": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "channelId": { "type": "string" },
+          "body": { "type": "string", "nullable": true },
+          "threadRootId": { "type": "string", "nullable": true },
+          "threadReplyCount": { "type": "integer" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Task": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "status": { "type": "string", "enum": ["BACKLOG", "TODO", "IN_PROGRESS", "REVIEW", "DONE", "CANCELLED"] },
+          "priority": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "URGENT"] },
+          "dueAt": { "type": "string", "format": "date-time", "nullable": true }
+        }
+      },
+      "LoginResponse": {
+        "type": "object",
+        "properties": {
+          "user": { "$ref": "#/components/schemas/User" },
+          "accessToken": { "type": "string" },
+          "refreshToken": { "type": "string" },
+          "refreshExpiresAt": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "responses": {
+      "Error": {
+        "description": "Error",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      }
+    }
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["auth"],
+        "summary": "Liveness probe",
+        "security": [],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "Sign in with user id + password",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["userId", "password"],
+                "properties": {
+                  "userId": { "type": "string" },
+                  "password": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Issued tokens",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LoginResponse" } } }
+          },
+          "401": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/auth/refresh": {
+      "post": { "tags": ["auth"], "summary": "Rotate refresh token", "security": [], "responses": { "200": { "description": "OK" } } }
+    },
+    "/auth/logout": { "post": { "tags": ["auth"], "summary": "Sign out", "responses": { "200": { "description": "OK" } } } },
+    "/auth/me": { "get": { "tags": ["auth"], "summary": "Current user", "responses": { "200": { "description": "OK" } } } },
+
+    "/employees": {
+      "get": { "tags": ["employees"], "summary": "List employees", "responses": { "200": { "description": "OK" } } },
+      "post": { "tags": ["employees"], "summary": "Create employee", "responses": { "201": { "description": "Created" } } }
+    },
+    "/clients": {
+      "get": { "tags": ["clients"], "summary": "List clients", "responses": { "200": { "description": "OK" } } },
+      "post": { "tags": ["clients"], "summary": "Create client", "responses": { "201": { "description": "Created" } } }
+    },
+    "/clients/{id}/extend": {
+      "post": { "tags": ["clients"], "summary": "Extend client access window", "responses": { "200": { "description": "OK" } } }
+    },
+    "/channels": {
+      "get": { "tags": ["channels"], "summary": "Channels for the caller", "responses": { "200": { "description": "OK" } } },
+      "post": { "tags": ["channels"], "summary": "Create channel", "responses": { "201": { "description": "Created" } } }
+    },
+    "/channels/{id}/policy": {
+      "patch": { "tags": ["channels"], "summary": "Update channel-wide permission defaults", "responses": { "200": { "description": "OK" } } }
+    },
+    "/chat/channels/{channelId}/messages": {
+      "get": { "tags": ["chat"], "summary": "Paged message history", "responses": { "200": { "description": "OK" } } },
+      "post": { "tags": ["chat"], "summary": "Send message", "responses": { "201": { "description": "Created" } } }
+    },
+    "/chat/threads/{rootId}": {
+      "get": { "tags": ["chat"], "summary": "List a thread (root + replies)", "responses": { "200": { "description": "OK" } } }
+    },
+    "/tasks": {
+      "get": { "tags": ["tasks"], "summary": "List or kanban view", "responses": { "200": { "description": "OK" } } },
+      "post": { "tags": ["tasks"], "summary": "Create task", "responses": { "201": { "description": "Created" } } }
+    },
+    "/tasks/{id}/move": { "post": { "tags": ["tasks"], "summary": "Move task across kanban columns", "responses": { "200": { "description": "OK" } } } },
+    "/calls/initiate": { "post": { "tags": ["calls"], "summary": "Start a voice call", "responses": { "201": { "description": "Created" } } } },
+    "/calls/{id}/screen-share/token": { "post": { "tags": ["calls"], "summary": "Mint a screen-share token", "responses": { "200": { "description": "OK" } } } },
+    "/calls/{id}/raise-hand": { "post": { "tags": ["calls"], "summary": "Raise / lower hand", "responses": { "200": { "description": "OK" } } } },
+    "/telecaller/leads": {
+      "get": { "tags": ["telecaller"], "summary": "List leads", "responses": { "200": { "description": "OK" } } },
+      "post": { "tags": ["telecaller"], "summary": "Create lead", "responses": { "201": { "description": "Created" } } }
+    },
+    "/telecaller/leads/{id}/call": { "post": { "tags": ["telecaller"], "summary": "Click to call via Exotel", "responses": { "200": { "description": "OK" } } } },
+    "/files/upload": { "post": { "tags": ["files"], "summary": "Upload (multipart)", "responses": { "201": { "description": "Created" } } } },
+    "/files/{id}/signed-url": { "get": { "tags": ["files"], "summary": "Signed download URL (also logs the download)", "responses": { "200": { "description": "OK" } } } },
+    "/files/{id}/policy": { "put": { "tags": ["files"], "summary": "Update file access policy", "responses": { "200": { "description": "OK" } } } },
+    "/notifications/grouped": { "get": { "tags": ["notifications"], "summary": "Notifications grouped by category", "responses": { "200": { "description": "OK" } } } },
+    "/notifications/preferences": { "get": { "tags": ["notifications"], "summary": "Preferences", "responses": { "200": { "description": "OK" } } } },
+    "/dashboard/overview": { "get": { "tags": ["dashboard"], "summary": "Role-aware dashboard counts", "responses": { "200": { "description": "OK" } } } },
+    "/audit": { "get": { "tags": ["audit"], "summary": "Audit timeline (admin)", "responses": { "200": { "description": "OK" } } } },
+    "/search": { "get": { "tags": ["search"], "summary": "Global workspace search", "responses": { "200": { "description": "OK" } } } },
+    "/saved": {
+      "get": { "tags": ["saved"], "summary": "Saved bookmarks", "responses": { "200": { "description": "OK" } } },
+      "post": { "tags": ["saved"], "summary": "Save / bookmark", "responses": { "201": { "description": "Created" } } }
+    },
+    "/settings": { "get": { "tags": ["settings"], "summary": "Workspace settings", "responses": { "200": { "description": "OK" } } } },
+    "/calendar": {
+      "get": { "tags": ["calendar"], "summary": "Calendar events in range", "responses": { "200": { "description": "OK" } } },
+      "post": { "tags": ["calendar"], "summary": "Create event", "responses": { "201": { "description": "Created" } } }
+    },
+    "/announcements": {
+      "get": { "tags": ["announcements"], "summary": "Live announcements", "responses": { "200": { "description": "OK" } } },
+      "post": { "tags": ["announcements"], "summary": "Publish (admin)", "responses": { "201": { "description": "Created" } } }
+    },
+    "/sessions/mine": { "get": { "tags": ["sessions"], "summary": "My active sessions", "responses": { "200": { "description": "OK" } } } },
+    "/sessions/mine/sign-out-everywhere": { "post": { "tags": ["sessions"], "summary": "Sign out from all devices", "responses": { "200": { "description": "OK" } } } },
+    "/sessions/users/{userId}/force-logout": { "post": { "tags": ["sessions"], "summary": "Force logout a user (admin)", "responses": { "200": { "description": "OK" } } } },
+    "/permissions/mine": { "get": { "tags": ["permissions"], "summary": "My effective permissions", "responses": { "200": { "description": "OK" } } } },
+    "/permissions/grants": {
+      "get": { "tags": ["permissions"], "summary": "List grants (admin)", "responses": { "200": { "description": "OK" } } },
+      "post": { "tags": ["permissions"], "summary": "Create grant (admin)", "responses": { "201": { "description": "Created" } } }
+    },
+    "/permissions/roles": {
+      "get": { "tags": ["permissions"], "summary": "Role templates", "responses": { "200": { "description": "OK" } } }
+    },
+    "/presence/me": { "put": { "tags": ["presence"], "summary": "Set my presence status", "responses": { "200": { "description": "OK" } } } },
+    "/presence/users": { "get": { "tags": ["presence"], "summary": "Presence for a set of userIds", "responses": { "200": { "description": "OK" } } } },
+    "/analytics/productivity": { "get": { "tags": ["analytics"], "summary": "Tasks completed per user", "responses": { "200": { "description": "OK" } } } },
+    "/analytics/telecaller": { "get": { "tags": ["analytics"], "summary": "Calls per agent", "responses": { "200": { "description": "OK" } } } },
+    "/analytics/tasks": { "get": { "tags": ["analytics"], "summary": "Task throughput", "responses": { "200": { "description": "OK" } } } },
+    "/analytics/workspace": { "get": { "tags": ["analytics"], "summary": "Workspace activity", "responses": { "200": { "description": "OK" } } } },
+    "/analytics/client-engagement": { "get": { "tags": ["analytics"], "summary": "Client engagement metrics", "responses": { "200": { "description": "OK" } } } },
+    "/automations": {
+      "get": { "tags": ["automations"], "summary": "List automations", "responses": { "200": { "description": "OK" } } },
+      "post": { "tags": ["automations"], "summary": "Create automation", "responses": { "201": { "description": "Created" } } }
+    },
+    "/automations/{id}/run": { "post": { "tags": ["automations"], "summary": "Run now", "responses": { "200": { "description": "OK" } } } }
+  }
+}

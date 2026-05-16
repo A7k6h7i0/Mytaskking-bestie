@@ -1,0 +1,52 @@
+.cal { display: flex; flex-direction: column; gap: var(--s-3); }
+.cal__head { display: flex; justify-content: space-between; align-items: end; }
+.cal__head h1 { font-size: var(--fs-2xl); font-weight: 700; margin: 0; }
+.cal__head p { margin: 4px 0 0; color: var(--c-text-muted); }
+.cal__nav { display: flex; gap: 6px; }
+
+.cal__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+  min-height: 60vh;
+}
+.cal__col {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.cal__col.is-today { box-shadow: inset 0 0 0 1px var(--c-brand); }
+.cal__col header {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-surface-1);
+  display: flex; justify-content: space-between; align-items: baseline;
+}
+.cal__dow { font-size: var(--fs-xs); color: var(--c-text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+.cal__dom { font-size: var(--fs-lg); font-weight: 700; }
+
+.cal__col-body { padding: 8px; display: flex; flex-direction: column; gap: 6px; flex: 1; overflow-y: auto; }
+.cal__hint { color: var(--c-text-faint); font-size: var(--fs-xs); text-align: center; padding: 8px; }
+
+.cal__event {
+  border-radius: var(--r-sm);
+  padding: 8px 10px;
+  background: var(--c-brand-soft);
+  border-left: 3px solid var(--c-brand);
+  font-size: var(--fs-xs);
+}
+.cal__event--meeting { background: #e7efff; border-left-color: var(--c-brand); }
+.cal__event--call { background: #ffe7e9; border-left-color: var(--c-danger); }
+.cal__event--task_deadline { background: #fff3d6; border-left-color: var(--c-warning); }
+.cal__event--reminder { background: #d9f5e8; border-left-color: var(--c-success); }
+.cal__event-time { font-family: var(--font-mono); font-weight: 600; color: var(--c-text-soft); }
+.cal__event-title { font-weight: 600; margin: 2px 0; color: var(--c-text); }
+.cal__event-loc { color: var(--c-text-muted); }
+
+.cal__empty {
+  margin-top: 8px;
+  display: inline-flex; align-items: center; gap: 8px;
+  color: var(--c-text-muted);
+}

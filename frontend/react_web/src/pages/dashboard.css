@@ -1,0 +1,56 @@
+.db { display: flex; flex-direction: column; gap: var(--s-5); }
+.db__loading { color: var(--c-text-muted); padding: var(--s-5); }
+.db__head { display: flex; align-items: end; justify-content: space-between; }
+.db__title { font-size: var(--fs-2xl); font-weight: 700; margin: 0; letter-spacing: -0.005em; }
+.db__sub { color: var(--c-text-muted); margin: 4px 0 0; }
+
+.db__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--s-3);
+}
+
+.db__stat {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  padding: var(--s-3) var(--s-4);
+  box-shadow: var(--sh-1);
+  transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.db__stat:hover { transform: translateY(-2px); box-shadow: var(--sh-2); }
+
+.db__stat-icon {
+  width: 38px; height: 38px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 10px;
+  background: var(--c-brand-soft);
+  color: var(--c-brand-strong);
+}
+.db__stat--success .db__stat-icon { background: #d9f5e8; color: var(--c-success); }
+.db__stat--warning .db__stat-icon { background: #fdf1d6; color: #b6791f; }
+.db__stat--info    .db__stat-icon { background: #d9eefb; color: var(--c-info); }
+.db__stat--client  .db__stat-icon { background: var(--c-client-soft); color: var(--c-client); }
+
+.db__stat-label { font-size: var(--fs-sm); color: var(--c-text-muted); }
+.db__stat-value { font-size: var(--fs-2xl); font-weight: 700; letter-spacing: -0.01em; }
+
+.db__activity {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  padding: var(--s-3) var(--s-4);
+}
+.db__card-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 0 10px; }
+.db__card-head h3 { margin: 0; font-size: var(--fs-md); font-weight: 700; }
+.db__hint { font-size: var(--fs-xs); color: var(--c-text-muted); }
+.db__activity-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.db__activity-list li { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px dashed var(--c-border); font-size: var(--fs-sm); }
+.db__activity-list li:first-child { border-top: 0; }
+.db__activity-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--c-brand); }
+.db__activity-kind { color: var(--c-text-muted); }
+.db__activity-time { margin-left: auto; color: var(--c-text-faint); font-size: var(--fs-xs); }
+.db__empty { color: var(--c-text-muted); padding: var(--s-2); }

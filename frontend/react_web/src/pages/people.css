@@ -1,0 +1,40 @@
+.pp { display: flex; flex-direction: column; gap: var(--s-4); }
+.pp__head { display: flex; align-items: end; justify-content: space-between; }
+.pp__head h1 { margin: 0; font-size: var(--fs-2xl); font-weight: 700; }
+.pp__head p { margin: 4px 0 0; color: var(--c-text-muted); }
+
+.pp__filters { max-width: 380px; }
+
+.pp__create {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--s-3);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  padding: var(--s-4);
+}
+.pp__role { display: flex; flex-direction: column; gap: 6px; }
+.pp__role span { font-size: var(--fs-sm); font-weight: 600; color: var(--c-text-soft); }
+.pp__role select { height: 38px; border-radius: var(--r-sm); border: 1px solid var(--c-border); padding: 0 10px; background: var(--c-surface); }
+.pp__create-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; }
+
+.pp__table {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+.pp__row { display: grid; grid-template-columns: 1.4fr 1fr 1.2fr 0.6fr; gap: 14px; padding: 12px 16px; border-top: 1px solid var(--c-border); align-items: center; font-size: var(--fs-sm); }
+.pp__row:first-child { border-top: 0; }
+.pp__row--head { background: var(--c-surface-1); color: var(--c-text-muted); font-weight: 700; font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.04em; }
+.pp__name { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; }
+.pp__mono { font-family: var(--font-mono); color: var(--c-text-soft); }
+.pp__chip { display: inline-block; padding: 2px 8px; border-radius: var(--r-pill); background: var(--c-surface-2); font-size: var(--fs-xs); color: var(--c-text-soft); text-transform: capitalize; }
+.pp__status { font-size: var(--fs-xs); font-weight: 700; padding: 2px 8px; border-radius: var(--r-pill); }
+.pp__status--active { background: #d9f5e8; color: var(--c-success); }
+.pp__status--suspended { background: var(--c-surface-2); color: var(--c-text-muted); }
+.pp__status--expired { background: var(--c-client-soft); color: var(--c-client); }
+.pp__link { margin-left: 8px; color: var(--c-brand); font-size: var(--fs-xs); }
+.pp__link:hover { text-decoration: underline; }
+.pp__empty { padding: var(--s-5); color: var(--c-text-muted); text-align: center; }

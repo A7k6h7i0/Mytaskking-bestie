@@ -1,0 +1,30 @@
+@keyframes sk-shimmer {
+  0%   { background-position: -200px 0; }
+  100% { background-position: calc(200px + 100%) 0; }
+}
+
+.sk {
+  display: inline-block;
+  border-radius: 6px;
+  background-color: var(--c-surface-2);
+  background-image: linear-gradient(
+    90deg,
+    var(--c-surface-2) 0px,
+    var(--c-surface-1) 40px,
+    var(--c-surface-2) 80px
+  );
+  background-size: 200px 100%;
+  background-repeat: no-repeat;
+  animation: sk-shimmer 1.2s linear infinite;
+}
+.sk--circle { border-radius: 50%; }
+
+.sk__text { display: flex; flex-direction: column; gap: 8px; }
+
+.sk__card {
+  display: flex; flex-direction: column; gap: 10px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  padding: var(--s-4);
+}

@@ -1,0 +1,25 @@
+.cn { display: flex; flex-direction: column; gap: var(--s-4); }
+.cn__loading { color: var(--c-text-muted); }
+.cn__head { display: flex; align-items: end; justify-content: space-between; }
+.cn__title { margin: 0; font-size: var(--fs-2xl); font-weight: 700; }
+.cn__sub { color: var(--c-text-muted); margin: 4px 0 0; }
+.cn__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--s-3); }
+.cn__card {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  padding: var(--s-3) var(--s-4);
+  cursor: pointer;
+  box-shadow: var(--sh-1);
+  transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.cn__card:hover { transform: translateY(-2px); box-shadow: var(--sh-2); }
+.cn__card-head { display: flex; align-items: center; justify-content: space-between; }
+.cn__card-name { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; }
+.cn__pin { color: var(--c-text-faint); }
+.cn__kind { font-size: var(--fs-xs); font-weight: 600; padding: 2px 8px; border-radius: var(--r-pill); background: var(--c-surface-2); color: var(--c-text-muted); }
+.cn__kind--client { background: var(--c-client-soft); color: var(--c-client); }
+.cn__desc { color: var(--c-text-muted); font-size: var(--fs-sm); margin: 6px 0 12px; }
+.cn__card-foot { display: flex; justify-content: space-between; color: var(--c-text-muted); font-size: var(--fs-xs); }
+.cn__card-foot span { display: inline-flex; align-items: center; gap: 4px; }
+.cn__empty { padding: var(--s-5); color: var(--c-text-muted); }

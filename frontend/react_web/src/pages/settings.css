@@ -1,0 +1,22 @@
+.st { display: flex; flex-direction: column; gap: var(--s-5); }
+.st__head h1 { font-size: var(--fs-2xl); font-weight: 700; margin: 0; }
+.st__head p { color: var(--c-text-muted); margin: 4px 0 0; }
+
+.st__note {
+  padding: 10px 14px;
+  background: var(--c-surface-2);
+  color: var(--c-text-muted);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+}
+
+.st__section {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  padding: var(--s-4);
+  display: flex; flex-direction: column; gap: var(--s-3);
+}
+.st__section h2 { margin: 0; font-size: var(--fs-md); font-weight: 700; }
+.st__subtle { color: var(--c-text-muted); margin: 0; font-size: var(--fs-sm); }
+.st__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--s-3); }

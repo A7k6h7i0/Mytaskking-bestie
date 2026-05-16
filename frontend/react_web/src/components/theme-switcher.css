@@ -1,0 +1,21 @@
+.th {
+  display: inline-flex;
+  padding: 2px;
+  background: var(--c-surface-2);
+  border-radius: var(--r-pill);
+  gap: 2px;
+}
+.th__opt {
+  display: inline-flex;
+  align-items: center; justify-content: center;
+  width: 28px; height: 28px;
+  border-radius: var(--r-pill);
+  color: var(--c-text-muted);
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.th__opt:hover { color: var(--c-text); }
+.th__opt.is-active {
+  background: var(--c-surface);
+  color: var(--c-text);
+  box-shadow: var(--sh-1);
+}

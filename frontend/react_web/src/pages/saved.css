@@ -1,0 +1,23 @@
+.sv { display: flex; flex-direction: column; gap: var(--s-4); }
+.sv__head h1 { font-size: var(--fs-2xl); font-weight: 700; margin: 0; }
+.sv__head p { color: var(--c-text-muted); margin: 4px 0 0; }
+.sv__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--s-3); }
+
+.sv__card {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 8px;
+  transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.sv__card:hover { transform: translateY(-1px); box-shadow: var(--sh-2); }
+
+.sv__kind {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 700; color: var(--c-text-muted);
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.sv__title { font-weight: 600; font-size: var(--fs-sm); }
+.sv__note { color: var(--c-text-muted); font-size: var(--fs-xs); }
+.sv__empty { color: var(--c-text-muted); padding: var(--s-5); }

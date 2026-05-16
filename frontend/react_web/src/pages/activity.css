@@ -1,0 +1,70 @@
+.ac { display: flex; flex-direction: column; gap: var(--s-4); }
+.ac__head { display: flex; justify-content: space-between; align-items: end; }
+.ac__head h1 { font-size: var(--fs-2xl); font-weight: 700; margin: 0; }
+.ac__head p { color: var(--c-text-muted); margin: 4px 0 0; }
+.ac__live {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-xs); font-weight: 700;
+  background: var(--c-surface-2);
+  color: var(--c-text-muted);
+}
+.ac__live.is-on {
+  background: #d9f5e8; color: var(--c-success);
+  animation: ac-pulse 2s ease-in-out infinite;
+}
+@keyframes ac-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); }
+  50% { box-shadow: 0 0 0 4px rgba(16,185,129,0.18); }
+}
+
+.ac__filters { display: grid; grid-template-columns: 1fr 280px; gap: 10px; max-width: 720px; }
+
+.ac__timeline { display: flex; flex-direction: column; }
+.ac__row {
+  display: grid;
+  grid-template-columns: 12px 110px 26px 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--c-border);
+}
+.ac__dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--c-brand);
+  margin-top: 8px;
+  box-shadow: 0 0 0 3px var(--c-brand-soft);
+}
+.ac__when { color: var(--c-text-faint); font-size: var(--fs-xs); font-family: var(--font-mono); padding-top: 4px; }
+
+.ac__primary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-size: var(--fs-sm); }
+.ac__kind {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  background: var(--c-surface-2);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--c-text-soft);
+}
+.ac__entity { color: var(--c-text-muted); font-size: var(--fs-xs); }
+.ac__payload {
+  margin: 4px 0 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--c-text-muted);
+  background: var(--c-surface-1);
+  padding: 6px 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  max-width: 100%;
+  white-space: pre-wrap;
+}
+
+.ac__empty {
+  display: flex; align-items: center; justify-content: center;
+  gap: 10px;
+  padding: var(--s-7);
+  color: var(--c-text-muted);
+}
