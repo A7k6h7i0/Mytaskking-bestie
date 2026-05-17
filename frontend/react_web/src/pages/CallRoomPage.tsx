@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import AgoraRTC, { IAgoraRTCClient, ICameraVideoTrack, IMicrophoneAudioTrack, IRemoteAudioTrack, IAgoraRTCRemoteUser } from 'agora-rtc-sdk-ng';
-import { Camera, CameraOff, Mic, MicOff, PhoneOff, Radio, ShieldCheck, Users, Volume2 } from 'lucide-react';
+import AgoraRTC, { IAgoraRTCClient, ICameraVideoTrack, ILocalAudioTrack, ILocalVideoTrack, IMicrophoneAudioTrack, IRemoteAudioTrack, IAgoraRTCRemoteUser } from 'agora-rtc-sdk-ng';
+import { Camera, CameraOff, Mic, MicOff, MonitorUp, PhoneOff, Radio, ShieldCheck, Users, Volume2, VolumeX } from 'lucide-react';
 import { api } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { Avatar } from '@/components/ui/Avatar';
@@ -42,12 +42,21 @@ export default function CallRoomPage() {
   const [joined, setJoined] = useState(false);
   const [muted, setMuted] = useState(false);
   const [cameraOn, setCameraOn] = useState(false);
+  const [sharingScreen, setSharingScreen] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [remoteUsers, setRemoteUsers] = useState<IAgoraRTCRemoteUser[]>([]);
+  const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([]);
+  const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
+  const [speakers, setSpeakers] = useState<MediaDeviceInfo[]>([]);
+  const [selectedMicId, setSelectedMicId] = useState('');
+  const [selectedCameraId, setSelectedCameraId] = useState('');
+  const [selectedSpeakerId, setSelectedSpeakerId] = useState('');
   const clientRef = useRef<IAgoraRTCClient | null>(null);
   const micTrackRef = useRef<IMicrophoneAudioTrack | null>(null);
   const cameraTrackRef = useRef<ICameraVideoTrack | null>(null);
+  const localVideoTrackRef = useRef<ILocalVideoTrack | null>(null);
+  const screenAudioTrackRef = useRef<ILocalAudioTrack | null>(null);
   const localVideoRef = useRef<HTMLDivElement | null>(null);
   const remoteVideoRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const ringtoneRef = useRef<{ stop: () => void } | null>(null);
@@ -93,7 +102,13 @@ export default function CallRoomPage() {
       client.on('user-published', async (user, mediaType) => {
         await client.subscribe(user, mediaType);
         if (mediaType === 'audio') {
-          (user.audioTrack as IRemoteAudioTrack | undefined)?.play();
+          const audioTrack = user.audioTrack as IRemoteAudioTrack | undefined;
+          audioTrack?.play();
+          if (selectedSpeakerId && audioTrack?.setPlaybackDevice) {
+            try {
+              await audioTrack.setPlaybackDevice(selectedSpeakerId);
+            } catch {}
+          }
         }
         if (mediaType === 'video') {
           const el = remoteVideoRefs.current[String(user.uid)];
@@ -117,6 +132,17 @@ export default function CallRoomPage() {
       const micTrack = await AgoraRTC.createMicrophoneAudioTrack();
       micTrackRef.current = micTrack;
       await client.publish([micTrack]);
+      const [micList, cameraList, speakerList] = await Promise.all([
+        AgoraRTC.getMicrophones().catch(() => []),
+        AgoraRTC.getCameras().catch(() => []),
+        AgoraRTC.getPlaybackDevices().catch(() => []),
+      ]);
+      setMicrophones(micList);
+      setCameras(cameraList);
+      setSpeakers(speakerList);
+      setSelectedMicId(micTrack.getTrackLabel() ? micTrack.getMediaStreamTrack().getSettings().deviceId || micList[0]?.deviceId || '' : micList[0]?.deviceId || '');
+      setSelectedCameraId(cameraList[0]?.deviceId || '');
+      setSelectedSpeakerId(speakerList[0]?.deviceId || '');
       setJoined(true);
       setMuted(false);
       setRemoteUsers([...client.remoteUsers]);
@@ -143,6 +169,16 @@ export default function CallRoomPage() {
         cameraTrackRef.current.close();
         cameraTrackRef.current = null;
       }
+      if (localVideoTrackRef.current) {
+        localVideoTrackRef.current.stop();
+        localVideoTrackRef.current.close();
+        localVideoTrackRef.current = null;
+      }
+      if (screenAudioTrackRef.current) {
+        screenAudioTrackRef.current.stop();
+        screenAudioTrackRef.current.close();
+        screenAudioTrackRef.current = null;
+      }
       if (clientRef.current) {
         await clientRef.current.leave();
         clientRef.current.removeAllListeners();
@@ -153,6 +189,8 @@ export default function CallRoomPage() {
     setJoined(false);
     setMuted(false);
     setCurrentCall(null);
+    setCameraOn(false);
+    setSharingScreen(false);
     if (!silent) {
       await api.post(`/calls/${callId}/leave`).catch(() => {});
       toast.info('Left the call');
@@ -237,14 +275,104 @@ export default function CallRoomPage() {
     }
 
     try {
-      const cam = await AgoraRTC.createCameraVideoTrack();
+      const cam = await AgoraRTC.createCameraVideoTrack(selectedCameraId ? { cameraId: selectedCameraId } : undefined);
       cameraTrackRef.current = cam;
+      localVideoTrackRef.current = cam;
       await clientRef.current.publish([cam]);
       if (localVideoRef.current) cam.play(localVideoRef.current);
       setCameraOn(true);
       toast.success('Camera is live on Agora');
     } catch (err: any) {
       toast.error('Could not start camera', err?.message || 'Check camera permissions.');
+    }
+  }
+
+  async function toggleScreenShare() {
+    if (!clientRef.current) return;
+    if (sharingScreen) {
+      const tracks = [localVideoTrackRef.current, screenAudioTrackRef.current].filter(Boolean) as Array<ILocalVideoTrack | ILocalAudioTrack>;
+      if (tracks.length) await clientRef.current.unpublish(tracks).catch(() => {});
+      if (localVideoTrackRef.current) {
+        localVideoTrackRef.current.stop();
+        localVideoTrackRef.current.close();
+      }
+      if (screenAudioTrackRef.current) {
+        screenAudioTrackRef.current.stop();
+        screenAudioTrackRef.current.close();
+      }
+      localVideoTrackRef.current = cameraTrackRef.current;
+      screenAudioTrackRef.current = null;
+      setSharingScreen(false);
+      if (cameraTrackRef.current) {
+        await clientRef.current.publish([cameraTrackRef.current]).catch(() => {});
+        if (localVideoRef.current) cameraTrackRef.current.play(localVideoRef.current);
+        setCameraOn(true);
+      } else {
+        setCameraOn(false);
+      }
+      toast.info('Screen sharing stopped');
+      return;
+    }
+
+    try {
+      const screenResult = await AgoraRTC.createScreenVideoTrack({ encoderConfig: '1080p_2' }, 'auto');
+      const screenVideoTrack = Array.isArray(screenResult) ? screenResult[0] : screenResult;
+      const screenAudioTrack = Array.isArray(screenResult) ? screenResult[1] : null;
+
+      if (cameraTrackRef.current) {
+        await clientRef.current.unpublish([cameraTrackRef.current]).catch(() => {});
+        cameraTrackRef.current.stop();
+      }
+
+      localVideoTrackRef.current = screenVideoTrack;
+      screenAudioTrackRef.current = screenAudioTrack;
+      const tracks = [screenVideoTrack, screenAudioTrack].filter(Boolean) as Array<ILocalVideoTrack | ILocalAudioTrack>;
+      await clientRef.current.publish(tracks);
+      if (localVideoRef.current) screenVideoTrack.play(localVideoRef.current);
+      setSharingScreen(true);
+      setCameraOn(false);
+      screenVideoTrack.on('track-ended', () => {
+        toggleScreenShare().catch(() => {});
+      });
+      toast.success('Screen sharing is live on Agora');
+    } catch (err: any) {
+      toast.error('Could not start screen sharing', err?.message || 'Check browser screen-share permissions.');
+    }
+  }
+
+  async function changeMicrophone(deviceId: string) {
+    setSelectedMicId(deviceId);
+    if (!micTrackRef.current || !deviceId) return;
+    try {
+      await micTrackRef.current.setDevice(deviceId);
+      toast.success('Microphone switched');
+    } catch (err: any) {
+      toast.error('Could not switch microphone', err?.message || 'Try another device.');
+    }
+  }
+
+  async function changeCamera(deviceId: string) {
+    setSelectedCameraId(deviceId);
+    if (!cameraTrackRef.current || !deviceId || sharingScreen) return;
+    try {
+      await cameraTrackRef.current.setDevice(deviceId);
+      toast.success('Camera switched');
+    } catch (err: any) {
+      toast.error('Could not switch camera', err?.message || 'Try another device.');
+    }
+  }
+
+  async function changeSpeaker(deviceId: string) {
+    setSelectedSpeakerId(deviceId);
+    if (!deviceId) return;
+    try {
+      await Promise.all(remoteUsers.map(async (user) => {
+        const track = user.audioTrack as IRemoteAudioTrack | undefined;
+        if (track?.setPlaybackDevice) await track.setPlaybackDevice(deviceId);
+      }));
+      toast.success('Speaker output switched');
+    } catch (err: any) {
+      toast.error('Could not switch speaker output', err?.message || 'Your browser may not support output device switching.');
     }
   }
 
@@ -255,6 +383,7 @@ export default function CallRoomPage() {
 
   const otherParticipants = (activeCall?.participants || []).filter((p: any) => p.user?.id !== me.id);
   const timerText = new Date(seconds * 1000).toISOString().slice(14, 19);
+  const localVideoActive = cameraOn || sharingScreen;
 
   return (
     <div className="cr">
@@ -292,9 +421,9 @@ export default function CallRoomPage() {
 
         <div className="cr__video-grid">
           <div className="cr__video-card cr__video-card--local">
-            <div className="cr__video-label">You {cameraOn ? '· camera on' : '· audio only'}</div>
-            <div ref={localVideoRef} className={`cr__video-surface ${cameraOn ? 'has-video' : ''}`}>
-              {!cameraOn && <div className="cr__video-placeholder"><Avatar name={me.name} src={me.avatarUrl} isClient={me.isClient} size={56} /></div>}
+            <div className="cr__video-label">You {sharingScreen ? '· screen sharing' : cameraOn ? '· camera on' : '· audio only'}</div>
+            <div ref={localVideoRef} className={`cr__video-surface ${localVideoActive ? 'has-video' : ''}`}>
+              {!localVideoActive && <div className="cr__video-placeholder"><Avatar name={me.name} src={me.avatarUrl} isClient={me.isClient} size={56} /></div>}
             </div>
           </div>
           {otherParticipants.map((p: any) => {
@@ -339,12 +468,36 @@ export default function CallRoomPage() {
           </div>
         </div>
 
+        <div className="cr__devices">
+          <div className="cr__device">
+            <label className="cr__device-label">Microphone</label>
+            <select className="cr__device-select" value={selectedMicId} onChange={(e) => changeMicrophone(e.target.value)} disabled={!microphones.length}>
+              {microphones.length ? microphones.map((device) => <option key={device.deviceId} value={device.deviceId}>{device.label || 'Microphone'}</option>) : <option value="">Default microphone</option>}
+            </select>
+          </div>
+          <div className="cr__device">
+            <label className="cr__device-label">Camera</label>
+            <select className="cr__device-select" value={selectedCameraId} onChange={(e) => changeCamera(e.target.value)} disabled={!cameras.length || sharingScreen}>
+              {cameras.length ? cameras.map((device) => <option key={device.deviceId} value={device.deviceId}>{device.label || 'Camera'}</option>) : <option value="">Default camera</option>}
+            </select>
+          </div>
+          <div className="cr__device">
+            <label className="cr__device-label">Speaker output</label>
+            <select className="cr__device-select" value={selectedSpeakerId} onChange={(e) => changeSpeaker(e.target.value)} disabled={!speakers.length}>
+              {speakers.length ? speakers.map((device) => <option key={device.deviceId} value={device.deviceId}>{device.label || 'Speaker'}</option>) : <option value="">Default speaker</option>}
+            </select>
+          </div>
+        </div>
+
         <div className="cr__actions">
           <Button variant={muted ? 'secondary' : 'ghost'} onClick={toggleMute} disabled={!joined || connecting}>
             {muted ? <MicOff size={16} /> : <Mic size={16} />} {muted ? 'Unmute' : 'Mute'}
           </Button>
-          <Button variant={cameraOn ? 'secondary' : 'ghost'} onClick={toggleCamera} disabled={!joined || connecting}>
+          <Button variant={cameraOn ? 'secondary' : 'ghost'} onClick={toggleCamera} disabled={!joined || connecting || sharingScreen}>
             {cameraOn ? <CameraOff size={16} /> : <Camera size={16} />} {cameraOn ? 'Stop video' : 'Start video'}
+          </Button>
+          <Button variant={sharingScreen ? 'secondary' : 'ghost'} onClick={toggleScreenShare} disabled={!joined || connecting}>
+            {sharingScreen ? <VolumeX size={16} /> : <MonitorUp size={16} />} {sharingScreen ? 'Stop share' : 'Share screen'}
           </Button>
           <Button variant="danger" onClick={hangUp}>
             <PhoneOff size={16} /> Leave call
