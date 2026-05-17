@@ -80,4 +80,24 @@ router.get(
   })
 );
 
+router.post(
+  '/change-password',
+  requireAuth,
+  validate({
+    body: Joi.object({
+      currentPassword: Joi.string().min(6).max(200).required(),
+      newPassword: Joi.string().min(8).max(200).required(),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    const result = await authService.changePassword({
+      user: req.user,
+      currentPassword: req.body.currentPassword,
+      newPassword: req.body.newPassword,
+    });
+    audit.record({ actorId: req.user.id, kind: 'auth.password_changed', entity: 'user', entityId: req.user.id, req });
+    res.json(result);
+  })
+);
+
 module.exports = router;

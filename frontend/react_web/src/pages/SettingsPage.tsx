@@ -11,6 +11,11 @@ export default function SettingsPage() {
   const user = useAuthStore((s) => s.user)!;
   const qc = useQueryClient();
   const isAdmin = user.role === 'SUPER_ADMIN' || user.role === 'ADMIN';
+  const [passwords, setPasswords] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  });
 
   const { data: settings } = useQuery<Record<string, Record<string, any>>>({
     queryKey: ['settings.all'],
@@ -39,6 +44,27 @@ export default function SettingsPage() {
     onError: () => toast.error('Could not save', 'Check your permissions and try again.'),
   });
 
+  const passwordMut = useMutation({
+    mutationFn: async () =>
+      (await api.post('/auth/change-password', {
+        currentPassword: passwords.currentPassword,
+        newPassword: passwords.newPassword,
+      })).data,
+    onSuccess: () => {
+      toast.success('Password changed');
+      setPasswords({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      qc.invalidateQueries({ queryKey: ['auth.me'] });
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.error?.message || 'Could not change password');
+    },
+  });
+
+  const passwordMismatch =
+    passwords.confirmPassword.length > 0 && passwords.newPassword !== passwords.confirmPassword;
+  const passwordTooShort =
+    passwords.newPassword.length > 0 && passwords.newPassword.length < 8;
+
   return (
     <div className="st">
       <header className="st__head">
@@ -51,6 +77,48 @@ export default function SettingsPage() {
       {!isAdmin && (
         <div className="st__note">You can view settings here. Only admins can change them.</div>
       )}
+
+      <section className="st__section">
+        <h2>Change password</h2>
+        <p className="st__subtle">Update your login password for this workspace account.</p>
+        <div className="st__grid">
+          <Input
+            label="Current password"
+            type="password"
+            value={passwords.currentPassword}
+            onChange={(e) => setPasswords({ ...passwords, currentPassword: e.target.value })}
+          />
+          <Input
+            label="New password"
+            type="password"
+            hint={passwordTooShort ? 'Use at least 8 characters.' : undefined}
+            value={passwords.newPassword}
+            onChange={(e) => setPasswords({ ...passwords, newPassword: e.target.value })}
+          />
+          <Input
+            label="Confirm new password"
+            type="password"
+            error={passwordMismatch ? 'Passwords do not match.' : undefined}
+            value={passwords.confirmPassword}
+            onChange={(e) => setPasswords({ ...passwords, confirmPassword: e.target.value })}
+          />
+        </div>
+        <div className="st__actions">
+          <Button
+            onClick={() => passwordMut.mutate()}
+            loading={passwordMut.isPending}
+            disabled={
+              !passwords.currentPassword ||
+              !passwords.newPassword ||
+              !passwords.confirmPassword ||
+              passwordMismatch ||
+              passwordTooShort
+            }
+          >
+            Change password
+          </Button>
+        </div>
+      </section>
 
       <section className="st__section">
         <h2>Branding</h2>

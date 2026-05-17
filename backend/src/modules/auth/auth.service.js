@@ -68,10 +68,26 @@ async function logout({ refreshToken }) {
   if (refreshToken) await tokens.revokeRefreshToken(refreshToken);
 }
 
+async function changePassword({ user, currentPassword, newPassword }) {
+  const fresh = await prisma.user.findUnique({ where: { id: user.id } });
+  if (!fresh) throw Unauthorized('User no longer exists');
+
+  const ok = await comparePassword(currentPassword, fresh.passwordHash);
+  if (!ok) throw Unauthorized('Current password is incorrect');
+
+  const passwordHash = await hashPassword(newPassword);
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { passwordHash },
+  });
+
+  return { ok: true };
+}
+
 function sanitize(user) {
   // eslint-disable-next-line no-unused-vars
   const { passwordHash, ...safe } = user;
   return safe;
 }
 
-module.exports = { login, refresh, logout, hashPassword, sanitize };
+module.exports = { login, refresh, logout, changePassword, hashPassword, sanitize };
