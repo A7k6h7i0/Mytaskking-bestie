@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Search } from 'lucide-react';
+import { Check, Pencil, Plus, Search, X } from 'lucide-react';
 import { api } from '@/services/api';
+import { toast } from '@/components/Toast';
+import { useAuthStore } from '@/store/auth';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -9,9 +11,13 @@ import './people.css';
 
 export default function EmployeesPage() {
   const qc = useQueryClient();
+  const user = useAuthStore((s) => s.user);
   const [q, setQ] = useState('');
   const [showNew, setShowNew] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draftName, setDraftName] = useState('');
   const [form, setForm] = useState({ userId: '', password: '', name: '', role: 'EMPLOYEE', email: '' });
+  const canCustomizeEmployeeName = user?.role === 'SUPER_ADMIN';
 
   const { data } = useQuery<{ items: any[] }>({
     queryKey: ['employees', q],
@@ -24,8 +30,24 @@ export default function EmployeesPage() {
       qc.invalidateQueries({ queryKey: ['employees'] });
       setShowNew(false);
       setForm({ userId: '', password: '', name: '', role: 'EMPLOYEE', email: '' });
+      toast.success('Employee created');
     },
+    onError: (err: any) => toast.error(err?.response?.data?.error?.message || 'Could not create employee'),
   });
+
+  const renameMut = useMutation({
+    mutationFn: async ({ id, name }: { id: string; name: string }) =>
+      (await api.patch(`/employees/${id}`, { name })).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['employees'] });
+      setEditingId(null);
+      setDraftName('');
+      toast.success('Employee name updated');
+    },
+    onError: (err: any) => toast.error(err?.response?.data?.error?.message || 'Could not update employee name'),
+  });
+
+  const items = useMemo(() => data?.items ?? [], [data?.items]);
 
   return (
     <div className="pp">
@@ -64,17 +86,64 @@ export default function EmployeesPage() {
 
       <div className="pp__table">
         <div className="pp__row pp__row--head">
-          <span>Name</span><span>User ID</span><span>Role</span><span>Status</span>
+          <span>Name</span><span>User ID</span><span>Role</span><span>Status</span><span>Actions</span>
         </div>
-        {data?.items.map((u) => (
-          <div key={u.id} className="pp__row">
-            <span className="pp__name"><Avatar name={u.name} src={u.avatarUrl} size={28} /> {u.name}</span>
-            <span className="pp__mono">{u.userId}</span>
-            <span><span className="pp__chip">{u.role.replace('_', ' ')}</span></span>
-            <span className={`pp__status pp__status--${u.status.toLowerCase()}`}>{u.status}</span>
-          </div>
-        ))}
-        {!data?.items.length && <div className="pp__empty">No employees yet. Add one above.</div>}
+        {items.map((u) => {
+          const isEditing = editingId === u.id;
+          return (
+            <div key={u.id} className="pp__row">
+              <span className="pp__name">
+                <Avatar name={u.name} src={u.avatarUrl} size={28} />
+                {isEditing ? (
+                  <input
+                    className="pp__inline-input"
+                    value={draftName}
+                    onChange={(e) => setDraftName(e.target.value)}
+                    placeholder="Employee display name"
+                    maxLength={120}
+                  />
+                ) : (
+                  u.name
+                )}
+              </span>
+              <span className="pp__mono">{u.userId}</span>
+              <span><span className="pp__chip">{u.role.replace('_', ' ')}</span></span>
+              <span className={`pp__status pp__status--${u.status.toLowerCase()}`}>{u.status}</span>
+              <span className="pp__actions">
+                {canCustomizeEmployeeName && (
+                  isEditing ? (
+                    <>
+                      <Button
+                        size="sm"
+                        onClick={() => renameMut.mutate({ id: u.id, name: draftName.trim() })}
+                        loading={renameMut.isPending}
+                        disabled={!draftName.trim() || draftName.trim() === u.name}
+                      >
+                        <Check size={14} /> Save
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => { setEditingId(null); setDraftName(''); }}
+                      >
+                        <X size={14} /> Cancel
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => { setEditingId(u.id); setDraftName(u.name); }}
+                    >
+                      <Pencil size={14} /> Rename
+                    </Button>
+                  )
+                )}
+              </span>
+            </div>
+          );
+        })}
+        {!items.length && <div className="pp__empty">No employees yet. Add one above.</div>}
       </div>
     </div>
   );
