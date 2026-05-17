@@ -71,17 +71,30 @@ export default function WorkspaceLayout() {
       setPendingCall(payload);
       toast.info(`Incoming call from ${caller}`, 'Answer from the call banner or open Calls.');
     };
+    const onDeclined = (payload: any) => {
+      if (pendingCall?.call?.id && payload?.callId === pendingCall.call.id) clearPendingCall();
+      toast.warn('Call was declined', payload?.status === 'MISSED' ? 'Marked as missed.' : undefined);
+    };
     s.on('call.incoming', onIncoming);
     s.on('call.invited', onIncoming);
+    s.on('call.declined', onDeclined);
     return () => {
       s.off('call.incoming', onIncoming);
       s.off('call.invited', onIncoming);
+      s.off('call.declined', onDeclined);
     };
   }, []);
 
   function answerPendingCall() {
     if (!pendingCall?.call?.id) return;
     navigate(`/calls/live/${pendingCall.call.id}`);
+  }
+
+  async function declinePendingCall() {
+    if (!pendingCall?.call?.id) return;
+    await api.post(`/calls/${pendingCall.call.id}/decline`).catch(() => {});
+    clearPendingCall();
+    toast.info('Call declined');
   }
 
   async function handleLogout() {
@@ -160,7 +173,7 @@ export default function WorkspaceLayout() {
               </div>
               <div className="ws__incoming-actions">
                 <button className="bb bb--primary bb--sm" onClick={answerPendingCall}>Answer</button>
-                <button className="bb bb--ghost bb--sm" onClick={() => clearPendingCall()}>Dismiss</button>
+                <button className="bb bb--ghost bb--sm" onClick={declinePendingCall}>Decline</button>
               </div>
             </div>
           )}

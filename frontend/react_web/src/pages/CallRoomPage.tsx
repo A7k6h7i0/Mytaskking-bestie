@@ -42,6 +42,7 @@ export default function CallRoomPage() {
   const [joined, setJoined] = useState(false);
   const [muted, setMuted] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  const [seconds, setSeconds] = useState(0);
   const [remoteUsers, setRemoteUsers] = useState<IAgoraRTCRemoteUser[]>([]);
   const clientRef = useRef<IAgoraRTCClient | null>(null);
   const micTrackRef = useRef<IMicrophoneAudioTrack | null>(null);
@@ -156,6 +157,12 @@ export default function CallRoomPage() {
   }, [callId]);
 
   useEffect(() => {
+    if (!joined) return;
+    const id = window.setInterval(() => setSeconds((s) => s + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [joined]);
+
+  useEffect(() => {
     if (tokenQuery.data && !joined && !connecting) {
       connect();
     }
@@ -176,6 +183,7 @@ export default function CallRoomPage() {
   }
 
   const otherParticipants = (activeCall?.participants || []).filter((p: any) => p.user?.id !== me.id);
+  const timerText = new Date(seconds * 1000).toISOString().slice(14, 19);
 
   return (
     <div className="cr">
@@ -203,7 +211,7 @@ export default function CallRoomPage() {
           </div>
           <div className="cr__summary-card">
             <span className="cr__summary-label">Connection</span>
-            <strong>{joined ? 'Live on Agora' : connecting ? 'Joining…' : 'Waiting'}</strong>
+            <strong>{joined ? `Live on Agora · ${timerText}` : connecting ? 'Joining…' : 'Waiting'}</strong>
           </div>
           <div className="cr__summary-card">
             <span className="cr__summary-label">Remote listeners</span>

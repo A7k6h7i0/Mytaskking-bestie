@@ -78,6 +78,24 @@ async function leave({ callId, user }) {
   return prisma.call.findUnique({ where: { id: callId }, include: callInclude });
 }
 
+async function decline({ callId, user }) {
+  const call = await prisma.call.findUnique({ where: { id: callId }, include: callInclude });
+  if (!call) throw NotFound('Call not found');
+  const part = call.participants.find((p) => p.userId === user.id);
+  if (!part) throw Forbidden('Not invited');
+
+  await prisma.callParticipant.updateMany({
+    where: { callId, userId: user.id, leftAt: null },
+    data: { leftAt: new Date() },
+  });
+
+  if (call.status === 'RINGING') {
+    await prisma.call.update({ where: { id: callId }, data: { status: 'MISSED', endedAt: new Date() } });
+  }
+
+  return prisma.call.findUnique({ where: { id: callId }, include: callInclude });
+}
+
 async function addParticipant({ callId, userId, actor }) {
   const call = await prisma.call.findUnique({ where: { id: callId }, include: callInclude });
   if (!call) throw NotFound('Call not found');
@@ -144,6 +162,7 @@ module.exports = {
   tokenFor,
   join,
   leave,
+  decline,
   addParticipant,
   setMuted,
   history,

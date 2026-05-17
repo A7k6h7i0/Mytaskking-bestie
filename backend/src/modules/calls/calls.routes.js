@@ -62,6 +62,12 @@ router.post('/:id/leave', asyncHandler(async (req, res) => {
   res.json(call);
 }));
 
+router.post('/:id/decline', asyncHandler(async (req, res) => {
+  const call = await service.decline({ callId: req.params.id, user: req.user });
+  req.app.get('io')?.emit('call.declined', { callId: call.id, userId: req.user.id, status: call.status });
+  res.json(call);
+}));
+
 router.post(
   '/:id/participants',
   validate({ body: Joi.object({ userId: Joi.string().required() }) }),
