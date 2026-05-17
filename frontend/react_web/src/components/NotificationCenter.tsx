@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bell, CheckCheck, Settings, MessageSquare, Phone, KanbanSquare, Headphones, Megaphone } from 'lucide-react';
+import { Bell, CheckCheck, Settings, MessageSquare, Phone, KanbanSquare, Headphones, Megaphone, type LucideIcon } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
 import clsx from 'clsx';
 import { api } from '@/services/api';
 import { getSocket } from '@/services/socket';
 import { Skeleton } from '@/components/ui/Skeleton';
 import './notification-center.css';
+
+dayjs.extend(relativeTime);
 
 type Notification = {
   id: string;
@@ -21,7 +24,7 @@ type Notification = {
 const CATEGORY_LABEL: Record<string, string> = {
   chat: 'Messages', task: 'Tasks', call: 'Calls', lead: 'Telecaller', system: 'System',
 };
-const CATEGORY_ICON: Record<string, React.ComponentType<{ size?: number }>> = {
+const CATEGORY_ICON: Record<string, LucideIcon> = {
   chat: MessageSquare, task: KanbanSquare, call: Phone, lead: Headphones, system: Megaphone,
 };
 
@@ -100,7 +103,7 @@ export function NotificationCenter() {
                     <div key={n.id} className={clsx('nc__item', !n.readAt && 'is-unread')}>
                       <div className="nc__item-title">{n.title}</div>
                       <div className="nc__item-body">{n.body}</div>
-                      <div className="nc__item-time">{dayjs(n.createdAt).fromNow?.() || dayjs(n.createdAt).format('MMM D, HH:mm')}</div>
+                      <div className="nc__item-time">{dayjs(n.createdAt).fromNow()}</div>
                     </div>
                   ))}
                 </section>

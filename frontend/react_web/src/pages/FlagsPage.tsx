@@ -69,7 +69,7 @@ export default function FlagsPage() {
           )}
           <div className="fl__create-actions">
             <Button variant="ghost" onClick={() => setCreating(false)}>Cancel</Button>
-            <Button onClick={() => { upsert.mutate({ key: form.key, ...form }); setCreating(false); }}>Save</Button>
+            <Button onClick={() => { upsert.mutate({ ...form }); setCreating(false); }}>Save</Button>
           </div>
         </div>
       )}

@@ -1,10 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
-import { Bookmark, MessageSquare, FileText, KanbanSquare, Hash, Headphones } from 'lucide-react';
+import { Bookmark, MessageSquare, FileText, KanbanSquare, Hash, Headphones, type LucideIcon } from 'lucide-react';
 import { api } from '@/services/api';
 import { SkeletonCard } from '@/components/ui/Skeleton';
 import './saved.css';
 
-const ICON: Record<string, React.ComponentType<{ size?: number }>> = {
+const ICON: Record<string, LucideIcon> = {
   MESSAGE: MessageSquare,
   FILE: FileText,
   TASK: KanbanSquare,

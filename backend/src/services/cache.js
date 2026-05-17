@@ -126,7 +126,9 @@ function memoize(keyFn, fn, ttlSeconds = 60) {
 }
 
 module.exports = {
-  mode,
+  get mode() {
+    return mode;
+  },
   redis: () => redis,
   get, set, del, incr, memoize,
 };

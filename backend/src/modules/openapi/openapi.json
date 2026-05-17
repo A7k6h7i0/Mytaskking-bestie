@@ -3,23 +3,93 @@
   "info": {
     "title": "Bestie API",
     "version": "1.0.0",
-    "description": "Enterprise collaboration platform — REST + Socket.IO. See /docs/API.md for full prose reference and /docs/ARCHITECTURE.md for system design."
+    "description": "Enterprise collaboration platform \u2014 REST + Socket.IO. See /docs/API.md for full prose reference and /docs/ARCHITECTURE.md for system design."
   },
-  "servers": [{ "url": "/api/v1" }],
-  "security": [{ "bearerAuth": [] }],
+  "servers": [
+    {
+      "url": "/api/v1"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
   "tags": [
-    { "name": "auth" }, { "name": "employees" }, { "name": "clients" },
-    { "name": "channels" }, { "name": "chat" }, { "name": "tasks" },
-    { "name": "calls" }, { "name": "telecaller" }, { "name": "notifications" },
-    { "name": "dashboard" }, { "name": "files" }, { "name": "audit" },
-    { "name": "search" }, { "name": "saved" }, { "name": "settings" },
-    { "name": "calendar" }, { "name": "announcements" }, { "name": "sessions" },
-    { "name": "permissions" }, { "name": "presence" }, { "name": "analytics" },
-    { "name": "automations" }
+    {
+      "name": "auth"
+    },
+    {
+      "name": "employees"
+    },
+    {
+      "name": "clients"
+    },
+    {
+      "name": "channels"
+    },
+    {
+      "name": "chat"
+    },
+    {
+      "name": "tasks"
+    },
+    {
+      "name": "calls"
+    },
+    {
+      "name": "telecaller"
+    },
+    {
+      "name": "notifications"
+    },
+    {
+      "name": "dashboard"
+    },
+    {
+      "name": "files"
+    },
+    {
+      "name": "audit"
+    },
+    {
+      "name": "search"
+    },
+    {
+      "name": "saved"
+    },
+    {
+      "name": "settings"
+    },
+    {
+      "name": "calendar"
+    },
+    {
+      "name": "announcements"
+    },
+    {
+      "name": "sessions"
+    },
+    {
+      "name": "permissions"
+    },
+    {
+      "name": "presence"
+    },
+    {
+      "name": "analytics"
+    },
+    {
+      "name": "automations"
+    }
   ],
   "components": {
     "securitySchemes": {
-      "bearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" }
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
     },
     "schemas": {
       "Error": {
@@ -28,8 +98,12 @@
           "error": {
             "type": "object",
             "properties": {
-              "code": { "type": "string" },
-              "message": { "type": "string" },
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
               "details": {}
             }
           }
@@ -38,83 +112,694 @@
       "Envelope": {
         "type": "object",
         "properties": {
-          "ok": { "type": "boolean" },
+          "ok": {
+            "type": "boolean"
+          },
           "data": {},
-          "meta": { "type": "object" },
-          "traceId": { "type": "string" }
+          "meta": {
+            "type": "object"
+          },
+          "traceId": {
+            "type": "string"
+          }
         }
       },
       "User": {
         "type": "object",
         "properties": {
-          "id": { "type": "string" },
-          "userId": { "type": "string" },
-          "name": { "type": "string" },
-          "role": { "type": "string", "enum": ["SUPER_ADMIN", "ADMIN", "EMPLOYEE", "TELECALLER", "CLIENT"] },
-          "isClient": { "type": "boolean" },
-          "avatarUrl": { "type": "string", "nullable": true },
-          "status": { "type": "string", "enum": ["ACTIVE", "SUSPENDED", "EXPIRED"] }
+          "id": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "SUPER_ADMIN",
+              "ADMIN",
+              "EMPLOYEE",
+              "TELECALLER",
+              "CLIENT"
+            ]
+          },
+          "isClient": {
+            "type": "boolean"
+          },
+          "avatarUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "SUSPENDED",
+              "EXPIRED"
+            ]
+          }
         }
       },
       "Channel": {
         "type": "object",
         "properties": {
-          "id": { "type": "string" },
-          "name": { "type": "string", "nullable": true },
-          "kind": { "type": "string", "enum": ["DM", "GROUP", "PROJECT", "ANNOUNCEMENT", "CLIENT"] },
-          "isClientChannel": { "type": "boolean" }
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "DM",
+              "GROUP",
+              "PROJECT",
+              "ANNOUNCEMENT",
+              "CLIENT"
+            ]
+          },
+          "isClientChannel": {
+            "type": "boolean"
+          }
         }
       },
       "Message": {
         "type": "object",
         "properties": {
-          "id": { "type": "string" },
-          "channelId": { "type": "string" },
-          "body": { "type": "string", "nullable": true },
-          "threadRootId": { "type": "string", "nullable": true },
-          "threadReplyCount": { "type": "integer" },
-          "createdAt": { "type": "string", "format": "date-time" }
+          "id": {
+            "type": "string"
+          },
+          "channelId": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string",
+            "nullable": true
+          },
+          "threadRootId": {
+            "type": "string",
+            "nullable": true
+          },
+          "threadReplyCount": {
+            "type": "integer"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       },
       "Task": {
         "type": "object",
         "properties": {
-          "id": { "type": "string" },
-          "title": { "type": "string" },
-          "status": { "type": "string", "enum": ["BACKLOG", "TODO", "IN_PROGRESS", "REVIEW", "DONE", "CANCELLED"] },
-          "priority": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "URGENT"] },
-          "dueAt": { "type": "string", "format": "date-time", "nullable": true }
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "BACKLOG",
+              "TODO",
+              "IN_PROGRESS",
+              "REVIEW",
+              "DONE",
+              "CANCELLED"
+            ]
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "LOW",
+              "MEDIUM",
+              "HIGH",
+              "URGENT"
+            ]
+          },
+          "dueAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
         }
       },
       "LoginResponse": {
         "type": "object",
         "properties": {
-          "user": { "$ref": "#/components/schemas/User" },
-          "accessToken": { "type": "string" },
-          "refreshToken": { "type": "string" },
-          "refreshExpiresAt": { "type": "string", "format": "date-time" }
+          "user": {
+            "$ref": "#/components/schemas/User"
+          },
+          "accessToken": {
+            "type": "string"
+          },
+          "refreshToken": {
+            "type": "string"
+          },
+          "refreshExpiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "RefreshRequest": {
+        "type": "object",
+        "required": [
+          "refreshToken"
+        ],
+        "properties": {
+          "refreshToken": {
+            "type": "string"
+          }
+        }
+      },
+      "LogoutRequest": {
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "ClientExtendRequest": {
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Number of days to extend client access"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Optional explicit expiry datetime"
+          }
+        }
+      },
+      "ChannelPolicyRequest": {
+        "type": "object",
+        "properties": {
+          "defaultRole": {
+            "type": "string"
+          },
+          "allowClientPosting": {
+            "type": "boolean"
+          },
+          "allowFileUpload": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ChatMessageCreateRequest": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "threadRootId": {
+            "type": "string",
+            "nullable": true
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "TaskCreateRequest": {
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "LOW",
+              "MEDIUM",
+              "HIGH",
+              "URGENT"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "BACKLOG",
+              "TODO",
+              "IN_PROGRESS",
+              "REVIEW",
+              "DONE",
+              "CANCELLED"
+            ]
+          },
+          "dueAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "assigneeId": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "TaskMoveRequest": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "BACKLOG",
+              "TODO",
+              "IN_PROGRESS",
+              "REVIEW",
+              "DONE",
+              "CANCELLED"
+            ]
+          },
+          "position": {
+            "type": "number",
+            "nullable": true
+          }
+        }
+      },
+      "CallInitiateRequest": {
+        "type": "object",
+        "properties": {
+          "channelId": {
+            "type": "string"
+          },
+          "targetUserId": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "AUDIO",
+              "VIDEO"
+            ],
+            "default": "AUDIO"
+          }
+        }
+      },
+      "RaiseHandRequest": {
+        "type": "object",
+        "properties": {
+          "raised": {
+            "type": "boolean",
+            "default": true
+          }
+        }
+      },
+      "LeadCreateRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "source": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      },
+      "FileRegisterRequest": {
+        "type": "object",
+        "required": [
+          "backend",
+          "url",
+          "mimeType",
+          "size"
+        ],
+        "properties": {
+          "backend": {
+            "type": "string",
+            "enum": [
+              "CLOUDINARY",
+              "R2"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "key": {
+            "type": "string",
+            "nullable": true
+          },
+          "mimeType": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "width": {
+            "type": "integer",
+            "nullable": true
+          },
+          "height": {
+            "type": "integer",
+            "nullable": true
+          },
+          "originalName": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "FilePolicyRequest": {
+        "type": "object",
+        "properties": {
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "PRIVATE",
+              "CHANNEL",
+              "TENANT",
+              "PUBLIC"
+            ]
+          },
+          "channelId": {
+            "type": "string",
+            "nullable": true
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "watermark": {
+            "type": "boolean"
+          },
+          "preventDownload": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CalendarEventCreateRequest": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "startAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "allDay": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AnnouncementCreateRequest": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "INFO",
+              "IMPORTANT",
+              "URGENT"
+            ]
+          }
+        }
+      },
+      "PresenceUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ONLINE",
+              "AWAY",
+              "DND",
+              "OFFLINE"
+            ]
+          }
+        }
+      },
+      "GrantCreateRequest": {
+        "type": "object",
+        "properties": {
+          "subjectUserId": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "resourceType": {
+            "type": "string"
+          },
+          "resourceId": {
+            "type": "string",
+            "nullable": true
+          },
+          "allow": {
+            "type": "boolean",
+            "default": true
+          }
+        }
+      },
+      "AutomationCreateRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "trigger": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "config": {
+            "type": "object",
+            "additionalProperties": true
+          }
         }
       }
     },
     "responses": {
       "Error": {
         "description": "Error",
-        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    },
+    "parameters": {
+      "IdParam": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Resource identifier"
+      },
+      "ClientIdParam": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Client identifier"
+      },
+      "ChannelIdParam": {
+        "name": "channelId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Channel identifier"
+      },
+      "RootIdParam": {
+        "name": "rootId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Root message identifier"
+      },
+      "CallIdParam": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Call identifier"
+      },
+      "LeadIdParam": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Lead identifier"
+      },
+      "FileIdParam": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "File identifier"
+      },
+      "UserIdParam": {
+        "name": "userId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "User identifier"
+      },
+      "AutomationIdParam": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Automation identifier"
+      },
+      "PageParam": {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1
+        },
+        "description": "Page number"
+      },
+      "PageSizeParam": {
+        "name": "pageSize",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 20
+        },
+        "description": "Items per page"
+      },
+      "SearchParam": {
+        "name": "q",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Search query"
+      },
+      "StatusParam": {
+        "name": "status",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Status filter"
+      },
+      "FromParam": {
+        "name": "from",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "description": "Range start in ISO datetime"
+      },
+      "ToParam": {
+        "name": "to",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "description": "Range end in ISO datetime"
       }
     }
   },
   "paths": {
     "/health": {
       "get": {
-        "tags": ["auth"],
+        "tags": [
+          "auth"
+        ],
         "summary": "Liveness probe",
         "security": [],
-        "responses": { "200": { "description": "OK" } }
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
       }
     },
     "/auth/login": {
       "post": {
-        "tags": ["auth"],
+        "tags": [
+          "auth"
+        ],
         "summary": "Sign in with user id + password",
         "security": [],
         "requestBody": {
@@ -123,10 +808,17 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["userId", "password"],
+                "required": [
+                  "userId",
+                  "password"
+                ],
                 "properties": {
-                  "userId": { "type": "string" },
-                  "password": { "type": "string" }
+                  "userId": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string"
+                  }
                 }
               }
             }
@@ -135,99 +827,1271 @@
         "responses": {
           "200": {
             "description": "Issued tokens",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LoginResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            }
           },
-          "401": { "$ref": "#/components/responses/Error" }
+          "401": {
+            "$ref": "#/components/responses/Error"
+          }
         }
       }
     },
     "/auth/refresh": {
-      "post": { "tags": ["auth"], "summary": "Rotate refresh token", "security": [], "responses": { "200": { "description": "OK" } } }
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Rotate refresh token",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshRequest"
+              }
+            }
+          }
+        }
+      }
     },
-    "/auth/logout": { "post": { "tags": ["auth"], "summary": "Sign out", "responses": { "200": { "description": "OK" } } } },
-    "/auth/me": { "get": { "tags": ["auth"], "summary": "Current user", "responses": { "200": { "description": "OK" } } } },
-
+    "/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Sign out",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogoutRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Current user",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/employees": {
-      "get": { "tags": ["employees"], "summary": "List employees", "responses": { "200": { "description": "OK" } } },
-      "post": { "tags": ["employees"], "summary": "Create employee", "responses": { "201": { "description": "Created" } } }
+      "get": {
+        "tags": [
+          "employees"
+        ],
+        "summary": "List employees",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PageParam"
+          },
+          {
+            "$ref": "#/components/parameters/PageSizeParam"
+          },
+          {
+            "$ref": "#/components/parameters/SearchParam"
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "employees"
+        ],
+        "summary": "Create employee",
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        }
+      }
     },
     "/clients": {
-      "get": { "tags": ["clients"], "summary": "List clients", "responses": { "200": { "description": "OK" } } },
-      "post": { "tags": ["clients"], "summary": "Create client", "responses": { "201": { "description": "Created" } } }
+      "get": {
+        "tags": [
+          "clients"
+        ],
+        "summary": "List clients",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PageParam"
+          },
+          {
+            "$ref": "#/components/parameters/PageSizeParam"
+          },
+          {
+            "$ref": "#/components/parameters/SearchParam"
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "clients"
+        ],
+        "summary": "Create client",
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        }
+      }
     },
     "/clients/{id}/extend": {
-      "post": { "tags": ["clients"], "summary": "Extend client access window", "responses": { "200": { "description": "OK" } } }
+      "post": {
+        "tags": [
+          "clients"
+        ],
+        "summary": "Extend client access window",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ClientIdParam"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientExtendRequest"
+              }
+            }
+          }
+        }
+      }
     },
     "/channels": {
-      "get": { "tags": ["channels"], "summary": "Channels for the caller", "responses": { "200": { "description": "OK" } } },
-      "post": { "tags": ["channels"], "summary": "Create channel", "responses": { "201": { "description": "Created" } } }
+      "get": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Channels for the caller",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PageParam"
+          },
+          {
+            "$ref": "#/components/parameters/PageSizeParam"
+          },
+          {
+            "$ref": "#/components/parameters/SearchParam"
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Create channel",
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        }
+      }
     },
     "/channels/{id}/policy": {
-      "patch": { "tags": ["channels"], "summary": "Update channel-wide permission defaults", "responses": { "200": { "description": "OK" } } }
+      "patch": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Update channel-wide permission defaults",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdParam"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChannelPolicyRequest"
+              }
+            }
+          }
+        }
+      }
     },
     "/chat/channels/{channelId}/messages": {
-      "get": { "tags": ["chat"], "summary": "Paged message history", "responses": { "200": { "description": "OK" } } },
-      "post": { "tags": ["chat"], "summary": "Send message", "responses": { "201": { "description": "Created" } } }
+      "get": {
+        "tags": [
+          "chat"
+        ],
+        "summary": "Paged message history",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ChannelIdParam"
+          },
+          {
+            "$ref": "#/components/parameters/PageParam"
+          },
+          {
+            "$ref": "#/components/parameters/PageSizeParam"
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "chat"
+        ],
+        "summary": "Send message",
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ChannelIdParam"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatMessageCreateRequest"
+              }
+            }
+          }
+        }
+      }
     },
     "/chat/threads/{rootId}": {
-      "get": { "tags": ["chat"], "summary": "List a thread (root + replies)", "responses": { "200": { "description": "OK" } } }
+      "get": {
+        "tags": [
+          "chat"
+        ],
+        "summary": "List a thread (root + replies)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RootIdParam"
+          },
+          {
+            "$ref": "#/components/parameters/PageParam"
+          },
+          {
+            "$ref": "#/components/parameters/PageSizeParam"
+          }
+        ]
+      }
     },
     "/tasks": {
-      "get": { "tags": ["tasks"], "summary": "List or kanban view", "responses": { "200": { "description": "OK" } } },
-      "post": { "tags": ["tasks"], "summary": "Create task", "responses": { "201": { "description": "Created" } } }
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "List or kanban view",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PageParam"
+          },
+          {
+            "$ref": "#/components/parameters/PageSizeParam"
+          },
+          {
+            "$ref": "#/components/parameters/SearchParam"
+          },
+          {
+            "$ref": "#/components/parameters/StatusParam"
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Create task",
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskCreateRequest"
+              }
+            }
+          }
+        }
+      }
     },
-    "/tasks/{id}/move": { "post": { "tags": ["tasks"], "summary": "Move task across kanban columns", "responses": { "200": { "description": "OK" } } } },
-    "/calls/initiate": { "post": { "tags": ["calls"], "summary": "Start a voice call", "responses": { "201": { "description": "Created" } } } },
-    "/calls/{id}/screen-share/token": { "post": { "tags": ["calls"], "summary": "Mint a screen-share token", "responses": { "200": { "description": "OK" } } } },
-    "/calls/{id}/raise-hand": { "post": { "tags": ["calls"], "summary": "Raise / lower hand", "responses": { "200": { "description": "OK" } } } },
+    "/tasks/{id}/move": {
+      "post": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Move task across kanban columns",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdParam"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskMoveRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/calls/initiate": {
+      "post": {
+        "tags": [
+          "calls"
+        ],
+        "summary": "Start a voice call",
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CallInitiateRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/calls/{id}/screen-share/token": {
+      "post": {
+        "tags": [
+          "calls"
+        ],
+        "summary": "Mint a screen-share token",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CallIdParam"
+          }
+        ]
+      }
+    },
+    "/calls/{id}/raise-hand": {
+      "post": {
+        "tags": [
+          "calls"
+        ],
+        "summary": "Raise / lower hand",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CallIdParam"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RaiseHandRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/telecaller/leads": {
-      "get": { "tags": ["telecaller"], "summary": "List leads", "responses": { "200": { "description": "OK" } } },
-      "post": { "tags": ["telecaller"], "summary": "Create lead", "responses": { "201": { "description": "Created" } } }
+      "get": {
+        "tags": [
+          "telecaller"
+        ],
+        "summary": "List leads",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PageParam"
+          },
+          {
+            "$ref": "#/components/parameters/PageSizeParam"
+          },
+          {
+            "$ref": "#/components/parameters/SearchParam"
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "telecaller"
+        ],
+        "summary": "Create lead",
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeadCreateRequest"
+              }
+            }
+          }
+        }
+      }
     },
-    "/telecaller/leads/{id}/call": { "post": { "tags": ["telecaller"], "summary": "Click to call via Exotel", "responses": { "200": { "description": "OK" } } } },
-    "/files/upload": { "post": { "tags": ["files"], "summary": "Upload (multipart)", "responses": { "201": { "description": "Created" } } } },
-    "/files/{id}/signed-url": { "get": { "tags": ["files"], "summary": "Signed download URL (also logs the download)", "responses": { "200": { "description": "OK" } } } },
-    "/files/{id}/policy": { "put": { "tags": ["files"], "summary": "Update file access policy", "responses": { "200": { "description": "OK" } } } },
-    "/notifications/grouped": { "get": { "tags": ["notifications"], "summary": "Notifications grouped by category", "responses": { "200": { "description": "OK" } } } },
-    "/notifications/preferences": { "get": { "tags": ["notifications"], "summary": "Preferences", "responses": { "200": { "description": "OK" } } } },
-    "/dashboard/overview": { "get": { "tags": ["dashboard"], "summary": "Role-aware dashboard counts", "responses": { "200": { "description": "OK" } } } },
-    "/audit": { "get": { "tags": ["audit"], "summary": "Audit timeline (admin)", "responses": { "200": { "description": "OK" } } } },
-    "/search": { "get": { "tags": ["search"], "summary": "Global workspace search", "responses": { "200": { "description": "OK" } } } },
+    "/telecaller/leads/{id}/call": {
+      "post": {
+        "tags": [
+          "telecaller"
+        ],
+        "summary": "Click to call via Exotel",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/LeadIdParam"
+          }
+        ]
+      }
+    },
+    "/files/upload": {
+      "post": {
+        "tags": [
+          "files"
+        ],
+        "summary": "Upload (multipart)",
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/{id}/signed-url": {
+      "get": {
+        "tags": [
+          "files"
+        ],
+        "summary": "Signed download URL (also logs the download)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/FileIdParam"
+          }
+        ]
+      }
+    },
+    "/files/{id}/policy": {
+      "put": {
+        "tags": [
+          "files"
+        ],
+        "summary": "Update file access policy",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/FileIdParam"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FilePolicyRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/notifications/grouped": {
+      "get": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Notifications grouped by category",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PageParam"
+          },
+          {
+            "$ref": "#/components/parameters/PageSizeParam"
+          }
+        ]
+      }
+    },
+    "/notifications/preferences": {
+      "get": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Preferences",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/dashboard/overview": {
+      "get": {
+        "tags": [
+          "dashboard"
+        ],
+        "summary": "Role-aware dashboard counts",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/FromParam"
+          },
+          {
+            "$ref": "#/components/parameters/ToParam"
+          }
+        ]
+      }
+    },
+    "/audit": {
+      "get": {
+        "tags": [
+          "audit"
+        ],
+        "summary": "Audit timeline (admin)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PageParam"
+          },
+          {
+            "$ref": "#/components/parameters/PageSizeParam"
+          },
+          {
+            "$ref": "#/components/parameters/SearchParam"
+          }
+        ]
+      }
+    },
+    "/search": {
+      "get": {
+        "tags": [
+          "search"
+        ],
+        "summary": "Global workspace search",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SearchParam"
+          },
+          {
+            "$ref": "#/components/parameters/PageParam"
+          },
+          {
+            "$ref": "#/components/parameters/PageSizeParam"
+          }
+        ]
+      }
+    },
     "/saved": {
-      "get": { "tags": ["saved"], "summary": "Saved bookmarks", "responses": { "200": { "description": "OK" } } },
-      "post": { "tags": ["saved"], "summary": "Save / bookmark", "responses": { "201": { "description": "Created" } } }
+      "get": {
+        "tags": [
+          "saved"
+        ],
+        "summary": "Saved bookmarks",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PageParam"
+          },
+          {
+            "$ref": "#/components/parameters/PageSizeParam"
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "saved"
+        ],
+        "summary": "Save / bookmark",
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        }
+      }
     },
-    "/settings": { "get": { "tags": ["settings"], "summary": "Workspace settings", "responses": { "200": { "description": "OK" } } } },
+    "/settings": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Workspace settings",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/calendar": {
-      "get": { "tags": ["calendar"], "summary": "Calendar events in range", "responses": { "200": { "description": "OK" } } },
-      "post": { "tags": ["calendar"], "summary": "Create event", "responses": { "201": { "description": "Created" } } }
+      "get": {
+        "tags": [
+          "calendar"
+        ],
+        "summary": "Calendar events in range",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/FromParam"
+          },
+          {
+            "$ref": "#/components/parameters/ToParam"
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "calendar"
+        ],
+        "summary": "Create event",
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CalendarEventCreateRequest"
+              }
+            }
+          }
+        }
+      }
     },
     "/announcements": {
-      "get": { "tags": ["announcements"], "summary": "Live announcements", "responses": { "200": { "description": "OK" } } },
-      "post": { "tags": ["announcements"], "summary": "Publish (admin)", "responses": { "201": { "description": "Created" } } }
+      "get": {
+        "tags": [
+          "announcements"
+        ],
+        "summary": "Live announcements",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PageParam"
+          },
+          {
+            "$ref": "#/components/parameters/PageSizeParam"
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "announcements"
+        ],
+        "summary": "Publish (admin)",
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnnouncementCreateRequest"
+              }
+            }
+          }
+        }
+      }
     },
-    "/sessions/mine": { "get": { "tags": ["sessions"], "summary": "My active sessions", "responses": { "200": { "description": "OK" } } } },
-    "/sessions/mine/sign-out-everywhere": { "post": { "tags": ["sessions"], "summary": "Sign out from all devices", "responses": { "200": { "description": "OK" } } } },
-    "/sessions/users/{userId}/force-logout": { "post": { "tags": ["sessions"], "summary": "Force logout a user (admin)", "responses": { "200": { "description": "OK" } } } },
-    "/permissions/mine": { "get": { "tags": ["permissions"], "summary": "My effective permissions", "responses": { "200": { "description": "OK" } } } },
+    "/sessions/mine": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "My active sessions",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/sessions/mine/sign-out-everywhere": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Sign out from all devices",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/sessions/users/{userId}/force-logout": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Force logout a user (admin)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/UserIdParam"
+          }
+        ]
+      }
+    },
+    "/permissions/mine": {
+      "get": {
+        "tags": [
+          "permissions"
+        ],
+        "summary": "My effective permissions",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/permissions/grants": {
-      "get": { "tags": ["permissions"], "summary": "List grants (admin)", "responses": { "200": { "description": "OK" } } },
-      "post": { "tags": ["permissions"], "summary": "Create grant (admin)", "responses": { "201": { "description": "Created" } } }
+      "get": {
+        "tags": [
+          "permissions"
+        ],
+        "summary": "List grants (admin)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PageParam"
+          },
+          {
+            "$ref": "#/components/parameters/PageSizeParam"
+          },
+          {
+            "$ref": "#/components/parameters/SearchParam"
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "permissions"
+        ],
+        "summary": "Create grant (admin)",
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GrantCreateRequest"
+              }
+            }
+          }
+        }
+      }
     },
     "/permissions/roles": {
-      "get": { "tags": ["permissions"], "summary": "Role templates", "responses": { "200": { "description": "OK" } } }
+      "get": {
+        "tags": [
+          "permissions"
+        ],
+        "summary": "Role templates",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
     },
-    "/presence/me": { "put": { "tags": ["presence"], "summary": "Set my presence status", "responses": { "200": { "description": "OK" } } } },
-    "/presence/users": { "get": { "tags": ["presence"], "summary": "Presence for a set of userIds", "responses": { "200": { "description": "OK" } } } },
-    "/analytics/productivity": { "get": { "tags": ["analytics"], "summary": "Tasks completed per user", "responses": { "200": { "description": "OK" } } } },
-    "/analytics/telecaller": { "get": { "tags": ["analytics"], "summary": "Calls per agent", "responses": { "200": { "description": "OK" } } } },
-    "/analytics/tasks": { "get": { "tags": ["analytics"], "summary": "Task throughput", "responses": { "200": { "description": "OK" } } } },
-    "/analytics/workspace": { "get": { "tags": ["analytics"], "summary": "Workspace activity", "responses": { "200": { "description": "OK" } } } },
-    "/analytics/client-engagement": { "get": { "tags": ["analytics"], "summary": "Client engagement metrics", "responses": { "200": { "description": "OK" } } } },
+    "/presence/me": {
+      "put": {
+        "tags": [
+          "presence"
+        ],
+        "summary": "Set my presence status",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PresenceUpdateRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/presence/users": {
+      "get": {
+        "tags": [
+          "presence"
+        ],
+        "summary": "Presence for a set of userIds",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "name": "userIds",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Comma-separated user IDs"
+          }
+        ]
+      }
+    },
+    "/analytics/productivity": {
+      "get": {
+        "tags": [
+          "analytics"
+        ],
+        "summary": "Tasks completed per user",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/FromParam"
+          },
+          {
+            "$ref": "#/components/parameters/ToParam"
+          }
+        ]
+      }
+    },
+    "/analytics/telecaller": {
+      "get": {
+        "tags": [
+          "analytics"
+        ],
+        "summary": "Calls per agent",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/FromParam"
+          },
+          {
+            "$ref": "#/components/parameters/ToParam"
+          }
+        ]
+      }
+    },
+    "/analytics/tasks": {
+      "get": {
+        "tags": [
+          "analytics"
+        ],
+        "summary": "Task throughput",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/FromParam"
+          },
+          {
+            "$ref": "#/components/parameters/ToParam"
+          }
+        ]
+      }
+    },
+    "/analytics/workspace": {
+      "get": {
+        "tags": [
+          "analytics"
+        ],
+        "summary": "Workspace activity",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/FromParam"
+          },
+          {
+            "$ref": "#/components/parameters/ToParam"
+          }
+        ]
+      }
+    },
+    "/analytics/client-engagement": {
+      "get": {
+        "tags": [
+          "analytics"
+        ],
+        "summary": "Client engagement metrics",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/FromParam"
+          },
+          {
+            "$ref": "#/components/parameters/ToParam"
+          }
+        ]
+      }
+    },
     "/automations": {
-      "get": { "tags": ["automations"], "summary": "List automations", "responses": { "200": { "description": "OK" } } },
-      "post": { "tags": ["automations"], "summary": "Create automation", "responses": { "201": { "description": "Created" } } }
+      "get": {
+        "tags": [
+          "automations"
+        ],
+        "summary": "List automations",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PageParam"
+          },
+          {
+            "$ref": "#/components/parameters/PageSizeParam"
+          },
+          {
+            "$ref": "#/components/parameters/SearchParam"
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "automations"
+        ],
+        "summary": "Create automation",
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutomationCreateRequest"
+              }
+            }
+          }
+        }
+      }
     },
-    "/automations/{id}/run": { "post": { "tags": ["automations"], "summary": "Run now", "responses": { "200": { "description": "OK" } } } }
+    "/automations/{id}/run": {
+      "post": {
+        "tags": [
+          "automations"
+        ],
+        "summary": "Run now",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AutomationIdParam"
+          }
+        ]
+      }
+    },
+    "/files/sign/cloudinary": {
+      "post": {
+        "tags": [
+          "files"
+        ],
+        "summary": "Create signed Cloudinary upload parameters",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/files/sign/r2": {
+      "post": {
+        "tags": [
+          "files"
+        ],
+        "summary": "Create signed R2 upload URL",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "filename",
+                  "contentType"
+                ],
+                "properties": {
+                  "filename": {
+                    "type": "string"
+                  },
+                  "contentType": {
+                    "type": "string"
+                  },
+                  "folder": {
+                    "type": "string",
+                    "default": "files"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/register": {
+      "post": {
+        "tags": [
+          "files"
+        ],
+        "summary": "Register a client-side uploaded file",
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FileRegisterRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/{id}/versions": {
+      "get": {
+        "tags": [
+          "files"
+        ],
+        "summary": "List file versions",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/FileIdParam"
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "files"
+        ],
+        "summary": "Upload a new file version",
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/FileIdParam"
+          }
+        ]
+      }
+    }
   }
 }

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Activity, CheckCircle2, MessageCircle, Phone, UserCog, Users } from 'lucide-react';
+import { Activity, CheckCircle2, MessageCircle, Phone, UserCog, Users, type LucideIcon } from 'lucide-react';
 import { api } from '@/services/api';
 import { useAuthStore } from '@/store/auth';
 import { UserName } from '@/components/ui/UserName';
@@ -108,7 +108,7 @@ function Stat({
   value,
   accent,
 }: {
-  icon: React.ComponentType<{ size?: number }>;
+  icon: LucideIcon;
   label: string;
   value: number | string | null | undefined;
   accent: 'brand' | 'success' | 'warning' | 'info' | 'client';

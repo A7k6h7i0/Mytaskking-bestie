@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Hash, User, FileText, KanbanSquare, Headphones, MessageSquare } from 'lucide-react';
+import { Search, Hash, User, FileText, KanbanSquare, Headphones, MessageSquare, type LucideIcon } from 'lucide-react';
 import clsx from 'clsx';
 import { api } from '@/services/api';
 import './command-palette.css';
 
 type Hit = { id: string; label: string; sub?: string; isClient?: boolean; goto: string; kind: string };
 
-const ICONS: Record<string, React.ComponentType<{ size?: number }>> = {
+const ICONS: Record<string, LucideIcon> = {
   users: User,
   channels: Hash,
   tasks: KanbanSquare,

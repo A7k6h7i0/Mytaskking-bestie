@@ -1,7 +1,7 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, MessageSquare, KanbanSquare, Users, UserCog, Phone, Headphones, Settings, LogOut, Hash,
-  Activity, Calendar, Bookmark, Search, BarChart3, ShieldCheck, Zap, Video, Flag, KeyRound,
+  Activity, Calendar, Bookmark, Search, BarChart3, ShieldCheck, Zap, Video, Flag, KeyRound, type LucideIcon,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuthStore } from '@/store/auth';
@@ -15,7 +15,7 @@ import { PresenceMenu } from '@/components/PresenceMenu';
 import { ThemeSwitcher } from '@/components/ThemeSwitcher';
 import './workspace-layout.css';
 
-type NavItem = { to: string; label: string; icon: React.ComponentType<{ size?: number }> };
+type NavItem = { to: string; label: string; icon: LucideIcon };
 
 const NAV: NavItem[] = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },

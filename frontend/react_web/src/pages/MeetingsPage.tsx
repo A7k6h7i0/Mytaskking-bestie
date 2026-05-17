@@ -2,12 +2,15 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Video, Phone, Plus, ExternalLink, Square } from 'lucide-react';
 import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
 import { api } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { toast } from '@/components/Toast';
 import './meetings.css';
+
+dayjs.extend(relativeTime);
 
 type Meeting = {
   id: string;
@@ -105,7 +108,7 @@ export default function MeetingsPage() {
             <p>
               {m.scheduledAt
                 ? `Scheduled ${dayjs(m.scheduledAt).format('MMM D, HH:mm')}`
-                : `Created ${dayjs(m.createdAt).fromNow?.() || dayjs(m.createdAt).format('MMM D')}`}
+                : `Created ${dayjs(m.createdAt).fromNow()}`}
             </p>
             <footer>
               <Button size="sm" onClick={() => join(m)}>
