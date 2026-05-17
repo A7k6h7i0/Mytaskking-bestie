@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import AgoraRTC, { IAgoraRTCClient, ICameraVideoTrack, IMicrophoneAudioTrack, IRemoteAudioTrack, IAgoraRTCRemoteUser } from 'agora-rtc-sdk-ng';
-import { Mic, MicOff, PhoneOff, Radio, ShieldCheck, Users, Volume2 } from 'lucide-react';
+import { Camera, CameraOff, Mic, MicOff, PhoneOff, Radio, ShieldCheck, Users, Volume2 } from 'lucide-react';
 import { api } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { Avatar } from '@/components/ui/Avatar';
@@ -41,12 +41,16 @@ export default function CallRoomPage() {
   const setCurrentCall = useCallStore((s) => s.setCurrentCall);
   const [joined, setJoined] = useState(false);
   const [muted, setMuted] = useState(false);
+  const [cameraOn, setCameraOn] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [remoteUsers, setRemoteUsers] = useState<IAgoraRTCRemoteUser[]>([]);
   const clientRef = useRef<IAgoraRTCClient | null>(null);
   const micTrackRef = useRef<IMicrophoneAudioTrack | null>(null);
   const cameraTrackRef = useRef<ICameraVideoTrack | null>(null);
+  const localVideoRef = useRef<HTMLDivElement | null>(null);
+  const remoteVideoRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const ringtoneRef = useRef<{ stop: () => void } | null>(null);
 
   const { data: history } = useQuery<{ items: HistoryCall[] }>({
     queryKey: ['calls.history.live'],
@@ -91,11 +95,18 @@ export default function CallRoomPage() {
         if (mediaType === 'audio') {
           (user.audioTrack as IRemoteAudioTrack | undefined)?.play();
         }
+        if (mediaType === 'video') {
+          const el = remoteVideoRefs.current[String(user.uid)];
+          if (el) user.videoTrack?.play(el);
+        }
         syncUsers();
       });
       client.on('user-unpublished', (user, mediaType) => {
         if (mediaType === 'audio') {
           (user.audioTrack as IRemoteAudioTrack | undefined)?.stop();
+        }
+        if (mediaType === 'video') {
+          user.videoTrack?.stop();
         }
         syncUsers();
       });
@@ -158,9 +169,44 @@ export default function CallRoomPage() {
 
   useEffect(() => {
     if (!joined) return;
+    ringtoneRef.current?.stop();
     const id = window.setInterval(() => setSeconds((s) => s + 1), 1000);
     return () => window.clearInterval(id);
   }, [joined]);
+
+  useEffect(() => {
+    if (pending?.call?.id !== callId || joined) return;
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    let cancelled = false;
+    const play = () => {
+      if (cancelled) return;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 880;
+      gain.gain.value = 0.03;
+      osc.connect(gain).connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.25);
+      setTimeout(() => {
+        if (cancelled) return;
+        const osc2 = ctx.createOscillator();
+        const gain2 = ctx.createGain();
+        osc2.type = 'sine';
+        osc2.frequency.value = 660;
+        gain2.gain.value = 0.025;
+        osc2.connect(gain2).connect(ctx.destination);
+        osc2.start();
+        osc2.stop(ctx.currentTime + 0.22);
+      }, 320);
+    };
+    play();
+    const interval = window.setInterval(play, 1800);
+    ringtoneRef.current = { stop: () => { cancelled = true; window.clearInterval(interval); ctx.close().catch(() => {}); } };
+    return () => ringtoneRef.current?.stop();
+  }, [pending?.call?.id, callId, joined]);
 
   useEffect(() => {
     if (tokenQuery.data && !joined && !connecting) {
@@ -175,6 +221,31 @@ export default function CallRoomPage() {
     await micTrackRef.current.setEnabled(!next);
     await api.post(`/calls/${callId}/mute`, { muted: next }).catch(() => {});
     setMuted(next);
+  }
+
+  async function toggleCamera() {
+    if (!clientRef.current) return;
+    if (cameraOn) {
+      if (cameraTrackRef.current) {
+        await clientRef.current.unpublish([cameraTrackRef.current]);
+        cameraTrackRef.current.stop();
+        cameraTrackRef.current.close();
+        cameraTrackRef.current = null;
+      }
+      setCameraOn(false);
+      return;
+    }
+
+    try {
+      const cam = await AgoraRTC.createCameraVideoTrack();
+      cameraTrackRef.current = cam;
+      await clientRef.current.publish([cam]);
+      if (localVideoRef.current) cam.play(localVideoRef.current);
+      setCameraOn(true);
+      toast.success('Camera is live on Agora');
+    } catch (err: any) {
+      toast.error('Could not start camera', err?.message || 'Check camera permissions.');
+    }
   }
 
   async function hangUp() {
@@ -219,6 +290,27 @@ export default function CallRoomPage() {
           </div>
         </div>
 
+        <div className="cr__video-grid">
+          <div className="cr__video-card cr__video-card--local">
+            <div className="cr__video-label">You {cameraOn ? '· camera on' : '· audio only'}</div>
+            <div ref={localVideoRef} className={`cr__video-surface ${cameraOn ? 'has-video' : ''}`}>
+              {!cameraOn && <div className="cr__video-placeholder"><Avatar name={me.name} src={me.avatarUrl} isClient={me.isClient} size={56} /></div>}
+            </div>
+          </div>
+          {otherParticipants.map((p: any) => {
+            const remoteUser = remoteUsers.find((u) => String(u.uid) === p.user.id);
+            const remoteHasVideo = !!remoteUser?.videoTrack;
+            return (
+              <div key={`video-${p.user.id}`} className="cr__video-card">
+                <div className="cr__video-label">{p.user.name} {remoteHasVideo ? '· video live' : '· audio only'}</div>
+                <div ref={(el) => { remoteVideoRefs.current[p.user.id] = el; }} className={`cr__video-surface ${remoteHasVideo ? 'has-video' : ''}`}>
+                  {!remoteHasVideo && <div className="cr__video-placeholder"><Avatar name={p.user.name} src={p.user.avatarUrl} isClient={p.user.isClient} size={56} /></div>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
         <div className="cr__people">
           <div className="cr__people-head"><Users size={16} /> Participants</div>
           <div className="cr__people-list">
@@ -250,6 +342,9 @@ export default function CallRoomPage() {
         <div className="cr__actions">
           <Button variant={muted ? 'secondary' : 'ghost'} onClick={toggleMute} disabled={!joined || connecting}>
             {muted ? <MicOff size={16} /> : <Mic size={16} />} {muted ? 'Unmute' : 'Mute'}
+          </Button>
+          <Button variant={cameraOn ? 'secondary' : 'ghost'} onClick={toggleCamera} disabled={!joined || connecting}>
+            {cameraOn ? <CameraOff size={16} /> : <Camera size={16} />} {cameraOn ? 'Stop video' : 'Start video'}
           </Button>
           <Button variant="danger" onClick={hangUp}>
             <PhoneOff size={16} /> Leave call

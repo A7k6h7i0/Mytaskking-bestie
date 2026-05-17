@@ -27,3 +27,5 @@
 .cl__status--ended   { background: var(--c-surface-2); color: var(--c-text-muted); }
 .cl__status--missed  { background: #fde2e2; color: var(--c-danger); }
 .cl__empty { padding: var(--s-5); color: var(--c-text-muted); }
+
+.cl__missed { margin-top: 6px; font-size: var(--fs-xs); color: var(--c-danger); font-weight: 600; }

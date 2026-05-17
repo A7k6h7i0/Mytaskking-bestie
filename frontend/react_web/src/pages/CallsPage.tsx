@@ -35,6 +35,7 @@ export default function CallsPage() {
                 {c.kind === 'GROUP' ? 'Group call' : 'One-to-one call'} ·{' '}
                 <span className={`cl__status cl__status--${c.status.toLowerCase()}`}>{c.status}</span>
               </div>
+              {c.status === 'MISSED' && <div className="cl__missed">Missed call — no one joined before the ring ended.</div>}
               <div className="cl__row-people">
                 {c.participants.slice(0, 5).map((p: any) => (
                   <span key={p.user.id} className="cl__person">

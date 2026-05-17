@@ -40,3 +40,10 @@
 .ws__incoming-copy strong { font-size: var(--fs-sm); }
 .ws__incoming-copy span { font-size: var(--fs-xs); color: var(--c-text-muted); }
 .ws__incoming-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.cr__video-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.cr__video-card { display: flex; flex-direction: column; gap: 8px; }
+.cr__video-label { font-size: var(--fs-xs); color: var(--c-text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.cr__video-surface { position: relative; min-height: 180px; border-radius: var(--r-md); overflow: hidden; background: linear-gradient(135deg, #0f1216, #1a2230); border: 1px solid var(--c-border); display:flex; align-items:center; justify-content:center; }
+.cr__video-surface.has-video video { width: 100%; height: 100%; object-fit: cover; }
+.cr__video-placeholder { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
