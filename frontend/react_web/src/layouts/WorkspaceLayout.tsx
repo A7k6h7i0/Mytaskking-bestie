@@ -13,6 +13,9 @@ import { AnnouncementBanner } from '@/components/AnnouncementBanner';
 import { NotificationCenter } from '@/components/NotificationCenter';
 import { PresenceMenu } from '@/components/PresenceMenu';
 import { ThemeSwitcher } from '@/components/ThemeSwitcher';
+import { getSocket } from '@/services/socket';
+import { toast } from '@/components/Toast';
+import { useEffect } from 'react';
 import './workspace-layout.css';
 
 type NavItem = { to: string; label: string; icon: LucideIcon };
@@ -42,8 +45,8 @@ const NAV: NavItem[] = [
 const ALLOWED: Record<string, string[]> = {
   SUPER_ADMIN: NAV.map((n) => n.to),
   ADMIN: NAV.map((n) => n.to),
-  EMPLOYEE: ['/dashboard', '/chat', '/channels', '/tasks', '/calendar', '/calls', '/meetings', '/saved', '/sessions'],
-  TELECALLER: ['/dashboard', '/telecaller', '/chat', '/calendar', '/saved', '/sessions'],
+  EMPLOYEE: ['/dashboard', '/chat', '/channels', '/tasks', '/calendar', '/calls', '/meetings', '/saved', '/employees', '/sessions'],
+  TELECALLER: ['/dashboard', '/telecaller', '/chat', '/calendar', '/saved', '/employees', '/sessions'],
   CLIENT: ['/dashboard', '/chat', '/channels', '/saved', '/sessions'],
 };
 
@@ -55,6 +58,21 @@ export default function WorkspaceLayout() {
   if (!user) return null;
   const allowed = ALLOWED[user.role] || [];
   const nav = NAV.filter((n) => allowed.includes(n.to));
+
+  useEffect(() => {
+    const s = getSocket();
+    if (!s) return;
+    const onIncoming = (payload: any) => {
+      const caller = payload?.call?.initiator?.name || 'A teammate';
+      toast.info(`Incoming call from ${caller}`, 'Open Calls to follow up on the request.');
+    };
+    s.on('call.incoming', onIncoming);
+    s.on('call.invited', onIncoming);
+    return () => {
+      s.off('call.incoming', onIncoming);
+      s.off('call.invited', onIncoming);
+    };
+  }, []);
 
   async function handleLogout() {
     const refreshToken = useAuthStore.getState().refreshToken;

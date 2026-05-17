@@ -32,6 +32,22 @@ async function create(input, creator) {
     if (!input.memberIds || input.memberIds.length !== 1) {
       throw BadRequest('DM requires exactly one other member');
     }
+
+    const otherId = input.memberIds[0];
+    const existingDm = await prisma.channel.findFirst({
+      where: {
+        kind: 'DM',
+        archived: false,
+        AND: [
+          { members: { some: { userId: creator.id } } },
+          { members: { some: { userId: otherId } } },
+          { members: { none: { userId: { notIn: [creator.id, otherId] } } } },
+        ],
+      },
+      include: { members: true },
+    });
+
+    if (existingDm) return existingDm;
   }
   const memberIds = Array.from(new Set([creator.id, ...(input.memberIds || [])]));
   const members = await prisma.user.findMany({ where: { id: { in: memberIds } } });

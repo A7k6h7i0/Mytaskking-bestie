@@ -77,7 +77,7 @@ export default function App() {
           />
           <Route
             path="/employees"
-            element={<RoleGate allow={['SUPER_ADMIN', 'ADMIN']}><EmployeesPage /></RoleGate>}
+            element={<RoleGate allow={['SUPER_ADMIN', 'ADMIN', 'EMPLOYEE', 'TELECALLER']}><EmployeesPage /></RoleGate>}
           />
           <Route
             path="/clients"

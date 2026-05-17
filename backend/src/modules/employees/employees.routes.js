@@ -4,7 +4,7 @@ const { Router } = require('express');
 const Joi = require('joi');
 const validate = require('../../middleware/validate');
 const asyncHandler = require('../../utils/asyncHandler');
-const { requireAuth, requireAdmin } = require('../../middleware/auth');
+const { requireAuth, requireAdmin, requireInternal } = require('../../middleware/auth');
 const service = require('./employees.service');
 const audit = require('../../services/audit');
 
@@ -16,7 +16,7 @@ router.use(requireAuth);
 
 router.get(
   '/',
-  requireAdmin,
+  requireInternal,
   validate({
     query: Joi.object({
       q: Joi.string().allow(''),
@@ -33,7 +33,7 @@ router.get(
 
 router.get(
   '/:id',
-  requireAdmin,
+  requireInternal,
   asyncHandler(async (req, res) => res.json(await service.getById(req.params.id)))
 );
 

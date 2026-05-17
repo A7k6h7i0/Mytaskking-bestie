@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Pencil, Plus, Search, X } from 'lucide-react';
+import { Check, MessageSquare, Pencil, Phone, Plus, Search, X } from 'lucide-react';
 import { api } from '@/services/api';
 import { toast } from '@/components/Toast';
 import { useAuthStore } from '@/store/auth';
@@ -11,6 +12,7 @@ import './people.css';
 
 export default function EmployeesPage() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const [q, setQ] = useState('');
   const [showNew, setShowNew] = useState(false);
@@ -18,6 +20,7 @@ export default function EmployeesPage() {
   const [draftName, setDraftName] = useState('');
   const [form, setForm] = useState({ userId: '', password: '', name: '', role: 'EMPLOYEE', email: '' });
   const canCustomizeEmployeeName = user?.role === 'SUPER_ADMIN';
+  const canManageEmployees = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
   const passwordTooShort = form.password.length > 0 && form.password.length < 8;
 
   const { data } = useQuery<{ items: any[] }>({
@@ -38,6 +41,27 @@ export default function EmployeesPage() {
       const detail = Array.isArray(apiError?.details) && apiError.details.length ? apiError.details[0] : '';
       toast.error(apiError?.message || 'Could not create employee', detail || 'Please check the form and try again.');
     },
+  });
+
+  const startDmMut = useMutation({
+    mutationFn: async (targetId: string) => (await api.post('/channels', { kind: 'DM', memberIds: [targetId] })).data,
+    onSuccess: (channel) => {
+      navigate(`/chat/${channel.id}`);
+      toast.success('Direct message ready');
+    },
+    onError: (err: any) => toast.error(err?.response?.data?.error?.message || 'Could not start direct message'),
+  });
+
+  const startCallMut = useMutation({
+    mutationFn: async ({ targetId, targetName }: { targetId: string; targetName: string }) => {
+      const result = await api.post('/calls/initiate', { participantIds: [targetId], kind: 'ONE_TO_ONE' });
+      return { ...result.data, targetName };
+    },
+    onSuccess: (result) => {
+      toast.success(`Calling ${result.targetName}`, 'Call request sent. The teammate will see it in their workspace.');
+      navigate('/calls');
+    },
+    onError: (err: any) => toast.error(err?.response?.data?.error?.message || 'Could not start call'),
   });
 
   const renameMut = useMutation({
@@ -61,10 +85,10 @@ export default function EmployeesPage() {
           <h1>Employees</h1>
           <p>Manage internal staff, roles, and access.</p>
         </div>
-        <Button onClick={() => setShowNew((v) => !v)}><Plus size={16} /> New employee</Button>
+        {canManageEmployees && <Button onClick={() => setShowNew((v) => !v)}><Plus size={16} /> New employee</Button>}
       </header>
 
-      {showNew && (
+      {canManageEmployees && showNew && (
         <div className="pp__create">
           <Input label="User ID" value={form.userId} onChange={(e) => setForm({ ...form, userId: e.target.value })} />
           <Input label="Password" type="password" hint={passwordTooShort ? 'Password must be at least 8 characters.' : 'Use at least 8 characters.'} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
@@ -115,6 +139,22 @@ export default function EmployeesPage() {
               <span><span className="pp__chip">{u.role.replace('_', ' ')}</span></span>
               <span className={`pp__status pp__status--${u.status.toLowerCase()}`}>{u.status}</span>
               <span className="pp__actions">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => startDmMut.mutate(u.id)}
+                  disabled={startDmMut.isPending || u.id === user?.id}
+                >
+                  <MessageSquare size={14} /> Message
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => startCallMut.mutate({ targetId: u.id, targetName: u.name })}
+                  disabled={startCallMut.isPending || u.id === user?.id}
+                >
+                  <Phone size={14} /> Call
+                </Button>
                 {canCustomizeEmployeeName && (
                   isEditing ? (
                     <>
