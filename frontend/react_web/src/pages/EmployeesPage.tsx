@@ -18,6 +18,7 @@ export default function EmployeesPage() {
   const [draftName, setDraftName] = useState('');
   const [form, setForm] = useState({ userId: '', password: '', name: '', role: 'EMPLOYEE', email: '' });
   const canCustomizeEmployeeName = user?.role === 'SUPER_ADMIN';
+  const passwordTooShort = form.password.length > 0 && form.password.length < 8;
 
   const { data } = useQuery<{ items: any[] }>({
     queryKey: ['employees', q],
@@ -32,7 +33,11 @@ export default function EmployeesPage() {
       setForm({ userId: '', password: '', name: '', role: 'EMPLOYEE', email: '' });
       toast.success('Employee created');
     },
-    onError: (err: any) => toast.error(err?.response?.data?.error?.message || 'Could not create employee'),
+    onError: (err: any) => {
+      const apiError = err?.response?.data?.error;
+      const detail = Array.isArray(apiError?.details) && apiError.details.length ? apiError.details[0] : '';
+      toast.error(apiError?.message || 'Could not create employee', detail || 'Please check the form and try again.');
+    },
   });
 
   const renameMut = useMutation({
@@ -62,7 +67,7 @@ export default function EmployeesPage() {
       {showNew && (
         <div className="pp__create">
           <Input label="User ID" value={form.userId} onChange={(e) => setForm({ ...form, userId: e.target.value })} />
-          <Input label="Password" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+          <Input label="Password" type="password" hint={passwordTooShort ? 'Password must be at least 8 characters.' : 'Use at least 8 characters.'} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
           <Input label="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           <Input label="Email (optional)" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
           <label className="pp__role">
@@ -75,7 +80,7 @@ export default function EmployeesPage() {
           </label>
           <div className="pp__create-actions">
             <Button variant="ghost" onClick={() => setShowNew(false)}>Cancel</Button>
-            <Button loading={createMut.isPending} onClick={() => createMut.mutate()}>Create</Button>
+            <Button loading={createMut.isPending} disabled={!form.userId.trim() || !form.name.trim() || !form.password || passwordTooShort} onClick={() => createMut.mutate()}>Create</Button>
           </div>
         </div>
       )}
