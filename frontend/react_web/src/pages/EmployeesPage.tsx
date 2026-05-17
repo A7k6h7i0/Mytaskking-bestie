@@ -58,8 +58,8 @@ export default function EmployeesPage() {
       return { ...result.data, targetName };
     },
     onSuccess: (result) => {
-      toast.success(`Calling ${result.targetName}`, 'Call request sent. The teammate will see it in their workspace.');
-      navigate('/calls');
+      toast.success(`Calling ${result.targetName}`, 'Agora voice room is opening now.');
+      navigate(`/calls/live/${result.call.id}`);
     },
     onError: (err: any) => toast.error(err?.response?.data?.error?.message || 'Could not start call'),
   });

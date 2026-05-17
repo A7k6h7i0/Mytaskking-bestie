@@ -1,12 +1,15 @@
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { Phone, PhoneIncoming, Users } from 'lucide-react';
 import dayjs from 'dayjs';
 import { api } from '@/services/api';
+import { Button } from '@/components/ui/Button';
 import { Avatar } from '@/components/ui/Avatar';
 import { UserName } from '@/components/ui/UserName';
 import './calls.css';
 
 export default function CallsPage() {
+  const navigate = useNavigate();
   const { data } = useQuery<{ items: any[] }>({
     queryKey: ['calls.history'],
     queryFn: async () => (await api.get('/calls/history')).data,
@@ -41,7 +44,12 @@ export default function CallsPage() {
                 ))}
               </div>
             </div>
-            <div className="cl__row-meta">{dayjs(c.createdAt).format('MMM D · HH:mm')}</div>
+            <div className="cl__row-meta">
+              <div>{dayjs(c.createdAt).format('MMM D · HH:mm')}</div>
+              {(c.status === 'RINGING' || c.status === 'ACTIVE') && (
+                <Button size="sm" variant="ghost" onClick={() => navigate(`/calls/live/${c.id}`)}>Join room</Button>
+              )}
+            </div>
           </article>
         ))}
         {!data?.items.length && <div className="cl__empty">No call history yet.</div>}

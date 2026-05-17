@@ -14,6 +14,7 @@ import { NotificationCenter } from '@/components/NotificationCenter';
 import { PresenceMenu } from '@/components/PresenceMenu';
 import { ThemeSwitcher } from '@/components/ThemeSwitcher';
 import { getSocket } from '@/services/socket';
+import { useCallStore } from '@/store/calls';
 import { toast } from '@/components/Toast';
 import { useEffect } from 'react';
 import './workspace-layout.css';
@@ -54,6 +55,9 @@ export default function WorkspaceLayout() {
   const user = useAuthStore((s) => s.user);
   const clear = useAuthStore((s) => s.clear);
   const navigate = useNavigate();
+  const pendingCall = useCallStore((s) => s.pending);
+  const setPendingCall = useCallStore((s) => s.setPending);
+  const clearPendingCall = useCallStore((s) => s.clearPending);
 
   if (!user) return null;
   const allowed = ALLOWED[user.role] || [];
@@ -64,7 +68,8 @@ export default function WorkspaceLayout() {
     if (!s) return;
     const onIncoming = (payload: any) => {
       const caller = payload?.call?.initiator?.name || 'A teammate';
-      toast.info(`Incoming call from ${caller}`, 'Open Calls to follow up on the request.');
+      setPendingCall(payload);
+      toast.info(`Incoming call from ${caller}`, 'Answer from the call banner or open Calls.');
     };
     s.on('call.incoming', onIncoming);
     s.on('call.invited', onIncoming);
@@ -73,6 +78,11 @@ export default function WorkspaceLayout() {
       s.off('call.invited', onIncoming);
     };
   }, []);
+
+  function answerPendingCall() {
+    if (!pendingCall?.call?.id) return;
+    navigate(`/calls/live/${pendingCall.call.id}`);
+  }
 
   async function handleLogout() {
     const refreshToken = useAuthStore.getState().refreshToken;
@@ -142,6 +152,18 @@ export default function WorkspaceLayout() {
         </header>
         <section className="ws__content fade-in">
           <AnnouncementBanner />
+          {pendingCall?.call && (
+            <div className="ws__incoming-call">
+              <div className="ws__incoming-copy">
+                <strong>Incoming Agora call from {pendingCall.call.initiator?.name || 'A teammate'}</strong>
+                <span>{pendingCall.call.kind === 'GROUP' ? 'Group voice room' : 'Direct voice call'} · Answer to join the browser audio room.</span>
+              </div>
+              <div className="ws__incoming-actions">
+                <button className="bb bb--primary bb--sm" onClick={answerPendingCall}>Answer</button>
+                <button className="bb bb--ghost bb--sm" onClick={() => clearPendingCall()}>Dismiss</button>
+              </div>
+            </div>
+          )}
           <Outlet />
         </section>
       </main>

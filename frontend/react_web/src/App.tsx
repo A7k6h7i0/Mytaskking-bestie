@@ -7,6 +7,7 @@ import ChatPage from '@/pages/ChatPage';
 import ChannelsPage from '@/pages/ChannelsPage';
 import TasksPage from '@/pages/TasksPage';
 import CallsPage from '@/pages/CallsPage';
+import CallRoomPage from '@/pages/CallRoomPage';
 import TelecallerPage from '@/pages/TelecallerPage';
 import EmployeesPage from '@/pages/EmployeesPage';
 import ClientsPage from '@/pages/ClientsPage';
