@@ -60,7 +60,7 @@ export function Leaderboard() {
         {!isLoading && data?.items.map((row, i) => (
           <article key={row.user.id} className={clsx('lb__row', `lb__row--rank-${i + 1}`)}>
             <div className="lb__rank">
-              {i < 3 ? <Medal place={i + 1} /> : <span className="lb__rank-num">#{i + 1}</span>}
+              {i < 3 ? <Medal place={(i + 1) as 1 | 2 | 3} /> : <span className="lb__rank-num">#{i + 1}</span>}
             </div>
             <Avatar name={row.user.name} src={row.user.avatarUrl} isClient={row.user.isClient} size={40} />
             <div className="lb__person">

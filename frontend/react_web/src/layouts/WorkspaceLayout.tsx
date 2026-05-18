@@ -1,7 +1,7 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, MessageSquare, KanbanSquare, Users, UserCog, Phone, Headphones, Settings, LogOut, Hash,
-  Activity, Calendar, Bookmark, Search, BarChart3, ShieldCheck, Zap, Video, Flag, KeyRound, Radio, PhoneIncoming, type LucideIcon,
+  Activity, Calendar, Bookmark, Search, BarChart3, ShieldCheck, Zap, Video, Flag, KeyRound, Radio, PhoneIncoming, PhoneCall, Minimize2, type LucideIcon,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuthStore } from '@/store/auth';
@@ -57,7 +57,9 @@ export default function WorkspaceLayout() {
   const user = useAuthStore((s) => s.user);
   const clear = useAuthStore((s) => s.clear);
   const navigate = useNavigate();
+  const location = useLocation();
   const pendingCall = useCallStore((s) => s.pending);
+  const currentCallId = useCallStore((s) => s.currentCallId);
   const setPendingCall = useCallStore((s) => s.setPending);
   const clearPendingCall = useCallStore((s) => s.clearPending);
 
@@ -114,6 +116,7 @@ export default function WorkspaceLayout() {
 
   const callerName = pendingCall?.call?.initiator?.name || 'A teammate';
   const callModeLabel = pendingCall?.call?.kind === 'GROUP' ? 'Group Agora room' : 'Direct Agora call';
+  const inLiveCallRoute = location.pathname.startsWith('/calls/live/');
 
   return (
     <div className="ws">
@@ -197,6 +200,16 @@ export default function WorkspaceLayout() {
                 <button className="bb bb--ghost bb--sm" onClick={declinePendingCall}>Decline</button>
               </div>
             </div>
+          )}
+          {!pendingCall?.call && currentCallId && !inLiveCallRoute && (
+            <button className="ws__call-widget" onClick={() => navigate(`/calls/live/${currentCallId}`)} title="Return to live Agora call">
+              <span className="ws__call-widget-icon"><PhoneCall size={18} /></span>
+              <span className="ws__call-widget-copy">
+                <strong>Call in progress</strong>
+                <span>Return to the live Agora room</span>
+              </span>
+              <span className="ws__call-widget-badge"><Minimize2 size={14} /> Live</span>
+            </button>
           )}
           <PageTransition variant="fade">
             <Outlet />

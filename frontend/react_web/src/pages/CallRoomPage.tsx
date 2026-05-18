@@ -384,6 +384,7 @@ export default function CallRoomPage() {
   const otherParticipants = (activeCall?.participants || []).filter((p: any) => p.user?.id !== me.id);
   const timerText = new Date(seconds * 1000).toISOString().slice(14, 19);
   const localVideoActive = cameraOn || sharingScreen;
+  const localShareLabel = sharingScreen ? ' · presenting live' : '';
 
   return (
     <div className="cr">
@@ -421,8 +422,9 @@ export default function CallRoomPage() {
 
         <div className="cr__video-grid">
           <div className="cr__video-card cr__video-card--local">
-            <div className="cr__video-label">You {sharingScreen ? '· screen sharing' : cameraOn ? '· camera on' : '· audio only'}</div>
+            <div className="cr__video-label">You {sharingScreen ? '· screen sharing' : cameraOn ? '· camera on' : '· audio only'}{localShareLabel}</div>
             <div ref={localVideoRef} className={`cr__video-surface ${localVideoActive ? 'has-video' : ''}`}>
+              {sharingScreen && <span className="cr__live-chip">Sharing screen</span>}
               {!localVideoActive && <div className="cr__video-placeholder"><Avatar name={me.name} src={me.avatarUrl} isClient={me.isClient} size={56} /></div>}
             </div>
           </div>
@@ -433,6 +435,7 @@ export default function CallRoomPage() {
               <div key={`video-${p.user.id}`} className="cr__video-card">
                 <div className="cr__video-label">{p.user.name} {remoteHasVideo ? '· video live' : '· audio only'}</div>
                 <div ref={(el) => { remoteVideoRefs.current[p.user.id] = el; }} className={`cr__video-surface ${remoteHasVideo ? 'has-video' : ''}`}>
+                  {remoteHasVideo && <span className="cr__live-chip">Live video</span>}
                   {!remoteHasVideo && <div className="cr__video-placeholder"><Avatar name={p.user.name} src={p.user.avatarUrl} isClient={p.user.isClient} size={56} /></div>}
                 </div>
               </div>
@@ -447,7 +450,7 @@ export default function CallRoomPage() {
               <Avatar name={me.name} src={me.avatarUrl} isClient={me.isClient} size={42} />
               <div>
                 <UserName name={me.name} isClient={me.isClient} role={me.role} />
-                <div className="cr__person-sub">You {muted ? '· muted' : '· microphone on'}</div>
+                <div className="cr__person-sub">You {muted ? '· muted' : '· microphone on'}{sharingScreen ? ' · sharing screen' : cameraOn ? ' · camera live' : ''}</div>
               </div>
             </article>
             {otherParticipants.map((p: any) => {
@@ -457,7 +460,7 @@ export default function CallRoomPage() {
                   <Avatar name={p.user.name} src={p.user.avatarUrl} isClient={p.user.isClient} size={42} />
                   <div>
                     <UserName name={p.user.name} isClient={p.user.isClient} role={p.user.role} />
-                    <div className="cr__person-sub">{remoteJoined ? 'Live in Agora room' : 'Waiting to join'}</div>
+                    <div className="cr__person-sub">{remoteJoined ? 'Live in Agora room' : 'Waiting to join'}{remoteUsers.find((u) => String(u.uid) === p.user.id)?.videoTrack ? ' · video live' : ''}</div>
                   </div>
                   <span className={`cr__presence ${remoteJoined ? 'is-live' : ''}`}>
                     <Volume2 size={14} /> {remoteJoined ? 'Connected' : 'Pending'}
