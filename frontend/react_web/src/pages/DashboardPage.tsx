@@ -4,6 +4,9 @@ import { api } from '@/services/api';
 import { useAuthStore } from '@/store/auth';
 import { UserName } from '@/components/ui/UserName';
 import { DashboardWidgets } from '@/components/DashboardWidgets';
+import { AnimatedNumber } from '@/components/ui/AnimatedNumber';
+import { TiltCard } from '@/components/ui/TiltCard';
+import { ScrollReveal } from '@/components/effects/ScrollReveal';
 import './dashboard.css';
 
 type Overview = {
@@ -78,6 +81,7 @@ export default function DashboardPage() {
       <DashboardWidgets />
 
       {isAdmin && data.recentActivity && (
+        <ScrollReveal variant="up">
         <section className="db__activity">
           <div className="db__card-head">
             <h3>Recent activity</h3>
@@ -97,6 +101,7 @@ export default function DashboardPage() {
             ))}
           </ul>
         </section>
+        </ScrollReveal>
       )}
     </div>
   );
@@ -113,13 +118,18 @@ function Stat({
   value: number | string | null | undefined;
   accent: 'brand' | 'success' | 'warning' | 'info' | 'client';
 }) {
+  const isNumeric = typeof value === 'number';
   return (
-    <div className={`db__stat db__stat--${accent}`}>
-      <div className="db__stat-icon"><Icon size={18} /></div>
-      <div className="db__stat-body">
+    <TiltCard max={6} glow className={`db__stat db__stat--${accent}`}>
+      <div className="db__stat-icon m-tilt-layer-1 m-pop"><Icon size={18} /></div>
+      <div className="db__stat-body m-tilt-layer-2">
         <div className="db__stat-label">{label}</div>
-        <div className="db__stat-value">{value ?? 0}</div>
+        <div className="db__stat-value">
+          {isNumeric
+            ? <AnimatedNumber value={value as number} />
+            : (value ?? 0)}
+        </div>
       </div>
-    </div>
+    </TiltCard>
   );
 }

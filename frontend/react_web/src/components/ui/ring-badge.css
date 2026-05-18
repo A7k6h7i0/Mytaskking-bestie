@@ -1,0 +1,18 @@
+.rb {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+.rb__ring { position: absolute; inset: 0; }
+.rb__slot {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(100% - 8px);
+  height: calc(100% - 8px);
+  border-radius: 50%;
+  overflow: hidden;
+}

@@ -1,0 +1,18 @@
+.tt-wrap { position: relative; display: inline-flex; }
+.tt {
+  position: absolute;
+  z-index: 300;
+  padding: 4px 10px;
+  background: var(--c-text);
+  color: var(--c-text-invert);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: var(--sh-2);
+}
+.tt--top    { bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); }
+.tt--bottom { top:    calc(100% + 6px); left: 50%; transform: translateX(-50%); }
+.tt--left   { right:  calc(100% + 6px); top:  50%; transform: translateY(-50%); }
+.tt--right  { left:   calc(100% + 6px); top:  50%; transform: translateY(-50%); }

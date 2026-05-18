@@ -1,0 +1,33 @@
+.sp-ring { color: var(--c-brand); display: inline-block; }
+
+.sp-dots {
+  display: inline-flex;
+  gap: 4px;
+  color: var(--c-brand);
+  align-items: center;
+}
+.sp-dots > span {
+  width: 1em; height: 1em;
+  border-radius: 50%;
+  background: currentColor;
+  animation: m-dots 1.2s ease-in-out infinite;
+}
+.sp-dots > span:nth-child(2) { animation-delay: 0.15s; }
+.sp-dots > span:nth-child(3) { animation-delay: 0.3s; }
+
+.sp-bars {
+  display: inline-flex;
+  gap: 2px;
+  align-items: end;
+  color: var(--c-brand);
+}
+.sp-bars > span {
+  width: 20%; height: 100%;
+  background: currentColor;
+  border-radius: 2px;
+  transform-origin: bottom;
+  animation: m-bars 1s ease-in-out infinite;
+}
+.sp-bars > span:nth-child(2) { animation-delay: 0.1s; }
+.sp-bars > span:nth-child(3) { animation-delay: 0.2s; }
+.sp-bars > span:nth-child(4) { animation-delay: 0.3s; }

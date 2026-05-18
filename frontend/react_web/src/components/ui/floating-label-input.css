@@ -1,0 +1,85 @@
+.fli {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fli__field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 52px;
+  background: var(--c-surface);
+  border-radius: var(--r-sm);
+  box-shadow: inset 0 0 0 1px var(--c-border);
+  transition: box-shadow var(--dur-fast) var(--ease);
+}
+.fli__field:focus-within {
+  box-shadow: inset 0 0 0 1.5px var(--c-brand);
+}
+.fli.is-error .fli__field {
+  box-shadow: inset 0 0 0 1.5px var(--c-danger);
+}
+
+.fli__leading,
+.fli__trailing {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  color: var(--c-text-muted);
+}
+
+.fli__input {
+  flex: 1;
+  border: 0;
+  outline: none;
+  background: transparent;
+  height: 100%;
+  padding: 18px 14px 6px;
+  font: inherit;
+  font-size: var(--fs-base);
+  color: var(--c-text);
+}
+.fli__leading + .fli__input { padding-left: 4px; }
+
+.fli__label {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: var(--fs-base);
+  color: var(--c-text-muted);
+  pointer-events: none;
+  background: transparent;
+  padding: 0 4px;
+  transition:
+    transform var(--dur) var(--ease),
+    font-size var(--dur) var(--ease),
+    color var(--dur-fast) var(--ease),
+    top var(--dur) var(--ease);
+}
+.fli__leading + .fli__input + .fli__label { left: 44px; }
+
+/* Float when focused or when the input has a value (placeholder=" " trick). */
+.fli__field:focus-within .fli__label,
+.fli.is-filled .fli__label,
+.fli__input:not(:placeholder-shown) + .fli__label {
+  top: 0;
+  transform: translateY(-50%);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--c-brand-strong);
+  background: var(--c-surface);
+}
+
+.fli.is-error .fli__label,
+.fli.is-error .fli__field:focus-within .fli__label {
+  color: var(--c-danger);
+}
+
+.fli__hint {
+  font-size: var(--fs-xs);
+  color: var(--c-text-muted);
+  padding-left: 4px;
+}
+.fli.is-error .fli__hint { color: var(--c-danger); }

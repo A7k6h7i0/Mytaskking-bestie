@@ -1,12 +1,17 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Search } from 'lucide-react';
+import { Plus, Search, Trash2, UserX, Calendar } from 'lucide-react';
 import dayjs from 'dayjs';
 import { api } from '@/services/api';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { UserName } from '@/components/ui/UserName';
+import { StatusBadge } from '@/components/ui/Badge';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { Tooltip } from '@/components/ui/Tooltip';
+import { useConfirm } from '@/components/ui/ConfirmDialog';
+import { toast } from '@/components/Toast';
 import './people.css';
 
 export default function ClientsPage() {
@@ -16,8 +21,9 @@ export default function ClientsPage() {
   const [form, setForm] = useState({
     userId: '', password: '', name: '', clientCompany: '', email: '', accessEndsAt: '',
   });
+  const { confirm, ConfirmRenderer } = useConfirm();
 
-  const { data } = useQuery<{ items: any[] }>({
+  const { data, isLoading } = useQuery<{ items: any[] }>({
     queryKey: ['clients', q],
     queryFn: async () => (await api.get('/clients', { params: { q } })).data,
   });
@@ -28,14 +34,47 @@ export default function ClientsPage() {
       qc.invalidateQueries({ queryKey: ['clients'] });
       setShowNew(false);
       setForm({ userId: '', password: '', name: '', clientCompany: '', email: '', accessEndsAt: '' });
+      toast.success('Client added');
     },
+    onError: () => toast.error('Could not create client'),
   });
 
   const extendMut = useMutation({
     mutationFn: async ({ id, accessEndsAt }: { id: string; accessEndsAt: string }) =>
       (await api.post(`/clients/${id}/extend`, { accessEndsAt })).data,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['clients'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['clients'] }); toast.success('Access extended'); },
   });
+
+  const disableMut = useMutation({
+    mutationFn: async (id: string) => (await api.post(`/clients/${id}/disable`)).data,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['clients'] }); toast.success('Client disabled'); },
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: async (id: string) => (await api.delete(`/clients/${id}`)).data,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['clients'] }); toast.success('Client deleted'); },
+  });
+
+  async function askDisable(u: any) {
+    const ok = await confirm({
+      title: 'Disable this client?',
+      description: 'They will lose access immediately. You can re-enable them later from the same screen.',
+      confirmLabel: 'Disable',
+      variant: 'warning',
+    });
+    if (ok) disableMut.mutate(u.id);
+  }
+
+  async function askDelete(u: any) {
+    const ok = await confirm({
+      title: 'Delete client permanently?',
+      description: 'This wipes their account, channel memberships, and uploaded files. Cannot be undone.',
+      confirmLabel: 'Delete client',
+      variant: 'danger',
+      confirmText: u.userId,
+    });
+    if (ok) deleteMut.mutate(u.id);
+  }
 
   return (
     <div className="pp">
@@ -44,11 +83,11 @@ export default function ClientsPage() {
           <h1>Clients</h1>
           <p>Manage external client accounts with time-bound access.</p>
         </div>
-        <Button onClick={() => setShowNew((v) => !v)}><Plus size={16}/> New client</Button>
+        <Button onClick={() => setShowNew((v) => !v)} className="m-press"><Plus size={16}/> New client</Button>
       </header>
 
       {showNew && (
-        <div className="pp__create">
+        <div className="pp__create m-scale-in">
           <Input label="User ID" value={form.userId} onChange={(e) => setForm({ ...form, userId: e.target.value })} />
           <Input label="Password" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
           <Input label="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
@@ -68,10 +107,10 @@ export default function ClientsPage() {
 
       <div className="pp__table">
         <div className="pp__row pp__row--head">
-          <span>Client</span><span>Company</span><span>Access until</span><span>Status</span>
+          <span>Client</span><span>Company</span><span>Access until</span><span>Status</span><span></span>
         </div>
         {data?.items.map((u) => (
-          <div key={u.id} className="pp__row">
+          <div key={u.id} className="pp__row m-fade-up">
             <span className="pp__name">
               <Avatar name={u.name} src={u.avatarUrl} isClient size={28} />
               <UserName name={u.name} isClient role="CLIENT" />
@@ -89,11 +128,32 @@ export default function ClientsPage() {
                 >Extend</button>
               )}
             </span>
-            <span className={`pp__status pp__status--${u.status.toLowerCase()}`}>{u.status}</span>
+            <span><StatusBadge status={u.status} pulse={u.status === 'ACTIVE'} /></span>
+            <span className="pp__actions">
+              <Tooltip label="Disable">
+                <button className="pp__icon m-press" onClick={() => askDisable(u)} aria-label="Disable client">
+                  <UserX size={14} />
+                </button>
+              </Tooltip>
+              <Tooltip label="Delete">
+                <button className="pp__icon pp__icon--danger m-press" onClick={() => askDelete(u)} aria-label="Delete client">
+                  <Trash2 size={14} />
+                </button>
+              </Tooltip>
+            </span>
           </div>
         ))}
-        {!data?.items.length && <div className="pp__empty">No clients yet.</div>}
+        {!isLoading && !data?.items.length && (
+          <EmptyState
+            illustration="lock"
+            title="No clients yet"
+            description="Add your first client and assign them to a channel. Their account expires automatically after the access window you set."
+            action={<Button onClick={() => setShowNew(true)}><Plus size={16}/> New client</Button>}
+          />
+        )}
       </div>
+
+      <ConfirmRenderer />
     </div>
   );
 }

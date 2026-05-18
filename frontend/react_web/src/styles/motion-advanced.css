@@ -1,0 +1,284 @@
+/*
+ * Bestie — advanced motion layer.
+ *
+ * Sits on top of motion.css with the heavier, "wow"-tier effects:
+ * magnetic hovers, 3D tilt, glow traces, mesh gradients, confetti,
+ * scroll reveals, ribbon underlines, gradient text shimmers. Anything
+ * here that runs continuously honors prefers-reduced-motion via
+ * motion.css's global override.
+ */
+
+/* ------------------------------------------------------------------ */
+/*  GRADIENT / TEXT EFFECTS                                           */
+/* ------------------------------------------------------------------ */
+@keyframes m-gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+.m-gradient-text {
+  background: linear-gradient(120deg, var(--c-accent) 0%, var(--c-brand) 50%, #3aa1ff 100%);
+  background-size: 220% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: m-gradient-shift 5s ease-in-out infinite;
+}
+.m-gradient-border {
+  position: relative;
+  background-clip: padding-box;
+  border: 1.5px solid transparent;
+}
+.m-gradient-border::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  margin: -1.5px;
+  border-radius: inherit;
+  background: linear-gradient(120deg, var(--c-accent), var(--c-brand), #3aa1ff);
+  background-size: 220% 100%;
+  animation: m-gradient-shift 6s ease-in-out infinite;
+}
+
+/* ------------------------------------------------------------------ */
+/*  MESH BACKGROUND (animated multi-blob gradient)                    */
+/* ------------------------------------------------------------------ */
+.m-mesh {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  isolation: isolate;
+}
+.m-mesh__blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.55;
+  mix-blend-mode: screen;
+  animation: m-mesh-drift 18s ease-in-out infinite;
+}
+.m-mesh__blob:nth-child(1) { background: var(--c-brand);  width: 50%; height: 50%; top: -10%;  left: -10%; }
+.m-mesh__blob:nth-child(2) { background: var(--c-accent); width: 45%; height: 45%; bottom: -8%; right: -8%; animation-delay: -4s; animation-duration: 22s; }
+.m-mesh__blob:nth-child(3) { background: #3aa1ff;        width: 32%; height: 32%; top: 30%;    left: 35%;  animation-delay: -10s; animation-duration: 26s; opacity: 0.35; }
+.m-mesh__blob:nth-child(4) { background: #ff7ac6;        width: 22%; height: 22%; bottom: 12%; left: 22%;  animation-delay: -6s; opacity: 0.25; }
+@keyframes m-mesh-drift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%      { transform: translate(8%, -6%) scale(1.1); }
+  66%      { transform: translate(-6%, 8%) scale(0.95); }
+}
+
+/* ------------------------------------------------------------------ */
+/*  GLOW / SPOTLIGHT                                                  */
+/* ------------------------------------------------------------------ */
+.m-spotlight {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+.m-spotlight::before {
+  content: "";
+  position: absolute;
+  width: 280px; height: 280px;
+  left: var(--mx, 50%); top: var(--my, 50%);
+  transform: translate(-50%, -50%);
+  background: radial-gradient(closest-side, rgba(124,92,255,0.18), transparent 70%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+  z-index: 0;
+}
+.m-spotlight:hover::before { opacity: 1; }
+.m-spotlight > * { position: relative; z-index: 1; }
+
+/* ------------------------------------------------------------------ */
+/*  3D TILT (driven by --rx, --ry inline vars from the hook)          */
+/* ------------------------------------------------------------------ */
+.m-tilt {
+  transform-style: preserve-3d;
+  transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+  transition: transform 60ms linear;
+  will-change: transform;
+}
+.m-tilt-layer-1 { transform: translateZ(20px); }
+.m-tilt-layer-2 { transform: translateZ(40px); }
+.m-tilt-layer-3 { transform: translateZ(60px); }
+
+/* ------------------------------------------------------------------ */
+/*  MAGNETIC (transform driven by inline --tx, --ty)                  */
+/* ------------------------------------------------------------------ */
+.m-magnet {
+  transform: translate(var(--tx, 0), var(--ty, 0));
+  transition: transform 120ms var(--ease);
+  will-change: transform;
+}
+
+/* ------------------------------------------------------------------ */
+/*  SCROLL REVEAL — pairs with the IntersectionObserver wrapper       */
+/* ------------------------------------------------------------------ */
+.m-reveal {
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity 600ms var(--ease), transform 600ms var(--ease);
+}
+.m-reveal.is-in {
+  opacity: 1;
+  transform: none;
+}
+.m-reveal--scale     { transform: scale(0.96); }
+.m-reveal--scale.is-in { transform: scale(1); }
+.m-reveal--left      { transform: translateX(20px); }
+.m-reveal--left.is-in  { transform: none; }
+.m-reveal--right     { transform: translateX(-20px); }
+.m-reveal--right.is-in { transform: none; }
+
+/* ------------------------------------------------------------------ */
+/*  GLASS / FROST                                                     */
+/* ------------------------------------------------------------------ */
+.m-glass {
+  background: color-mix(in srgb, var(--c-surface) 70%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c-border) 80%, transparent);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  box-shadow: var(--sh-2);
+}
+.m-glass-strong {
+  background: color-mix(in srgb, var(--c-surface) 88%, transparent);
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+}
+
+/* ------------------------------------------------------------------ */
+/*  RIBBON UNDERLINE (text decoration replacement)                    */
+/* ------------------------------------------------------------------ */
+.m-ribbon {
+  position: relative;
+  display: inline-block;
+}
+.m-ribbon::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: -3px;
+  height: 6px;
+  border-radius: 4px;
+  background: linear-gradient(120deg, var(--c-accent), var(--c-brand));
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 600ms var(--ease);
+}
+.m-ribbon:hover::after,
+.m-ribbon.is-active::after { transform: scaleX(1); }
+
+/* ------------------------------------------------------------------ */
+/*  MARQUEE FADE (edge-fades for scrolling rows)                      */
+/* ------------------------------------------------------------------ */
+.m-marquee-fade {
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 6%, #000 94%, transparent 100%);
+          mask-image: linear-gradient(90deg, transparent 0, #000 6%, #000 94%, transparent 100%);
+}
+
+/* ------------------------------------------------------------------ */
+/*  CONFETTI PARTICLE (positioned by JS, animated by CSS)             */
+/* ------------------------------------------------------------------ */
+.m-confetti {
+  position: fixed;
+  pointer-events: none;
+  z-index: 400;
+  inset: 0;
+  overflow: hidden;
+}
+.m-confetti__bit {
+  position: absolute;
+  width: 8px; height: 14px;
+  border-radius: 2px;
+  opacity: 0;
+  animation: m-confetti-fall 1400ms cubic-bezier(0.16, 0.84, 0.44, 1) forwards;
+}
+@keyframes m-confetti-fall {
+  0%   { opacity: 0; transform: translateY(0) rotate(0); }
+  10%  { opacity: 1; }
+  100% { opacity: 0; transform: translate(var(--cx, 0), var(--cy, 100vh)) rotate(var(--cr, 540deg)); }
+}
+
+/* ------------------------------------------------------------------ */
+/*  CURSOR GLOW (follows cursor inside container; tuned by --mx/--my) */
+/* ------------------------------------------------------------------ */
+.m-cursor-glow {
+  position: relative;
+  isolation: isolate;
+}
+.m-cursor-glow::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(220px circle at var(--mx, 50%) var(--my, 50%),
+              color-mix(in srgb, var(--c-brand) 30%, transparent), transparent 70%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+  z-index: 0;
+}
+.m-cursor-glow:hover::after { opacity: 1; }
+.m-cursor-glow > * { position: relative; z-index: 1; }
+
+/* ------------------------------------------------------------------ */
+/*  SHEEN — wipe a highlight across a button on hover                 */
+/* ------------------------------------------------------------------ */
+.m-sheen {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+.m-sheen::after {
+  content: "";
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 60%;
+  left: -80%;
+  background: linear-gradient(120deg,
+              transparent 20%,
+              color-mix(in srgb, white 35%, transparent) 50%,
+              transparent 80%);
+  transform: skewX(-20deg);
+  transition: left 600ms var(--ease);
+  pointer-events: none;
+}
+.m-sheen:hover::after { left: 140%; }
+
+/* ------------------------------------------------------------------ */
+/*  RAINBOW BORDER (CTA emphasis)                                     */
+/* ------------------------------------------------------------------ */
+@keyframes m-rainbow-spin {
+  to { --angle: 360deg; }
+}
+@property --angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+.m-rainbow-border {
+  position: relative;
+  background: var(--c-surface);
+  border-radius: inherit;
+  isolation: isolate;
+}
+.m-rainbow-border::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  padding: 2px;
+  background: conic-gradient(from var(--angle), #7c5cff, #5b8cff, #3aa1ff, #10b981, #f59e0b, #ef4444, #7c5cff);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+          mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  animation: m-rainbow-spin 4s linear infinite;
+}
+
+/* ------------------------------------------------------------------ */
+/*  PARALLAX LAYERS (transform driven by --py from a scroll handler)  */
+/* ------------------------------------------------------------------ */
+.m-parallax {
+  transform: translateY(calc(var(--py, 0px) * var(--depth, 0.2)));
+  will-change: transform;
+}

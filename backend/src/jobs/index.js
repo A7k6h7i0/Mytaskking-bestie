@@ -42,9 +42,44 @@ function followupRemindersJob() {
   });
 }
 
+// Every 5 minutes — find tasks whose dueAt is in the next 15 minutes and
+// haven't been reminded yet, then ping all their assignees. We track
+// "reminded" by overloading the task's `recurrenceCron` column as a marker
+// (cheap; no schema change). A proper system would have its own table.
+function dueReminderJob() {
+  cron.schedule('*/5 * * * *', async () => {
+    const now = new Date();
+    const horizon = new Date(now.getTime() + 15 * 60_000);
+    const due = await prisma.task.findMany({
+      where: {
+        dueAt: { gte: now, lte: horizon },
+        status: { notIn: ['DONE', 'CANCELLED'] },
+      },
+      include: { assignees: { select: { userId: true } } },
+    });
+    for (const t of due) {
+      // De-dupe: write a marker on the row so we don't spam every 5 minutes.
+      const markerKey = `reminded:${Math.floor(t.dueAt.getTime() / 60_000)}`;
+      if (t.recurrenceCron === markerKey) continue;
+      await prisma.task.update({ where: { id: t.id }, data: { recurrenceCron: markerKey } }).catch(() => {});
+      for (const a of t.assignees) {
+        await notifications.notify({
+          userId: a.userId,
+          kind: 'TASK',
+          title: 'Due soon',
+          body: `${t.title} — due ${new Date(t.dueAt).toUTCString()}`,
+          data: { taskId: t.id, reminder: true },
+        }).catch(() => {});
+      }
+    }
+    if (due.length) logger.info({ count: due.length }, 'jobs.task_reminders.fired');
+  });
+}
+
 module.exports = function startJobs() {
   expireClientsJob();
   followupRemindersJob();
+  dueReminderJob();
   automations.startOverdueSweep();
   automations.registerSchedules().catch((err) => logger.warn({ err: err.message }, 'jobs.automations.register_failed'));
   logger.info('jobs.started');

@@ -1,0 +1,13 @@
+.es {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: var(--s-7) var(--s-4);
+  gap: var(--s-2);
+  color: var(--c-text-soft);
+}
+.es__art { display: inline-flex; margin-bottom: var(--s-2); }
+.es__title { margin: 0; font-size: var(--fs-md); font-weight: 700; color: var(--c-text); }
+.es__desc  { margin: 0; max-width: 380px; color: var(--c-text-muted); font-size: var(--fs-sm); }
+.es__action { margin-top: var(--s-3); }

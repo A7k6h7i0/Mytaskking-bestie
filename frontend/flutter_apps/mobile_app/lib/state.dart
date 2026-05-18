@@ -1,5 +1,13 @@
-import 'package:bestie_core/bestie_core.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+// Re-exports the shared Riverpod providers + app-level constants so screens
+// can `import 'state.dart'` and get everything in one shot.
+
+export 'package:bestie_core/bestie_core.dart' show
+    authStoreProvider, apiProvider, socketProvider, currentUserProvider,
+    realtimeProvider, dashboardProvider, channelsProvider, messagesProvider,
+    tasksKanbanProvider, meetingsProvider, calendarRangeProvider,
+    notificationsProvider, savedProvider, announcementsProvider, flagsProvider,
+    mySessionsProvider, presenceStatusProvider, searchQueryProvider,
+    searchResultsProvider, themeModeProvider, ThemeMode, formatApiError;
 
 const kApiBaseUrl = String.fromEnvironment(
   'API_URL',
@@ -9,13 +17,3 @@ const kSocketUrl = String.fromEnvironment(
   'SOCKET_URL',
   defaultValue: 'http://localhost:4000',
 );
-
-final authStoreProvider = Provider<BestieAuthStore>((_) => throw UnimplementedError());
-
-final apiProvider = Provider<BestieApi>((ref) {
-  return BestieApi(baseUrl: kApiBaseUrl, auth: ref.watch(authStoreProvider));
-});
-
-final socketProvider = Provider<BestieSocket>((ref) {
-  return BestieSocket(url: kSocketUrl, auth: ref.watch(authStoreProvider));
-});

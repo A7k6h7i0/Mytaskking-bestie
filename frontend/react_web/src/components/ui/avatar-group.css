@@ -1,0 +1,14 @@
+.ag { display: inline-flex; align-items: center; }
+.ag__slot { display: inline-block; }
+.ag__slot:not(:first-child) { margin-left: -8px; }
+.ag__more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--c-surface-2);
+  color: var(--c-text-muted);
+  font-weight: 700;
+  margin-left: -8px;
+  box-shadow: 0 0 0 2px var(--c-surface);
+}

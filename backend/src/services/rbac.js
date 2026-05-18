@@ -39,7 +39,11 @@ const DEFAULT_MATRIX = {
   ],
   EMPLOYEE: [
     'channel.read', 'channel.post', 'channel.invite',
-    'message.*', 'task.read', 'task.create', 'task.update', 'task.assign_self',
+    'message.*',
+    // Tasks: any employee can assign tasks to anyone — peer-to-peer is the
+    // whole point of the feature, so both `assign_self` and `assign_others`
+    // are on by default.
+    'task.read', 'task.create', 'task.update', 'task.assign_self', 'task.assign_others',
     'call.read', 'call.create',
     'file.upload', 'file.read',
     'calendar.*',

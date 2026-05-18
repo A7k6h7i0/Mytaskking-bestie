@@ -17,6 +17,8 @@ import { getSocket } from '@/services/socket';
 import { useCallStore } from '@/store/calls';
 import { toast } from '@/components/Toast';
 import { useEffect } from 'react';
+import { PageTransition } from '@/components/PageTransition';
+import { Logo } from '@/components/Logo';
 import './workspace-layout.css';
 
 type NavItem = { to: string; label: string; icon: LucideIcon };
@@ -114,11 +116,7 @@ export default function WorkspaceLayout() {
     <div className="ws">
       <aside className="ws__sidebar">
         <div className="ws__brand">
-          <div className="ws__logo" />
-          <div className="ws__brand-text">
-            <span className="ws__brand-name">Bestie</span>
-            <span className="ws__brand-tag">Workspace</span>
-          </div>
+          <Logo size={32} withWordmark onClick={() => navigate('/dashboard')} title="Bestie · Home" />
         </div>
 
         <button className="ws__search-trigger" onClick={openSearch}>
@@ -163,7 +161,7 @@ export default function WorkspaceLayout() {
             <button className="ws__icon-btn" title="Settings" onClick={() => navigate('/settings')}><Settings size={18} /></button>
           </div>
         </header>
-        <section className="ws__content fade-in">
+        <section className="ws__content">
           <AnnouncementBanner />
           {pendingCall?.call && (
             <div className="ws__incoming-call">
@@ -177,7 +175,9 @@ export default function WorkspaceLayout() {
               </div>
             </div>
           )}
-          <Outlet />
+          <PageTransition variant="fade">
+            <Outlet />
+          </PageTransition>
         </section>
       </main>
     </div>

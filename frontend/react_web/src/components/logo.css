@@ -1,0 +1,136 @@
+.lg {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  position: relative;
+}
+.lg__button {
+  display: inline-flex;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.lg__mark {
+  position: relative;
+  display: inline-flex;
+  width: var(--lg-size, 36px);
+  height: var(--lg-size, 36px);
+  border-radius: 12px;
+  filter: drop-shadow(0 6px 14px rgba(91, 140, 255, 0.32));
+  animation: m-pop 600ms var(--ease-spring) both;
+  transition: transform var(--dur) var(--ease), filter var(--dur) var(--ease);
+}
+.lg__mark::before {
+  content: "";
+  position: absolute;
+  inset: -6%;
+  border-radius: 16px;
+  background: conic-gradient(
+    from var(--lg-rot, 0deg),
+    rgba(124, 92, 255, 0) 0deg,
+    rgba(124, 92, 255, 0.35) 90deg,
+    rgba(58, 161, 255, 0.0) 200deg,
+    rgba(91, 140, 255, 0.0) 360deg
+  );
+  filter: blur(8px);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+  z-index: -1;
+}
+.lg:hover .lg__mark,
+.lg__button:hover .lg__mark {
+  transform: rotate(-3deg) scale(1.04);
+  filter: drop-shadow(0 10px 22px rgba(124, 92, 255, 0.45));
+}
+.lg:hover .lg__mark::before,
+.lg__button:hover .lg__mark::before {
+  opacity: 1;
+  animation: lg-rotate-gradient 6s linear infinite;
+}
+
+@keyframes lg-rotate-gradient {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.lg__bg {
+  transform-origin: center;
+  animation: lg-bg-shimmer 7s ease-in-out infinite;
+}
+@keyframes lg-bg-shimmer {
+  0%, 100% { filter: hue-rotate(0deg); }
+  50%      { filter: hue-rotate(-12deg) saturate(1.1); }
+}
+
+.lg__gloss {
+  transform-origin: top left;
+  animation: m-fade-in 700ms var(--ease) 200ms both;
+}
+
+/* Stroke draw-on — total path length ≈ 60 covers each ribbon. */
+.lg__stem {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  animation: lg-draw 600ms var(--ease) 120ms forwards;
+}
+.lg__ribbon--top {
+  stroke-dasharray: 60;
+  stroke-dashoffset: 60;
+  animation: lg-draw 600ms var(--ease) 260ms forwards;
+}
+.lg__ribbon--bottom {
+  stroke-dasharray: 60;
+  stroke-dashoffset: 60;
+  animation: lg-draw 600ms var(--ease) 400ms forwards;
+}
+@keyframes lg-draw {
+  to { stroke-dashoffset: 0; }
+}
+
+.lg__dot {
+  transform-origin: 37px 11px;
+  animation: m-pop 480ms var(--ease-spring) 680ms both;
+}
+.lg__ring {
+  transform-origin: 37px 11px;
+  animation: lg-ping 1800ms ease-out 1000ms infinite;
+}
+@keyframes lg-ping {
+  0%   { transform: scale(0.7); opacity: 0.6; }
+  80%  { transform: scale(1.9); opacity: 0; }
+  100% { transform: scale(2.0); opacity: 0; }
+}
+
+/* Ambient — used in hero placements like the login art panel. */
+.lg--ambient .lg__mark { animation: m-pop 600ms var(--ease-spring) both, m-float 5s ease-in-out 1s infinite; }
+
+/* Wordmark — gradient text fill that matches the icon. */
+.lg__wordmark {
+  display: inline-flex;
+  flex-direction: column;
+  line-height: 1.05;
+}
+.lg__word {
+  font-weight: 800;
+  font-size: calc(var(--lg-size, 36px) * 0.55);
+  letter-spacing: -0.02em;
+  background: linear-gradient(120deg, #7c5cff 0%, #5b8cff 50%, #3aa1ff 100%);
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: lg-word-shift 6s ease-in-out infinite;
+}
+@keyframes lg-word-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+.lg__tag {
+  font-size: calc(var(--lg-size, 36px) * 0.26);
+  font-weight: 600;
+  color: var(--c-text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}

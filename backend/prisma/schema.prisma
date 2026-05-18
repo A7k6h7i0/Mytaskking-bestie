@@ -318,14 +318,32 @@ model Task {
   @@index([tenantId])
 }
 
+enum TaskAssignmentState {
+  PENDING       // server default after the assigner creates the task
+  ACCEPTED      // assignee opted in — work can start
+  DECLINED      // assignee said no — creator should reassign
+  COMPLETED     // assignee marked done; `score` is locked in
+}
+
 model TaskAssignee {
-  id     String @id @default(cuid())
-  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  taskId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId String
+  id          String              @id @default(cuid())
+  task        Task                @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId      String
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  state       TaskAssignmentState @default(PENDING)
+  acceptedAt  DateTime?
+  declinedAt  DateTime?
+  completedAt DateTime?
+  // 0-100 productivity score, computed at completion time from the task's
+  // dueAt / priority and how on-time the assignee was. Never recomputed —
+  // we want the row to be a permanent record.
+  score       Int?
+  scoreReason String?              // short human string for the audit log + UI
 
   @@unique([taskId, userId])
+  @@index([userId, state])
+  @@index([userId, completedAt])
 }
 
 model Subtask {

@@ -1,0 +1,9 @@
+.sk-mark { display: inline-block; }
+.sk-mark__ring {
+  transform-origin: center;
+  transform: rotate(-90deg);
+  animation: m-draw-circle 600ms var(--ease) forwards;
+}
+.sk-mark__tick {
+  animation: m-draw-check 380ms var(--ease) 500ms forwards;
+}

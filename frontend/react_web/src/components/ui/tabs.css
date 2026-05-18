@@ -1,0 +1,19 @@
+.tb {
+  display: inline-flex;
+  gap: var(--s-1);
+  border-bottom: 1px solid var(--c-border);
+}
+.tb__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: transparent;
+  color: var(--c-text-soft);
+  font-weight: 600;
+  font-size: var(--fs-sm);
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
+  transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+.tb__tab:hover { color: var(--c-text); background: var(--c-surface-1); }
+.tb__tab.is-active { color: var(--c-brand-strong); }

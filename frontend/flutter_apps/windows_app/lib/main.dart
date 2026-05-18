@@ -2,69 +2,122 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bestie_design/bestie_design.dart';
 import 'package:bestie_core/bestie_core.dart';
+import 'package:bestie_mobile/screens.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final auth = BestieAuthStore();
   await auth.load();
-  runApp(ProviderScope(child: BestieWindowsApp(auth: auth)));
+  final api = BestieApi(baseUrl: kApiBaseUrl, auth: auth);
+  final socket = BestieSocket(url: kSocketUrl, auth: auth);
+
+  runApp(ProviderScope(
+    overrides: [
+      authStoreProvider.overrideWithValue(auth),
+      apiProvider.overrideWithValue(api),
+      socketProvider.overrideWithValue(socket),
+    ],
+    child: const BestieWindowsApp(),
+  ));
 }
 
-class BestieWindowsApp extends StatelessWidget {
-  final BestieAuthStore auth;
-  const BestieWindowsApp({super.key, required this.auth});
+class BestieWindowsApp extends ConsumerWidget {
+  const BestieWindowsApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final user = ref.watch(authStoreProvider).user;
+    final mode = ref.watch(themeModeProvider);
     return MaterialApp(
-      title: 'Bestie',
-      theme: BestieTheme.light(),
+      title: 'Bestie · Windows',
       debugShowCheckedModeBanner: false,
-      home: const _Shell(),
+      theme: BestieTheme.light(),
+      themeMode: switch (mode) {
+        ThemeMode.light  => ThemeMode.light,
+        ThemeMode.dark   => ThemeMode.dark,
+        ThemeMode.system => ThemeMode.system,
+      },
+      home: user == null ? const LoginScreen() : const DesktopShell(),
     );
   }
 }
 
-class _Shell extends StatefulWidget {
-  const _Shell();
+/// Desktop shell: persistent sidebar + content area. Routes are tracked in
+/// local state — deep-linking on desktop isn't a strong requirement yet.
+/// All feature screens are reused from `package:bestie_mobile/screens.dart`.
+class DesktopShell extends ConsumerStatefulWidget {
+  const DesktopShell({super.key});
   @override
-  State<_Shell> createState() => _ShellState();
+  ConsumerState<DesktopShell> createState() => _DesktopShellState();
 }
 
-class _ShellState extends State<_Shell> {
+class _DesktopShellState extends ConsumerState<DesktopShell> {
   String _route = '/dashboard';
+
   static const _items = [
-    BestieSidebarItem(icon: Icons.dashboard_outlined, label: 'Dashboard', route: '/dashboard'),
-    BestieSidebarItem(icon: Icons.chat_bubble_outline, label: 'Chat', route: '/chat'),
-    BestieSidebarItem(icon: Icons.view_kanban_outlined, label: 'Tasks', route: '/tasks'),
-    BestieSidebarItem(icon: Icons.call_outlined, label: 'Calls', route: '/calls'),
-    BestieSidebarItem(icon: Icons.headset_mic_outlined, label: 'Telecaller', route: '/telecaller'),
-    BestieSidebarItem(icon: Icons.people_outline, label: 'Employees', route: '/employees'),
-    BestieSidebarItem(icon: Icons.manage_accounts_outlined, label: 'Clients', route: '/clients'),
+    BestieSidebarItem(icon: Icons.dashboard_outlined,     label: 'Dashboard',     route: '/dashboard'),
+    BestieSidebarItem(icon: Icons.chat_bubble_outline,    label: 'Chat',          route: '/chat'),
+    BestieSidebarItem(icon: Icons.view_kanban_outlined,   label: 'Tasks',         route: '/tasks'),
+    BestieSidebarItem(icon: Icons.videocam_outlined,      label: 'Meetings',      route: '/meetings'),
+    BestieSidebarItem(icon: Icons.notifications_outlined, label: 'Notifications', route: '/notifications'),
+    BestieSidebarItem(icon: Icons.person_outline,         label: 'Profile',       route: '/profile'),
   ];
+
+  Widget _content() {
+    switch (_route) {
+      case '/dashboard':     return const DashboardScreen();
+      case '/chat':          return const ChatListScreen();
+      case '/tasks':         return const TasksScreen();
+      case '/meetings':      return const MeetingsScreen();
+      case '/notifications': return const NotificationsScreen();
+      case '/profile':       return const ProfileScreen();
+      default:               return const DashboardScreen();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final user = ref.watch(authStoreProvider).user;
     return Scaffold(
-      body: Row(
-        children: [
-          BestieSidebar(
-            items: _items,
-            activeRoute: _route,
-            onSelect: (r) => setState(() => _route = r),
-          ),
-          Expanded(
-            child: Container(
-              color: BestieTokens.cBg,
-              padding: const EdgeInsets.all(BestieTokens.s5),
-              child: Center(
-                child: Text('Desktop · $_route',
-                    style: const TextStyle(color: BestieTokens.cTextMuted)),
-              ),
+      body: Row(children: [
+        BestieSidebar(
+          items: _items,
+          activeRoute: _route,
+          onSelect: (r) => setState(() => _route = r),
+          footer: user == null
+              ? null
+              : Padding(
+                  padding: const EdgeInsets.all(10),
+                  child: Row(children: [
+                    BestieAvatar(name: user.name, imageUrl: user.avatarUrl, isClient: user.isClient, size: 32),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          BestieUserName(name: user.name, isClient: user.isClient,
+                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                          Text(
+                            user.isClient ? (user.clientCompany ?? 'Client') : user.role.replaceAll('_', ' '),
+                            style: const TextStyle(color: BestieTokens.cTextMuted, fontSize: 11),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ]),
+                ),
+        ),
+        Expanded(
+          child: Container(
+            color: BestieTokens.cBg,
+            child: AnimatedSwitcher(
+              duration: BestieMotion.base,
+              child: KeyedSubtree(key: ValueKey(_route), child: _content()),
             ),
           ),
-        ],
-      ),
+        ),
+      ]),
     );
   }
 }

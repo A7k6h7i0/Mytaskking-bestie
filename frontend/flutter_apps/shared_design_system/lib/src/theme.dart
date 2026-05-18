@@ -21,7 +21,7 @@ class BestieTheme {
         error: BestieTokens.cDanger,
       ),
       textTheme: text,
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: BestieTokens.cSurface,
         elevation: 0,
         shape: RoundedRectangleBorder(

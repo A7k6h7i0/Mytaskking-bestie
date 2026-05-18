@@ -1,0 +1,38 @@
+.cd__title {
+  display: inline-flex; align-items: center; gap: 10px;
+  font-size: var(--fs-lg); font-weight: 700;
+}
+.cd__icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px;
+  border-radius: 10px;
+  background: var(--c-client-soft);
+  color: var(--c-client);
+}
+.cd__title--warning .cd__icon { background: #fdf1d6; color: #b6791f; }
+.cd__title--info    .cd__icon { background: var(--c-brand-soft); color: var(--c-brand-strong); }
+
+.cd__type-to-confirm { margin-top: var(--s-3); }
+.cd__type-to-confirm label {
+  display: flex; flex-direction: column; gap: 6px;
+  font-size: var(--fs-sm); color: var(--c-text-soft);
+}
+.cd__type-to-confirm code {
+  font-family: var(--font-mono);
+  background: var(--c-surface-2);
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: var(--c-text);
+}
+.cd__type-to-confirm input {
+  height: 38px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  padding: 0 12px;
+  font: inherit;
+  outline: none;
+}
+.cd__type-to-confirm input.is-match {
+  border-color: var(--c-success);
+  box-shadow: 0 0 0 3px rgba(16,185,129,0.12);
+}

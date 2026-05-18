@@ -1,0 +1,71 @@
+.td { display: flex; flex-direction: column; gap: var(--s-4); }
+.td__loading { padding: var(--s-5); color: var(--c-text-muted); }
+
+.td__meta {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+}
+.td__due {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--c-text-soft); font-size: var(--fs-sm);
+}
+.td__due-rel { color: var(--c-text-muted); font-size: var(--fs-xs); }
+
+.td__desc {
+  color: var(--c-text-soft);
+  white-space: pre-wrap;
+  margin: 0;
+  background: var(--c-surface-1);
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--c-border);
+  font-size: var(--fs-sm);
+}
+
+.td__section h4 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--c-text-muted);
+  font-weight: 700;
+}
+.td__hint { color: var(--c-text-muted); font-size: var(--fs-sm); }
+
+.td__person {
+  display: inline-flex; align-items: center; gap: 8px;
+}
+
+.td__assignees { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.td__assignee {
+  display: grid;
+  grid-template-columns: 32px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 10px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+}
+.td__assignee--completed { border-left: 3px solid var(--c-success); }
+.td__assignee--accepted  { border-left: 3px solid var(--c-brand); }
+.td__assignee--pending   { border-left: 3px solid var(--c-warning); }
+.td__assignee--declined  { border-left: 3px solid var(--c-danger); opacity: 0.7; }
+
+.td__assignee-name { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.td__assignee-meta { color: var(--c-text-muted); font-size: var(--fs-xs); margin-top: 2px; }
+
+.td__celebrate {
+  display: flex; align-items: center; gap: 12px;
+  padding: var(--s-3);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--c-success) 12%, transparent), transparent);
+  border: 1px solid color-mix(in srgb, var(--c-success) 30%, transparent);
+  border-radius: var(--r-md);
+}
+.td__celebrate strong { font-size: var(--fs-md); }
+.td__celebrate p { margin: 2px 0 0; color: var(--c-text-muted); font-size: var(--fs-xs); }
+
+.td__footer-note {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--c-text-muted); font-size: var(--fs-xs); margin-right: auto;
+}
+.td__footer-note--success { color: var(--c-success); font-weight: 600; }

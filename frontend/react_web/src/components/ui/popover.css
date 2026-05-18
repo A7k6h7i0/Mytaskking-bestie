@@ -1,0 +1,16 @@
+.pv-wrap { position: relative; display: inline-flex; }
+.pv {
+  position: absolute;
+  z-index: 250;
+  min-width: 200px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-pop);
+  padding: 6px;
+  transform-origin: top left;
+}
+.pv--bottom-start { top: calc(100% + 6px); left: 0; }
+.pv--bottom-end   { top: calc(100% + 6px); right: 0; transform-origin: top right; }
+.pv--top-start    { bottom: calc(100% + 6px); left: 0; transform-origin: bottom left; }
+.pv--top-end      { bottom: calc(100% + 6px); right: 0; transform-origin: bottom right; }

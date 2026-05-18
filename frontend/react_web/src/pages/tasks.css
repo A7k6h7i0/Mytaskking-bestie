@@ -47,3 +47,95 @@
 .tk__due { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-xs); color: var(--c-text-muted); }
 
 .tk__byline { margin-top: 6px; font-size: var(--fs-xs); }
+
+/* ---- new-task modal form ---- */
+.tk__form { display: flex; flex-direction: column; gap: var(--s-3); }
+
+.tk__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tk__field > span,
+.tk__field-label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--c-text-soft);
+}
+
+.tk__field textarea,
+.tk__field select {
+  font: inherit;
+  color: var(--c-text);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  padding: 8px 12px;
+  outline: none;
+  resize: vertical;
+}
+.tk__field textarea:focus,
+.tk__field select:focus { border-color: var(--c-brand); box-shadow: 0 0 0 3px var(--c-brand-soft); }
+
+.tk__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: var(--s-2);
+}
+@media (max-width: 600px) {
+  .tk__row { grid-template-columns: 1fr; }
+}
+
+.tk__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tk__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 4px;
+  border-radius: var(--r-pill);
+  background: var(--c-brand-soft);
+  color: var(--c-brand-strong);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+.tk__chip:hover { background: var(--c-client-soft); color: var(--c-client); }
+
+.tk__people {
+  display: flex;
+  flex-direction: column;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  background: var(--c-surface-1);
+}
+.tk__person {
+  display: grid;
+  grid-template-columns: 26px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--c-border);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.tk__person:last-child { border-bottom: 0; }
+.tk__person:hover { background: var(--c-surface-2); }
+.tk__person > div { display: flex; flex-direction: column; }
+.tk__person-meta { font-size: var(--fs-xs); color: var(--c-text-muted); font-family: var(--font-mono); }
+
+.tk__hint { padding: 12px; color: var(--c-text-muted); font-size: var(--fs-sm); text-align: center; }
+
+/* ---- card-level assignment state ---- */
+.tk__card-state { margin: 4px 0 0; }
+.tk__card { cursor: pointer; }
+
+.tk__card--pending   { background: linear-gradient(0deg, color-mix(in srgb, var(--c-warning) 4%, transparent), transparent); }
+.tk__card--accepted  { background: linear-gradient(0deg, color-mix(in srgb, var(--c-brand)   4%, transparent), transparent); }
+.tk__card--completed { background: linear-gradient(0deg, color-mix(in srgb, var(--c-success) 6%, transparent), transparent); }
+.tk__card--declined  { opacity: 0.7; }

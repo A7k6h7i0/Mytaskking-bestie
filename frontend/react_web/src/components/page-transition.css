@@ -1,0 +1,4 @@
+.pt { height: 100%; }
+.pt--fade  { animation: m-fade-up   var(--dur-slow) var(--ease) both; }
+.pt--slide { animation: m-slide-up  var(--dur)      var(--ease) both; }
+.pt--scale { animation: m-scale-in  var(--dur)      var(--ease) both; }

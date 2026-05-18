@@ -1,0 +1,25 @@
+.riv {
+  position: relative;
+  display: inline-block;
+  overflow: hidden;
+  border-radius: var(--r-md);
+}
+.riv__canvas { width: 100%; height: 100%; display: block; }
+
+.riv__fallback {
+  position: relative;
+  width: 100%; height: 100%;
+  background: radial-gradient(120% 80% at 30% 20%, var(--c-brand-soft) 0%, var(--c-surface-1) 70%);
+  overflow: hidden;
+}
+.riv__blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(20px);
+  opacity: 0.75;
+}
+.riv__blob--1 { width: 60%; height: 60%; background: var(--c-brand); top: -20%; right: -10%; }
+.riv__blob--2 { width: 50%; height: 50%; background: var(--c-accent); bottom: -15%; left: -10%; opacity: 0.55; }
+.riv__blob--3 { width: 30%; height: 30%; background: white; top: 35%; left: 35%; opacity: 0.35; }
+
+.riv[data-playing="false"] .riv__canvas { animation-play-state: paused; }

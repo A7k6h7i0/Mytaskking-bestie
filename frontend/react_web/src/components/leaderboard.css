@@ -1,0 +1,90 @@
+.lb {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  padding: var(--s-4);
+}
+
+.lb__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--s-2);
+  margin-bottom: var(--s-3);
+  flex-wrap: wrap;
+}
+.lb__head h3 {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.lb__head p { margin: 4px 0 0; color: var(--c-text-muted); font-size: var(--fs-xs); }
+
+.lb__list { display: flex; flex-direction: column; gap: 6px; }
+
+.lb__row {
+  display: grid;
+  grid-template-columns: 32px 40px 1fr auto 56px;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: var(--c-surface-1);
+  transition: background var(--dur-fast) var(--ease), transform var(--dur) var(--ease);
+}
+.lb__row:hover { background: var(--c-surface-2); }
+.lb__row--rank-1 {
+  background: linear-gradient(90deg,
+    color-mix(in srgb, #facc15 18%, transparent),
+    color-mix(in srgb, #facc15 4%, var(--c-surface-1))
+  );
+}
+.lb__row--rank-2 {
+  background: linear-gradient(90deg,
+    color-mix(in srgb, #cbd5e1 28%, transparent),
+    color-mix(in srgb, #cbd5e1 6%, var(--c-surface-1))
+  );
+}
+.lb__row--rank-3 {
+  background: linear-gradient(90deg,
+    color-mix(in srgb, #d97706 18%, transparent),
+    color-mix(in srgb, #d97706 4%, var(--c-surface-1))
+  );
+}
+
+.lb__rank { display: flex; align-items: center; justify-content: center; }
+.lb__rank-num { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--c-text-muted); font-weight: 600; }
+.lb__medal {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 800; color: rgba(0,0,0,0.7);
+  box-shadow: var(--sh-2);
+}
+
+.lb__person { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lb__name { font-weight: 700; font-size: var(--fs-sm); }
+.lb__meta {
+  display: flex; gap: 6px; flex-wrap: wrap;
+  font-size: var(--fs-xs); color: var(--c-text-muted);
+}
+.lb__streak {
+  display: inline-flex; align-items: center; gap: 3px;
+  color: #b45309; font-weight: 700;
+}
+
+.lb__score { font-size: 16px; font-weight: 700; line-height: 1; }
+.lb__suffix { font-size: 9px; color: var(--c-text-muted); }
+
+.lb__empty {
+  padding: var(--s-5);
+  text-align: center;
+  color: var(--c-text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+}

@@ -20,7 +20,7 @@ ios/Pods/
 **/*.iml
 *.lock
 backend/uploads/
-
+.claude/
 admin-dist/
 frontend/react_web/tsconfig.tsbuildinfo
 admin.mytaskking.com.conf.pending

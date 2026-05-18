@@ -1,0 +1,20 @@
+.kb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--c-text-soft);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  line-height: 1;
+  box-shadow: 0 1px 0 var(--c-border);
+  min-width: 1.6em;
+  text-align: center;
+}
+.kb--sm { font-size: 10px; padding: 3px 6px; }
+.kb--md { font-size: 12px; padding: 4px 8px; }
+
+.kb-combo { display: inline-flex; gap: 3px; align-items: center; }

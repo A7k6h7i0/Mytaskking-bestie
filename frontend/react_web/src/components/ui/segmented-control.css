@@ -1,0 +1,24 @@
+.sc {
+  display: inline-flex;
+  background: var(--c-surface-2);
+  border-radius: var(--r-pill);
+  padding: 2px;
+  gap: 2px;
+}
+.sc__opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--r-pill);
+  color: var(--c-text-muted);
+  font-weight: 600;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.sc--sm .sc__opt { padding: 4px 10px; font-size: 12px; }
+.sc--md .sc__opt { padding: 6px 14px; font-size: 13px; }
+.sc__opt:hover { color: var(--c-text); }
+.sc__opt.is-active {
+  background: var(--c-surface);
+  color: var(--c-text);
+  box-shadow: var(--sh-1);
+}

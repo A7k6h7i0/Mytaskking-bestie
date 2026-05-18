@@ -4,6 +4,7 @@ import { api } from '@/services/api';
 import { Avatar } from '@/components/ui/Avatar';
 import { UserName } from '@/components/ui/UserName';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { Leaderboard } from '@/components/Leaderboard';
 import './analytics.css';
 
 export default function AnalyticsPage() {
@@ -39,6 +40,8 @@ export default function AnalyticsPage() {
         <Kpi icon={Phone} label="Voice calls" value={workspace.data?.calls} color="info" />
         <Kpi icon={KanbanSquare} label="Tasks overdue" value={tasks.data?.overdue} color="warning" />
       </div>
+
+      <Leaderboard />
 
       <section className="an__section">
         <header><h3><TrendingUp size={16}/> Top contributors — tasks completed</h3></header>
