@@ -1,7 +1,7 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, MessageSquare, KanbanSquare, Users, UserCog, Phone, Headphones, Settings, LogOut, Hash,
-  Activity, Calendar, Bookmark, Search, BarChart3, ShieldCheck, Zap, Video, Flag, KeyRound, type LucideIcon,
+  Activity, Calendar, Bookmark, Search, BarChart3, ShieldCheck, Zap, Video, Flag, KeyRound, Radio, PhoneIncoming, type LucideIcon,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuthStore } from '@/store/auth';
@@ -112,6 +112,9 @@ export default function WorkspaceLayout() {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }));
   }
 
+  const callerName = pendingCall?.call?.initiator?.name || 'A teammate';
+  const callModeLabel = pendingCall?.call?.kind === 'GROUP' ? 'Group Agora room' : 'Direct Agora call';
+
   return (
     <div className="ws">
       <aside className="ws__sidebar">
@@ -151,6 +154,26 @@ export default function WorkspaceLayout() {
       </aside>
 
       <main className="ws__main">
+        {pendingCall?.call && (
+          <div className="ws__incoming-modal" role="dialog" aria-modal="true" aria-label="Incoming call">
+            <div className="ws__incoming-card">
+              <div className="ws__incoming-badge"><Radio size={14} /> Powered by Agora</div>
+              <div className="ws__incoming-avatar">
+                <Avatar name={callerName} src={pendingCall.call.initiator?.avatarUrl} isClient={false} size={64} />
+              </div>
+              <h2>{callerName} is calling</h2>
+              <p>{callModeLabel} · Answer to jump straight into the live browser room.</p>
+              <div className="ws__incoming-meta">
+                <span><PhoneIncoming size={14} /> Incoming now</span>
+                <span><ShieldCheck size={14} /> Secure team session</span>
+              </div>
+              <div className="ws__incoming-modal-actions">
+                <button className="bb bb--ghost bb--md" onClick={declinePendingCall}>Decline</button>
+                <button className="bb bb--primary bb--md" onClick={answerPendingCall}>Answer on Agora</button>
+              </div>
+            </div>
+          </div>
+        )}
         <header className="ws__topbar">
           <div className="ws__topbar-title" />
           <div className="ws__topbar-actions">
@@ -166,8 +189,8 @@ export default function WorkspaceLayout() {
           {pendingCall?.call && (
             <div className="ws__incoming-call">
               <div className="ws__incoming-copy">
-                <strong>Incoming Agora call from {pendingCall.call.initiator?.name || 'A teammate'}</strong>
-                <span>{pendingCall.call.kind === 'GROUP' ? 'Group voice room' : 'Direct voice call'} · Answer to join the browser audio room.</span>
+                <strong>Incoming Agora call from {callerName}</strong>
+                <span>{callModeLabel} · Answer to join the live browser room.</span>
               </div>
               <div className="ws__incoming-actions">
                 <button className="bb bb--primary bb--sm" onClick={answerPendingCall}>Answer</button>
