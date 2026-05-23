@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Video, Phone, Plus, ExternalLink, Square } from 'lucide-react';
+import { Video, Phone, Plus, ExternalLink, Link2, Copy, Square } from 'lucide-react';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { api } from '@/services/api';
@@ -22,6 +22,7 @@ type Meeting = {
   scheduledAt: string | null;
   endedAt: string | null;
   createdAt: string;
+  shareUrl: string;
 };
 
 export default function MeetingsPage() {
@@ -52,16 +53,12 @@ export default function MeetingsPage() {
   });
 
   async function join(m: Meeting) {
-    // Fetch an Agora token; the actual SDK setup lives in the call screen.
-    // For the web today we link to a deep-link the Flutter desktop apps will
-    // also honor (`bestie://meet/<slug>`). The web stub navigates to a placeholder.
-    try {
-      const { data: token } = await api.post(`/meetings/${m.slug}/token`);
-      toast.success(`Joining ${m.name}`, `Token expires in ${Math.round((token.expiresAt - Date.now()) / 60000)}m`);
-      // Real impl: open <CallScreen channelName={token.channelName} token={token.token} mode={m.mode} />
-    } catch {
-      toast.error('Could not get a meeting token', 'You may not be on the invite list.');
-    }
+    window.open(`/meetings/join/${m.slug}`, '_blank', 'noopener,noreferrer');
+  }
+
+  async function copyLink(url: string) {
+    await navigator.clipboard.writeText(url);
+    toast.success('Meeting link copied');
   }
 
   return (
@@ -110,6 +107,13 @@ export default function MeetingsPage() {
                 ? `Scheduled ${dayjs(m.scheduledAt).format('MMM D, HH:mm')}`
                 : `Created ${dayjs(m.createdAt).fromNow()}`}
             </p>
+            <div className="mt__card-link">
+              <Link2 size={14} />
+              <span>{m.shareUrl}</span>
+              <button type="button" onClick={() => copyLink(m.shareUrl)}>
+                <Copy size={14} /> Copy
+              </button>
+            </div>
             <footer>
               <Button size="sm" onClick={() => join(m)}>
                 <ExternalLink size={14}/> Join

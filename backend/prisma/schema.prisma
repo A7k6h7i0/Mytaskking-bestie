@@ -17,6 +17,8 @@ datasource db {
 enum Role {
   SUPER_ADMIN
   ADMIN
+  MANAGER
+  PROJECT_COORDINATOR_MANAGER
   EMPLOYEE
   TELECALLER
   CLIENT
@@ -33,6 +35,7 @@ model User {
   userId          String     @unique                       // login id assigned by admin
   passwordHash    String
   role            Role
+  customTitle     String?
   status          UserStatus @default(ACTIVE)
   name            String
   email           String?
@@ -51,6 +54,8 @@ model User {
   createdById     String?
   createdBy       User?      @relation("UserCreatedBy", fields: [createdById], references: [id])
   createdUsers    User[]     @relation("UserCreatedBy")
+  supervisors     UserSupervisor[] @relation("UserSupervisors")
+  managesUsers    UserSupervisor[] @relation("SupervisorUsers")
 
   refreshTokens   RefreshToken[]
   channelMembers  ChannelMember[]
@@ -84,6 +89,19 @@ model User {
   @@index([status])
   @@index([isClient])
   @@index([tenantId])
+}
+
+model UserSupervisor {
+  id            String   @id @default(cuid())
+  user          User     @relation("UserSupervisors", fields: [userId], references: [id], onDelete: Cascade)
+  userId        String
+  supervisor    User     @relation("SupervisorUsers", fields: [supervisorId], references: [id], onDelete: Cascade)
+  supervisorId  String
+  createdAt     DateTime @default(now())
+
+  @@unique([userId, supervisorId])
+  @@index([userId])
+  @@index([supervisorId])
 }
 
 model RefreshToken {

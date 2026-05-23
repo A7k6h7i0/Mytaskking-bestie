@@ -10,7 +10,7 @@ const audit = require('../../services/audit');
 
 const router = Router();
 
-const EmployeeRole = Joi.string().valid('ADMIN', 'EMPLOYEE', 'TELECALLER');
+const EmployeeRole = Joi.string().valid('ADMIN', 'MANAGER', 'PROJECT_COORDINATOR_MANAGER', 'EMPLOYEE', 'TELECALLER');
 
 router.use(requireAuth);
 
@@ -46,10 +46,12 @@ router.post(
       password: Joi.string().min(8).max(200).required(),
       name: Joi.string().min(1).max(120).required(),
       role: EmployeeRole.required(),
+      customTitle: Joi.string().max(120).allow('', null),
       email: Joi.string().email().allow('', null),
       phone: Joi.string().allow('', null),
       avatarUrl: Joi.string().uri().allow('', null),
       departmentId: Joi.string().allow('', null),
+      supervisorIds: Joi.array().items(Joi.string()).default([]),
     }),
   }),
   asyncHandler(async (req, res) => {
@@ -66,12 +68,14 @@ router.patch(
     body: Joi.object({
       name: Joi.string().min(1).max(120),
       role: EmployeeRole,
+      customTitle: Joi.string().max(120).allow('', null),
       email: Joi.string().email().allow('', null),
       phone: Joi.string().allow('', null),
       avatarUrl: Joi.string().uri().allow('', null),
       departmentId: Joi.string().allow('', null),
       password: Joi.string().min(8).max(200),
       status: Joi.string().valid('ACTIVE', 'SUSPENDED'),
+      supervisorIds: Joi.array().items(Joi.string()),
     }),
   }),
   asyncHandler(async (req, res) => res.json(await service.update(req.params.id, req.body)))

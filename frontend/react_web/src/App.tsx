@@ -18,6 +18,7 @@ import SavedPage from '@/pages/SavedPage';
 import SessionsPage from '@/pages/SessionsPage';
 import AnalyticsPage from '@/pages/AnalyticsPage';
 import MeetingsPage from '@/pages/MeetingsPage';
+import MeetingJoinPage from '@/pages/MeetingJoinPage';
 import FlagsPage from '@/pages/FlagsPage';
 import PermissionsPage from '@/pages/PermissionsPage';
 import { ToastHost } from '@/components/Toast';
@@ -42,6 +43,7 @@ export default function App() {
     <>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/meetings/join/:slug" element={<MeetingJoinPage />} />
 
         <Route element={<RequireAuth><WorkspaceLayout /></RequireAuth>}>
           <Route index element={<Navigate to="/dashboard" replace />} />
@@ -78,7 +80,7 @@ export default function App() {
           />
           <Route
             path="/employees"
-            element={<RoleGate allow={['SUPER_ADMIN', 'ADMIN', 'EMPLOYEE', 'TELECALLER']}><EmployeesPage /></RoleGate>}
+            element={<RoleGate allow={['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'PROJECT_COORDINATOR_MANAGER', 'EMPLOYEE', 'TELECALLER']}><EmployeesPage /></RoleGate>}
           />
           <Route
             path="/clients"

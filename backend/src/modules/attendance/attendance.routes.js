@@ -12,7 +12,13 @@ const router = Router();
 router.use(requireAuth, requireInternal);
 
 const DEFAULT_TIMEZONE = process.env.WORKDAY_TIMEZONE || 'Asia/Kolkata';
-const MIN_REQUIRED_WORDS = 100;
+const DEFAULT_CONFIG = {
+  minRequiredWords: 100,
+  checkInHour: 9,
+  lunchStartHour: 13,
+  lunchEndHour: 14,
+  checkOutHour: 18,
+};
 
 function normalizeTimezone(value) {
   const candidate = String(value || DEFAULT_TIMEZONE).trim() || DEFAULT_TIMEZONE;
@@ -61,13 +67,32 @@ function parseWordCount(text) {
 
 function ensureMinimumWords(text, label) {
   const count = parseWordCount(text);
-  if (count < MIN_REQUIRED_WORDS) {
-    throw BadRequest(`${label} must be at least ${MIN_REQUIRED_WORDS} words`, {
+  return count;
+}
+
+function ensureMinimumWordsWithConfig(text, label, minRequiredWords) {
+  const count = parseWordCount(text);
+  if (count < minRequiredWords) {
+    throw BadRequest(`${label} must be at least ${minRequiredWords} words`, {
       words: count,
-      required: MIN_REQUIRED_WORDS,
+      required: minRequiredWords,
     });
   }
   return count;
+}
+
+async function getAttendanceConfig() {
+  const rows = await prisma.workspaceSetting.findMany({
+    where: { scope: 'attendance' },
+  });
+  const map = Object.fromEntries(rows.map((row) => [row.key, row.value]));
+  return {
+    minRequiredWords: Number(map.minRequiredWords ?? DEFAULT_CONFIG.minRequiredWords),
+    checkInHour: Number(map.checkInHour ?? DEFAULT_CONFIG.checkInHour),
+    lunchStartHour: Number(map.lunchStartHour ?? DEFAULT_CONFIG.lunchStartHour),
+    lunchEndHour: Number(map.lunchEndHour ?? DEFAULT_CONFIG.lunchEndHour),
+    checkOutHour: Number(map.checkOutHour ?? DEFAULT_CONFIG.checkOutHour),
+  };
 }
 
 function serializeEntry(entry) {
@@ -120,13 +145,16 @@ router.get(
   validate({ query: Joi.object({ timezone: Joi.string().allow('', null) }) }),
   asyncHandler(async (req, res) => {
     const timezone = normalizeTimezone(req.query.timezone);
+    const config = await getAttendanceConfig();
     const { entry, local } = await getOrCreateTodayLog(req.user.id, timezone);
     res.json({
       timezone,
       today: local.dateKey,
-      opensAt: { hour: 9, minute: 0 },
+      opensAt: { hour: config.checkInHour, minute: 0 },
+      lunchWindow: { startHour: config.lunchStartHour, endHour: config.lunchEndHour },
+      checkOutAt: { hour: config.checkOutHour, minute: 0 },
       currentLocalTime: `${String(local.hour).padStart(2, '0')}:${String(local.minute).padStart(2, '0')}`,
-      minRequiredWords: MIN_REQUIRED_WORDS,
+      minRequiredWords: config.minRequiredWords,
       entry: serializeEntry(entry),
     });
   })
@@ -154,7 +182,7 @@ router.get(
       timezone,
       from: fromDate,
       to: toDate,
-      minRequiredWords: MIN_REQUIRED_WORDS,
+      minRequiredWords: (await getAttendanceConfig()).minRequiredWords,
       items: items.map(serializeEntry),
     });
   })
@@ -165,11 +193,12 @@ router.post(
   validate({ body: Joi.object({ plan: Joi.string().min(1).max(10000).required(), timezone: Joi.string().allow('', null) }) }),
   asyncHandler(async (req, res) => {
     const timezone = normalizeTimezone(req.body.timezone);
-    const wordCount = ensureMinimumWords(req.body.plan, 'Daily plan');
+    const config = await getAttendanceConfig();
+    const wordCount = ensureMinimumWordsWithConfig(req.body.plan, 'Daily plan', config.minRequiredWords);
     const { entry, local, now } = await getOrCreateTodayLog(req.user.id, timezone);
 
-    if (local.hour < 9) {
-      throw BadRequest('Check-in opens at 9:00 AM', { timezone, currentHour: local.hour });
+    if (local.hour < config.checkInHour) {
+      throw BadRequest(`Check-in opens at ${String(config.checkInHour).padStart(2, '0')}:00`, { timezone, currentHour: local.hour });
     }
     if (entry.checkInAt) throw Conflict('You have already checked in for today');
 
@@ -192,10 +221,18 @@ router.post(
   validate({ body: Joi.object({ note: Joi.string().allow('', null).max(5000), timezone: Joi.string().allow('', null) }) }),
   asyncHandler(async (req, res) => {
     const timezone = normalizeTimezone(req.body.timezone);
+    const config = await getAttendanceConfig();
     const { entry, now } = await getOrCreateTodayLog(req.user.id, timezone);
+    const local = localParts(now, timezone);
 
     if (!entry.checkInAt) throw BadRequest('Check in first before using lunch toggle');
     if (entry.checkOutAt) throw Conflict('You have already checked out for today');
+    if (!entry.lunchStartedAt && local.hour < config.lunchStartHour) {
+      throw BadRequest(`Lunch break opens at ${String(config.lunchStartHour).padStart(2, '0')}:00`);
+    }
+    if (entry.lunchStartedAt && !entry.lunchEndedAt && local.hour < config.lunchEndHour) {
+      throw BadRequest(`Lunch break can be ended after ${String(config.lunchEndHour).padStart(2, '0')}:00`);
+    }
 
     const data = entry.lunchStartedAt && !entry.lunchEndedAt
       ? { lunchEndedAt: now, lunchNote: req.body.note ? String(req.body.note).trim() : entry.lunchNote }
@@ -211,11 +248,16 @@ router.post(
   validate({ body: Joi.object({ report: Joi.string().min(1).max(10000).required(), timezone: Joi.string().allow('', null) }) }),
   asyncHandler(async (req, res) => {
     const timezone = normalizeTimezone(req.body.timezone);
-    const wordCount = ensureMinimumWords(req.body.report, 'Logout report');
+    const config = await getAttendanceConfig();
+    const wordCount = ensureMinimumWordsWithConfig(req.body.report, 'Logout report', config.minRequiredWords);
     const { entry, now } = await getOrCreateTodayLog(req.user.id, timezone);
+    const local = localParts(now, timezone);
 
     if (!entry.checkInAt) throw BadRequest('Check in first before checking out');
     if (entry.checkOutAt) throw Conflict('You have already checked out for today');
+    if (local.hour < config.checkOutHour) {
+      throw BadRequest(`Logout report opens at ${String(config.checkOutHour).padStart(2, '0')}:00`);
+    }
 
     const updated = await prisma.workdayLog.update({
       where: { id: entry.id },

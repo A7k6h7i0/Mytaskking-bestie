@@ -48,7 +48,7 @@ function requireRole(...roles) {
 
 const requireAdmin = requireRole('SUPER_ADMIN', 'ADMIN');
 const requireSuperAdmin = requireRole('SUPER_ADMIN');
-const requireInternal = requireRole('SUPER_ADMIN', 'ADMIN', 'EMPLOYEE', 'TELECALLER');
+const requireInternal = requireRole('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'PROJECT_COORDINATOR_MANAGER', 'EMPLOYEE', 'TELECALLER');
 
 module.exports = {
   requireAuth,

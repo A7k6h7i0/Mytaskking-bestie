@@ -37,6 +37,8 @@ type AttendanceToday = {
   timezone: string;
   today: string;
   opensAt: { hour: number; minute: number };
+  lunchWindow: { startHour: number; endHour: number };
+  checkOutAt: { hour: number; minute: number };
   currentLocalTime: string;
   minRequiredWords: number;
   entry: WorkdayEntry | null;
@@ -131,6 +133,7 @@ export default function CalendarPage() {
   }, [attendanceWeek.data?.items]);
   const todayEntry = attendanceToday.data?.entry;
   const currentTimeText = attendanceToday.data?.currentLocalTime || '--:--';
+  const minRequiredWords = attendanceToday.data?.minRequiredWords || MIN_REQUIRED_WORDS;
   const checkInWords = countWords(checkInPlan);
   const checkOutWords = countWords(checkOutReport);
   const recognitionApi = typeof window !== 'undefined' ? ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition) : null;
@@ -245,17 +248,17 @@ export default function CalendarPage() {
             <textarea
               className="cal__textarea"
               rows={5}
-              placeholder="Write at least 100 words about what you are going to do today."
+              placeholder={`Write at least ${minRequiredWords} words about what you are going to do today.`}
               value={checkInPlan}
               onChange={(e) => setCheckInPlan(e.target.value)}
               disabled={!!todayEntry?.checkInAt}
             />
             <div className="cal__word-row">
-              <span>{checkInWords} / {MIN_REQUIRED_WORDS} words</span>
+              <span>{checkInWords} / {minRequiredWords} words</span>
               {todayEntry?.checkInAt && <span>Checked in at {formatTime(todayEntry.checkInAt)}</span>}
             </div>
             {renderSpeechTools('checkin', checkInPlan)}
-            <Button onClick={() => checkInMut.mutate()} loading={checkInMut.isPending} disabled={!!todayEntry?.checkInAt || checkInWords < MIN_REQUIRED_WORDS}>
+            <Button onClick={() => checkInMut.mutate()} loading={checkInMut.isPending} disabled={!!todayEntry?.checkInAt || checkInWords < minRequiredWords}>
               <LogIn size={16} /> Approve login
             </Button>
           </article>
@@ -272,7 +275,7 @@ export default function CalendarPage() {
             />
             {renderSpeechTools('lunch', lunchNote)}
             <div className="cal__word-row">
-              <span>{todayEntry?.lunchState === 'ON_BREAK' ? 'Lunch break is active' : todayEntry?.lunchState === 'COMPLETED' ? 'Lunch completed' : 'Lunch not started'}</span>
+              <span>{todayEntry?.lunchState === 'ON_BREAK' ? 'Lunch break is active' : todayEntry?.lunchState === 'COMPLETED' ? 'Lunch completed' : `Lunch window ${String(attendanceToday.data?.lunchWindow.startHour || 13).padStart(2, '0')}:00-${String(attendanceToday.data?.lunchWindow.endHour || 14).padStart(2, '0')}:00`}</span>
               <span>
                 {todayEntry?.lunchStartedAt ? `Start ${formatTime(todayEntry.lunchStartedAt)}` : '—'}
                 {todayEntry?.lunchEndedAt ? ` · End ${formatTime(todayEntry.lunchEndedAt)}` : ''}
@@ -288,17 +291,18 @@ export default function CalendarPage() {
             <textarea
               className="cal__textarea"
               rows={5}
-              placeholder="Write at least 100 words about what you finished today, blockers, and what moves forward next."
+              placeholder={`Write at least ${minRequiredWords} words about what you finished today, blockers, and what moves forward next.`}
               value={checkOutReport}
               onChange={(e) => setCheckOutReport(e.target.value)}
               disabled={!todayEntry?.checkInAt || !!todayEntry?.checkOutAt}
             />
             <div className="cal__word-row">
-              <span>{checkOutWords} / {MIN_REQUIRED_WORDS} words</span>
+              <span>{checkOutWords} / {minRequiredWords} words</span>
+              {!todayEntry?.checkOutAt && <span>Logout opens at {String(attendanceToday.data?.checkOutAt.hour || 18).padStart(2, '0')}:00</span>}
               {todayEntry?.checkOutAt && <span>Checked out at {formatTime(todayEntry.checkOutAt)}</span>}
             </div>
             {renderSpeechTools('checkout', checkOutReport)}
-            <Button onClick={() => checkOutMut.mutate()} loading={checkOutMut.isPending} disabled={!todayEntry?.checkInAt || !!todayEntry?.checkOutAt || checkOutWords < MIN_REQUIRED_WORDS}>
+            <Button onClick={() => checkOutMut.mutate()} loading={checkOutMut.isPending} disabled={!todayEntry?.checkInAt || !!todayEntry?.checkOutAt || checkOutWords < minRequiredWords}>
               <LogOut size={16} /> Submit logout report
             </Button>
           </article>

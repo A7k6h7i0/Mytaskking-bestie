@@ -18,7 +18,7 @@ export default function EmployeesPage() {
   const [showNew, setShowNew] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState('');
-  const [form, setForm] = useState({ userId: '', password: '', name: '', role: 'EMPLOYEE', email: '' });
+  const [form, setForm] = useState({ userId: '', password: '', name: '', role: 'EMPLOYEE', customTitle: '', email: '', supervisorIds: [] as string[] });
   const canCustomizeEmployeeName = user?.role === 'SUPER_ADMIN';
   const canManageEmployees = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
   const passwordTooShort = form.password.length > 0 && form.password.length < 8;
@@ -33,7 +33,7 @@ export default function EmployeesPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['employees'] });
       setShowNew(false);
-      setForm({ userId: '', password: '', name: '', role: 'EMPLOYEE', email: '' });
+      setForm({ userId: '', password: '', name: '', role: 'EMPLOYEE', customTitle: '', email: '', supervisorIds: [] });
       toast.success('Employee created');
     },
     onError: (err: any) => {
@@ -78,6 +78,15 @@ export default function EmployeesPage() {
 
   const items = useMemo(() => data?.items ?? [], [data?.items]);
 
+  function toggleSupervisor(id: string) {
+    setForm((current) => ({
+      ...current,
+      supervisorIds: current.supervisorIds.includes(id)
+        ? current.supervisorIds.filter((item) => item !== id)
+        : [...current.supervisorIds, id],
+    }));
+  }
+
   return (
     <div className="pp">
       <header className="pp__head">
@@ -93,15 +102,33 @@ export default function EmployeesPage() {
           <Input label="User ID" value={form.userId} onChange={(e) => setForm({ ...form, userId: e.target.value })} />
           <Input label="Password" type="password" hint={passwordTooShort ? 'Password must be at least 8 characters.' : 'Use at least 8 characters.'} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
           <Input label="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          <Input label="Custom title (optional)" hint="Examples: MD, Director, Chairman" value={form.customTitle} onChange={(e) => setForm({ ...form, customTitle: e.target.value })} />
           <Input label="Email (optional)" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
           <label className="pp__role">
             <span>Role</span>
             <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
               <option value="ADMIN">Admin</option>
+              <option value="MANAGER">Manager</option>
+              <option value="PROJECT_COORDINATOR_MANAGER">Project Coordinating Manager</option>
               <option value="EMPLOYEE">Employee</option>
               <option value="TELECALLER">Telecaller</option>
             </select>
           </label>
+          <div className="pp__supervisors">
+            <span>Supervisors for notifications</span>
+            <div className="pp__supervisor-list">
+              {items
+                .filter((entry) => entry.id !== form.userId && entry.status === 'ACTIVE')
+                .slice(0, 10)
+                .map((entry) => (
+                  <button type="button" key={entry.id} className={`pp__supervisor-chip ${form.supervisorIds.includes(entry.id) ? 'is-selected' : ''}`} onClick={() => toggleSupervisor(entry.id)}>
+                    <Avatar name={entry.name} src={entry.avatarUrl} size={18} />
+                    <span>{entry.name}</span>
+                  </button>
+                ))}
+              {!items.length && <span className="pp__supervisor-empty">Create or search employees first to map supervisors.</span>}
+            </div>
+          </div>
           <div className="pp__create-actions">
             <Button variant="ghost" onClick={() => setShowNew(false)}>Cancel</Button>
             <Button loading={createMut.isPending} disabled={!form.userId.trim() || !form.name.trim() || !form.password || passwordTooShort} onClick={() => createMut.mutate()}>Create</Button>
@@ -136,7 +163,7 @@ export default function EmployeesPage() {
                 )}
               </span>
               <span className="pp__mono">{u.userId}</span>
-              <span><span className="pp__chip">{u.role.replace('_', ' ')}</span></span>
+              <span><span className="pp__chip">{u.customTitle || u.role.replace(/_/g, ' ')}</span></span>
               <span className={`pp__status pp__status--${u.status.toLowerCase()}`}>{u.status}</span>
               <span className="pp__actions">
                 <Button

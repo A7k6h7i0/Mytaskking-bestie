@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -33,6 +33,34 @@ export default function SettingsPage() {
     messagesDays: settings?.retention?.messagesDays ?? 365,
     callRecordingsDays: settings?.retention?.callRecordingsDays ?? 180,
   });
+  const [attendance, setAttendance] = useState({
+    checkInHour: settings?.attendance?.checkInHour ?? 9,
+    lunchStartHour: settings?.attendance?.lunchStartHour ?? 13,
+    lunchEndHour: settings?.attendance?.lunchEndHour ?? 14,
+    checkOutHour: settings?.attendance?.checkOutHour ?? 18,
+    minRequiredWords: settings?.attendance?.minRequiredWords ?? 100,
+  });
+
+  useEffect(() => {
+    if (!settings) return;
+    setBranding({
+      name: settings?.branding?.name ?? 'Bestie',
+      tagline: settings?.branding?.tagline ?? 'Premium workspace · enterprise',
+      primaryColor: settings?.branding?.primaryColor ?? '#5b8cff',
+      logoUrl: settings?.branding?.logoUrl ?? '',
+    });
+    setRetention({
+      messagesDays: settings?.retention?.messagesDays ?? 365,
+      callRecordingsDays: settings?.retention?.callRecordingsDays ?? 180,
+    });
+    setAttendance({
+      checkInHour: settings?.attendance?.checkInHour ?? 9,
+      lunchStartHour: settings?.attendance?.lunchStartHour ?? 13,
+      lunchEndHour: settings?.attendance?.lunchEndHour ?? 14,
+      checkOutHour: settings?.attendance?.checkOutHour ?? 18,
+      minRequiredWords: settings?.attendance?.minRequiredWords ?? 100,
+    });
+  }, [settings]);
 
   const saveMut = useMutation({
     mutationFn: async ({ scope, key, value }: { scope: string; key: string; value: any }) =>
@@ -158,6 +186,31 @@ export default function SettingsPage() {
             }}
           >
             Save retention
+          </Button>
+        )}
+      </section>
+
+      <section className="st__section">
+        <h2>Attendance schedule</h2>
+        <p className="st__subtle">Admins can define when check-in, lunch, and logout reporting open for the team, plus the mandatory minimum word count.</p>
+        <div className="st__grid">
+          <Input label="Check-in hour" type="number" value={String(attendance.checkInHour)} onChange={(e) => setAttendance({ ...attendance, checkInHour: parseInt(e.target.value || '0', 10) })} />
+          <Input label="Lunch start hour" type="number" value={String(attendance.lunchStartHour)} onChange={(e) => setAttendance({ ...attendance, lunchStartHour: parseInt(e.target.value || '0', 10) })} />
+          <Input label="Lunch end hour" type="number" value={String(attendance.lunchEndHour)} onChange={(e) => setAttendance({ ...attendance, lunchEndHour: parseInt(e.target.value || '0', 10) })} />
+          <Input label="Logout hour" type="number" value={String(attendance.checkOutHour)} onChange={(e) => setAttendance({ ...attendance, checkOutHour: parseInt(e.target.value || '0', 10) })} />
+          <Input label="Minimum required words" type="number" value={String(attendance.minRequiredWords)} onChange={(e) => setAttendance({ ...attendance, minRequiredWords: parseInt(e.target.value || '0', 10) })} />
+        </div>
+        {isAdmin && (
+          <Button
+            onClick={() => {
+              saveMut.mutate({ scope: 'attendance', key: 'checkInHour', value: attendance.checkInHour });
+              saveMut.mutate({ scope: 'attendance', key: 'lunchStartHour', value: attendance.lunchStartHour });
+              saveMut.mutate({ scope: 'attendance', key: 'lunchEndHour', value: attendance.lunchEndHour });
+              saveMut.mutate({ scope: 'attendance', key: 'checkOutHour', value: attendance.checkOutHour });
+              saveMut.mutate({ scope: 'attendance', key: 'minRequiredWords', value: attendance.minRequiredWords });
+            }}
+          >
+            Save attendance schedule
           </Button>
         )}
       </section>

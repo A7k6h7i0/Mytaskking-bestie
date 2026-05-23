@@ -48,6 +48,8 @@ const NAV: NavItem[] = [
 const ALLOWED: Record<string, string[]> = {
   SUPER_ADMIN: NAV.map((n) => n.to),
   ADMIN: NAV.map((n) => n.to),
+  MANAGER: ['/dashboard', '/chat', '/channels', '/tasks', '/calendar', '/calls', '/meetings', '/saved', '/employees', '/sessions'],
+  PROJECT_COORDINATOR_MANAGER: ['/dashboard', '/chat', '/channels', '/tasks', '/calendar', '/calls', '/meetings', '/saved', '/employees', '/sessions'],
   EMPLOYEE: ['/dashboard', '/chat', '/channels', '/tasks', '/calendar', '/calls', '/meetings', '/saved', '/employees', '/sessions'],
   TELECALLER: ['/dashboard', '/telecaller', '/chat', '/calendar', '/saved', '/employees', '/sessions'],
   CLIENT: ['/dashboard', '/chat', '/channels', '/saved', '/sessions'],
@@ -147,7 +149,7 @@ export default function WorkspaceLayout() {
             <Avatar name={user.name} src={user.avatarUrl} isClient={user.isClient} size={36} />
             <div className="ws__me-text">
               <UserName name={user.name} isClient={user.isClient} role={user.role} />
-              <span className="ws__me-sub">{user.isClient ? user.clientCompany || 'Client' : user.role.replace('_', ' ')}</span>
+              <span className="ws__me-sub">{user.isClient ? user.clientCompany || 'Client' : user.customTitle || user.role.replace(/_/g, ' ')}</span>
             </div>
           </div>
           <button className="ws__icon-btn" onClick={handleLogout} title="Sign out">

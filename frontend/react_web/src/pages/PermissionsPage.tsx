@@ -19,7 +19,7 @@ type Grant = {
   createdAt: string;
 };
 
-const ROLES = ['SUPER_ADMIN', 'ADMIN', 'EMPLOYEE', 'TELECALLER', 'CLIENT'];
+const ROLES = ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'PROJECT_COORDINATOR_MANAGER', 'EMPLOYEE', 'TELECALLER', 'CLIENT'];
 const COMMON_KEYS = [
   'task.delete', 'task.assign_others',
   'channel.manage', 'channel.delete',

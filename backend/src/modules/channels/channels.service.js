@@ -17,6 +17,7 @@ async function listForUser(user) {
     where: {
       archived: false,
       members: { some: { userId: user.id } },
+      ...(user.isClient ? { kind: 'CLIENT' } : {}),
     },
     include: {
       members: { include: { user: { select: { id: true, name: true, role: true, avatarUrl: true, isClient: true } } } },
@@ -29,6 +30,7 @@ async function listForUser(user) {
 
 async function create(input, creator) {
   if (input.kind === 'DM') {
+    if (creator.isClient) throw Forbidden('Clients cannot start direct messages');
     if (!input.memberIds || input.memberIds.length !== 1) {
       throw BadRequest('DM requires exactly one other member');
     }
@@ -53,8 +55,12 @@ async function create(input, creator) {
   const members = await prisma.user.findMany({ where: { id: { in: memberIds } } });
   const hasClient = members.some((m) => m.isClient);
 
-  // Clients cannot create channels
-  if (creator.isClient) throw Forbidden('Clients cannot create channels');
+  if (creator.isClient && input.kind !== 'CLIENT') {
+    throw Forbidden('Clients can only create client channels');
+  }
+  if (!creator.isClient && input.kind === 'CLIENT') {
+    throw Forbidden('Only clients can create client channels');
+  }
 
   const channel = await prisma.channel.create({
     data: {
@@ -62,7 +68,7 @@ async function create(input, creator) {
       description: input.description || null,
       kind: input.kind,
       visibility: input.visibility || 'PRIVATE',
-      isClientChannel: hasClient,
+      isClientChannel: hasClient || input.kind === 'CLIENT',
       createdById: creator.id,
       members: {
         create: members.map((m) => ({

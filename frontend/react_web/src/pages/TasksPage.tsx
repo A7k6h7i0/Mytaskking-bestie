@@ -68,12 +68,18 @@ export default function TasksPage() {
       qc.invalidateQueries({ queryKey: ['tasks.kanban'] });
       qc.invalidateQueries({ queryKey: ['task.detail'] });
     };
+    const onSupervisorAssigned = (p: { task: Task; assignerName: string }) => {
+      toast.info(`${p.assignerName} assigned work to your team`, p.task.title);
+      qc.invalidateQueries({ queryKey: ['notifications.grouped'] });
+    };
     s.on('task.assigned', onAssigned);
+    s.on('task.supervisor_assigned', onSupervisorAssigned);
     s.on('task.created', () => qc.invalidateQueries({ queryKey: ['tasks.kanban'] }));
     s.on('task.moved',   () => qc.invalidateQueries({ queryKey: ['tasks.kanban'] }));
     s.on('task.assignment.changed', onAssignmentChanged);
     return () => {
       s.off('task.assigned', onAssigned);
+      s.off('task.supervisor_assigned', onSupervisorAssigned);
       s.off('task.assignment.changed', onAssignmentChanged);
     };
   }, [me, qc]);

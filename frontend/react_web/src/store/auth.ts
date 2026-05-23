@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-export type Role = 'SUPER_ADMIN' | 'ADMIN' | 'EMPLOYEE' | 'TELECALLER' | 'CLIENT';
+export type Role = 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | 'PROJECT_COORDINATOR_MANAGER' | 'EMPLOYEE' | 'TELECALLER' | 'CLIENT';
 
 export interface User {
   id: string;
@@ -10,6 +10,7 @@ export interface User {
   role: Role;
   isClient: boolean;
   avatarUrl?: string | null;
+  customTitle?: string | null;
   clientCompany?: string | null;
   accessEndsAt?: string | null;
   status: 'ACTIVE' | 'SUSPENDED' | 'EXPIRED';

@@ -153,4 +153,87 @@ router.get(
   })
 );
 
+router.get(
+  '/attendance',
+  validate({
+    query: Joi.object({
+      from: Joi.date().iso().default(() => dayjs().subtract(30, 'day').toDate()),
+      to: Joi.date().iso().default(() => new Date()),
+      timezone: Joi.string().default('Asia/Kolkata'),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    const fromKey = dayjs(req.query.from).format('YYYY-MM-DD');
+    const toKey = dayjs(req.query.to).format('YYYY-MM-DD');
+    const todayKey = dayjs().format('YYYY-MM-DD');
+    const items = await prisma.workdayLog.findMany({
+      where: { localDate: { gte: fromKey, lte: toKey } },
+      orderBy: [{ localDate: 'desc' }],
+      include: {
+        user: {
+          select: { id: true, name: true, userId: true, role: true, customTitle: true, avatarUrl: true, isClient: true },
+        },
+      },
+    });
+
+    const byUserMap = new Map();
+    let checkedIn = 0;
+    let checkedOut = 0;
+    let lunchBreaks = 0;
+    let missedCheckout = 0;
+
+    for (const row of items) {
+      const bucket = byUserMap.get(row.userId) || {
+        user: row.user,
+        checkedInDays: 0,
+        checkedOutDays: 0,
+        missedCheckoutDays: 0,
+        lunchBreaks: 0,
+        lastCheckInAt: null,
+        lastCheckOutAt: null,
+      };
+      if (row.checkInAt) {
+        checkedIn += 1;
+        bucket.checkedInDays += 1;
+        bucket.lastCheckInAt = bucket.lastCheckInAt || row.checkInAt;
+      }
+      if (row.checkOutAt) {
+        checkedOut += 1;
+        bucket.checkedOutDays += 1;
+        bucket.lastCheckOutAt = bucket.lastCheckOutAt || row.checkOutAt;
+      }
+      if (row.lunchStartedAt) {
+        lunchBreaks += 1;
+        bucket.lunchBreaks += 1;
+      }
+      if (row.checkInAt && !row.checkOutAt && row.localDate < todayKey) {
+        missedCheckout += 1;
+        bucket.missedCheckoutDays += 1;
+      }
+      byUserMap.set(row.userId, bucket);
+    }
+
+    res.json({
+      from: fromKey,
+      to: toKey,
+      totals: {
+        checkedIn,
+        checkedOut,
+        lunchBreaks,
+        missedCheckout,
+      },
+      byUser: Array.from(byUserMap.values()).sort((a, b) => b.missedCheckoutDays - a.missedCheckoutDays || b.checkedInDays - a.checkedInDays),
+      recentMissedCheckout: items
+        .filter((row) => row.checkInAt && !row.checkOutAt && row.localDate < todayKey)
+        .slice(0, 20)
+        .map((row) => ({
+          id: row.id,
+          localDate: row.localDate,
+          checkInAt: row.checkInAt,
+          user: row.user,
+        })),
+    });
+  })
+);
+
 module.exports = router;

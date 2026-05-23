@@ -48,6 +48,22 @@ const DEFAULT_MATRIX = {
     'file.upload', 'file.read',
     'calendar.*',
   ],
+  MANAGER: [
+    'channel.read', 'channel.post', 'channel.invite',
+    'message.*',
+    'task.read', 'task.create', 'task.update', 'task.assign_self', 'task.assign_others',
+    'call.read', 'call.create',
+    'file.upload', 'file.read',
+    'calendar.*',
+  ],
+  PROJECT_COORDINATOR_MANAGER: [
+    'channel.read', 'channel.post', 'channel.invite',
+    'message.*',
+    'task.read', 'task.create', 'task.update', 'task.assign_self', 'task.assign_others',
+    'call.read', 'call.create',
+    'file.upload', 'file.read',
+    'calendar.*',
+  ],
   TELECALLER: [
     'telecaller.access', 'telecaller.call', 'telecaller.lead_manage',
     'channel.read', 'channel.post', 'message.read', 'message.create',

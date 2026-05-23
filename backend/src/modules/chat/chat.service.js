@@ -3,11 +3,15 @@
 const prisma = require('../../database/prisma');
 const { NotFound, Forbidden, BadRequest } = require('../../utils/errors');
 const channelsService = require('../channels/channels.service');
+const notifications = require('../notifications/notifications.service');
 
 async function listMessages(channelId, user, { cursor, limit = 40 } = {}) {
   await channelsService.ensureMember(channelId, user.id).catch((e) => {
     if (!['SUPER_ADMIN', 'ADMIN'].includes(user.role)) throw e;
   });
+  const channel = await prisma.channel.findUnique({ where: { id: channelId }, select: { kind: true } });
+  if (!channel) throw NotFound('Channel not found');
+  if (user.isClient && channel.kind !== 'CLIENT') throw Forbidden('Clients can only access client channels');
 
   const messages = await prisma.message.findMany({
     where: { channelId, deletedAt: null, ...(cursor ? { id: { lt: cursor } } : {}) },
@@ -27,6 +31,20 @@ async function sendMessage({ channelId, user, body, kind = 'TEXT', attachmentIds
   await channelsService.ensureMember(channelId, user.id).catch((e) => {
     if (!['SUPER_ADMIN', 'ADMIN'].includes(user.role)) throw e;
   });
+  const channel = await prisma.channel.findUnique({
+    where: { id: channelId },
+    include: {
+      members: {
+        include: {
+          user: { select: { id: true, name: true, userId: true, isClient: true } },
+        },
+      },
+    },
+  });
+  if (!channel) throw NotFound('Channel not found');
+  if (user.isClient && channel.kind !== 'CLIENT') {
+    throw Forbidden('Clients can only message inside client channels');
+  }
 
   if (!body && (!attachmentIds || attachmentIds.length === 0)) {
     throw BadRequest('Message must contain body or attachments');
@@ -69,7 +87,40 @@ async function sendMessage({ channelId, user, body, kind = 'TEXT', attachmentIds
 
   await prisma.channel.update({ where: { id: channelId }, data: { updatedAt: new Date() } });
 
+  const mentionTargets = findMentionTargets({
+    body: body || '',
+    members: channel.members,
+    authorId: user.id,
+  });
+  await Promise.all(
+    mentionTargets.map((target) =>
+      notifications.notify({
+        userId: target.id,
+        kind: 'MENTION',
+        title: `${user.name} mentioned you`,
+        body: channel.name ? `In #${channel.name}: ${body || 'New message'}` : body || 'You were mentioned in a client channel',
+        data: { channelId, messageId: message.id, authorId: user.id },
+      }).catch(() => {})
+    )
+  );
+
   return message;
+}
+
+function findMentionTargets({ body, members, authorId }) {
+  const source = String(body || '').toLowerCase();
+  if (!source.includes('@')) return [];
+  const picks = [];
+  for (const member of members || []) {
+    const person = member.user;
+    if (!person || person.id === authorId) continue;
+    const nameKey = `@${String(person.name || '').trim().toLowerCase()}`;
+    const userIdKey = `@${String(person.userId || '').trim().toLowerCase()}`;
+    if ((person.userId && source.includes(userIdKey)) || (person.name && source.includes(nameKey))) {
+      picks.push(person);
+    }
+  }
+  return Array.from(new Map(picks.map((item) => [item.id, item])).values());
 }
 
 async function listThread({ rootId, user, limit = 100 }) {
@@ -85,6 +136,9 @@ async function listThread({ rootId, user, limit = 100 }) {
   await channelsService.ensureMember(root.channelId, user.id).catch((e) => {
     if (!['SUPER_ADMIN', 'ADMIN'].includes(user.role)) throw e;
   });
+  const channel = await prisma.channel.findUnique({ where: { id: root.channelId }, select: { kind: true } });
+  if (!channel) throw NotFound('Channel not found');
+  if (user.isClient && channel.kind !== 'CLIENT') throw Forbidden('Clients can only access client channels');
 
   const replies = await prisma.message.findMany({
     where: { threadRootId: rootId, deletedAt: null },

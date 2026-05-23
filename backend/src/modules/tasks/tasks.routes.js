@@ -30,10 +30,25 @@ async function fanOutAssignment({ task, assigneeIds, assigner, io, isUpdate = fa
   if (!assigneeIds || assigneeIds.length === 0) return;
   const due = task.dueAt ? new Date(task.dueAt).toUTCString() : null;
   const verb = isUpdate ? 'updated the assignment of' : 'assigned you';
+  const uniqueAssigneeIds = Array.from(new Set(assigneeIds));
+  const supervisorLinks = await prisma.userSupervisor.findMany({
+    where: { userId: { in: uniqueAssigneeIds } },
+    include: {
+      user: { select: { id: true, name: true, customTitle: true, role: true } },
+      supervisor: { select: { id: true, name: true, customTitle: true, role: true } },
+    },
+  });
+  const supervisorRecipients = new Map();
+  for (const link of supervisorLinks) {
+    if (!link.supervisor || link.supervisorId === assigner.id) continue;
+    const existing = supervisorRecipients.get(link.supervisorId) || { person: link.supervisor, assignees: [] };
+    existing.assignees.push(link.user);
+    supervisorRecipients.set(link.supervisorId, existing);
+  }
 
   await Promise.all([
     // ----- assignees -----
-    ...assigneeIds
+    ...uniqueAssigneeIds
       .filter((id) => id !== assigner.id) // don't ping yourself if you self-assigned
       .map((userId) =>
         notifications.notify({
@@ -55,14 +70,36 @@ async function fanOutAssignment({ task, assigneeIds, assigner, io, isUpdate = fa
       userId: assigner.id,
       kind: 'TASK',
       title: `Assigned · ${task.title}`,
-      body: `To ${assigneeIds.length} ${assigneeIds.length === 1 ? 'person' : 'people'}${due ? ` · due ${due}` : ''}`,
-      data: { taskId: task.id, assigneeIds, dueAt: task.dueAt || null },
+      body: `To ${uniqueAssigneeIds.length} ${uniqueAssigneeIds.length === 1 ? 'person' : 'people'}${due ? ` · due ${due}` : ''}`,
+      data: { taskId: task.id, assigneeIds: uniqueAssigneeIds, dueAt: task.dueAt || null },
     }).catch(() => {}),
+
+    ...Array.from(supervisorRecipients.values()).map(({ person, assignees }) =>
+      notifications.notify({
+        userId: person.id,
+        kind: 'TASK',
+        title: `${assigner.name} assigned work to your team`,
+        body: `${task.title} · ${assignees.map((entry) => entry.name).join(', ')}${due ? ` · due ${due}` : ''}`,
+        data: {
+          taskId: task.id,
+          assignerId: assigner.id,
+          assigneeIds: assignees.map((entry) => entry.id),
+          supervisorId: person.id,
+        },
+      }).catch(() => {})
+    ),
   ]);
 
   // Realtime toast to each assignee's user room.
-  for (const userId of assigneeIds) {
+  for (const userId of uniqueAssigneeIds) {
     io?.to(`user:${userId}`).emit('task.assigned', {
+      task,
+      assignerId: assigner.id,
+      assignerName: assigner.name,
+    });
+  }
+  for (const [userId] of supervisorRecipients) {
+    io?.to(`user:${userId}`).emit('task.supervisor_assigned', {
       task,
       assignerId: assigner.id,
       assignerName: assigner.name,
