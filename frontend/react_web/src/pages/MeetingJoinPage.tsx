@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 import AgoraRTC, { IAgoraRTCClient, ICameraVideoTrack, IAgoraRTCRemoteUser, IMicrophoneAudioTrack } from 'agora-rtc-sdk-ng';
-import { Camera, CameraOff, Mic, MicOff, PhoneOff, Users, Video } from 'lucide-react';
+import { Camera, CameraOff, Copy, Link2, Mic, MicOff, PhoneOff, Users, Video } from 'lucide-react';
 import { apiUrl } from '@/services/api';
 import { useAuthStore } from '@/store/auth';
 import { Button } from '@/components/ui/Button';
@@ -31,6 +31,12 @@ type MeetingToken = {
   guestName?: string;
 };
 
+type LobbyData = {
+  room: MeetingRoom;
+  participants: Array<{ id: string; displayName: string; joinedVia: string; joinedAt: string }>;
+  shareHistory: Array<{ id: string; copiedByName: string; copiedAt: string }>;
+};
+
 const rtcClient = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
 
 export default function MeetingJoinPage() {
@@ -52,14 +58,33 @@ export default function MeetingJoinPage() {
     queryFn: async () => (await axios.get(`${apiUrl}/api/v1/meetings/public/${slug}`)).data,
     enabled: !!slug,
   });
+  const lobbyQuery = useQuery<LobbyData>({
+    queryKey: ['meeting.public.lobby', slug],
+    queryFn: async () => (await axios.get(`${apiUrl}/api/v1/meetings/public/${slug}/lobby`)).data,
+    enabled: !!slug,
+    refetchInterval: 10_000,
+  });
 
   const tokenMut = useMutation({
     mutationFn: async () => (await axios.post(`${apiUrl}/api/v1/meetings/public/${slug}/token`, { guestName: guestName.trim() })).data as MeetingToken,
     onError: (err: any) => toast.error(err?.response?.data?.error?.message || 'Could not join meeting'),
   });
+  const shareMut = useMutation({
+    mutationFn: async () =>
+      (await axios.post(`${apiUrl}/api/v1/meetings/public/${slug}/share`, { copiedByName: (guestName || 'Guest').trim() })).data,
+    onSuccess: () => lobbyQuery.refetch(),
+  });
 
   const meetingTitle = roomQuery.data?.name || 'Meeting room';
   const isVideoMode = useMemo(() => ['VIDEO', 'WEBINAR', 'LIVESTREAM'].includes(roomQuery.data?.mode || 'VIDEO'), [roomQuery.data?.mode]);
+
+  async function copyShareLink() {
+    const url = roomQuery.data?.shareUrl;
+    if (!url) return;
+    await navigator.clipboard.writeText(url);
+    await shareMut.mutateAsync().catch(() => {});
+    toast.success('Meeting link copied');
+  }
 
   async function joinMeeting() {
     if (!guestName.trim()) {
@@ -167,9 +192,20 @@ export default function MeetingJoinPage() {
           <h1>{meetingTitle}</h1>
           <p>Share the meeting URL with anyone. Guests can join directly from the browser without a workspace account.</p>
         </div>
+        {roomQuery.data?.shareUrl && (
+          <Button variant="ghost" onClick={copyShareLink}>
+            <Copy size={16} /> Copy invite link
+          </Button>
+        )}
       </header>
 
       <section className="mt__join-card">
+        {roomQuery.data?.shareUrl && (
+          <div className="mt__card-link">
+            <Link2 size={14} />
+            <span>{roomQuery.data.shareUrl}</span>
+          </div>
+        )}
         {!joined ? (
           <div className="mt__join-form">
             <Input label="Your name" value={guestName} onChange={(e) => setGuestName(e.target.value)} />
@@ -219,6 +255,45 @@ export default function MeetingJoinPage() {
             </div>
           </>
         )}
+      </section>
+
+      <section className="mt__join-card">
+        <div className="mt__live-summary">
+          <span><Users size={14} /> {lobbyQuery.data?.participants.length || 0} people seen in this room</span>
+          <span><Copy size={14} /> {lobbyQuery.data?.shareHistory.length || 0} link copy events</span>
+        </div>
+        <div className="mt__lobby-grid">
+          <div>
+            <h3 className="mt__lobby-title">Participants</h3>
+            <div className="mt__lobby-list">
+              {(lobbyQuery.data?.participants || []).map((person) => (
+                <div key={person.id} className="mt__lobby-row">
+                  <Avatar name={person.displayName} size={26} />
+                  <div>
+                    <strong>{person.displayName}</strong>
+                    <span>{person.joinedVia} · {new Date(person.joinedAt).toLocaleString()}</span>
+                  </div>
+                </div>
+              ))}
+              {!lobbyQuery.data?.participants?.length && <div className="cn__directory-empty">No participants have joined yet.</div>}
+            </div>
+          </div>
+          <div>
+            <h3 className="mt__lobby-title">Copy-link history</h3>
+            <div className="mt__lobby-list">
+              {(lobbyQuery.data?.shareHistory || []).map((share) => (
+                <div key={share.id} className="mt__lobby-row">
+                  <Avatar name={share.copiedByName} size={26} />
+                  <div>
+                    <strong>{share.copiedByName}</strong>
+                    <span>{new Date(share.copiedAt).toLocaleString()}</span>
+                  </div>
+                </div>
+              ))}
+              {!lobbyQuery.data?.shareHistory?.length && <div className="cn__directory-empty">No one has copied this invite yet.</div>}
+            </div>
+          </div>
+        </div>
       </section>
     </div>
   );

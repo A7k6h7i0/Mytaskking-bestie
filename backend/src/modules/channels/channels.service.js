@@ -28,6 +28,51 @@ async function listForUser(user) {
   return channels;
 }
 
+async function directoryForUser(user, q = '') {
+  const where = user.isClient
+    ? {
+        isClient: false,
+        status: 'ACTIVE',
+        ...(q
+          ? {
+              OR: [
+                { name: { contains: q, mode: 'insensitive' } },
+                { userId: { contains: q, mode: 'insensitive' } },
+                { customTitle: { contains: q, mode: 'insensitive' } },
+              ],
+            }
+          : {}),
+      }
+    : {
+        status: 'ACTIVE',
+        ...(q
+          ? {
+              OR: [
+                { name: { contains: q, mode: 'insensitive' } },
+                { userId: { contains: q, mode: 'insensitive' } },
+                { customTitle: { contains: q, mode: 'insensitive' } },
+              ],
+            }
+          : {}),
+      };
+
+  return prisma.user.findMany({
+    where,
+    orderBy: { name: 'asc' },
+    take: 30,
+    select: {
+      id: true,
+      userId: true,
+      name: true,
+      role: true,
+      customTitle: true,
+      avatarUrl: true,
+      isClient: true,
+      status: true,
+    },
+  });
+}
+
 async function create(input, creator) {
   if (input.kind === 'DM') {
     if (creator.isClient) throw Forbidden('Clients cannot start direct messages');
@@ -167,6 +212,7 @@ async function setMemberPermissions(channelId, userId, perms, actor) {
 module.exports = {
   ensureMember,
   listForUser,
+  directoryForUser,
   create,
   getById,
   addMembers,

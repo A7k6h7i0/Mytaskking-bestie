@@ -1108,9 +1108,36 @@ model MeetingRoom {
   recordingUrl String?
   tenantId     String?
   createdAt    DateTime    @default(now())
+  participants MeetingRoomParticipant[]
+  shareEvents  MeetingRoomShareEvent[]
 
   @@index([hostId])
   @@index([tenantId])
+}
+
+model MeetingRoomParticipant {
+  id          String      @id @default(cuid())
+  room        MeetingRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomId      String
+  userId      String?
+  displayName String
+  joinedVia   String      @default("GUEST")
+  joinedAt    DateTime    @default(now())
+  lastSeenAt  DateTime    @default(now())
+
+  @@index([roomId, joinedAt])
+  @@index([userId])
+}
+
+model MeetingRoomShareEvent {
+  id            String      @id @default(cuid())
+  room          MeetingRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomId        String
+  copiedById    String?
+  copiedByName  String
+  copiedAt      DateTime    @default(now())
+
+  @@index([roomId, copiedAt])
 }
 
 // ---------------------------------------------------------------------------

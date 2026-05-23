@@ -35,6 +35,45 @@ router.get(
   })
 );
 
+router.get(
+  '/public/:slug/lobby',
+  asyncHandler(async (req, res) => {
+    const room = await prisma.meetingRoom.findUnique({
+      where: { slug: req.params.slug },
+      include: {
+        participants: { orderBy: { joinedAt: 'desc' }, take: 20 },
+        shareEvents: { orderBy: { copiedAt: 'desc' }, take: 20 },
+      },
+    });
+    if (!room || room.endedAt) throw NotFound('Meeting not found');
+    res.json({
+      room: serializeRoom(room),
+      participants: room.participants,
+      shareHistory: room.shareEvents,
+    });
+  })
+);
+
+router.post(
+  '/public/:slug/share',
+  validate({
+    body: Joi.object({
+      copiedByName: Joi.string().trim().min(2).max(120).required(),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    const room = await prisma.meetingRoom.findUnique({ where: { slug: req.params.slug } });
+    if (!room || room.endedAt) throw NotFound('Meeting not found');
+    const share = await prisma.meetingRoomShareEvent.create({
+      data: {
+        roomId: room.id,
+        copiedByName: req.body.copiedByName.trim(),
+      },
+    });
+    res.json(share);
+  })
+);
+
 router.post(
   '/public/:slug/token',
   validate({
@@ -47,6 +86,13 @@ router.post(
     if (!room || room.endedAt) throw NotFound('Meeting not found');
     const uid = `guest_${nanoid(12)}`;
     const token = agora.generateRtcToken({ channelName: room.channelName, uid });
+    await prisma.meetingRoomParticipant.create({
+      data: {
+        roomId: room.id,
+        displayName: req.body.guestName.trim(),
+        joinedVia: 'GUEST',
+      },
+    }).catch(() => {});
     res.json({
       ...token,
       mode: room.mode,
@@ -66,6 +112,22 @@ router.get(
       orderBy: { createdAt: 'desc' },
     });
     res.json({ items: items.map(serializeRoom) });
+  })
+);
+
+router.post(
+  '/:slug/share',
+  asyncHandler(async (req, res) => {
+    const room = await prisma.meetingRoom.findUnique({ where: { slug: req.params.slug } });
+    if (!room || room.endedAt) throw NotFound('Meeting not found');
+    const share = await prisma.meetingRoomShareEvent.create({
+      data: {
+        roomId: room.id,
+        copiedById: req.user.id,
+        copiedByName: req.user.name,
+      },
+    });
+    res.json(share);
   })
 );
 
@@ -115,6 +177,24 @@ router.post(
     // Same Agora primitive as voice calls — video is just a different
     // publish track on the same channel. The token doesn't change shape.
     const token = agora.generateRtcToken({ channelName: room.channelName, uid: req.user.id });
+    const existing = await prisma.meetingRoomParticipant.findFirst({
+      where: { roomId: room.id, userId: req.user.id },
+    });
+    if (existing) {
+      await prisma.meetingRoomParticipant.update({
+        where: { id: existing.id },
+        data: { lastSeenAt: new Date(), displayName: req.user.name },
+      });
+    } else {
+      await prisma.meetingRoomParticipant.create({
+        data: {
+          roomId: room.id,
+          userId: req.user.id,
+          displayName: req.user.name,
+          joinedVia: 'INTERNAL',
+        },
+      });
+    }
     res.json({ ...token, mode: room.mode, room: serializeRoom({ id: room.id, slug: room.slug, name: room.name, mode: room.mode }) });
   })
 );

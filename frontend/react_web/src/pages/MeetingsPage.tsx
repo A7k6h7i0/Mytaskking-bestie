@@ -58,6 +58,10 @@ export default function MeetingsPage() {
 
   async function copyLink(url: string) {
     await navigator.clipboard.writeText(url);
+    const meeting = data?.items.find((item) => item.shareUrl === url);
+    if (meeting) {
+      await api.post(`/meetings/${meeting.slug}/share`).catch(() => {});
+    }
     toast.success('Meeting link copied');
   }
 

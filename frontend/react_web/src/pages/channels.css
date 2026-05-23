@@ -23,3 +23,37 @@
 .cn__card-foot { display: flex; justify-content: space-between; color: var(--c-text-muted); font-size: var(--fs-xs); }
 .cn__card-foot span { display: inline-flex; align-items: center; gap: 4px; }
 .cn__empty { padding: var(--s-5); color: var(--c-text-muted); }
+.cn__modal { display: flex; flex-direction: column; gap: var(--s-3); }
+.cn__picker { display: flex; flex-direction: column; gap: 10px; }
+.cn__picker-label { font-size: var(--fs-sm); font-weight: 600; color: var(--c-text-soft); }
+.cn__chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.cn__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--c-border);
+  background: var(--c-surface-1);
+  cursor: pointer;
+}
+.cn__directory { display: flex; flex-direction: column; gap: 8px; }
+.cn__person {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--c-border);
+  background: var(--c-surface-1);
+  cursor: pointer;
+}
+.cn__person span {
+  display: block;
+  font-size: var(--fs-xs);
+  color: var(--c-text-muted);
+  margin-top: 3px;
+}
+.cn__directory-empty { color: var(--c-text-muted); font-size: var(--fs-sm); padding: 10px 0; }

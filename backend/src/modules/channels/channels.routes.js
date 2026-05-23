@@ -12,6 +12,11 @@ const router = Router();
 router.use(requireAuth);
 
 router.get('/', asyncHandler(async (req, res) => res.json({ items: await service.listForUser(req.user) })));
+router.get(
+  '/directory',
+  validate({ query: Joi.object({ q: Joi.string().allow('') }) }),
+  asyncHandler(async (req, res) => res.json({ items: await service.directoryForUser(req.user, req.query.q) }))
+);
 
 router.post(
   '/',
