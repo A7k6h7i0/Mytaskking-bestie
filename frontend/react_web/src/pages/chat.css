@@ -30,12 +30,20 @@
 .ch__pin { color: var(--c-text-muted); }
 .ch__empty { color: var(--c-text-muted); padding: 12px; }
 
-.ch__panel { display: flex; flex-direction: column; min-width: 0; }
+.ch__panel { display: flex; flex-direction: column; min-width: 0; position: relative; }
+.ch__panel.is-dragging::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--c-brand-soft) 38%, transparent);
+  pointer-events: none;
+  z-index: 1;
+}
 .ch__panel-head { padding: 14px 18px; border-bottom: 1px solid var(--c-border); }
 .ch__title { display: flex; align-items: center; gap: 8px; font-weight: 700; }
 .ch__sub { font-size: var(--fs-xs); color: var(--c-text-muted); margin-top: 2px; }
 
-.ch__messages { flex: 1; overflow-y: auto; padding: var(--s-4) var(--s-5); display: flex; flex-direction: column; gap: 12px; }
+.ch__messages { flex: 1; overflow-y: auto; padding: var(--s-4) var(--s-5); display: flex; flex-direction: column; gap: 12px; position: relative; z-index: 2; }
 .ch__msg { display: flex; gap: 10px; align-items: flex-start; }
 .ch__msg-body { flex: 1; min-width: 0; }
 .ch__msg-meta { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); }
@@ -76,6 +84,7 @@
   padding: 12px 14px;
   border-top: 1px solid var(--c-border);
   background: var(--c-surface-1);
+  z-index: 2;
 }
 .ch__composer.is-dragging {
   background: color-mix(in srgb, var(--c-brand-soft) 65%, var(--c-surface-1));
@@ -165,20 +174,66 @@
   padding: 0 14px 12px;
   background: var(--c-surface-1);
   border-top: 1px dashed var(--c-border);
+  z-index: 2;
 }
 .ch__pending-file {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   padding: 8px 10px;
   border: 1px solid var(--c-border);
   border-radius: var(--r-pill);
   background: var(--c-surface);
   font-size: var(--fs-sm);
 }
+.ch__pending-file--error {
+  border-color: color-mix(in srgb, var(--c-danger) 50%, var(--c-border));
+}
+.ch__pending-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ch__pending-meta small {
+  color: var(--c-text-muted);
+  font-size: 11px;
+}
+.ch__pending-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.ch__pending-bar {
+  width: 56px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--c-surface-2);
+  overflow: hidden;
+}
+.ch__pending-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--c-brand);
+}
 .ch__pending-file button {
   background: transparent;
   color: var(--c-text-muted);
   width: auto;
   height: auto;
+}
+.ch__helper-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 14px 12px;
+  color: var(--c-text-muted);
+  font-size: var(--fs-xs);
+  background: var(--c-surface-1);
+  z-index: 2;
+}
+.ch__helper-row span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }

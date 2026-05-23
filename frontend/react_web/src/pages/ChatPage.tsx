@@ -1,7 +1,7 @@
-import { ChangeEvent, DragEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { ChangeEvent, ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Send, Hash, Pin, Paperclip, X } from 'lucide-react';
+import { Send, Hash, Pin, Paperclip, X, ClipboardPaste } from 'lucide-react';
 import dayjs from 'dayjs';
 import { api } from '@/services/api';
 import { useAuthStore } from '@/store/auth';
@@ -53,6 +53,20 @@ type MentionPick = {
   isClient: boolean;
 };
 
+type PendingAttachment = {
+  tempId: string;
+  id?: string;
+  url?: string;
+  mimeType?: string;
+  originalName?: string | null;
+  progress: number;
+  status: 'uploading' | 'ready' | 'error';
+};
+
+function makeTempId(file: File) {
+  return `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 export default function ChatPage() {
   const { channelId } = useParams();
   const navigate = useNavigate();
@@ -60,10 +74,12 @@ export default function ChatPage() {
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLElement | null>(null);
   const [draft, setDraft] = useState('');
   const [uploading, setUploading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
-  const [pendingAttachments, setPendingAttachments] = useState<Array<{ id: string; url: string; mimeType: string; originalName?: string | null }>>([]);
+  const [dragDepth, setDragDepth] = useState(0);
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [mentionIndex, setMentionIndex] = useState(0);
 
   const { data: channelsData } = useQuery<{ items: Channel[] }>({
@@ -109,6 +125,9 @@ export default function ChatPage() {
       .slice(0, 6);
   }, [active?.members, draft, me.id]);
 
+  const readyAttachments = useMemo(() => pendingAttachments.filter((file) => file.status === 'ready' && file.id), [pendingAttachments]);
+  const hasUploading = pendingAttachments.some((file) => file.status === 'uploading');
+
   useEffect(() => {
     setMentionIndex(0);
   }, [draft, active?.id]);
@@ -138,19 +157,41 @@ export default function ChatPage() {
   async function uploadSelectedFiles(files: File[]) {
     if (!files.length) return;
     setUploading(true);
+    const tempEntries = files.map((file) => ({
+      tempId: makeTempId(file),
+      originalName: file.name,
+      mimeType: file.type,
+      progress: 0,
+      status: 'uploading' as const,
+    }));
+    setPendingAttachments((prev) => [...prev, ...tempEntries]);
+
     try {
-      const uploaded: Array<{ id: string; url: string; mimeType: string; originalName?: string | null }> = [];
-      for (const file of files) {
+      await Promise.all(files.map(async (file, index) => {
+        const tempId = tempEntries[index].tempId;
         const formData = new FormData();
         formData.append('file', file);
         const { data } = await api.post('/files/upload', formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
+          onUploadProgress: (event) => {
+            const total = event.total || file.size || 1;
+            const progress = Math.max(5, Math.min(100, Math.round(((event.loaded || 0) / total) * 100)));
+            setPendingAttachments((prev) => prev.map((item) => item.tempId === tempId ? { ...item, progress } : item));
+          },
         });
-        uploaded.push(data);
-      }
-      setPendingAttachments((prev) => [...prev, ...uploaded]);
-      toast.success(`${uploaded.length} file${uploaded.length === 1 ? '' : 's'} attached`);
+        setPendingAttachments((prev) => prev.map((item) => item.tempId === tempId ? {
+          ...item,
+          id: data.id,
+          url: data.url,
+          mimeType: data.mimeType,
+          originalName: data.originalName,
+          progress: 100,
+          status: 'ready',
+        } : item));
+      }));
+      toast.success(`${files.length} file${files.length === 1 ? '' : 's'} attached`);
     } catch (err: any) {
+      setPendingAttachments((prev) => prev.map((item) => item.status === 'uploading' ? { ...item, status: 'error' } : item));
       toast.error(err?.response?.data?.error?.message || 'Could not upload file');
     } finally {
       setUploading(false);
@@ -163,24 +204,44 @@ export default function ChatPage() {
     await uploadSelectedFiles(files);
   }
 
-  function onDragOver(e: DragEvent<HTMLFormElement>) {
+  function onDragOver(e: DragEvent<HTMLElement>) {
     e.preventDefault();
     if (!active) return;
-    if (!dragActive) setDragActive(true);
+    e.dataTransfer.dropEffect = 'copy';
   }
 
-  function onDragLeave(e: DragEvent<HTMLFormElement>) {
+  function onDragEnter(e: DragEvent<HTMLElement>) {
     e.preventDefault();
-    const nextTarget = e.relatedTarget as Node | null;
-    if (nextTarget && e.currentTarget.contains(nextTarget)) return;
-    setDragActive(false);
+    if (!active) return;
+    setDragDepth((prev) => prev + 1);
+    setDragActive(true);
   }
 
-  async function onDropFiles(e: DragEvent<HTMLFormElement>) {
+  function onDragLeave(e: DragEvent<HTMLElement>) {
+    e.preventDefault();
+    if (!active) return;
+    const nextDepth = Math.max(0, dragDepth - 1);
+    setDragDepth(nextDepth);
+    if (nextDepth === 0) setDragActive(false);
+  }
+
+  async function onDropFiles(e: DragEvent<HTMLElement>) {
     e.preventDefault();
     setDragActive(false);
+    setDragDepth(0);
     const files = Array.from(e.dataTransfer.files || []);
     await uploadSelectedFiles(files);
+  }
+
+  async function onPaste(e: ClipboardEvent<HTMLInputElement>) {
+    const files = Array.from(e.clipboardData.items || [])
+      .filter((item) => item.kind === 'file')
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => !!file);
+    if (!files.length) return;
+    e.preventDefault();
+    await uploadSelectedFiles(files);
+    toast.info('Pasted image attached');
   }
 
   function applyMention(person: MentionPick) {
@@ -189,9 +250,9 @@ export default function ChatPage() {
 
   async function send(e: FormEvent) {
     e.preventDefault();
-    if (!active || (!draft.trim() && pendingAttachments.length === 0)) return;
+    if (!active || (!draft.trim() && readyAttachments.length === 0) || hasUploading) return;
     const body = draft.trim();
-    const attachmentIds = pendingAttachments.map((file) => file.id);
+    const attachmentIds = readyAttachments.map((file) => file.id!).filter(Boolean);
     setDraft('');
     setPendingAttachments([]);
     await api.post(`/chat/channels/${active.id}/messages`, {
@@ -244,7 +305,14 @@ export default function ChatPage() {
         </ul>
       </aside>
 
-      <section className="ch__panel">
+      <section
+        ref={panelRef}
+        className={`ch__panel ${dragActive ? 'is-dragging' : ''}`}
+        onDragEnter={onDragEnter}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDropFiles}
+      >
         {active ? (
           <>
             <header className="ch__panel-head">
@@ -289,6 +357,7 @@ export default function ChatPage() {
             <form
               className={`ch__composer ${dragActive ? 'is-dragging' : ''}`}
               onSubmit={send}
+              onDragEnter={onDragEnter}
               onDragOver={onDragOver}
               onDragLeave={onDragLeave}
               onDrop={onDropFiles}
@@ -297,13 +366,14 @@ export default function ChatPage() {
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={onComposerKeyDown}
+                onPaste={onPaste}
                 placeholder={`Message ${active.name || ''}…`}
               />
               <input ref={fileInputRef} type="file" multiple hidden onChange={uploadFiles} />
               <button type="button" className="ch__icon-btn" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
                 <Paperclip size={16} />
               </button>
-              <button type="submit" disabled={!draft.trim() && pendingAttachments.length === 0}><Send size={16} /></button>
+              <button type="submit" disabled={(!draft.trim() && readyAttachments.length === 0) || hasUploading}><Send size={16} /></button>
               {!!memberSuggestions.length && (
                 <div className="ch__mentions">
                   {memberSuggestions.map((person, index) => (
@@ -324,23 +394,35 @@ export default function ChatPage() {
               )}
               {dragActive && (
                 <div className="ch__dropzone">
-                  <strong>Drop files to attach</strong>
-                  <span>Images, docs, and other files will be added to this message.</span>
+                  <strong>Drop files anywhere in this chat</strong>
+                  <span>Images, docs, and other files will be attached to your next message.</span>
                 </div>
               )}
             </form>
             {!!pendingAttachments.length && (
               <div className="ch__pending-files">
                 {pendingAttachments.map((file) => (
-                  <div key={file.id} className="ch__pending-file">
-                    <span>{file.originalName || 'Attachment ready'}</span>
-                    <button type="button" onClick={() => setPendingAttachments((prev) => prev.filter((item) => item.id !== file.id))}>
-                      <X size={14} />
-                    </button>
+                  <div key={file.tempId} className={`ch__pending-file ch__pending-file--${file.status}`}>
+                    <div className="ch__pending-meta">
+                      <span>{file.originalName || 'Attachment ready'}</span>
+                      {file.status === 'uploading' && <small>{file.progress}%</small>}
+                      {file.status === 'error' && <small>Upload failed</small>}
+                      {file.status === 'ready' && <small>Ready</small>}
+                    </div>
+                    <div className="ch__pending-actions">
+                      {file.status === 'uploading' && <div className="ch__pending-bar"><i style={{ width: `${file.progress}%` }} /></div>}
+                      <button type="button" onClick={() => setPendingAttachments((prev) => prev.filter((item) => item.tempId !== file.tempId))}>
+                        <X size={14} />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
             )}
+            <div className="ch__helper-row">
+              <span><ClipboardPaste size={14} /> Paste images from your clipboard directly into the composer.</span>
+              <span>Drag files anywhere over this chat panel to attach them.</span>
+            </div>
           </>
         ) : (
           <div className="ch__empty-center">Pick a channel to start chatting.</div>
