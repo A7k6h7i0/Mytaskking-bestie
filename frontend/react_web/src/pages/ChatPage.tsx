@@ -1,13 +1,15 @@
 import { ChangeEvent, ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Send, Hash, Pin, Paperclip, X, ClipboardPaste } from 'lucide-react';
+import { Send, Hash, Pin, Paperclip, X, ClipboardPaste, RotateCcw, GripVertical } from 'lucide-react';
 import dayjs from 'dayjs';
 import { api } from '@/services/api';
 import { useAuthStore } from '@/store/auth';
 import { getSocket } from '@/services/socket';
 import { Avatar } from '@/components/ui/Avatar';
 import { UserName } from '@/components/ui/UserName';
+import { Button } from '@/components/ui/Button';
+import { Modal } from '@/components/ui/Modal';
 import { toast } from '@/components/Toast';
 import './chat.css';
 
@@ -61,6 +63,7 @@ type PendingAttachment = {
   originalName?: string | null;
   progress: number;
   status: 'uploading' | 'ready' | 'error';
+  sourceFile?: File;
 };
 
 function makeTempId(file: File) {
@@ -81,6 +84,8 @@ export default function ChatPage() {
   const [dragDepth, setDragDepth] = useState(0);
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [mentionIndex, setMentionIndex] = useState(0);
+  const [dragAttachmentId, setDragAttachmentId] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<{ url: string; name: string } | null>(null);
 
   const { data: channelsData } = useQuery<{ items: Channel[] }>({
     queryKey: ['channels.mine'],
@@ -163,12 +168,20 @@ export default function ChatPage() {
       mimeType: file.type,
       progress: 0,
       status: 'uploading' as const,
+      sourceFile: file,
     }));
     setPendingAttachments((prev) => [...prev, ...tempEntries]);
+    await uploadEntries(tempEntries);
+  }
+
+  async function uploadEntries(entries: PendingAttachment[]) {
+    if (!entries.length) return;
 
     try {
-      await Promise.all(files.map(async (file, index) => {
-        const tempId = tempEntries[index].tempId;
+      await Promise.all(entries.map(async (entry) => {
+        const file = entry.sourceFile;
+        if (!file) return;
+        const tempId = entry.tempId;
         const formData = new FormData();
         formData.append('file', file);
         const { data } = await api.post('/files/upload', formData, {
@@ -189,12 +202,16 @@ export default function ChatPage() {
           status: 'ready',
         } : item));
       }));
-      toast.success(`${files.length} file${files.length === 1 ? '' : 's'} attached`);
+      toast.success(`${entries.length} file${entries.length === 1 ? '' : 's'} attached`);
     } catch (err: any) {
-      setPendingAttachments((prev) => prev.map((item) => item.status === 'uploading' ? { ...item, status: 'error' } : item));
+      const failedIds = new Set(entries.map((entry) => entry.tempId));
+      setPendingAttachments((prev) => prev.map((item) => failedIds.has(item.tempId) && item.status === 'uploading' ? { ...item, status: 'error' } : item));
       toast.error(err?.response?.data?.error?.message || 'Could not upload file');
     } finally {
-      setUploading(false);
+      setUploading((current) => {
+        void current;
+        return false;
+      });
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   }
@@ -242,6 +259,27 @@ export default function ChatPage() {
     e.preventDefault();
     await uploadSelectedFiles(files);
     toast.info('Pasted image attached');
+  }
+
+  async function retryAttachment(tempId: string) {
+    const entry = pendingAttachments.find((item) => item.tempId === tempId);
+    if (!entry?.sourceFile) return;
+    setUploading(true);
+    setPendingAttachments((prev) => prev.map((item) => item.tempId === tempId ? { ...item, status: 'uploading', progress: 0 } : item));
+    await uploadEntries([{ ...entry, status: 'uploading', progress: 0 }]);
+  }
+
+  function movePendingAttachment(fromId: string, toId: string) {
+    if (fromId === toId) return;
+    setPendingAttachments((prev) => {
+      const next = [...prev];
+      const fromIndex = next.findIndex((item) => item.tempId === fromId);
+      const toIndex = next.findIndex((item) => item.tempId === toId);
+      if (fromIndex === -1 || toIndex === -1) return prev;
+      const [picked] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, picked);
+      return next;
+    });
   }
 
   function applyMention(person: MentionPick) {
@@ -338,7 +376,19 @@ export default function ChatPage() {
                     {!!m.attachments?.length && (
                       <div className="ch__attachments">
                         {m.attachments.map((file) => (
-                          <a key={file.id} className="ch__attachment" href={file.url} target="_blank" rel="noreferrer">
+                          <a
+                            key={file.id}
+                            className="ch__attachment"
+                            href={file.url}
+                            target={file.mimeType?.startsWith('image/') ? undefined : '_blank'}
+                            rel="noreferrer"
+                            onClick={(e) => {
+                              if (file.mimeType?.startsWith('image/')) {
+                                e.preventDefault();
+                                setLightbox({ url: file.url, name: file.originalName || 'image' });
+                              }
+                            }}
+                          >
                             {file.mimeType?.startsWith('image/') ? (
                               <img src={file.url} alt={file.originalName || 'attachment'} />
                             ) : (
@@ -402,7 +452,20 @@ export default function ChatPage() {
             {!!pendingAttachments.length && (
               <div className="ch__pending-files">
                 {pendingAttachments.map((file) => (
-                  <div key={file.tempId} className={`ch__pending-file ch__pending-file--${file.status}`}>
+                  <div
+                    key={file.tempId}
+                    className={`ch__pending-file ch__pending-file--${file.status}`}
+                    draggable
+                    onDragStart={() => setDragAttachmentId(file.tempId)}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (dragAttachmentId) movePendingAttachment(dragAttachmentId, file.tempId);
+                      setDragAttachmentId(null);
+                    }}
+                    onDragEnd={() => setDragAttachmentId(null)}
+                  >
+                    <span className="ch__drag-handle" aria-hidden="true"><GripVertical size={14} /></span>
                     <div className="ch__pending-meta">
                       <span>{file.originalName || 'Attachment ready'}</span>
                       {file.status === 'uploading' && <small>{file.progress}%</small>}
@@ -411,6 +474,11 @@ export default function ChatPage() {
                     </div>
                     <div className="ch__pending-actions">
                       {file.status === 'uploading' && <div className="ch__pending-bar"><i style={{ width: `${file.progress}%` }} /></div>}
+                      {file.status === 'error' && (
+                        <button type="button" className="ch__retry-btn" onClick={() => retryAttachment(file.tempId)} title="Retry upload">
+                          <RotateCcw size={14} />
+                        </button>
+                      )}
                       <button type="button" onClick={() => setPendingAttachments((prev) => prev.filter((item) => item.tempId !== file.tempId))}>
                         <X size={14} />
                       </button>
@@ -421,13 +489,26 @@ export default function ChatPage() {
             )}
             <div className="ch__helper-row">
               <span><ClipboardPaste size={14} /> Paste images from your clipboard directly into the composer.</span>
-              <span>Drag files anywhere over this chat panel to attach them.</span>
+              <span>Drag files anywhere over this chat panel and drag chips to re-order them.</span>
             </div>
           </>
         ) : (
           <div className="ch__empty-center">Pick a channel to start chatting.</div>
         )}
       </section>
+      <Modal
+        open={!!lightbox}
+        onClose={() => setLightbox(null)}
+        title={lightbox?.name || 'Image preview'}
+        description="Full-size chat image preview"
+        footer={<Button variant="ghost" onClick={() => setLightbox(null)}>Close</Button>}
+      >
+        {lightbox && (
+          <div className="ch__lightbox">
+            <img src={lightbox.url} alt={lightbox.name} />
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
