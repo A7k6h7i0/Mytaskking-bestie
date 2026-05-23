@@ -1096,6 +1096,12 @@ enum MeetingMode {
   LIVESTREAM
 }
 
+enum MeetingGuestRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model MeetingRoom {
   id           String      @id @default(cuid())
   slug         String      @unique
@@ -1110,6 +1116,7 @@ model MeetingRoom {
   createdAt    DateTime    @default(now())
   participants MeetingRoomParticipant[]
   shareEvents  MeetingRoomShareEvent[]
+  guestRequests MeetingRoomGuestRequest[]
 
   @@index([hostId])
   @@index([tenantId])
@@ -1138,6 +1145,22 @@ model MeetingRoomShareEvent {
   copiedAt      DateTime    @default(now())
 
   @@index([roomId, copiedAt])
+}
+
+model MeetingRoomGuestRequest {
+  id           String                    @id @default(cuid())
+  room         MeetingRoom               @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomId       String
+  guestName    String
+  guestUid     String                    @unique
+  status       MeetingGuestRequestStatus @default(PENDING)
+  requestedAt  DateTime                  @default(now())
+  reviewedAt   DateTime?
+  reviewedById String?
+  approvedAt   DateTime?
+  rejectedAt   DateTime?
+
+  @@index([roomId, status, requestedAt])
 }
 
 // ---------------------------------------------------------------------------

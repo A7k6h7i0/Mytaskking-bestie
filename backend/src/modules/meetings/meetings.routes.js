@@ -10,7 +10,7 @@ const prisma = require('../../database/prisma');
 const agora = require('../../services/agora');
 const audit = require('../../services/audit');
 const eventBus = require('../../services/eventBus');
-const { NotFound, Forbidden } = require('../../utils/errors');
+const { NotFound, Forbidden, BadRequest } = require('../../utils/errors');
 const config = require('../../config');
 
 const router = Router();
@@ -20,10 +20,15 @@ const PUBLIC_BASE_URL = process.env.MEETING_PUBLIC_URL || config.cors.webOrigin?
 
 function serializeRoom(room) {
   if (!room) return room;
+  const { participants, shareEvents, guestRequests, ...rest } = room;
   return {
-    ...room,
-    shareUrl: `${PUBLIC_BASE_URL.replace(/\/$/, '')}/meetings/join/${room.slug}`,
+    ...rest,
+    shareUrl: `${PUBLIC_BASE_URL.replace(/\/$/, '')}/meetings/join/${rest.slug}`,
   };
+}
+
+function canManageRoom(room, user) {
+  return room.hostId === user.id || ['SUPER_ADMIN', 'ADMIN'].includes(user.role);
 }
 
 router.get(
@@ -43,6 +48,11 @@ router.get(
       include: {
         participants: { orderBy: { joinedAt: 'desc' }, take: 20 },
         shareEvents: { orderBy: { copiedAt: 'desc' }, take: 20 },
+        guestRequests: {
+          where: { status: 'PENDING' },
+          orderBy: { requestedAt: 'desc' },
+          take: 20,
+        },
       },
     });
     if (!room || room.endedAt) throw NotFound('Meeting not found');
@@ -50,6 +60,12 @@ router.get(
       room: serializeRoom(room),
       participants: room.participants,
       shareHistory: room.shareEvents,
+      pendingRequests: room.guestRequests.map((request) => ({
+        id: request.id,
+        guestName: request.guestName,
+        requestedAt: request.requestedAt,
+        status: request.status,
+      })),
     });
   })
 );
@@ -75,7 +91,7 @@ router.post(
 );
 
 router.post(
-  '/public/:slug/token',
+  '/public/:slug/request-access',
   validate({
     body: Joi.object({
       guestName: Joi.string().trim().min(2).max(120).required(),
@@ -84,19 +100,75 @@ router.post(
   asyncHandler(async (req, res) => {
     const room = await prisma.meetingRoom.findUnique({ where: { slug: req.params.slug } });
     if (!room || room.endedAt) throw NotFound('Meeting not found');
-    const uid = `guest_${nanoid(12)}`;
-    const token = agora.generateRtcToken({ channelName: room.channelName, uid });
+    const guestUid = `guest_${nanoid(12)}`;
+    const request = await prisma.meetingRoomGuestRequest.create({
+      data: {
+        roomId: room.id,
+        guestName: req.body.guestName.trim(),
+        guestUid,
+      },
+    });
+    req.app.get('io')?.emit('meeting.guest_request.created', {
+      roomId: room.id,
+      slug: room.slug,
+      requestId: request.id,
+      guestName: request.guestName,
+    });
+    res.status(201).json({
+      requestId: request.id,
+      status: request.status,
+      guestName: request.guestName,
+      requestedAt: request.requestedAt,
+    });
+  })
+);
+
+router.get(
+  '/public/:slug/request-access/:requestId',
+  asyncHandler(async (req, res) => {
+    const room = await prisma.meetingRoom.findUnique({ where: { slug: req.params.slug } });
+    if (!room || room.endedAt) throw NotFound('Meeting not found');
+    const request = await prisma.meetingRoomGuestRequest.findFirst({
+      where: { id: req.params.requestId, roomId: room.id },
+    });
+    if (!request) throw NotFound('Guest request not found');
+    res.json({
+      requestId: request.id,
+      status: request.status,
+      guestName: request.guestName,
+      requestedAt: request.requestedAt,
+      reviewedAt: request.reviewedAt,
+    });
+  })
+);
+
+router.post(
+  '/public/:slug/token',
+  validate({
+    body: Joi.object({
+      requestId: Joi.string().required(),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    const room = await prisma.meetingRoom.findUnique({ where: { slug: req.params.slug } });
+    if (!room || room.endedAt) throw NotFound('Meeting not found');
+    const request = await prisma.meetingRoomGuestRequest.findFirst({
+      where: { id: req.body.requestId, roomId: room.id },
+    });
+    if (!request) throw NotFound('Guest request not found');
+    if (request.status !== 'APPROVED') throw BadRequest('Guest access is not approved yet');
+    const token = agora.generateRtcToken({ channelName: room.channelName, uid: request.guestUid });
     await prisma.meetingRoomParticipant.create({
       data: {
         roomId: room.id,
-        displayName: req.body.guestName.trim(),
+        displayName: request.guestName.trim(),
         joinedVia: 'GUEST',
       },
     }).catch(() => {});
     res.json({
       ...token,
       mode: room.mode,
-      guestName: req.body.guestName.trim(),
+      guestName: request.guestName.trim(),
       room: serializeRoom({ id: room.id, slug: room.slug, name: room.name, mode: room.mode }),
     });
   })
@@ -110,8 +182,84 @@ router.get(
     const items = await prisma.meetingRoom.findMany({
       where: { OR: [{ hostId: req.user.id }, { tenantId: req.user.tenantId || 'default' }], endedAt: null },
       orderBy: { createdAt: 'desc' },
+      include: {
+        guestRequests: {
+          where: { status: 'PENDING' },
+          select: { id: true },
+        },
+      },
     });
-    res.json({ items: items.map(serializeRoom) });
+    res.json({
+      items: items.map((room) => ({
+        ...serializeRoom(room),
+        pendingGuestCount: room.guestRequests.length,
+      })),
+    });
+  })
+);
+
+router.get(
+  '/:slug/guest-requests',
+  asyncHandler(async (req, res) => {
+    const room = await prisma.meetingRoom.findUnique({ where: { slug: req.params.slug } });
+    if (!room) throw NotFound('Meeting not found');
+    if (!canManageRoom(room, req.user)) throw Forbidden();
+    const items = await prisma.meetingRoomGuestRequest.findMany({
+      where: { roomId: room.id },
+      orderBy: [{ status: 'asc' }, { requestedAt: 'desc' }],
+      take: 50,
+    });
+    res.json({ items });
+  })
+);
+
+router.post(
+  '/:slug/guest-requests/:requestId/approve',
+  asyncHandler(async (req, res) => {
+    const room = await prisma.meetingRoom.findUnique({ where: { slug: req.params.slug } });
+    if (!room) throw NotFound('Meeting not found');
+    if (!canManageRoom(room, req.user)) throw Forbidden();
+    const request = await prisma.meetingRoomGuestRequest.update({
+      where: { id: req.params.requestId },
+      data: {
+        status: 'APPROVED',
+        approvedAt: new Date(),
+        reviewedAt: new Date(),
+        reviewedById: req.user.id,
+        rejectedAt: null,
+      },
+    });
+    req.app.get('io')?.emit('meeting.guest_request.approved', {
+      roomId: room.id,
+      requestId: request.id,
+      guestName: request.guestName,
+    });
+    res.json(request);
+  })
+);
+
+router.post(
+  '/:slug/guest-requests/:requestId/reject',
+  asyncHandler(async (req, res) => {
+    const room = await prisma.meetingRoom.findUnique({ where: { slug: req.params.slug } });
+    if (!room) throw NotFound('Meeting not found');
+    if (!canManageRoom(room, req.user)) throw Forbidden();
+    const request = await prisma.meetingRoomGuestRequest.update({
+      where: { id: req.params.requestId },
+      data: {
+        status: 'REJECTED',
+        rejectedAt: new Date(),
+        reviewedAt: new Date(),
+        reviewedById: req.user.id,
+        approvedAt: null,
+      },
+    });
+    req.app.get('io')?.emit('meeting.guest_request.rejected', {
+      roomId: room.id,
+      requestId: request.id,
+      guestName: request.guestName,
+    });
+    res.json(request);
   })
 );
 
@@ -204,7 +352,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const room = await prisma.meetingRoom.findUnique({ where: { slug: req.params.slug } });
     if (!room) return res.status(204).end();
-    if (room.hostId !== req.user.id && !['SUPER_ADMIN', 'ADMIN'].includes(req.user.role)) throw Forbidden();
+    if (!canManageRoom(room, req.user)) throw Forbidden();
     const updated = await prisma.meetingRoom.update({ where: { id: room.id }, data: { endedAt: new Date() } });
     audit.record({ kind: 'meeting.ended', entity: 'meeting', entityId: room.id, req });
     await eventBus.publish('meeting.ended', { meetingId: room.id }, { tenantId: room.tenantId });

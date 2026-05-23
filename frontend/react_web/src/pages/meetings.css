@@ -75,6 +75,86 @@
   font: inherit;
   padding: 0;
 }
+.mt__guest-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  font-size: var(--fs-xs);
+  color: var(--c-text-muted);
+}
+.mt__guest-meta button {
+  border: 0;
+  background: none;
+  color: var(--c-brand-strong);
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+}
+.mt__guest-panel {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--c-border);
+}
+.mt__guest-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-size: var(--fs-sm);
+}
+.mt__guest-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mt__guest-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--c-border);
+  background: var(--c-surface-1);
+}
+.mt__guest-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.mt__guest-main span {
+  display: block;
+  margin-top: 4px;
+  color: var(--c-text-muted);
+  font-size: var(--fs-xs);
+}
+.mt__guest-actions {
+  display: flex;
+  gap: 8px;
+}
+.mt__guest-status {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+}
+.mt__guest-status--approved { color: var(--c-success); }
+.mt__guest-status--rejected { color: var(--c-danger); }
+.mt__approval-state {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--c-border);
+  background: var(--c-surface-1);
+}
+.mt__approval-state strong { display: block; margin-bottom: 4px; }
+.mt__approval-state span { color: var(--c-text-muted); font-size: var(--fs-sm); }
+.mt__approval-state--pending { border-color: color-mix(in srgb, var(--c-accent) 40%, var(--c-border)); }
+.mt__approval-state--approved { border-color: color-mix(in srgb, var(--c-success) 40%, var(--c-border)); }
+.mt__approval-state--rejected { border-color: color-mix(in srgb, var(--c-danger) 40%, var(--c-border)); }
 .mt__join-card {
   background: var(--c-surface);
   border: 1px solid var(--c-border);

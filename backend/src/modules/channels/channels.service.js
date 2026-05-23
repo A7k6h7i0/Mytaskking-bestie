@@ -20,7 +20,7 @@ async function listForUser(user) {
       ...(user.isClient ? { kind: 'CLIENT' } : {}),
     },
     include: {
-      members: { include: { user: { select: { id: true, name: true, role: true, avatarUrl: true, isClient: true } } } },
+      members: { include: { user: { select: { id: true, userId: true, name: true, role: true, customTitle: true, avatarUrl: true, isClient: true } } } },
       _count: { select: { messages: true } },
     },
     orderBy: [{ pinned: 'desc' }, { updatedAt: 'desc' }],
@@ -132,7 +132,7 @@ async function getById(id, user) {
   const channel = await prisma.channel.findUnique({
     where: { id },
     include: {
-      members: { include: { user: { select: { id: true, name: true, role: true, avatarUrl: true, isClient: true } } } },
+      members: { include: { user: { select: { id: true, userId: true, name: true, role: true, customTitle: true, avatarUrl: true, isClient: true } } } },
     },
   });
   if (!channel) throw NotFound('Channel not found');

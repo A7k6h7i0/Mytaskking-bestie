@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 import AgoraRTC, { IAgoraRTCClient, ICameraVideoTrack, IAgoraRTCRemoteUser, IMicrophoneAudioTrack } from 'agora-rtc-sdk-ng';
-import { Camera, CameraOff, Copy, Link2, Mic, MicOff, PhoneOff, Users, Video } from 'lucide-react';
+import { Camera, CameraOff, Clock3, Copy, Link2, Mic, MicOff, PhoneOff, ShieldCheck, Users, Video } from 'lucide-react';
 import { apiUrl } from '@/services/api';
 import { useAuthStore } from '@/store/auth';
 import { Button } from '@/components/ui/Button';
@@ -31,10 +31,19 @@ type MeetingToken = {
   guestName?: string;
 };
 
+type GuestRequest = {
+  requestId: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  guestName: string;
+  requestedAt: string;
+  reviewedAt?: string | null;
+};
+
 type LobbyData = {
   room: MeetingRoom;
   participants: Array<{ id: string; displayName: string; joinedVia: string; joinedAt: string }>;
   shareHistory: Array<{ id: string; copiedByName: string; copiedAt: string }>;
+  pendingRequests: Array<{ id: string; guestName: string; requestedAt: string; status: string }>;
 };
 
 const rtcClient = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
@@ -47,6 +56,8 @@ export default function MeetingJoinPage() {
   const [muted, setMuted] = useState(false);
   const [cameraOn, setCameraOn] = useState(false);
   const [remoteUsers, setRemoteUsers] = useState<IAgoraRTCRemoteUser[]>([]);
+  const [guestRequest, setGuestRequest] = useState<GuestRequest | null>(null);
+  const joiningApprovedRef = useRef(false);
   const clientRef = useRef<IAgoraRTCClient | null>(null);
   const micTrackRef = useRef<IMicrophoneAudioTrack | null>(null);
   const cameraTrackRef = useRef<ICameraVideoTrack | null>(null);
@@ -64,9 +75,24 @@ export default function MeetingJoinPage() {
     enabled: !!slug,
     refetchInterval: 10_000,
   });
+  const requestStatusQuery = useQuery<GuestRequest>({
+    queryKey: ['meeting.public.request', slug, guestRequest?.requestId],
+    queryFn: async () => (await axios.get(`${apiUrl}/api/v1/meetings/public/${slug}/request-access/${guestRequest!.requestId}`)).data,
+    enabled: !!slug && !!guestRequest?.requestId && !joined && guestRequest?.status === 'PENDING',
+    refetchInterval: 5_000,
+  });
 
+  const requestMut = useMutation({
+    mutationFn: async () => (await axios.post(`${apiUrl}/api/v1/meetings/public/${slug}/request-access`, { guestName: guestName.trim() })).data as GuestRequest,
+    onSuccess: (data) => {
+      setGuestRequest(data);
+      toast.success('Join request sent to the host');
+      lobbyQuery.refetch();
+    },
+    onError: (err: any) => toast.error(err?.response?.data?.error?.message || 'Could not send join request'),
+  });
   const tokenMut = useMutation({
-    mutationFn: async () => (await axios.post(`${apiUrl}/api/v1/meetings/public/${slug}/token`, { guestName: guestName.trim() })).data as MeetingToken,
+    mutationFn: async () => (await axios.post(`${apiUrl}/api/v1/meetings/public/${slug}/token`, { requestId: guestRequest!.requestId })).data as MeetingToken,
     onError: (err: any) => toast.error(err?.response?.data?.error?.message || 'Could not join meeting'),
   });
   const shareMut = useMutation({
@@ -74,6 +100,12 @@ export default function MeetingJoinPage() {
       (await axios.post(`${apiUrl}/api/v1/meetings/public/${slug}/share`, { copiedByName: (guestName || 'Guest').trim() })).data,
     onSuccess: () => lobbyQuery.refetch(),
   });
+
+  useEffect(() => {
+    if (requestStatusQuery.data) {
+      setGuestRequest(requestStatusQuery.data);
+    }
+  }, [requestStatusQuery.data]);
 
   const meetingTitle = roomQuery.data?.name || 'Meeting room';
   const isVideoMode = useMemo(() => ['VIDEO', 'WEBINAR', 'LIVESTREAM'].includes(roomQuery.data?.mode || 'VIDEO'), [roomQuery.data?.mode]);
@@ -86,11 +118,8 @@ export default function MeetingJoinPage() {
     toast.success('Meeting link copied');
   }
 
-  async function joinMeeting() {
-    if (!guestName.trim()) {
-      toast.warn('Enter your name first');
-      return;
-    }
+  async function joinApprovedMeeting() {
+    if (!guestRequest?.requestId) return;
     const token = await tokenMut.mutateAsync();
     try {
       const client = rtcClient;
@@ -127,12 +156,21 @@ export default function MeetingJoinPage() {
 
       setJoined(true);
       setRemoteUsers([...client.remoteUsers]);
-      toast.success(`Joined ${meetingTitle}`);
+      toast.success(`Host approved you · joined ${meetingTitle}`);
     } catch (err: any) {
       toast.error('Could not start the meeting room', err?.message || 'Please try again.');
       await leaveMeeting(true);
     }
   }
+
+  useEffect(() => {
+    if (guestRequest?.status === 'APPROVED' && !joined && !joiningApprovedRef.current) {
+      joiningApprovedRef.current = true;
+      joinApprovedMeeting().finally(() => {
+        joiningApprovedRef.current = false;
+      });
+    }
+  }, [guestRequest?.status, joined]);
 
   async function leaveMeeting(silent = false) {
     try {
@@ -183,6 +221,14 @@ export default function MeetingJoinPage() {
     setCameraOn(true);
   }
 
+  function requestJoin() {
+    if (!guestName.trim()) {
+      toast.warn('Enter your name first');
+      return;
+    }
+    requestMut.mutate();
+  }
+
   useEffect(() => () => { leaveMeeting(true); }, []);
 
   return (
@@ -190,7 +236,7 @@ export default function MeetingJoinPage() {
       <header className="mt__head">
         <div>
           <h1>{meetingTitle}</h1>
-          <p>Share the meeting URL with anyone. Guests can join directly from the browser without a workspace account.</p>
+          <p>Share the meeting URL with anyone. Guests now wait in a host-reviewed lobby before joining the live room.</p>
         </div>
         {roomQuery.data?.shareUrl && (
           <Button variant="ghost" onClick={copyShareLink}>
@@ -209,11 +255,41 @@ export default function MeetingJoinPage() {
         {!joined ? (
           <div className="mt__join-form">
             <Input label="Your name" value={guestName} onChange={(e) => setGuestName(e.target.value)} />
-            <div className="mt__create-actions">
-              <Button onClick={joinMeeting} loading={tokenMut.isPending} disabled={!guestName.trim()}>
-                <Video size={16} /> Join meeting
-              </Button>
-            </div>
+            {!guestRequest && (
+              <div className="mt__create-actions">
+                <Button onClick={requestJoin} loading={requestMut.isPending} disabled={!guestName.trim()}>
+                  <ShieldCheck size={16} /> Ask to join
+                </Button>
+              </div>
+            )}
+            {guestRequest && guestRequest.status === 'PENDING' && (
+              <div className="mt__approval-state mt__approval-state--pending">
+                <Clock3 size={18} />
+                <div>
+                  <strong>Waiting for host approval</strong>
+                  <span>We’ll join you automatically as soon as someone inside approves this request.</span>
+                </div>
+              </div>
+            )}
+            {guestRequest && guestRequest.status === 'APPROVED' && (
+              <div className="mt__approval-state mt__approval-state--approved">
+                <ShieldCheck size={18} />
+                <div>
+                  <strong>Approved</strong>
+                  <span>Your request was approved. Joining the room now.</span>
+                </div>
+              </div>
+            )}
+            {guestRequest && guestRequest.status === 'REJECTED' && (
+              <div className="mt__approval-state mt__approval-state--rejected">
+                <PhoneOff size={18} />
+                <div>
+                  <strong>Request declined</strong>
+                  <span>The host declined this request. You can update your name and try again.</span>
+                </div>
+                <Button variant="ghost" onClick={() => setGuestRequest(null)}>Try again</Button>
+              </div>
+            )}
           </div>
         ) : (
           <>
@@ -261,6 +337,7 @@ export default function MeetingJoinPage() {
         <div className="mt__live-summary">
           <span><Users size={14} /> {lobbyQuery.data?.participants.length || 0} people seen in this room</span>
           <span><Copy size={14} /> {lobbyQuery.data?.shareHistory.length || 0} link copy events</span>
+          <span><Clock3 size={14} /> {lobbyQuery.data?.pendingRequests.length || 0} pending guest requests</span>
         </div>
         <div className="mt__lobby-grid">
           <div>

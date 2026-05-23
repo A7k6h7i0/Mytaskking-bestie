@@ -1,14 +1,28 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { ChangeEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Send, Hash, Pin } from 'lucide-react';
+import { Send, Hash, Pin, Paperclip, X } from 'lucide-react';
 import dayjs from 'dayjs';
 import { api } from '@/services/api';
 import { useAuthStore } from '@/store/auth';
 import { getSocket } from '@/services/socket';
 import { Avatar } from '@/components/ui/Avatar';
 import { UserName } from '@/components/ui/UserName';
+import { toast } from '@/components/Toast';
 import './chat.css';
+
+type ChannelMember = {
+  userId: string;
+  user?: {
+    id: string;
+    userId: string;
+    name: string;
+    avatarUrl?: string | null;
+    isClient: boolean;
+    role: string;
+    customTitle?: string | null;
+  };
+};
 
 type Channel = {
   id: string;
@@ -16,7 +30,7 @@ type Channel = {
   kind: string;
   isClientChannel: boolean;
   pinned: boolean;
-  members: any[];
+  members: ChannelMember[];
 };
 
 type Message = {
@@ -26,7 +40,17 @@ type Message = {
   author: { id: string; name: string; avatarUrl?: string | null; isClient: boolean; role: string };
   createdAt: string;
   pinned: boolean;
-  attachments?: any[];
+  attachments?: Array<{ id: string; url: string; mimeType: string; originalName?: string | null }>;
+};
+
+type MentionPick = {
+  id: string;
+  userId: string;
+  name: string;
+  role: string;
+  customTitle?: string | null;
+  avatarUrl?: string | null;
+  isClient: boolean;
 };
 
 export default function ChatPage() {
@@ -34,8 +58,12 @@ export default function ChatPage() {
   const navigate = useNavigate();
   const me = useAuthStore((s) => s.user)!;
   const qc = useQueryClient();
-  const [draft, setDraft] = useState('');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [draft, setDraft] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [pendingAttachments, setPendingAttachments] = useState<Array<{ id: string; url: string; mimeType: string; originalName?: string | null }>>([]);
+  const [mentionIndex, setMentionIndex] = useState(0);
 
   const { data: channelsData } = useQuery<{ items: Channel[] }>({
     queryKey: ['channels.mine'],
@@ -54,6 +82,35 @@ export default function ChatPage() {
     enabled: !!active,
   });
   const messages = useMemo(() => messagesData?.items || [], [messagesData]);
+
+  const memberSuggestions = useMemo<MentionPick[]>(() => {
+    const members = (active?.members || [])
+      .map((member) => member.user)
+      .filter((user): user is NonNullable<typeof user> => !!user)
+      .filter((user) => user.id !== me.id)
+      .map((user) => ({
+        id: user.id,
+        userId: user.userId,
+        name: user.name,
+        role: user.role,
+        customTitle: user.customTitle,
+        avatarUrl: user.avatarUrl,
+        isClient: user.isClient,
+      }));
+    const match = draft.match(/(?:^|\s)@([^\s@]*)$/);
+    if (!match) return [];
+    const query = match[1].toLowerCase();
+    return members
+      .filter((user) => {
+        if (!query) return true;
+        return user.name.toLowerCase().includes(query) || user.userId.toLowerCase().includes(query);
+      })
+      .slice(0, 6);
+  }, [active?.members, draft, me.id]);
+
+  useEffect(() => {
+    setMentionIndex(0);
+  }, [draft, active?.id]);
 
   useEffect(() => {
     if (!active) return;
@@ -75,14 +132,67 @@ export default function ChatPage() {
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages.length]);
+  }, [messages.length, pendingAttachments.length]);
+
+  async function uploadFiles(e: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    setUploading(true);
+    try {
+      const uploaded: Array<{ id: string; url: string; mimeType: string; originalName?: string | null }> = [];
+      for (const file of files) {
+        const formData = new FormData();
+        formData.append('file', file);
+        const { data } = await api.post('/files/upload', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        uploaded.push(data);
+      }
+      setPendingAttachments((prev) => [...prev, ...uploaded]);
+      toast.success(`${uploaded.length} file${uploaded.length === 1 ? '' : 's'} attached`);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error?.message || 'Could not upload file');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
+
+  function applyMention(person: MentionPick) {
+    setDraft((prev) => prev.replace(/(^|\s)@([^\s@]*)$/, `$1@${person.userId} `));
+  }
 
   async function send(e: FormEvent) {
     e.preventDefault();
-    if (!active || !draft.trim()) return;
+    if (!active || (!draft.trim() && pendingAttachments.length === 0)) return;
     const body = draft.trim();
+    const attachmentIds = pendingAttachments.map((file) => file.id);
     setDraft('');
-    await api.post(`/chat/channels/${active.id}/messages`, { body });
+    setPendingAttachments([]);
+    await api.post(`/chat/channels/${active.id}/messages`, {
+      body: body || null,
+      kind: attachmentIds.length && !body ? 'FILE' : 'TEXT',
+      attachmentIds,
+    });
+  }
+
+  function onComposerKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (!memberSuggestions.length) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setMentionIndex((prev) => (prev + 1) % memberSuggestions.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setMentionIndex((prev) => (prev - 1 + memberSuggestions.length) % memberSuggestions.length);
+    } else if (e.key === 'Enter') {
+      const match = draft.match(/(?:^|\s)@([^\s@]*)$/);
+      if (match) {
+        e.preventDefault();
+        applyMention(memberSuggestions[mentionIndex] || memberSuggestions[0]);
+      }
+    } else if (e.key === 'Escape') {
+      setDraft((prev) => prev.replace(/(^|\s)@([^\s@]*)$/, '$1'));
+    }
   }
 
   return (
@@ -131,7 +241,20 @@ export default function ChatPage() {
                       <UserName name={m.author.name} isClient={m.author.isClient} role={m.author.role} />
                       <span className="ch__msg-time">{dayjs(m.createdAt).format('HH:mm')}</span>
                     </div>
-                    <div className="ch__msg-text">{m.body}</div>
+                    {m.body && <div className="ch__msg-text">{m.body}</div>}
+                    {!!m.attachments?.length && (
+                      <div className="ch__attachments">
+                        {m.attachments.map((file) => (
+                          <a key={file.id} className="ch__attachment" href={file.url} target="_blank" rel="noreferrer">
+                            {file.mimeType?.startsWith('image/') ? (
+                              <img src={file.url} alt={file.originalName || 'attachment'} />
+                            ) : (
+                              <span>{file.originalName || 'Attachment'}</span>
+                            )}
+                          </a>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -142,10 +265,45 @@ export default function ChatPage() {
               <input
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={onComposerKeyDown}
                 placeholder={`Message ${active.name || ''}…`}
               />
-              <button type="submit" disabled={!draft.trim()}><Send size={16} /></button>
+              <input ref={fileInputRef} type="file" multiple hidden onChange={uploadFiles} />
+              <button type="button" className="ch__icon-btn" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+                <Paperclip size={16} />
+              </button>
+              <button type="submit" disabled={!draft.trim() && pendingAttachments.length === 0}><Send size={16} /></button>
+              {!!memberSuggestions.length && (
+                <div className="ch__mentions">
+                  {memberSuggestions.map((person, index) => (
+                    <button
+                      type="button"
+                      key={person.id}
+                      className={`ch__mention-item ${index === mentionIndex ? 'is-active' : ''}`}
+                      onClick={() => applyMention(person)}
+                    >
+                      <Avatar name={person.name} src={person.avatarUrl} isClient={person.isClient} size={24} />
+                      <div>
+                        <strong>{person.name}</strong>
+                        <span>@{person.userId} · {person.customTitle || person.role.replace(/_/g, ' ')}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </form>
+            {!!pendingAttachments.length && (
+              <div className="ch__pending-files">
+                {pendingAttachments.map((file) => (
+                  <div key={file.id} className="ch__pending-file">
+                    <span>{file.originalName || 'Attachment ready'}</span>
+                    <button type="button" onClick={() => setPendingAttachments((prev) => prev.filter((item) => item.id !== file.id))}>
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </>
         ) : (
           <div className="ch__empty-center">Pick a channel to start chatting.</div>
