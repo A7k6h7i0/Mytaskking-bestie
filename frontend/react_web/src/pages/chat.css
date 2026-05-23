@@ -71,6 +71,9 @@
   object-fit: cover;
   border-radius: calc(var(--r-md) - 4px);
 }
+.ch__audio {
+  width: min(280px, 100%);
+}
 
 .ch__empty-center {
   flex: 1; display: flex; align-items: center; justify-content: center;
@@ -111,6 +114,10 @@
 .ch__icon-btn {
   background: var(--c-surface-2) !important;
   color: var(--c-text) !important;
+}
+.ch__icon-btn.is-recording {
+  background: color-mix(in srgb, var(--c-danger) 20%, var(--c-surface-2)) !important;
+  color: var(--c-danger) !important;
 }
 .ch__mentions {
   position: absolute;

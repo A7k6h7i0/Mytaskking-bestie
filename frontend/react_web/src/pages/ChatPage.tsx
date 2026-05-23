@@ -1,7 +1,7 @@
 import { ChangeEvent, ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Send, Hash, Pin, Paperclip, X, ClipboardPaste, RotateCcw, GripVertical } from 'lucide-react';
+import { Send, Hash, Pin, Paperclip, X, ClipboardPaste, RotateCcw, GripVertical, Mic, Square, ChevronLeft, ChevronRight } from 'lucide-react';
 import dayjs from 'dayjs';
 import { api } from '@/services/api';
 import { useAuthStore } from '@/store/auth';
@@ -78,6 +78,10 @@ export default function ChatPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLElement | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<BlobPart[]>([]);
+  const uploadControllersRef = useRef<Record<string, AbortController>>({});
   const [draft, setDraft] = useState('');
   const [uploading, setUploading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
@@ -85,7 +89,8 @@ export default function ChatPage() {
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [mentionIndex, setMentionIndex] = useState(0);
   const [dragAttachmentId, setDragAttachmentId] = useState<string | null>(null);
-  const [lightbox, setLightbox] = useState<{ url: string; name: string } | null>(null);
+  const [lightbox, setLightbox] = useState<{ items: Array<{ url: string; name: string }>; index: number } | null>(null);
+  const [recording, setRecording] = useState(false);
 
   const { data: channelsData } = useQuery<{ items: Channel[] }>({
     queryKey: ['channels.mine'],
@@ -177,15 +182,17 @@ export default function ChatPage() {
   async function uploadEntries(entries: PendingAttachment[]) {
     if (!entries.length) return;
 
-    try {
-      await Promise.all(entries.map(async (entry) => {
+    const results = await Promise.allSettled(entries.map(async (entry) => {
         const file = entry.sourceFile;
         if (!file) return;
         const tempId = entry.tempId;
+        const controller = new AbortController();
+        uploadControllersRef.current[tempId] = controller;
         const formData = new FormData();
         formData.append('file', file);
         const { data } = await api.post('/files/upload', formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
+          signal: controller.signal,
           onUploadProgress: (event) => {
             const total = event.total || file.size || 1;
             const progress = Math.max(5, Math.min(100, Math.round(((event.loaded || 0) / total) * 100)));
@@ -201,19 +208,28 @@ export default function ChatPage() {
           progress: 100,
           status: 'ready',
         } : item));
+        delete uploadControllersRef.current[tempId];
       }));
-      toast.success(`${entries.length} file${entries.length === 1 ? '' : 's'} attached`);
-    } catch (err: any) {
-      const failedIds = new Set(entries.map((entry) => entry.tempId));
-      setPendingAttachments((prev) => prev.map((item) => failedIds.has(item.tempId) && item.status === 'uploading' ? { ...item, status: 'error' } : item));
-      toast.error(err?.response?.data?.error?.message || 'Could not upload file');
-    } finally {
-      setUploading((current) => {
-        void current;
-        return false;
-      });
-      if (fileInputRef.current) fileInputRef.current.value = '';
+
+    const failures = results.filter((result) => result.status === 'rejected');
+    if (failures.length) {
+      const failedIds = new Set(
+        entries
+          .filter((entry, index) => results[index]?.status === 'rejected')
+          .map((entry) => entry.tempId)
+      );
+      setPendingAttachments((prev) =>
+        prev.map((item) => failedIds.has(item.tempId) && item.status === 'uploading' ? { ...item, status: 'error' } : item)
+      );
+      toast.error(failures.length === entries.length ? 'Could not upload file' : `${failures.length} upload${failures.length === 1 ? '' : 's'} failed`);
     }
+    const successCount = results.length - failures.length;
+    if (successCount > 0) {
+      toast.success(`${successCount} file${successCount === 1 ? '' : 's'} attached`);
+    }
+
+    setUploading(Object.keys(uploadControllersRef.current).length > 0);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
   async function uploadFiles(e: ChangeEvent<HTMLInputElement>) {
@@ -269,6 +285,14 @@ export default function ChatPage() {
     await uploadEntries([{ ...entry, status: 'uploading', progress: 0 }]);
   }
 
+  function cancelUpload(tempId: string) {
+    uploadControllersRef.current[tempId]?.abort();
+    delete uploadControllersRef.current[tempId];
+    setPendingAttachments((prev) => prev.filter((item) => item.tempId !== tempId));
+    setUploading(Object.keys(uploadControllersRef.current).length > 0);
+    toast.info('Upload cancelled');
+  }
+
   function movePendingAttachment(fromId: string, toId: string) {
     if (fromId === toId) return;
     setPendingAttachments((prev) => {
@@ -291,12 +315,69 @@ export default function ChatPage() {
     if (!active || (!draft.trim() && readyAttachments.length === 0) || hasUploading) return;
     const body = draft.trim();
     const attachmentIds = readyAttachments.map((file) => file.id!).filter(Boolean);
+    const onlyAudio = !body && readyAttachments.length > 0 && readyAttachments.every((file) => file.mimeType?.startsWith('audio/'));
     setDraft('');
     setPendingAttachments([]);
     await api.post(`/chat/channels/${active.id}/messages`, {
       body: body || null,
-      kind: attachmentIds.length && !body ? 'FILE' : 'TEXT',
+      kind: onlyAudio ? 'VOICE_NOTE' : attachmentIds.length && !body ? 'FILE' : 'TEXT',
       attachmentIds,
+    });
+  }
+
+  async function toggleRecording() {
+    if (recording) {
+      mediaRecorderRef.current?.stop();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      const recorder = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+      recorder.onstop = async () => {
+        setRecording(false);
+        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+        if (blob.size > 0) {
+          const ext = recorder.mimeType.includes('ogg') ? 'ogg' : recorder.mimeType.includes('mp4') ? 'm4a' : 'webm';
+          const file = new File([blob], `voice-note-${Date.now()}.${ext}`, { type: recorder.mimeType || 'audio/webm' });
+          await uploadSelectedFiles([file]);
+        }
+        mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setRecording(true);
+      toast.info('Recording voice note…');
+    } catch (err: any) {
+      toast.error(err?.message || 'Microphone access was not available');
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+      Object.values(uploadControllersRef.current).forEach((controller) => controller.abort());
+    };
+  }, []);
+
+  function openImageGallery(attachments: Array<{ id: string; url: string; mimeType: string; originalName?: string | null }>, clickedId: string) {
+    const images = attachments
+      .filter((attachment) => attachment.mimeType?.startsWith('image/'))
+      .map((attachment) => ({ id: attachment.id, url: attachment.url, name: attachment.originalName || 'image' }));
+    const index = Math.max(0, images.findIndex((item) => item.id === clickedId));
+    setLightbox({ items: images.map(({ url, name }) => ({ url, name })), index });
+  }
+
+  function shiftLightbox(direction: -1 | 1) {
+    setLightbox((current) => {
+      if (!current) return current;
+      const nextIndex = (current.index + direction + current.items.length) % current.items.length;
+      return { ...current, index: nextIndex };
     });
   }
 
@@ -385,12 +466,16 @@ export default function ChatPage() {
                             onClick={(e) => {
                               if (file.mimeType?.startsWith('image/')) {
                                 e.preventDefault();
-                                setLightbox({ url: file.url, name: file.originalName || 'image' });
+                                openImageGallery(m.attachments || [], file.id);
                               }
                             }}
                           >
                             {file.mimeType?.startsWith('image/') ? (
                               <img src={file.url} alt={file.originalName || 'attachment'} />
+                            ) : file.mimeType?.startsWith('audio/') ? (
+                              <audio controls preload="metadata" className="ch__audio">
+                                <source src={file.url} type={file.mimeType} />
+                              </audio>
                             ) : (
                               <span>{file.originalName || 'Attachment'}</span>
                             )}
@@ -422,6 +507,9 @@ export default function ChatPage() {
               <input ref={fileInputRef} type="file" multiple hidden onChange={uploadFiles} />
               <button type="button" className="ch__icon-btn" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
                 <Paperclip size={16} />
+              </button>
+              <button type="button" className={`ch__icon-btn ${recording ? 'is-recording' : ''}`} onClick={toggleRecording} disabled={uploading}>
+                {recording ? <Square size={16} /> : <Mic size={16} />}
               </button>
               <button type="submit" disabled={(!draft.trim() && readyAttachments.length === 0) || hasUploading}><Send size={16} /></button>
               {!!memberSuggestions.length && (
@@ -474,6 +562,11 @@ export default function ChatPage() {
                     </div>
                     <div className="ch__pending-actions">
                       {file.status === 'uploading' && <div className="ch__pending-bar"><i style={{ width: `${file.progress}%` }} /></div>}
+                      {file.status === 'uploading' && (
+                        <button type="button" className="ch__retry-btn" onClick={() => cancelUpload(file.tempId)} title="Cancel upload">
+                          <X size={14} />
+                        </button>
+                      )}
                       {file.status === 'error' && (
                         <button type="button" className="ch__retry-btn" onClick={() => retryAttachment(file.tempId)} title="Retry upload">
                           <RotateCcw size={14} />
@@ -489,7 +582,7 @@ export default function ChatPage() {
             )}
             <div className="ch__helper-row">
               <span><ClipboardPaste size={14} /> Paste images from your clipboard directly into the composer.</span>
-              <span>Drag files anywhere over this chat panel and drag chips to re-order them.</span>
+              <span>Drag files anywhere over this chat panel, drag chips to re-order them, or record a voice note.</span>
             </div>
           </>
         ) : (
@@ -499,13 +592,21 @@ export default function ChatPage() {
       <Modal
         open={!!lightbox}
         onClose={() => setLightbox(null)}
-        title={lightbox?.name || 'Image preview'}
+        title={lightbox ? lightbox.items[lightbox.index]?.name || 'Image preview' : 'Image preview'}
         description="Full-size chat image preview"
-        footer={<Button variant="ghost" onClick={() => setLightbox(null)}>Close</Button>}
+        footer={
+          lightbox ? (
+            <>
+              {lightbox.items.length > 1 && <Button variant="ghost" onClick={() => shiftLightbox(-1)}><ChevronLeft size={16} /> Previous</Button>}
+              {lightbox.items.length > 1 && <Button variant="ghost" onClick={() => shiftLightbox(1)}>Next <ChevronRight size={16} /></Button>}
+              <Button variant="ghost" onClick={() => setLightbox(null)}>Close</Button>
+            </>
+          ) : undefined
+        }
       >
         {lightbox && (
           <div className="ch__lightbox">
-            <img src={lightbox.url} alt={lightbox.name} />
+            <img src={lightbox.items[lightbox.index]?.url} alt={lightbox.items[lightbox.index]?.name} />
           </div>
         )}
       </Modal>
