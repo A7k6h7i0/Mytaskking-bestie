@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import AgoraRTC, { IAgoraRTCClient, ICameraVideoTrack, ILocalAudioTrack, ILocalVideoTrack, IMicrophoneAudioTrack, IRemoteAudioTrack, IAgoraRTCRemoteUser } from 'agora-rtc-sdk-ng';
-import { Camera, CameraOff, Mic, MicOff, MonitorUp, PhoneOff, Radio, ShieldCheck, Users, Volume2, VolumeX } from 'lucide-react';
+import { Camera, CameraOff, Check, Mic, MicOff, MonitorUp, PhoneOff, Plus, Radio, Search, ShieldCheck, Users, Volume2, VolumeX, X } from 'lucide-react';
 import { api } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { Avatar } from '@/components/ui/Avatar';
@@ -10,6 +10,7 @@ import { UserName } from '@/components/ui/UserName';
 import { toast } from '@/components/Toast';
 import { useAuthStore } from '@/store/auth';
 import { useCallStore } from '@/store/calls';
+import { Input } from '@/components/ui/Input';
 import './call-room.css';
 
 type CallToken = {
@@ -30,11 +31,16 @@ type HistoryCall = {
   participants: Array<{ userId: string; joinedAt?: string | null; leftAt?: string | null; muted?: boolean; user: { id: string; name: string; avatarUrl?: string | null; role: string; isClient: boolean } }>;
 };
 
+type EmployeeDirectory = {
+  items: Array<{ id: string; name: string; userId: string; role: string; isClient: boolean; avatarUrl?: string | null; status: string }>;
+};
+
 const rtcClient = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
 
 export default function CallRoomPage() {
   const { callId = '' } = useParams();
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const me = useAuthStore((s) => s.user)!;
   const pending = useCallStore((s) => s.pending);
   const clearPending = useCallStore((s) => s.clearPending);
@@ -52,6 +58,8 @@ export default function CallRoomPage() {
   const [selectedMicId, setSelectedMicId] = useState('');
   const [selectedCameraId, setSelectedCameraId] = useState('');
   const [selectedSpeakerId, setSelectedSpeakerId] = useState('');
+  const [inviteQuery, setInviteQuery] = useState('');
+  const [selectedInviteIds, setSelectedInviteIds] = useState<string[]>([]);
   const clientRef = useRef<IAgoraRTCClient | null>(null);
   const micTrackRef = useRef<IMicrophoneAudioTrack | null>(null);
   const cameraTrackRef = useRef<ICameraVideoTrack | null>(null);
@@ -65,6 +73,13 @@ export default function CallRoomPage() {
     queryKey: ['calls.history.live'],
     queryFn: async () => (await api.get('/calls/history')).data,
     refetchInterval: joined ? 10000 : false,
+  });
+
+  const { data: employeeDirectory } = useQuery<EmployeeDirectory>({
+    queryKey: ['employees.call.directory', inviteQuery],
+    queryFn: async () => (await api.get('/employees', { params: { q: inviteQuery } })).data,
+    enabled: !!callId,
+    staleTime: 15_000,
   });
 
   const activeCall = useMemo(() => (history?.items || []).find((item) => item.id === callId) || pending?.call || null, [history?.items, callId, pending?.call]);
@@ -82,6 +97,18 @@ export default function CallRoomPage() {
       return tokenQuery.refetch();
     },
     onError: (err: any) => toast.error(err?.response?.data?.error?.message || 'Could not join call'),
+  });
+
+  const inviteMut = useMutation({
+    mutationFn: async (userIds: string[]) => (await api.post(`/calls/${callId}/participants`, { userIds })).data,
+    onSuccess: (_result, userIds) => {
+      qc.invalidateQueries({ queryKey: ['calls.history.live'] });
+      setSelectedInviteIds([]);
+      setInviteQuery('');
+      const count = userIds.length;
+      toast.success(count === 1 ? '1 person added to the call' : `${count} people added to the call`);
+    },
+    onError: (err: any) => toast.error(err?.response?.data?.error?.message || 'Could not add people to the call'),
   });
 
   async function connect() {
@@ -382,9 +409,26 @@ export default function CallRoomPage() {
   }
 
   const otherParticipants = (activeCall?.participants || []).filter((p: any) => p.user?.id !== me.id);
+  const existingParticipantIds = useMemo(
+    () => new Set((activeCall?.participants || []).map((participant: any) => participant.user?.id).filter(Boolean)),
+    [activeCall?.participants]
+  );
+  const inviteablePeople = useMemo(
+    () =>
+      (employeeDirectory?.items || []).filter((person) => {
+        if (!person?.id || person.id === me.id) return false;
+        if (existingParticipantIds.has(person.id)) return false;
+        return person.status === 'ACTIVE';
+      }),
+    [employeeDirectory?.items, existingParticipantIds, me.id]
+  );
   const timerText = new Date(seconds * 1000).toISOString().slice(14, 19);
   const localVideoActive = cameraOn || sharingScreen;
   const localShareLabel = sharingScreen ? ' · presenting live' : '';
+
+  function toggleInviteSelection(userId: string) {
+    setSelectedInviteIds((current) => (current.includes(userId) ? current.filter((item) => item !== userId) : [...current, userId]));
+  }
 
   return (
     <div className="cr">
@@ -468,6 +512,60 @@ export default function CallRoomPage() {
                 </article>
               );
             })}
+          </div>
+        </div>
+
+        <div className="cr__invite-panel">
+          <div className="cr__invite-head">
+            <div>
+              <h2>Add more people live</h2>
+              <p>Turn a 1:1 call into a live group room by inviting as many active teammates as you need.</p>
+            </div>
+            <span className="cr__invite-count">{selectedInviteIds.length} selected</span>
+          </div>
+          <div className="cr__invite-search">
+            <Input
+              leading={<Search size={14} />}
+              placeholder="Search teammates by name or user ID"
+              value={inviteQuery}
+              onChange={(e) => setInviteQuery(e.target.value)}
+            />
+          </div>
+          <div className="cr__invite-list">
+            {inviteablePeople.map((person) => {
+              const selected = selectedInviteIds.includes(person.id);
+              return (
+                <button
+                  type="button"
+                  key={person.id}
+                  className={`cr__invite-person ${selected ? 'is-selected' : ''}`}
+                  onClick={() => toggleInviteSelection(person.id)}
+                >
+                  <div className="cr__invite-person-main">
+                    <Avatar name={person.name} src={person.avatarUrl} isClient={person.isClient} size={34} />
+                    <div>
+                      <div className="cr__invite-name">{person.name}</div>
+                      <div className="cr__invite-meta">@{person.userId} · {person.role.replace('_', ' ')}</div>
+                    </div>
+                  </div>
+                  <span className="cr__invite-check">{selected ? <Check size={14} /> : <Plus size={14} />}</span>
+                </button>
+              );
+            })}
+            {!inviteablePeople.length && (
+              <div className="cr__invite-empty">
+                <X size={16} />
+                <span>No more active teammates are available to add right now.</span>
+              </div>
+            )}
+          </div>
+          <div className="cr__invite-actions">
+            <Button variant="ghost" onClick={() => { setSelectedInviteIds([]); setInviteQuery(''); }} disabled={!selectedInviteIds.length && !inviteQuery}>
+              Clear
+            </Button>
+            <Button onClick={() => inviteMut.mutate(selectedInviteIds)} loading={inviteMut.isPending} disabled={!selectedInviteIds.length}>
+              <Users size={16} /> Add to this call
+            </Button>
           </div>
         </div>
 

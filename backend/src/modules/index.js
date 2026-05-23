@@ -21,6 +21,7 @@ const search = require('./search/search.routes');
 const saved = require('./saved/saved.routes');
 const settings = require('./settings/settings.routes');
 const calendar = require('./calendar/calendar.routes');
+const attendance = require('./attendance/attendance.routes');
 const announcements = require('./announcements/announcements.routes');
 
 // Tier-3 modules — sessions, advanced RBAC, presence, analytics, automations, openapi.
@@ -56,6 +57,7 @@ module.exports = function buildRouter() {
   router.use('/saved', saved);
   router.use('/settings', settings);
   router.use('/calendar', calendar);
+  router.use('/attendance', attendance);
   router.use('/announcements', announcements);
 
   router.use('/sessions', sessions);

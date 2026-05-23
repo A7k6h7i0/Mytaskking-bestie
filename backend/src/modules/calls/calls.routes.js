@@ -70,17 +70,30 @@ router.post('/:id/decline', asyncHandler(async (req, res) => {
 
 router.post(
   '/:id/participants',
-  validate({ body: Joi.object({ userId: Joi.string().required() }) }),
+  validate({
+    body: Joi.object({
+      userId: Joi.string(),
+      userIds: Joi.array().items(Joi.string()).min(1),
+    }).or('userId', 'userIds'),
+  }),
   asyncHandler(async (req, res) => {
+    const userIds = Array.from(
+      new Set([
+        ...(req.body.userId ? [req.body.userId] : []),
+        ...((Array.isArray(req.body.userIds) ? req.body.userIds : [])),
+      ])
+    );
     const result = await service.addParticipant({
       callId: req.params.id,
-      userId: req.body.userId,
+      userIds,
       actor: req.user,
     });
-    req.app.get('io')?.to(`user:${req.body.userId}`).emit('call.invited', {
-      call: result.call,
-      token: result.token,
-    });
+    for (const userId of userIds) {
+      req.app.get('io')?.to(`user:${userId}`).emit('call.invited', {
+        call: result.call,
+        token: result.tokens[userId],
+      });
+    }
     res.json(result);
   })
 );

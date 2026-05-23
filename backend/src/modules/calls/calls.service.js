@@ -96,17 +96,24 @@ async function decline({ callId, user }) {
   return prisma.call.findUnique({ where: { id: callId }, include: callInclude });
 }
 
-async function addParticipant({ callId, userId, actor }) {
+async function addParticipant({ callId, userIds, actor }) {
   const call = await prisma.call.findUnique({ where: { id: callId }, include: callInclude });
   if (!call) throw NotFound('Call not found');
-  if (call.initiatorId !== actor.id && !['SUPER_ADMIN', 'ADMIN'].includes(actor.role)) {
-    throw Forbidden('Only initiator can add participants');
+  const actorParticipant = call.participants.some((p) => p.userId === actor.id);
+  if (!actorParticipant && !['SUPER_ADMIN', 'ADMIN'].includes(actor.role)) {
+    throw Forbidden('Only current participants or admins can add people');
   }
-  await prisma.callParticipant.upsert({
-    where: { callId_userId: { callId, userId } },
-    update: {},
-    create: { callId, userId },
-  });
+
+  const safeUserIds = Array.from(new Set((userIds || []).map((value) => String(value || '').trim()).filter(Boolean)));
+  if (!safeUserIds.length) throw BadRequest('Need at least one user to invite');
+
+  for (const userId of safeUserIds) {
+    await prisma.callParticipant.upsert({
+      where: { callId_userId: { callId, userId } },
+      update: {},
+      create: { callId, userId },
+    });
+  }
 
   // converts a 1:1 call into a group call when 3+ participants
   const totalParticipants = await prisma.callParticipant.count({ where: { callId } });
@@ -114,9 +121,12 @@ async function addParticipant({ callId, userId, actor }) {
     await prisma.call.update({ where: { id: callId }, data: { kind: 'GROUP' } });
   }
 
+  const refreshed = await prisma.call.findUnique({ where: { id: callId }, include: callInclude });
   return {
-    call: await prisma.call.findUnique({ where: { id: callId }, include: callInclude }),
-    token: agora.generateRtcToken({ channelName: call.channelName, uid: userId }),
+    call: refreshed,
+    tokens: Object.fromEntries(
+      safeUserIds.map((userId) => [userId, agora.generateRtcToken({ channelName: call.channelName, uid: userId })])
+    ),
   };
 }
 

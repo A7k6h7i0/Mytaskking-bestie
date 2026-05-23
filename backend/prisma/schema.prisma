@@ -71,6 +71,7 @@ model User {
   savedItems      SavedItem[]
   calendarEvents  CalendarEvent[]     @relation("CalendarEventOwner")
   eventAttendees  CalendarAttendee[]
+  workdayLogs     WorkdayLog[]
   announcements   Announcement[]     @relation("AnnouncementAuthor")
 
   // multi-tenancy (nullable today; non-null after tenant migration)
@@ -699,6 +700,29 @@ model CalendarAttendee {
 
   @@unique([eventId, userId])
   @@index([userId])
+}
+
+model WorkdayLog {
+  id                String   @id @default(cuid())
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId            String
+  localDate         String
+  timezone          String
+  checkInAt         DateTime?
+  checkInPlan       String?
+  checkInWordCount  Int?
+  lunchStartedAt    DateTime?
+  lunchEndedAt      DateTime?
+  lunchNote         String?
+  checkOutAt        DateTime?
+  checkOutReport    String?
+  checkOutWordCount Int?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([userId, localDate])
+  @@index([localDate])
+  @@index([userId, localDate])
 }
 
 // ---------------------------------------------------------------------------

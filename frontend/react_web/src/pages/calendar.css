@@ -4,6 +4,111 @@
 .cal__head p { margin: 4px 0 0; color: var(--c-text-muted); }
 .cal__nav { display: flex; gap: 6px; }
 
+.cal__attendance-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-4);
+  border-radius: var(--r-lg);
+  border: 1px solid var(--c-border);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--c-brand-soft) 36%, var(--c-surface)) 0%, var(--c-surface) 100%);
+}
+.cal__attendance-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+.cal__attendance-head h2 {
+  margin: 0;
+  font-size: var(--fs-xl);
+}
+.cal__attendance-head p {
+  margin: 6px 0 0;
+  color: var(--c-text-muted);
+  max-width: 780px;
+}
+.cal__attendance-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 14px;
+  border-radius: var(--r-pill);
+  background: var(--c-surface-1);
+  border: 1px solid var(--c-border);
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.cal__attendance-status--pending { color: var(--c-warning); }
+.cal__attendance-status--checked_in { color: var(--c-brand-strong); }
+.cal__attendance-status--at_lunch { color: var(--c-danger); }
+.cal__attendance-status--checked_out { color: var(--c-success); }
+.cal__attendance-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.cal__attendance-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--c-border);
+  background: var(--c-surface-1);
+}
+.cal__attendance-block-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+}
+.cal__textarea {
+  width: 100%;
+  border-radius: var(--r-md);
+  border: 1px solid var(--c-border);
+  background: var(--c-surface);
+  color: var(--c-text);
+  padding: 12px 14px;
+  font: inherit;
+  resize: vertical;
+  min-height: 132px;
+}
+.cal__textarea:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--c-brand) 62%, var(--c-border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-brand) 18%, transparent);
+}
+.cal__word-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: var(--fs-xs);
+  color: var(--c-text-muted);
+}
+.cal__speech-tools {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.cal__attendance-mini {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
+  border: 1px solid var(--c-border);
+  background: var(--c-surface-1);
+}
+.cal__attendance-mini--pending { border-left: 3px solid var(--c-warning); }
+.cal__attendance-mini--checked_in { border-left: 3px solid var(--c-brand); }
+.cal__attendance-mini--at_lunch { border-left: 3px solid var(--c-danger); }
+.cal__attendance-mini--checked_out { border-left: 3px solid var(--c-success); }
+
 .cal__grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
@@ -49,4 +154,23 @@
   margin-top: 8px;
   display: inline-flex; align-items: center; gap: 8px;
   color: var(--c-text-muted);
+}
+
+@media (max-width: 1120px) {
+  .cal__attendance-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .cal__head,
+  .cal__attendance-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .cal__grid {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
 }
