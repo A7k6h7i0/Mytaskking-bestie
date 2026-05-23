@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { ChangeEvent, DragEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Send, Hash, Pin, Paperclip, X } from 'lucide-react';
@@ -62,6 +62,7 @@ export default function ChatPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState<Array<{ id: string; url: string; mimeType: string; originalName?: string | null }>>([]);
   const [mentionIndex, setMentionIndex] = useState(0);
 
@@ -134,8 +135,7 @@ export default function ChatPage() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages.length, pendingAttachments.length]);
 
-  async function uploadFiles(e: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files || []);
+  async function uploadSelectedFiles(files: File[]) {
     if (!files.length) return;
     setUploading(true);
     try {
@@ -156,6 +156,31 @@ export default function ChatPage() {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  }
+
+  async function uploadFiles(e: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || []);
+    await uploadSelectedFiles(files);
+  }
+
+  function onDragOver(e: DragEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!active) return;
+    if (!dragActive) setDragActive(true);
+  }
+
+  function onDragLeave(e: DragEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const nextTarget = e.relatedTarget as Node | null;
+    if (nextTarget && e.currentTarget.contains(nextTarget)) return;
+    setDragActive(false);
+  }
+
+  async function onDropFiles(e: DragEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setDragActive(false);
+    const files = Array.from(e.dataTransfer.files || []);
+    await uploadSelectedFiles(files);
   }
 
   function applyMention(person: MentionPick) {
@@ -261,7 +286,13 @@ export default function ChatPage() {
               {messages.length === 0 && <div className="ch__empty-center">No messages yet — start the conversation.</div>}
             </div>
 
-            <form className="ch__composer" onSubmit={send}>
+            <form
+              className={`ch__composer ${dragActive ? 'is-dragging' : ''}`}
+              onSubmit={send}
+              onDragOver={onDragOver}
+              onDragLeave={onDragLeave}
+              onDrop={onDropFiles}
+            >
               <input
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
@@ -289,6 +320,12 @@ export default function ChatPage() {
                       </div>
                     </button>
                   ))}
+                </div>
+              )}
+              {dragActive && (
+                <div className="ch__dropzone">
+                  <strong>Drop files to attach</strong>
+                  <span>Images, docs, and other files will be added to this message.</span>
                 </div>
               )}
             </form>

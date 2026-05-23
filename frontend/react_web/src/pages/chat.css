@@ -77,6 +77,9 @@
   border-top: 1px solid var(--c-border);
   background: var(--c-surface-1);
 }
+.ch__composer.is-dragging {
+  background: color-mix(in srgb, var(--c-brand-soft) 65%, var(--c-surface-1));
+}
 .ch__composer input {
   flex: 1;
   height: 40px;
@@ -113,6 +116,26 @@
   border: 1px solid var(--c-border);
   background: var(--c-surface);
   box-shadow: var(--sh-3);
+}
+.ch__dropzone {
+  position: absolute;
+  inset: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: var(--r-md);
+  border: 2px dashed color-mix(in srgb, var(--c-brand) 55%, var(--c-border));
+  background: color-mix(in srgb, var(--c-brand-soft) 82%, white 18%);
+  color: var(--c-brand-strong);
+  text-align: center;
+  pointer-events: none;
+  z-index: 3;
+}
+.ch__dropzone span {
+  font-size: var(--fs-sm);
+  color: var(--c-text-muted);
 }
 .ch__mention-item {
   width: 100%;
