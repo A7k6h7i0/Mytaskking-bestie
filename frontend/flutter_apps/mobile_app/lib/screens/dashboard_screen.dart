@@ -48,45 +48,44 @@ class DashboardScreen extends ConsumerWidget {
             final attendanceData = attendance.asData?.value;
             final tasksData = tasks.asData?.value;
             final todayTasks = _todayTasksFor(tasksData, user?.id);
+            // Pre-compute which optional cards actually have content. We
+            // intersperse a fixed-height spacer between *visible* sections
+            // instead of pairing every card with its own SizedBox — that
+            // way an empty meetings/today-tasks card doesn't leave a ghost
+            // gap behind in the layout.
+            final liveMeetings = (meetings.asData?.value ?? const <Map<String, dynamic>>[])
+                .where((m) => m['endedAt'] == null)
+                .toList();
+            final sections = <Widget>[
+              if (!isClient && _shouldShowCheckInBanner(attendanceData))
+                _checkInBanner(context, attendanceData),
+              GridView.count(
+                crossAxisCount: 2,
+                crossAxisSpacing: BestieTokens.s2,
+                mainAxisSpacing: BestieTokens.s2,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                childAspectRatio: 1.5,
+                children: _statsFor(context, counts, isAdmin: isAdmin, isClient: isClient),
+              ),
+              if (!isClient && todayTasks.isNotEmpty)
+                _todayTasksCard(context, todayTasks),
+              if (!isClient && liveMeetings.isNotEmpty)
+                _liveMeetingsCard(context, liveMeetings),
+              if (!isClient)
+                _weeklyStatsCard(context, counts, isAdmin: isAdmin),
+              _dailyQuoteCard(),
+              const LeaderboardCard(topN: 5),
+              if (isAdmin)
+                _activityCard(context, data['recentActivity'] as List? ?? const []),
+            ];
             return ListView(
               padding: const EdgeInsets.all(BestieTokens.s4),
               children: [
                 _greeting(user, attendanceData),
-                if (!isClient && _shouldShowCheckInBanner(attendanceData)) ...[
+                for (final s in sections) ...[
                   const SizedBox(height: BestieTokens.s3),
-                  _checkInBanner(context, attendanceData),
-                ],
-                const SizedBox(height: BestieTokens.s3),
-                GridView.count(
-                  crossAxisCount: 2,
-                  crossAxisSpacing: BestieTokens.s2,
-                  mainAxisSpacing: BestieTokens.s2,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  childAspectRatio: 1.5,
-                  children: _statsFor(context, counts, isAdmin: isAdmin, isClient: isClient),
-                ),
-                if (!isClient && todayTasks.isNotEmpty) ...[
-                  const SizedBox(height: BestieTokens.s4),
-                  _todayTasksCard(context, todayTasks),
-                ],
-                if (!isClient) ...[
-                  const SizedBox(height: BestieTokens.s3),
-                  _liveMeetingsCard(context, meetings.asData?.value ?? const []),
-                ],
-                if (!isClient) ...[
-                  const SizedBox(height: BestieTokens.s3),
-                  _weeklyStatsCard(context, counts, isAdmin: isAdmin),
-                ],
-                const SizedBox(height: BestieTokens.s3),
-                _dailyQuoteCard(),
-                const SizedBox(height: BestieTokens.s3),
-                // Performance leaderboard — visible to everyone; useful for both
-                // self-comparison and "who shipped this week".
-                const LeaderboardCard(topN: 5),
-                if (isAdmin) ...[
-                  const SizedBox(height: BestieTokens.s3),
-                  _activityCard(context, data['recentActivity'] as List? ?? const []),
+                  s,
                 ],
               ],
             );
