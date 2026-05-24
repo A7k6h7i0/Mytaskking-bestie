@@ -76,7 +76,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
         foregroundColor: c.text,
         title: const Text('Tasks'),
       ),
-      body: Stack(children: [
+      body: Stack(fit: StackFit.expand, children: [
         RefreshIndicator(
         onRefresh: () async => ref.refresh(tasksKanbanProvider.future),
         child: tasks.when(

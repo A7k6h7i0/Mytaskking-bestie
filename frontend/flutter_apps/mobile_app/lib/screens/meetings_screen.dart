@@ -21,7 +21,7 @@ class MeetingsScreen extends ConsumerWidget {
         foregroundColor: colors.text,
         title: const Text('Meetings'),
       ),
-      body: Stack(children: [
+      body: Stack(fit: StackFit.expand, children: [
         RefreshIndicator(
         onRefresh: () async => ref.refresh(meetingsProvider.future),
         child: meetings.when(

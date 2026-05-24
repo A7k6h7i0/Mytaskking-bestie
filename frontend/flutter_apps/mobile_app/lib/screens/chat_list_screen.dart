@@ -56,7 +56,7 @@ class ChatListScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: Stack(children: [
+      body: Stack(fit: StackFit.expand, children: [
         RefreshIndicator(
         onRefresh: () async => ref.refresh(channelsProvider.future),
         child: channels.when(
