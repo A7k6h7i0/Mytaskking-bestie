@@ -67,18 +67,23 @@ class SettingsScreen extends ConsumerWidget {
           onTap: () => context.go('/calls'),
         ),
         _SectionLabel('People', colors: c),
-        _SettingTile(
-          colors: c,
-          icon: Icons.people_outline_rounded,
-          label: 'Employees',
-          onTap: () => context.go('/employees'),
-        ),
-        _SettingTile(
-          colors: c,
-          icon: Icons.business_center_outlined,
-          label: 'Clients',
-          onTap: () => context.go('/clients'),
-        ),
+        // Clients are external — only employees & up see this directory.
+        if (!(user?.isClient ?? false))
+          _SettingTile(
+            colors: c,
+            icon: Icons.people_outline_rounded,
+            label: 'Employees',
+            onTap: () => context.go('/employees'),
+          ),
+        // Client directory is admin/manager-only (and never visible to a
+        // client themselves — they shouldn't browse other clients).
+        if (user?.role == 'ADMIN' || user?.role == 'SUPER_ADMIN' || user?.role == 'MANAGER')
+          _SettingTile(
+            colors: c,
+            icon: Icons.business_center_outlined,
+            label: 'Clients',
+            onTap: () => context.go('/clients'),
+          ),
         if (user?.role == 'TELECALLER' ||
             user?.role == 'ADMIN' ||
             user?.role == 'SUPER_ADMIN')

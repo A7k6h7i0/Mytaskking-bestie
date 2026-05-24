@@ -662,7 +662,10 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   void _showMeetingShare() {
     final slug = widget.meetingSlug;
     if (slug == null) return;
-    final link = 'https://mytaskking.com/meet/$slug';
+    // Must match the backend's `serializeRoom().shareUrl` so external guests
+    // land on the working /meetings/join/<slug> page where they can request
+    // access without an account.
+    final link = 'https://mytaskking.com/meetings/join/$slug';
     final c = BestieColors.of(context);
     showModalBottomSheet(
       context: context,

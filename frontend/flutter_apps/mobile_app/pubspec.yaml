@@ -27,6 +27,19 @@ dependencies:
   image_picker: ^1.1.2
   file_picker: ^8.1.4
   dio: ^5.7.0
+  record: 5.0.0
+  audioplayers: ^6.1.0
+  path_provider: ^2.1.5
+  emoji_picker_flutter: ^4.0.0
+
+dependency_overrides:
+  # record 5.x's federated linux implementation has a platform-interface
+  # mismatch that fails compile even on Android. Pin record_linux to the
+  # version whose signatures match record_platform_interface 1.0.x.
+  record_linux: 0.7.0
+  record_platform_interface: 1.0.1
+  record_android: ^1.2.0
+  record_darwin: ^1.0.4
 
 dev_dependencies:
   flutter_lints: ^4.0.0

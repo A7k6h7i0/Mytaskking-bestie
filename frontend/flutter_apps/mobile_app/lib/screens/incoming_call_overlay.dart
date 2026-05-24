@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
@@ -23,35 +24,42 @@ class IncomingCallOverlay extends ConsumerStatefulWidget {
 class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
   Map<String, dynamic>? _pending;
   Timer? _autoMiss;
-  bool _ringSubscribed = false;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _subscribe());
-  }
+  final List<void Function()> _unsubs = [];
+  String? _lastUserId;
 
   @override
   void dispose() {
     _autoMiss?.cancel();
+    _hapticTimer?.cancel();
+    for (final u in _unsubs) { u(); }
     super.dispose();
   }
 
-  void _subscribe() {
-    if (_ringSubscribed) return;
+  /// (Re)bind socket listeners whenever the auth user changes — login,
+  /// logout, or a token refresh. Without this the listeners attach once at
+  /// boot to a socket that doesn't yet have an auth token, and the recipient
+  /// never sees a ringer when someone calls them.
+  void _subscribeFor(String? userId) {
+    if (_lastUserId == userId) return;
+    _lastUserId = userId;
+    for (final u in _unsubs) { u(); }
+    _unsubs.clear();
+    if (userId == null) return; // logged out — clear listeners only
+
     final rt = ref.read(realtimeProvider);
-    rt.onAny('call.incoming', ([data]) => _onIncoming(data));
-    rt.onAny('call.invited',  ([data]) => _onIncoming(data));
-    rt.onAny('call.declined', ([data]) {
+    _unsubs.add(rt.onAny('call.incoming', ([data]) => _onIncoming(data)));
+    _unsubs.add(rt.onAny('call.invited',  ([data]) => _onIncoming(data)));
+    _unsubs.add(rt.onAny('call.declined', ([data]) {
       // Caller side: another participant declined. We dismiss our ringer if
       // it was the same call (some race conditions on group calls).
       if (_pending != null && data is Map && data['callId'] == _pending!['call']?['id']) {
         _dismiss();
       }
-    });
-    rt.onAny('call.participant.joined', ([_]) => _dismiss());
-    _ringSubscribed = true;
+    }));
+    _unsubs.add(rt.onAny('call.participant.joined', ([_]) => _dismiss()));
   }
+
+  Timer? _hapticTimer;
 
   void _onIncoming(dynamic data) {
     if (data is! Map) return;
@@ -64,10 +72,20 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
     // Auto-miss after 45s if the user ignores it (matches backend RINGING TTL).
     _autoMiss?.cancel();
     _autoMiss = Timer(const Duration(seconds: 45), _decline);
+
+    // Buzz the device every second so the user notices even with the screen
+    // off or muted notification volume. A real ringtone asset would be nicer
+    // but vibration is a reliable cross-platform fallback.
+    HapticFeedback.heavyImpact();
+    _hapticTimer?.cancel();
+    _hapticTimer = Timer.periodic(const Duration(milliseconds: 1300), (_) {
+      HapticFeedback.heavyImpact();
+    });
   }
 
   void _dismiss() {
     _autoMiss?.cancel();
+    _hapticTimer?.cancel();
     if (mounted) setState(() => _pending = null);
   }
 
@@ -93,6 +111,21 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
 
   @override
   Widget build(BuildContext context) {
+    // Keep realtime alive at boot so events fire even when no screen watches
+    // the provider explicitly. The kick provider only reads — it never
+    // rebuilds this widget on socket churn.
+    ref.watch(realtimeBootProvider);
+
+    // (Re)subscribe whenever the authenticated user changes — login, logout,
+    // token refresh. Without this the ringer was attaching to a token-less
+    // socket and the recipient never saw an incoming-call screen.
+    final user = ref.watch(currentUserProvider).asData?.value
+        ?? ref.watch(authStoreProvider).user;
+    final uid = user?.id;
+    if (uid != _lastUserId) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _subscribeFor(uid));
+    }
+
     return Stack(children: [
       widget.child,
       if (_pending != null)

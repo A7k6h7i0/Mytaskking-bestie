@@ -26,13 +26,37 @@ final currentUserProvider = StreamProvider<BestieUser?>((ref) {
 });
 
 /// Realtime hub — opens the socket on first watch, hands out an event stream.
-/// Auto-closes the connection when nothing's watching anymore.
+/// Re-opens whenever the auth store changes (login/logout/token refresh) so
+/// global listeners like the incoming-call ringer don't sit on a dead socket
+/// with a stale token.
 final realtimeProvider = Provider<BestieRealtime>((ref) {
   final socket = ref.watch(socketProvider);
+  final auth = ref.watch(authStoreProvider);
   final rt = BestieRealtime(socket);
+
+  // Initial connect — safely no-ops if auth token isn't ready yet.
   rt.connect();
-  ref.onDispose(rt.dispose);
+
+  // Reconnect on auth change. The first event a brand-new login fires is the
+  // user becoming non-null; reconnect tears down the (token-less) socket and
+  // opens a fresh one with the access token in the handshake.
+  StreamSubscription? sub;
+  sub = auth.changes.listen((_) => rt.reconnect());
+
+  ref.onDispose(() {
+    sub?.cancel();
+    rt.dispose();
+  });
   return rt;
+});
+
+/// Kicks the realtime provider so listeners stay subscribed at boot, even
+/// before any screen explicitly watches them. Read this in your top-level
+/// widget so the global incoming-call overlay receives `call.incoming`
+/// regardless of which screen the user is currently on.
+final realtimeBootProvider = Provider<bool>((ref) {
+  ref.watch(realtimeProvider);
+  return true;
 });
 
 // ----- dashboard -----

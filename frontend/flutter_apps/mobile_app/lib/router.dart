@@ -80,6 +80,13 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/telecaller',    builder: (_, __) => const TelecallerScreen()),
       GoRoute(path: '/settings',      builder: (_, __) => const SettingsScreen()),
 
+      // Chat detail lives OUTSIDE the shell so the bottom nav doesn't eat
+      // composer + keyboard space. Back arrow returns to the chat list.
+      GoRoute(
+        path: '/chat/:channelId',
+        builder: (_, s) => ChatDetailScreen(channelId: s.pathParameters['channelId']!),
+      ),
+
       // Shell with bottom navigation; nested routes swap the body, sidebar
       // tabs stay rendered.
       ShellRoute(
@@ -87,10 +94,6 @@ final routerProvider = Provider<GoRouter>((ref) {
         routes: [
           GoRoute(path: '/dashboard', builder: (_, __) => const DashboardScreen()),
           GoRoute(path: '/chat',      builder: (_, __) => const ChatListScreen()),
-          GoRoute(
-            path: '/chat/:channelId',
-            builder: (_, s) => ChatDetailScreen(channelId: s.pathParameters['channelId']!),
-          ),
           GoRoute(path: '/tasks',         builder: (_, __) => const TasksScreen()),
           GoRoute(path: '/meetings',      builder: (_, __) => const MeetingsScreen()),
           GoRoute(path: '/notifications', builder: (_, __) => const NotificationsScreen()),
