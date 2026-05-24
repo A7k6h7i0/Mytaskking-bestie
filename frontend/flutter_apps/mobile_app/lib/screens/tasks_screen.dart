@@ -65,11 +65,11 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
     final c = BestieColors.of(context);
     final tasks = ref.watch(tasksKanbanProvider);
 
-    // Reserve the floating nav footprint (70 px height + 16 outer margin +
-    // safe-area inset + a 12 px gap) so the inner body stops above the nav
+    // Reserve the floating nav footprint (70 px height + safe-area inset
+    // plus a small gap) so the inner body stops above the nav
     // pill rather than extending behind it. Lets the default FAB anchor
     // sit naturally above the nav without any custom positioning.
-    final navReserve = 70.0 + 16 + MediaQuery.of(context).padding.bottom + 12;
+    final navReserve = 70.0 + MediaQuery.of(context).padding.bottom + 4;
     return Scaffold(
       backgroundColor: c.bg,
       appBar: _selecting ? _selectionAppBar(c) : AppBar(

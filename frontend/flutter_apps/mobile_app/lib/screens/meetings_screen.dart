@@ -12,7 +12,6 @@ class MeetingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = BestieColors.of(context);
     final meetings = ref.watch(meetingsProvider);
-    final hasMeetings = meetings.asData?.value.isNotEmpty ?? false;
 
     return Scaffold(
       backgroundColor: colors.bg,
@@ -24,7 +23,7 @@ class MeetingsScreen extends ConsumerWidget {
       ),
       bottomNavigationBar: SizedBox(
         // Reserve the floating nav footprint so the body stops above it.
-        height: 70.0 + 16 + MediaQuery.of(context).padding.bottom + 12,
+        height: 70.0 + MediaQuery.of(context).padding.bottom + 4,
       ),
       body: RefreshIndicator(
         onRefresh: () async => ref.refresh(meetingsProvider.future),
@@ -40,11 +39,6 @@ class MeetingsScreen extends ConsumerWidget {
                 icon: Icons.videocam_outlined,
                 title: 'No live rooms',
                 description: 'Create a room to start a voice or video meeting.',
-                action: FilledButton.icon(
-                  onPressed: () => _create(context, ref),
-                  icon: const Icon(Icons.add),
-                  label: const Text('New meeting'),
-                ),
               );
             }
             return ListView.separated(
@@ -93,13 +87,11 @@ class MeetingsScreen extends ConsumerWidget {
           },
         ),
       ),
-      floatingActionButton: hasMeetings
-          ? FloatingActionButton.extended(
-              onPressed: () => _create(context, ref),
-              icon: const Icon(Icons.add),
-              label: const Text('New meeting'),
-            )
-          : null,
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _create(context, ref),
+        icon: const Icon(Icons.add),
+        label: const Text('New meeting'),
+      ),
     );
   }
 
