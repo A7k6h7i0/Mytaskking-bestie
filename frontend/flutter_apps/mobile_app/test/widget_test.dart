@@ -4,7 +4,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:bestie_design/bestie_design.dart';
+import 'package:mytaskking_design/mytaskking_design.dart';
 
 void main() {
   testWidgets('BestieTheme light builds without error', (tester) async {

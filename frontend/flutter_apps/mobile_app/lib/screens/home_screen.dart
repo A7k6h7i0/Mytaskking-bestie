@@ -2,4 +2,4 @@
 // through `router.dart`. Kept as an empty file to avoid breaking stale
 // imports during the transition; remove on next cleanup pass.
 
-library bestie_mobile.deprecated_home_screen;
+library mytaskking_mobile.deprecated_home_screen;

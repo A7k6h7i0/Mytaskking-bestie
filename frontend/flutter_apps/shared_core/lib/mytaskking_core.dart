@@ -1,4 +1,4 @@
-library bestie_core;
+library mytaskking_core;
 
 export 'src/api_client.dart';
 export 'src/api.dart';

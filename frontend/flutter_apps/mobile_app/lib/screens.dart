@@ -1,7 +1,7 @@
 /// Public re-exports of every feature screen, so the desktop apps can pull
-/// them in as `import 'package:bestie_mobile/screens.dart';` and reuse the
+/// them in as `import 'package:mytaskking_mobile/screens.dart';` and reuse the
 /// same widgets without copy-paste.
-library bestie_mobile.screens;
+library mytaskking_mobile.screens;
 
 export 'screens/login_screen.dart';
 export 'screens/shell_screen.dart';

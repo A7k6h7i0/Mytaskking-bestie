@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:bestie_design/bestie_design.dart';
-import 'package:bestie_core/bestie_core.dart' as core show ThemeMode;
-import 'package:bestie_mobile/screens.dart' hide ThemeMode;
+import 'package:mytaskking_design/mytaskking_design.dart';
+import 'package:mytaskking_core/mytaskking_core.dart' as core show ThemeMode;
+import 'package:mytaskking_mobile/screens.dart' hide ThemeMode;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -45,7 +45,7 @@ class BestieWindowsApp extends ConsumerWidget {
 
 /// Desktop shell: persistent sidebar + content area. Routes are tracked in
 /// local state — deep-linking on desktop isn't a strong requirement yet.
-/// All feature screens are reused from `package:bestie_mobile/screens.dart`.
+/// All feature screens are reused from `package:mytaskking_mobile/screens.dart`.
 class DesktopShell extends ConsumerStatefulWidget {
   const DesktopShell({super.key});
   @override

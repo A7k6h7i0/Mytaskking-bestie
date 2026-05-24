@@ -1,4 +1,4 @@
-name: bestie_mobile
+name: mytaskking_mobile
 description: MyTaskKing — Android + iOS mobile workspace.
 version: 1.0.0+1
 publish_to: "none"
@@ -12,9 +12,9 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.8
 
-  bestie_design:
+  mytaskking_design:
     path: ../shared_design_system
-  bestie_core:
+  mytaskking_core:
     path: ../shared_core
 
   go_router: ^14.6.1

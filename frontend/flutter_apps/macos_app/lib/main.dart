@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:bestie_design/bestie_design.dart';
-import 'package:bestie_core/bestie_core.dart' as core show ThemeMode;
-import 'package:bestie_mobile/screens.dart' hide ThemeMode;
+import 'package:mytaskking_design/mytaskking_design.dart';
+import 'package:mytaskking_core/mytaskking_core.dart' as core show ThemeMode;
+import 'package:mytaskking_mobile/screens.dart' hide ThemeMode;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();

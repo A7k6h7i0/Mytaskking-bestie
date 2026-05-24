@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:bestie_design/bestie_design.dart';
+import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../state.dart';
 import 'task_actions_sheet.dart';

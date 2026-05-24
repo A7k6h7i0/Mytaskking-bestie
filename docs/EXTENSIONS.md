@@ -32,7 +32,7 @@ Designed so partial offline doesn't require a server-side rewrite.
 
 ### Cache layer
 
-`bestie_core` keeps a local SQLite cache (suggested: `drift` or `sqflite`). Mirror these tables:
+`mytaskking_core` keeps a local SQLite cache (suggested: `drift` or `sqflite`). Mirror these tables:
 
 - `messages` — last 200 per channel
 - `tasks` — all tasks where the user is creator or assignee

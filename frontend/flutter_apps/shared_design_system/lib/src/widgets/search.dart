@@ -18,7 +18,7 @@ import 'primitives.dart';
 /// the screen renders identically in light + dark.
 ///
 /// Backend search is wired through callbacks so this widget stays decoupled
-/// from a specific HTTP/Riverpod stack — `bestie_core` providers in the
+/// from a specific HTTP/Riverpod stack — `mytaskking_core` providers in the
 /// mobile/desktop apps pass closures to fetch + scope-by-kind.
 typedef BestieSearchFetcher = Future<Map<String, dynamic>> Function(String query, String? kind);
 

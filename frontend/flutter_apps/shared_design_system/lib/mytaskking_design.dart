@@ -1,6 +1,6 @@
 /// MyTaskKing — shared design system for Flutter apps.
 /// Mirrors the React token set in frontend/react_web/src/styles/tokens.css.
-library bestie_design;
+library mytaskking_design;
 
 export 'src/tokens.dart';
 export 'src/theme.dart';

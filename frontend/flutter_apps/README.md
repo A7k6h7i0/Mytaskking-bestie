@@ -22,7 +22,7 @@ flutter_apps/
 │                           bottom-nav shell, feature screens. Exposes every
 │                           screen via `screens.dart` so desktop apps reuse.
 ├── windows_app/            Windows desktop — sidebar shell consuming
-│                           `package:bestie_mobile/screens.dart`.
+│                           `package:mytaskking_mobile/screens.dart`.
 └── macos_app/              macOS desktop — same shape as windows_app.
 ```
 
@@ -54,10 +54,10 @@ the same way once you copy the patterns from the mobile screens.
 ## Why the screens live in `mobile_app`
 
 It keeps the codebase honest — there's no "shared screens" abstraction that
-diverges from any real app. The screens are written against `package:bestie_design`
-+ `package:bestie_core`, both of which the desktop targets also depend on.
-The desktop apps add `bestie_mobile` as a path dependency and import from
-`bestie_mobile/screens.dart`, which exports each screen plus the state
+diverges from any real app. The screens are written against `package:mytaskking_design`
++ `package:mytaskking_core`, both of which the desktop targets also depend on.
+The desktop apps add `mytaskking_mobile` as a path dependency and import from
+`mytaskking_mobile/screens.dart`, which exports each screen plus the state
 helpers. Re-skinning a screen for desktop is a wrap, not a rewrite.
 
 ## Build
@@ -77,7 +77,7 @@ Xcode shells without touching any Dart sources.
 
 ## State + realtime
 
-Every screen reads state through Riverpod providers in `bestie_core`:
+Every screen reads state through Riverpod providers in `mytaskking_core`:
 
 - `apiProvider` — the Dio-backed MyTaskKing API singleton, with the typed
   extension methods (`dashboardOverview()`, `listChannels()`, `createTask()`,

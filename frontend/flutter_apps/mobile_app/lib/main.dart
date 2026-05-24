@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:bestie_design/bestie_design.dart';
-import 'package:bestie_core/bestie_core.dart' as core;
+import 'package:mytaskking_design/mytaskking_design.dart';
+import 'package:mytaskking_core/mytaskking_core.dart' as core;
 
 import 'router.dart';
 import 'state.dart' hide ThemeMode;
