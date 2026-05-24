@@ -22,6 +22,22 @@ async function listForUser(user) {
     include: {
       members: { include: { user: { select: { id: true, userId: true, name: true, role: true, customTitle: true, avatarUrl: true, isClient: true } } } },
       _count: { select: { messages: true } },
+      // Most-recent non-deleted message per channel — the Flutter chat list
+      // uses this for the WhatsApp-style preview line ("📷 Photo", body
+      // text, "🎙️ Voice note", etc).
+      messages: {
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+        select: {
+          id: true,
+          body: true,
+          kind: true,
+          createdAt: true,
+          authorId: true,
+          author: { select: { id: true, name: true, avatarUrl: true, isClient: true } },
+        },
+      },
     },
     orderBy: [{ pinned: 'desc' }, { updatedAt: 'desc' }],
   });
@@ -38,7 +54,8 @@ async function listForUser(user) {
           createdAt: { gt: since },
         },
       });
-      return { ...channel, unreadCount };
+      const { messages, ...rest } = channel;
+      return { ...rest, lastMessage: messages[0] || null, unreadCount };
     })
   );
 }

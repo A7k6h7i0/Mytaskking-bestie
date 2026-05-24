@@ -142,13 +142,24 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
           },
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _newTask,
-        backgroundColor: BestieTokens.cBrand,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.add_rounded),
-        label: const Text('New task'),
-      ),
+      // The shell's bottom nav (70 px + safe-area inset) sits *above* this
+      // Scaffold's FAB slot, so the default position overlaps the Meet tab.
+      // Lift the FAB by the nav height + an extra 12 px breathing room.
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+      floatingActionButton: _selecting
+          ? null
+          : Padding(
+              padding: EdgeInsets.only(
+                bottom: 70 + MediaQuery.of(context).padding.bottom + 12,
+              ),
+              child: FloatingActionButton.extended(
+                onPressed: _newTask,
+                backgroundColor: BestieTokens.cBrand,
+                foregroundColor: Colors.white,
+                icon: const Icon(Icons.add_rounded),
+                label: const Text('New task'),
+              ),
+            ),
     );
   }
 

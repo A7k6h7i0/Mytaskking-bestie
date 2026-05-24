@@ -88,10 +88,16 @@ class MeetingsScreen extends ConsumerWidget {
           },
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _create(context, ref),
-        icon: const Icon(Icons.add),
-        label: const Text('New meeting'),
+      floatingActionButton: Padding(
+        // Lift above the shell's bottom nav (70 px + bottom safe-area inset).
+        padding: EdgeInsets.only(
+          bottom: 70 + MediaQuery.of(context).padding.bottom + 12,
+        ),
+        child: FloatingActionButton.extended(
+          onPressed: () => _create(context, ref),
+          icon: const Icon(Icons.add),
+          label: const Text('New meeting'),
+        ),
       ),
     );
   }
