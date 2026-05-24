@@ -154,8 +154,12 @@ class ChatListScreen extends ConsumerWidget {
       bestieToast(context, 'Already all read', kind: BestieToastKind.info);
       return;
     }
-    // Fire in parallel — markChannelRead is idempotent on the server.
-    await Future.wait(unreadIds.map((id) => api.markChannelRead(id).catchError((_) {})));
+    // Sequential, not parallel — firing 30 concurrent POSTs against the
+    // mark-read endpoint trips the global rate limiter (429). One at a
+    // time with a tiny pause is still nearly instant for normal inboxes.
+    for (final id in unreadIds) {
+      try { await api.markChannelRead(id); } catch (_) {}
+    }
     ref.invalidate(channelsProvider);
     if (context.mounted) {
       bestieToast(context, 'Marked ${unreadIds.length} chat${unreadIds.length == 1 ? '' : 's'} read',

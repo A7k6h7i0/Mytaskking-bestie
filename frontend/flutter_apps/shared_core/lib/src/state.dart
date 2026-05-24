@@ -163,13 +163,53 @@ extension RefBestie on Ref {
 }
 
 /// Surface a Dio error as a short human string for toasts/banners.
+///
+/// Maps the noisy default Dio messages (and any wrapped exceptions) into
+/// terse user-facing copy. Anything we can't classify becomes a generic
+/// "Something went wrong" so we never dump the raw `DioException` thrown
+/// because the response has a status code of …` blob into a snackbar.
 String formatApiError(Object err) {
   if (err is DioException) {
+    // 1. Server-provided structured error wins: `{ error: { message } }`.
     final body = err.response?.data;
     if (body is Map && body['error'] is Map) {
-      return (body['error']['message'] as String?) ?? 'Request failed';
+      final m = (body['error']['message'] as String?);
+      if (m != null && m.isNotEmpty) return m;
     }
-    return err.message ?? 'Network error';
+    // 2. Plain-string body (some routes return `{"message":"..."}`).
+    if (body is Map && body['message'] is String) {
+      return body['message'] as String;
+    }
+
+    // 3. Translate status code into something users can act on.
+    final code = err.response?.statusCode;
+    if (code != null) {
+      if (code == 429) return 'Too many requests — please wait a moment and try again.';
+      if (code == 401) return 'You need to sign in again.';
+      if (code == 403) return 'You don\'t have permission for that.';
+      if (code == 404) return 'That isn\'t available anymore.';
+      if (code == 408) return 'Request timed out — please retry.';
+      if (code == 413) return 'That file is too large.';
+      if (code >= 500) return 'Server hiccup — try again in a moment.';
+      return 'Request failed (HTTP $code)';
+    }
+
+    // 4. Connection-level issue (no response at all).
+    switch (err.type) {
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.receiveTimeout:
+        return 'Slow connection — please retry.';
+      case DioExceptionType.connectionError:
+        return 'Can\'t reach the server. Check your internet.';
+      case DioExceptionType.cancel:
+        return 'Cancelled.';
+      default:
+        return 'Network error.';
+    }
   }
-  return err.toString();
+  // Non-Dio: return the first line so we don't paste a stack trace into a toast.
+  final s = err.toString();
+  final firstLine = s.split('\n').first.trim();
+  return firstLine.isEmpty ? 'Something went wrong.' : firstLine;
 }

@@ -100,6 +100,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
     _scroll.removeListener(_onScroll);
     _composer.removeListener(_onComposerChanged);
     _myTypingThrottle?.cancel();
+    _receiptInvalidate?.cancel();
     for (final t in _typing.values) { t.timeout.cancel(); }
     _composer.dispose();
     _scroll.dispose();
@@ -183,24 +184,41 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
     } catch (_) { /* header falls back to generic title */ }
   }
 
+  /// Debounce timer for refreshing the messages list when receipts trickle
+  /// in over the socket. Without this, a busy channel can fire dozens of
+  /// `chat.message.receipt` events per second and every one would trigger a
+  /// fetch + re-ack, hammering /chat/channels/:id/receipts/bulk into a 429.
+  Timer? _receiptInvalidate;
+
   /// Listens to socket receipt events and patches the locally-cached message
-  /// list, so the sender's tick marks update live without re-fetching.
+  /// list, so the sender's tick marks update live without re-fetching. We
+  /// only react to receipts for *our own* messages — incoming receipts for
+  /// other senders are irrelevant to this client and triggering a refetch on
+  /// every one is what blew up to 429 in the previous version.
   void _listenForReceiptEvents() {
     final rt = ref.read(realtimeProvider);
     rt.onAny('chat.message.receipt', ([data]) {
       if (data is! Map) return;
-      final mid = data['messageId']?.toString();
-      final state = data['state']?.toString();
-      if (mid == null || state == null) return;
-      // Cheapest path: invalidate the messages provider so the rebuild pulls
-      // the new aggregate status. The bulk endpoint is fast and idempotent.
-      if (mounted) ref.invalidate(messagesProvider(widget.channelId));
+      // Only the recipient changed state — invalidating for events we
+      // ourselves triggered would create the feedback loop.
+      final me = ref.read(authStoreProvider).user;
+      if (data['userId'] == me?.id) return;
+      // Debounce: collapse bursts into a single refresh.
+      _receiptInvalidate?.cancel();
+      _receiptInvalidate = Timer(const Duration(milliseconds: 600), () {
+        if (mounted) ref.invalidate(messagesProvider(widget.channelId));
+      });
     });
   }
 
   /// Sends DELIVERED for every incoming message we haven't acked yet, then
   /// (separately) SEEN for the same set if the screen is currently mounted.
   /// Posting both is what gives WhatsApp's "✓✓ grey → ✓✓ blue" transition.
+  ///
+  /// Dedup is sticky-on-error: a 429 keeps the ids marked as acked so we
+  /// don't retry instantly. They'll resync on next session / scroll. Without
+  /// this, the previous version unblocked the dedup set on every failure
+  /// and a single 429 turned into a thundering retry storm.
   Future<void> _ackReceipts(List<dynamic> items, {required bool seen}) async {
     final me = ref.read(authStoreProvider).user;
     if (me == null) return;
@@ -215,20 +233,19 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
     final toDeliver = incomingIds.where((id) => !_ackedDelivered.contains(id)).toList();
     if (toDeliver.isNotEmpty) {
       _ackedDelivered.addAll(toDeliver);
-      ref.read(apiProvider).sendReceipts(widget.channelId, toDeliver, 'DELIVERED').catchError((_) {
-        // On failure, allow a retry on the next batch.
-        _ackedDelivered.removeAll(toDeliver);
-        return null;
-      });
+      // Fire-and-forget; failures stay quiet (no UI toast, no rollback of
+      // the dedup set). Worst case the recipient ticks update on next open.
+      ref.read(apiProvider)
+          .sendReceipts(widget.channelId, toDeliver, 'DELIVERED')
+          .catchError((_) => <String, dynamic>{});
     }
     if (seen) {
       final toSee = incomingIds.where((id) => !_ackedSeen.contains(id)).toList();
       if (toSee.isNotEmpty) {
         _ackedSeen.addAll(toSee);
-        ref.read(apiProvider).sendReceipts(widget.channelId, toSee, 'SEEN').catchError((_) {
-          _ackedSeen.removeAll(toSee);
-          return null;
-        });
+        ref.read(apiProvider)
+            .sendReceipts(widget.channelId, toSee, 'SEEN')
+            .catchError((_) => <String, dynamic>{});
       }
     }
   }
