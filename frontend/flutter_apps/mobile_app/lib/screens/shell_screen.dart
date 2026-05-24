@@ -320,11 +320,8 @@ class _NavItemState extends State<_NavItem> with SingleTickerProviderStateMixin 
 
           return Center(
             child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-              padding: EdgeInsets.symmetric(
-                horizontal: 10 + 6 * t,
-                vertical: 6,
-              ),
+              margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
                 color: pill,
                 borderRadius: BorderRadius.circular(14),
@@ -350,32 +347,36 @@ class _NavItemState extends State<_NavItem> with SingleTickerProviderStateMixin 
                       color: iconColor,
                     ),
                   ),
-                  ClipRect(
-                    child: AnimatedSize(
-                      duration: const Duration(milliseconds: 220),
-                      curve: Curves.easeOutCubic,
-                      child: SizedBox(
-                        width: t > 0.05 ? null : 0,
-                        child: Padding(
-                          padding: EdgeInsets.only(left: 6 * t),
-                          child: Opacity(
-                            opacity: t,
-                            child: Text(
-                              widget.label,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 12.5,
-                                fontWeight: FontWeight.w600,
-                                letterSpacing: -0.1,
-                                color: labelColor,
+                  // Label only when active AND when there's room. Flexible lets
+                  // the text ellipsize before overflowing the slot.
+                  if (t > 0.05)
+                    Flexible(
+                      child: ClipRect(
+                        child: AnimatedSize(
+                          duration: const Duration(milliseconds: 220),
+                          curve: Curves.easeOutCubic,
+                          alignment: Alignment.centerLeft,
+                          child: Padding(
+                            padding: EdgeInsets.only(left: 6 * t),
+                            child: Opacity(
+                              opacity: t,
+                              child: Text(
+                                widget.label,
+                                maxLines: 1,
+                                softWrap: false,
+                                overflow: TextOverflow.fade,
+                                style: TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: -0.1,
+                                  color: labelColor,
+                                ),
                               ),
                             ),
                           ),
                         ),
                       ),
                     ),
-                  ),
                 ],
               ),
             ),
