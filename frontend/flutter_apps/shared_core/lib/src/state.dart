@@ -106,16 +106,23 @@ final mySessionsProvider     = FutureProvider.autoDispose<List<Map<String, dynam
 final presenceStatusProvider = StateProvider<String>((_) => 'ACTIVE');
 
 // ----- search -----
-final searchQueryProvider  = StateProvider<String>((_) => '');
+final searchQueryProvider = StateProvider<String>((_) => '');
+
+/// Filter to scope search to a single kind. `null` = all kinds.
+/// Mirrors the React command palette's chip filter.
+final searchKindProvider  = StateProvider<String?>((_) => null);
+
 final searchResultsProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
   final q = ref.watch(searchQueryProvider).trim();
+  final kind = ref.watch(searchKindProvider);
   if (q.isEmpty) return {'results': const <String, dynamic>{}};
   // Tiny debounce — wait 180ms then check the query didn't change.
   await Future.delayed(const Duration(milliseconds: 180));
-  if (ref.read(searchQueryProvider).trim() != q) {
+  if (ref.read(searchQueryProvider).trim() != q ||
+      ref.read(searchKindProvider) != kind) {
     throw _DebounceDropped();
   }
-  return ref.watch(apiProvider).search(q);
+  return ref.watch(apiProvider).search(q, kinds: kind);
 });
 
 class _DebounceDropped implements Exception {}

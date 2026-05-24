@@ -115,6 +115,7 @@ class BestieTokens {
   static const lsTight   = -0.4;
   static const lsSnug    = -0.2;
   static const lsNormal  = -0.1;
+  static const lsWide    = 0.4;
   static const lsEyebrow = 1.4;
 
   // ---- motion

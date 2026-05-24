@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:bestie_design/bestie_design.dart';
 
 import '../state.dart';
@@ -66,6 +67,14 @@ class DashboardScreen extends ConsumerWidget {
       backgroundColor: BestieTokens.cSurface,
       title: const BestieLogo(size: 28, withWordmark: true),
       titleSpacing: 16,
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.search_rounded),
+          tooltip: 'Search people, messages, files',
+          onPressed: () => context.go('/search'),
+        ),
+        const SizedBox(width: 4),
+      ],
     );
   }
 

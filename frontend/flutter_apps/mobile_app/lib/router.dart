@@ -11,6 +11,7 @@ import 'screens/tasks_screen.dart';
 import 'screens/meetings_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/profile_screen.dart';
+import 'screens/search_screen.dart';
 import 'state.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -28,6 +29,17 @@ final routerProvider = Provider<GoRouter>((ref) {
     },
     routes: [
       GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
+
+      // Dynamic search — full-screen, outside the shell so it can take the
+      // whole viewport (no bottom nav while typing). `?q=` and `?k=` set
+      // initial state for deep links / scope-to-person flows.
+      GoRoute(
+        path: '/search',
+        builder: (_, s) => SearchScreen(
+          initialQuery: s.uri.queryParameters['q'],
+          initialKind: s.uri.queryParameters['k'],
+        ),
+      ),
 
       // Shell with bottom navigation; nested routes swap the body, sidebar
       // tabs stay rendered.

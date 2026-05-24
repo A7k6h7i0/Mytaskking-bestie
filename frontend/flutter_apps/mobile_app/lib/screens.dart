@@ -14,4 +14,5 @@ export 'screens/leaderboard_card.dart';
 export 'screens/meetings_screen.dart';
 export 'screens/notifications_screen.dart';
 export 'screens/profile_screen.dart';
+export 'screens/search_screen.dart';
 export 'state.dart';

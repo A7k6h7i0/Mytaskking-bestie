@@ -20,7 +20,8 @@ class ChatListScreen extends ConsumerWidget {
         actions: [
           IconButton(
             icon: const Icon(Icons.search),
-            onPressed: () => _openSearch(context, ref),
+            tooltip: 'Search people, messages, files',
+            onPressed: () => context.go('/search'),
           ),
           IconButton(icon: const Icon(Icons.add_comment_outlined), onPressed: () {}),
         ],
@@ -81,16 +82,4 @@ class ChatListScreen extends ConsumerWidget {
     );
   }
 
-  void _openSearch(BuildContext context, WidgetRef ref) {
-    bestieBottomSheet(context, title: 'Search', builder: (ctx) {
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(BestieTokens.s4, 0, BestieTokens.s4, BestieTokens.s4),
-        child: TextField(
-          autofocus: true,
-          decoration: const InputDecoration(hintText: 'People, channels, tasks, files…'),
-          onChanged: (v) => ref.read(searchQueryProvider.notifier).state = v,
-        ),
-      );
-    });
-  }
 }

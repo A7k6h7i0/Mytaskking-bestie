@@ -14,3 +14,4 @@ export 'src/widgets/rive_animation.dart';
 export 'src/widgets/rive_slots.dart';
 export 'src/widgets/logo.dart';
 export 'src/widgets/primitives.dart';
+export 'src/widgets/search.dart';
