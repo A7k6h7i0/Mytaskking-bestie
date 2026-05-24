@@ -93,10 +93,12 @@ extension BestieApiExt on BestieApi {
     required List<String> participantIds,
     String kind = 'ONE_TO_ONE',
     String? channelId,
+    String mode = 'VIDEO',
   }) =>
       post('/calls/initiate', body: {
         'participantIds': participantIds,
         'kind': kind,
+        'mode': mode,
         if (channelId != null) 'channelId': channelId,
       });
   Future<List<Map<String, dynamic>>> listMeetings() =>

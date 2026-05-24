@@ -1,5 +1,8 @@
 import 'dart:async';
+import 'dart:math' as math;
+import 'dart:typed_data';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -26,11 +29,17 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
   Timer? _autoMiss;
   final List<void Function()> _unsubs = [];
   String? _lastUserId;
+  // Looping audio + lazily-built ringtone bytes. Generated on first call so
+  // we don't pay the synthesis cost at app boot.
+  final AudioPlayer _ringer = AudioPlayer(playerId: 'incoming_ringer');
+  Uint8List? _ringtoneBytes;
 
   @override
   void dispose() {
     _autoMiss?.cancel();
     _hapticTimer?.cancel();
+    _ringer.stop();
+    _ringer.dispose();
     for (final u in _unsubs) { u(); }
     super.dispose();
   }
@@ -56,7 +65,16 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
         _dismiss();
       }
     }));
-    _unsubs.add(rt.onAny('call.participant.joined', ([_]) => _dismiss()));
+    _unsubs.add(rt.onAny('call.participant.joined', ([data]) {
+      // Only dismiss if *this* user joined the call from somewhere else
+      // (e.g. accepted on another device). If we kill the ringer for any
+      // participant join, the caller's own auto-join immediately yanks the
+      // ringer off the recipient's screen — that's the "1-second flash"
+      // the user was seeing.
+      if (data is! Map) return;
+      if (data['userId'] != userId) return;
+      _dismiss();
+    }));
   }
 
   Timer? _hapticTimer;
@@ -74,18 +92,30 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
     _autoMiss = Timer(const Duration(seconds: 45), _decline);
 
     // Buzz the device every second so the user notices even with the screen
-    // off or muted notification volume. A real ringtone asset would be nicer
-    // but vibration is a reliable cross-platform fallback.
+    // off. Pair it with a looping synthesized ringtone (no asset needed —
+    // we build the WAV bytes in `_buildRingtoneBytes`) so the call also
+    // actually *rings* the way users expect.
     HapticFeedback.heavyImpact();
     _hapticTimer?.cancel();
     _hapticTimer = Timer.periodic(const Duration(milliseconds: 1300), (_) {
       HapticFeedback.heavyImpact();
     });
+    _playRingtone();
+  }
+
+  Future<void> _playRingtone() async {
+    try {
+      _ringtoneBytes ??= _buildRingtoneBytes();
+      await _ringer.setReleaseMode(ReleaseMode.loop);
+      await _ringer.setVolume(1.0);
+      await _ringer.play(BytesSource(_ringtoneBytes!, mimeType: 'audio/wav'));
+    } catch (_) { /* best-effort — silent fall back to haptics */ }
   }
 
   void _dismiss() {
     _autoMiss?.cancel();
     _hapticTimer?.cancel();
+    _ringer.stop();
     if (mounted) setState(() => _pending = null);
   }
 
@@ -107,6 +137,50 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
   String _modeFor(Map<String, dynamic>? p) {
     final m = (p?['call']?['mode'] ?? p?['mode'] ?? 'VIDEO').toString().toUpperCase();
     return m == 'VOICE' ? 'voice' : 'video';
+  }
+
+  /// Synthesizes a simple two-beat ringtone WAV in-memory so we don't have
+  /// to ship a binary audio asset. 8 kHz mono 16-bit, 880 Hz tone for
+  /// 0.35 s + 0.65 s silence — looped indefinitely by the player. ~16 kB.
+  Uint8List _buildRingtoneBytes() {
+    const sampleRate = 8000;
+    const beepHz = 880;
+    const beepSec = 0.35;
+    const silenceSec = 0.65;
+    final beepSamples = (sampleRate * beepSec).round();
+    final silenceSamples = (sampleRate * silenceSec).round();
+    final dataSize = (beepSamples + silenceSamples) * 2;
+    final buf = BytesBuilder();
+    void le16(int v) { buf.add([v & 0xFF, (v >> 8) & 0xFF]); }
+    void le32(int v) {
+      buf.add([v & 0xFF, (v >> 8) & 0xFF, (v >> 16) & 0xFF, (v >> 24) & 0xFF]);
+    }
+    // RIFF/WAVE header.
+    buf.add('RIFF'.codeUnits);
+    le32(36 + dataSize);
+    buf.add('WAVE'.codeUnits);
+    buf.add('fmt '.codeUnits);
+    le32(16);          // PCM chunk size
+    le16(1);           // PCM format
+    le16(1);           // mono
+    le32(sampleRate);
+    le32(sampleRate * 2);
+    le16(2);
+    le16(16);
+    buf.add('data'.codeUnits);
+    le32(dataSize);
+    // Tone — gentle envelope so the start/stop doesn't pop.
+    for (int i = 0; i < beepSamples; i++) {
+      final t = i / sampleRate;
+      // Linear attack/release on the first/last 10 ms.
+      final envelope = t < 0.01
+          ? t / 0.01
+          : (t > beepSec - 0.01 ? (beepSec - t) / 0.01 : 1.0);
+      final v = (math.sin(2 * math.pi * beepHz * t) * 0x6000 * envelope).round();
+      le16(v & 0xFFFF);
+    }
+    for (int i = 0; i < silenceSamples; i++) { le16(0); }
+    return buf.toBytes();
   }
 
   @override
@@ -151,7 +225,11 @@ class _RingerScreen extends ConsumerWidget {
     final name = (initiator['name'] ?? 'Someone').toString();
     final isClient = initiator['isClient'] == true;
     final kind = (call['kind'] ?? 'ONE_TO_ONE').toString();
-    final mode = (call['mode'] ?? 'VIDEO').toString().toUpperCase();
+    // Mode (voice / video) lives at the top of the socket payload — the DB
+    // doesn't persist it. Fall back to call.mode for backwards-compat and
+    // VIDEO as the historic default.
+    final mode = (call['mode'] ?? payload['mode'] ?? 'VIDEO')
+        .toString().toUpperCase();
     final participantCount = ((call['participants'] as List?)?.length ?? 0);
 
     return Material(

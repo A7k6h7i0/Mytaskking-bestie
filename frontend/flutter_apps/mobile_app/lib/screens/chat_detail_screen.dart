@@ -650,6 +650,10 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
         participantIds: participantIds,
         kind: ch,
         channelId: widget.channelId,
+        // 'voice' / 'video' in the chat UI maps directly onto the backend's
+        // VOICE / VIDEO mode — surfaced to the recipient's ringer so they
+        // see the right Accept icon and join Agora with the right tracks.
+        mode: kind == 'voice' ? 'VOICE' : 'VIDEO',
       );
       final call = (res['call'] as Map?)?.cast<String, dynamic>() ?? res;
       final callId = call['id']?.toString();

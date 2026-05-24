@@ -18,9 +18,14 @@ router.post(
       participantIds: Joi.array().items(Joi.string()).min(1).required(),
       kind: Joi.string().valid('ONE_TO_ONE', 'GROUP'),
       channelId: Joi.string().allow(null, ''),
+      // Voice vs video isn't persisted on the Call model yet — it's purely
+      // a hint for the receiving client's ringer + Agora init. Accept it
+      // here, default to VIDEO, and pass it through the socket emit below.
+      mode: Joi.string().valid('VOICE', 'VIDEO'),
     }),
   }),
   asyncHandler(async (req, res) => {
+    const mode = req.body.mode || 'VIDEO';
     const result = await service.initiate({
       initiator: req.user,
       participantIds: req.body.participantIds,
@@ -31,17 +36,18 @@ router.post(
       kind: 'call.initiated',
       entity: 'call',
       entityId: result.call.id,
-      payload: { kind: result.call.kind, participants: req.body.participantIds.length + 1 },
+      payload: { kind: result.call.kind, mode, participants: req.body.participantIds.length + 1 },
       req,
     });
     const io = req.app.get('io');
     for (const p of result.call.participants) {
       io?.to(`user:${p.userId}`).emit('call.incoming', {
         call: result.call,
+        mode,
         token: result.tokens[p.userId],
       });
     }
-    res.status(201).json(result);
+    res.status(201).json({ ...result, mode });
   })
 );
 

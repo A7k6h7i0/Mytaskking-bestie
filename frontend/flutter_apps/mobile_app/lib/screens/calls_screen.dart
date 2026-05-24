@@ -125,6 +125,9 @@ class _CallRow extends ConsumerWidget {
       final res = await ref.read(apiProvider).initiateCall(
         participantIds: [userId],
         kind: 'ONE_TO_ONE',
+        // Mirror the original call's mode so a callback to a voice call
+        // doesn't surprise the recipient with a video Accept button.
+        mode: mode.toUpperCase() == 'VOICE' ? 'VOICE' : 'VIDEO',
       );
       final id = ((res['call'] as Map?)?['id'] ?? res['id'])?.toString();
       if (id != null && context.mounted) {
