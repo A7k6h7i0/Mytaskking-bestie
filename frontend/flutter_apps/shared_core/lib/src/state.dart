@@ -44,7 +44,7 @@ final dashboardProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref)
 final channelsProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
   // Re-fetch whenever a new chat message lands so the unread counters in the
   // sidebar stay live without polling.
-  ref.watch(realtimeProvider).onAny('chat.message.created', () => ref.invalidateSelf());
+  ref.watch(realtimeProvider).onAny('chat.message.created', ([_]) => ref.invalidateSelf());
   return ref.watch(apiProvider).listChannels();
 });
 
@@ -53,7 +53,7 @@ final messagesProvider = FutureProvider.autoDispose
     .family<List<Map<String, dynamic>>, String>((ref, channelId) async {
   final api = ref.watch(apiProvider);
   final rt = ref.watch(realtimeProvider);
-  rt.onAny('chat.message.created', (data) {
+  rt.onAny('chat.message.created', ([data]) {
     if (data is Map && data['channelId'] == channelId) {
       ref.invalidateSelf();
     }
@@ -65,8 +65,8 @@ final messagesProvider = FutureProvider.autoDispose
 
 // ----- tasks (kanban) -----
 final tasksKanbanProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
-  ref.watch(realtimeProvider).onAny('task.created', () => ref.invalidateSelf());
-  ref.watch(realtimeProvider).onAny('task.moved',   () => ref.invalidateSelf());
+  ref.watch(realtimeProvider).onAny('task.created', ([_]) => ref.invalidateSelf());
+  ref.watch(realtimeProvider).onAny('task.moved',   ([_]) => ref.invalidateSelf());
   return ref.watch(apiProvider).listTasks(view: 'kanban');
 });
 
@@ -88,8 +88,8 @@ final notificationsProvider = StreamProvider.autoDispose<Map<String, dynamic>>((
   // Initial fetch + a re-fetch each time the server fires `activity.recorded`.
   yield await api.notificationsGrouped();
   final controller = StreamController<void>();
-  rt.onAny('activity.recorded', () => controller.add(null));
-  rt.onAny('announcement.published', () => controller.add(null));
+  rt.onAny('activity.recorded',      ([_]) => controller.add(null));
+  rt.onAny('announcement.published', ([_]) => controller.add(null));
   ref.onDispose(() => controller.close());
   await for (final _ in controller.stream) {
     try { yield await api.notificationsGrouped(); } catch (_) {}

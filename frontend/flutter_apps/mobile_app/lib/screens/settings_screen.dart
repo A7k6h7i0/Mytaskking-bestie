@@ -1,0 +1,205 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:mytaskking_design/mytaskking_design.dart';
+import 'package:mytaskking_core/mytaskking_core.dart' as core;
+
+import '../state.dart' hide ThemeMode;
+
+/// App-level settings — theme + presence + utility links to nested screens.
+class SettingsScreen extends ConsumerWidget {
+  const SettingsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = BestieColors.of(context);
+    final mode = ref.watch(themeModeProvider);
+    final user = ref.watch(authStoreProvider).user;
+
+    return Scaffold(
+      backgroundColor: c.bg,
+      appBar: AppBar(
+        elevation: 0,
+        backgroundColor: c.surface,
+        foregroundColor: c.text,
+        title: const Text('Settings'),
+      ),
+      body: ListView(children: [
+        if (user != null)
+          _Identity(user: user, colors: c),
+        _SectionLabel('Appearance', colors: c),
+        Container(
+          color: c.surface,
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          child: BestieSegmentedControl<core.ThemeMode>(
+            value: mode,
+            onChanged: (v) => ref.read(themeModeProvider.notifier).state = v,
+            options: const [
+              BestieSegmentOption(value: core.ThemeMode.light,  label: 'Light', icon: Icons.light_mode_rounded),
+              BestieSegmentOption(value: core.ThemeMode.dark,   label: 'Dark',  icon: Icons.dark_mode_rounded),
+              BestieSegmentOption(value: core.ThemeMode.system, label: 'Auto',  icon: Icons.brightness_auto_rounded),
+            ],
+          ),
+        ),
+        _SectionLabel('Workspace', colors: c),
+        _SettingTile(
+          colors: c,
+          icon: Icons.campaign_outlined,
+          label: 'Announcements',
+          onTap: () => context.go('/announcements'),
+        ),
+        _SettingTile(
+          colors: c,
+          icon: Icons.bookmark_outline_rounded,
+          label: 'Saved items',
+          onTap: () => context.go('/saved'),
+        ),
+        _SettingTile(
+          colors: c,
+          icon: Icons.event_outlined,
+          label: 'Calendar',
+          onTap: () => context.go('/calendar'),
+        ),
+        _SettingTile(
+          colors: c,
+          icon: Icons.history_rounded,
+          label: 'Call history',
+          onTap: () => context.go('/calls'),
+        ),
+        _SectionLabel('People', colors: c),
+        _SettingTile(
+          colors: c,
+          icon: Icons.people_outline_rounded,
+          label: 'Employees',
+          onTap: () => context.go('/employees'),
+        ),
+        _SettingTile(
+          colors: c,
+          icon: Icons.business_center_outlined,
+          label: 'Clients',
+          onTap: () => context.go('/clients'),
+        ),
+        if (user?.role == 'TELECALLER' ||
+            user?.role == 'ADMIN' ||
+            user?.role == 'SUPER_ADMIN')
+          _SettingTile(
+            colors: c,
+            icon: Icons.headset_mic_outlined,
+            label: 'Telecaller leads',
+            onTap: () => context.go('/telecaller'),
+          ),
+        _SectionLabel('Security', colors: c),
+        _SettingTile(
+          colors: c,
+          icon: Icons.devices_outlined,
+          label: 'Active sessions',
+          onTap: () => context.go('/sessions'),
+        ),
+        _SettingTile(
+          colors: c,
+          icon: Icons.logout_rounded,
+          label: 'Sign out',
+          danger: true,
+          onTap: () async {
+            final ok = await bestieConfirm(context,
+                title: 'Sign out?', confirmLabel: 'Sign out');
+            if (!ok) return;
+            await ref.read(authStoreProvider).clear();
+          },
+        ),
+        const SizedBox(height: 32),
+      ]),
+    );
+  }
+}
+
+class _Identity extends StatelessWidget {
+  final dynamic user;
+  final BestieColors colors;
+  const _Identity({required this.user, required this.colors});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      color: colors.surface,
+      child: Row(children: [
+        BestieAvatar(name: user.name, imageUrl: user.avatarUrl, isClient: user.isClient, size: 56),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            BestieUserName(name: user.name, isClient: user.isClient,
+                style: TextStyle(fontSize: 18, fontWeight: BestieTokens.fwBold, color: colors.text)),
+            Text(user.userId ?? '',
+                style: TextStyle(color: colors.textMuted, fontSize: 12)),
+            const SizedBox(height: 4),
+            BestieBadge(
+              tone: user.isClient ? BestieTone.client : BestieTone.brand,
+              child: Text((user.role ?? '').replaceAll('_', ' ')),
+            ),
+          ]),
+        ),
+      ]),
+    );
+  }
+}
+
+class _SectionLabel extends StatelessWidget {
+  final String label;
+  final BestieColors colors;
+  const _SectionLabel(this.label, {required this.colors});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 6),
+      child: Text(
+        label.toUpperCase(),
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: BestieTokens.fwBold,
+          color: colors.textMuted,
+          letterSpacing: BestieTokens.lsEyebrow,
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingTile extends StatelessWidget {
+  final BestieColors colors;
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool danger;
+  const _SettingTile({
+    required this.colors,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.danger = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = danger ? colors.danger : colors.text;
+    return Material(
+      color: colors.surface,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(children: [
+            Icon(icon, color: danger ? colors.danger : colors.textSoft, size: 20),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(label,
+                  style: TextStyle(color: color, fontWeight: BestieTokens.fwMedium, fontSize: 14)),
+            ),
+            Icon(Icons.chevron_right_rounded, color: colors.textFaint, size: 20),
+          ]),
+        ),
+      ),
+    );
+  }
+}

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../state.dart';
@@ -9,12 +10,15 @@ class MeetingsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final colors = BestieColors.of(context);
     final meetings = ref.watch(meetingsProvider);
 
     return Scaffold(
+      backgroundColor: colors.bg,
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: BestieTokens.cSurface,
+        backgroundColor: colors.surface,
+        foregroundColor: colors.text,
         title: const Text('Meetings'),
       ),
       body: RefreshIndicator(
@@ -137,17 +141,10 @@ class MeetingsScreen extends ConsumerWidget {
   }
 
   Future<void> _join(BuildContext context, WidgetRef ref, Map<String, dynamic> m) async {
-    try {
-      final token = await ref.read(apiProvider).meetingToken(m['slug']);
-      // Real impl: open CallScreen with Agora SDK + token. For now, surface
-      // the channel + expiry so it's obvious the wiring works.
-      if (context.mounted) {
-        bestieToast(context, 'Joining ${m['name']}',
-            body: 'Channel ${token['channelName']}', kind: BestieToastKind.success);
-      }
-    } catch (e) {
-      if (context.mounted) bestieToast(context, 'Couldn\'t join', body: formatApiError(e), kind: BestieToastKind.error);
-    }
+    final slug = m['slug']?.toString();
+    if (slug == null) return;
+    final mode = (m['mode'] ?? 'VIDEO').toString().toLowerCase() == 'voice' ? 'voice' : 'video';
+    context.go('/meeting/$slug?mode=$mode');
   }
 
   Future<void> _end(BuildContext context, WidgetRef ref, String slug) async {

@@ -15,23 +15,156 @@ class ShellScreen extends ConsumerWidget {
     _Tab('/tasks',     Icons.task_alt_outlined,            Icons.task_alt_rounded,       'Tasks'),
     _Tab('/dashboard', Icons.dashboard_outlined,           Icons.dashboard_rounded,      'Home'),
     _Tab('/meetings',  Icons.videocam_outlined,            Icons.videocam_rounded,       'Meet'),
-    _Tab('/profile',   Icons.person_outline_rounded,       Icons.person_rounded,         'Me'),
+    _Tab('/more',      Icons.apps_rounded,                 Icons.apps_rounded,           'More'),
   ];
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final colors = BestieColors.of(context);
     final location = GoRouterState.of(context).matchedLocation;
     int index = _tabs.indexWhere((t) => location.startsWith(t.path));
     if (index < 0) index = 0;
 
     return Scaffold(
       extendBody: true,
-      backgroundColor: BestieTokens.cBg,
+      backgroundColor: colors.bg,
       body: child,
       bottomNavigationBar: _PremiumBottomNav(
         tabs: _tabs,
         currentIndex: index,
-        onTap: (i) => context.go(_tabs[i].path),
+        onTap: (i) {
+          if (_tabs[i].path == '/more') {
+            _openMore(context);
+          } else {
+            context.go(_tabs[i].path);
+          }
+        },
+      ),
+    );
+  }
+
+  void _openMore(BuildContext context) {
+    final c = BestieColors.of(context);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: c.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
+      ),
+      builder: (ctx) {
+        final entries = <_MoreEntry>[
+          _MoreEntry(Icons.dashboard_outlined,         'Dashboard',     '/dashboard',     c.brand),
+          _MoreEntry(Icons.notifications_outlined,     'Notifications', '/notifications', c.warning),
+          _MoreEntry(Icons.event_outlined,             'Calendar',      '/calendar',      c.info),
+          _MoreEntry(Icons.history_rounded,            'Call history',  '/calls',         c.success),
+          _MoreEntry(Icons.campaign_outlined,          'Announcements', '/announcements', c.accent),
+          _MoreEntry(Icons.bookmark_outline_rounded,   'Saved',         '/saved',         c.brand),
+          _MoreEntry(Icons.people_outline_rounded,     'Employees',     '/employees',     c.brand),
+          _MoreEntry(Icons.business_center_outlined,   'Clients',       '/clients',       c.client),
+          _MoreEntry(Icons.headset_mic_outlined,       'Telecaller',    '/telecaller',    c.warning),
+          _MoreEntry(Icons.devices_outlined,           'Sessions',      '/sessions',      c.textMuted),
+          _MoreEntry(Icons.person_outline_rounded,     'Profile',       '/profile',       c.brandStrong),
+          _MoreEntry(Icons.settings_outlined,          'Settings',      '/settings',      c.textSoft),
+        ];
+        return SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(8, 12, 8, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  alignment: Alignment.center,
+                  child: Container(
+                    width: 40, height: 4,
+                    decoration: BoxDecoration(
+                      color: c.borderStrong,
+                      borderRadius: BorderRadius.circular(BestieTokens.rPill),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Text(
+                    'More',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: BestieTokens.fwBold,
+                      color: c.text,
+                      letterSpacing: BestieTokens.lsTight,
+                    ),
+                  ),
+                ),
+                GridView.count(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  crossAxisCount: 4,
+                  childAspectRatio: 0.95,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  children: [
+                    for (final e in entries) _MoreTile(entry: e, colors: c, onTap: () {
+                      Navigator.of(ctx).pop();
+                      context.go(e.route);
+                    }),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _MoreEntry {
+  final IconData icon;
+  final String label;
+  final String route;
+  final Color accent;
+  const _MoreEntry(this.icon, this.label, this.route, this.accent);
+}
+
+class _MoreTile extends StatelessWidget {
+  final _MoreEntry entry;
+  final BestieColors colors;
+  final VoidCallback onTap;
+  const _MoreTile({required this.entry, required this.colors, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(BestieTokens.rMd),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Container(
+              width: 46, height: 46,
+              decoration: BoxDecoration(
+                color: entry.accent.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(BestieTokens.rMd),
+              ),
+              child: Icon(entry.icon, color: entry.accent, size: 22),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              entry.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 11,
+                color: colors.text,
+                fontWeight: BestieTokens.fwSemibold,
+              ),
+            ),
+          ]),
+        ),
       ),
     );
   }

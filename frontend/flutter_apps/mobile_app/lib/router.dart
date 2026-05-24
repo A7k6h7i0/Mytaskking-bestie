@@ -12,7 +12,17 @@ import 'screens/meetings_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/search_screen.dart';
-import 'state.dart';
+import 'screens/call_screen.dart';
+import 'screens/employees_screen.dart';
+import 'screens/clients_screen.dart';
+import 'screens/calls_screen.dart';
+import 'screens/calendar_screen.dart';
+import 'screens/announcements_screen.dart';
+import 'screens/saved_screen.dart';
+import 'screens/sessions_screen.dart';
+import 'screens/telecaller_screen.dart';
+import 'screens/settings_screen.dart';
+import 'state.dart' hide ThemeMode;
 
 final routerProvider = Provider<GoRouter>((ref) {
   final auth = ref.watch(authStoreProvider);
@@ -40,6 +50,35 @@ final routerProvider = Provider<GoRouter>((ref) {
           initialKind: s.uri.queryParameters['k'],
         ),
       ),
+
+      // Live call (from chat-detail "call back" / "video call")
+      GoRoute(
+        path: '/call/:id',
+        builder: (_, s) => CallScreen(
+          callId: s.pathParameters['id'],
+          mode: s.uri.queryParameters['mode'] ?? 'video',
+        ),
+      ),
+
+      // Live meeting room (from meetings list "join")
+      GoRoute(
+        path: '/meeting/:slug',
+        builder: (_, s) => CallScreen(
+          meetingSlug: s.pathParameters['slug'],
+          mode: s.uri.queryParameters['mode'] ?? 'video',
+        ),
+      ),
+
+      // ----- "more" screens (outside the bottom-nav shell) -----
+      GoRoute(path: '/employees',     builder: (_, __) => const EmployeesScreen()),
+      GoRoute(path: '/clients',       builder: (_, __) => const ClientsScreen()),
+      GoRoute(path: '/calls',         builder: (_, __) => const CallsScreen()),
+      GoRoute(path: '/calendar',      builder: (_, __) => const CalendarScreen()),
+      GoRoute(path: '/announcements', builder: (_, __) => const AnnouncementsScreen()),
+      GoRoute(path: '/saved',         builder: (_, __) => const SavedScreen()),
+      GoRoute(path: '/sessions',      builder: (_, __) => const SessionsScreen()),
+      GoRoute(path: '/telecaller',    builder: (_, __) => const TelecallerScreen()),
+      GoRoute(path: '/settings',      builder: (_, __) => const SettingsScreen()),
 
       // Shell with bottom navigation; nested routes swap the body, sidebar
       // tabs stay rendered.

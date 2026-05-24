@@ -19,11 +19,16 @@ class SearchScreen extends ConsumerWidget {
       initialQuery: initialQuery,
       initialKind: initialKind,
       fetcher: (q, kind) => ref.read(apiProvider).search(q, kinds: kind),
-      onOpen: (kind, item) => _openHit(context, kind, item),
+      onOpen: (kind, item) => _openHit(context, ref, kind, item),
     );
   }
 
-  void _openHit(BuildContext context, String kind, Map<String, dynamic> item) {
+  Future<void> _openHit(
+    BuildContext context,
+    WidgetRef ref,
+    String kind,
+    Map<String, dynamic> item,
+  ) async {
     switch (kind) {
       case 'channels': {
         final id = item['id']?.toString();
@@ -47,11 +52,9 @@ class SearchScreen extends ConsumerWidget {
         if (channelId != null) {
           context.go('/chat/$channelId');
         } else {
-          // Standalone file → open the URL externally via a snackbar hint.
           final url = item['url']?.toString();
-          if (url != null) {
-            bestieToast(context, 'File link copied',
-                body: url, kind: BestieToastKind.info);
+          if (url != null && context.mounted) {
+            bestieToast(context, 'File link', body: url, kind: BestieToastKind.info);
           }
         }
         break;
@@ -60,13 +63,39 @@ class SearchScreen extends ConsumerWidget {
         context.go('/tasks');
         break;
       case 'leads':
-        // Mobile shell doesn't expose telecaller — fall back to dashboard.
         context.go('/dashboard');
         break;
-      case 'users':
-        // No people detail screen yet; the chat list is the closest landing.
-        context.go('/chat');
+      case 'users': {
+        // Tap a person → open (or create) a DM with them.
+        final me = ref.read(authStoreProvider).user;
+        final userId = item['id']?.toString();
+        if (userId == null || userId == me?.id) {
+          context.go('/chat');
+          return;
+        }
+        if (item['isClient'] == true) {
+          // Clients live in client channels — directory route, not DM.
+          context.go('/chat');
+          return;
+        }
+        try {
+          final channel = await ref.read(apiProvider).createChannel(
+            kind: 'DM',
+            memberIds: [userId],
+          );
+          ref.invalidate(channelsProvider);
+          final id = channel['id']?.toString();
+          if (id != null && context.mounted) {
+            context.go('/chat/$id');
+          }
+        } catch (e) {
+          if (context.mounted) {
+            bestieToast(context, 'Could not open chat',
+                body: formatApiError(e), kind: BestieToastKind.error);
+          }
+        }
         break;
+      }
     }
   }
 }
