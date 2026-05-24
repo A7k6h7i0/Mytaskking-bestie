@@ -11,7 +11,7 @@ const { TooMany, Forbidden } = require('../utils/errors');
  *   app.use('/api/v1/auth', security.bruteForce({ key: 'auth' }));
  *
  * What's included:
- *   • CSP with a deny-by-default policy that permits the assets Bestie
+ *   • CSP with a deny-by-default policy that permits the assets MyTaskKing
  *     actually uses (Cloudinary images, R2 files, Google Fonts).
  *   • HSTS — long-lived, includeSubDomains, preload.
  *   • frameguard, noSniff, referrerPolicy.

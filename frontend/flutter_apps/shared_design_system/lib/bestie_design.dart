@@ -1,4 +1,4 @@
-/// Bestie — shared design system for Flutter apps.
+/// MyTaskKing — shared design system for Flutter apps.
 /// Mirrors the React token set in frontend/react_web/src/styles/tokens.css.
 library bestie_design;
 

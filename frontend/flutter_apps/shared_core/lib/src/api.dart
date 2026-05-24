@@ -1,7 +1,7 @@
 import 'package:dio/dio.dart';
 import 'api_client.dart';
 
-/// Bestie API — typed convenience wrappers around the bare [BestieApi] client.
+/// MyTaskKing API — typed convenience wrappers around the bare [BestieApi] client.
 /// Mirrors the React `services/api.ts` surface so screens look the same on
 /// both platforms.
 ///

@@ -1,5 +1,5 @@
 name: bestie_core
-description: Shared API client, models, and auth state for all Bestie Flutter apps.
+description: Shared API client, models, and auth state for all MyTaskKing Flutter apps.
 version: 1.0.0
 publish_to: "none"
 

@@ -16,7 +16,7 @@ require('dotenv').config(dotenvPath ? { path: dotenvPath } : undefined);
 function abortMissingEnv() {
   const hints = [
     '',
-    '  ┌─ Bestie cannot start ─────────────────────────────────────────────┐',
+    '  ┌─ MyTaskKing cannot start ─────────────────────────────────────────┐',
     '  │ DATABASE_URL is not set.                                          │',
     '  │                                                                   │',
     '  │ 1. Copy the template:    cp .env.example .env                     │',

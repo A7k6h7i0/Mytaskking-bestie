@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Bestie — daily database backup
+# MyTaskKing — daily database backup
 #
 # Dumps Postgres to a timestamped file, gzips it, optionally uploads to R2,
 # then prunes anything older than RETENTION_DAYS in the local backup dir.

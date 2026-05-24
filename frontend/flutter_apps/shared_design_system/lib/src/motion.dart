@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// Bestie — motion contract.
+/// MyTaskKing — motion contract.
 ///
 /// Mirrors the React motion.css naming so cross-platform UX feels identical:
 ///   m-fade-up  → BestieMotion.fadeUp

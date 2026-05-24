@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 /**
- * Bestie — motion behavior hooks.
+ * MyTaskKing — motion behavior hooks.
  *
  * Each hook returns a ref to attach to an element plus (where useful) the
  * inline CSS variables that the matching utility class in motion-advanced.css

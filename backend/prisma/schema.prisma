@@ -1,4 +1,4 @@
-// Bestie — full domain schema
+// MyTaskKing — full domain schema
 // Provider can be swapped to "mysql" without changing models.
 
 generator client {
@@ -806,7 +806,7 @@ model FileDownload {
 
 model Tenant {
   id          String   @id @default(cuid())
-  slug        String   @unique                          // "acme" → acme.bestie.app
+  slug        String   @unique                          // "acme" -> acme.mytaskking.app
   name        String
   branding    Json?                                     // { logoUrl, primary, … }
   storagePrefix String? @unique                         // R2/Cloudinary folder prefix

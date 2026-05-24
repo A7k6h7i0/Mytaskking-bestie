@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'socket_client.dart';
 
-/// Bestie — realtime event hub.
+/// MyTaskKing — realtime event hub.
 ///
 /// Wraps the underlying Socket.IO connection with a [Stream]-style API the
 /// Riverpod providers consume. Reconnects on its own, debounces re-subscribe

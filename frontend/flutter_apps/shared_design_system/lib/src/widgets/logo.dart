@@ -2,7 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../tokens.dart';
 
-/// Bestie — premium animated brand mark for Flutter.
+/// MyTaskKing — premium animated brand mark for Flutter.
 ///
 /// Mirrors the React [Logo] visually: rounded gradient container, three
 /// stroke-drawn ribbons that animate in on mount, a corner accent dot with a

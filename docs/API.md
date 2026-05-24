@@ -1,4 +1,4 @@
-# Bestie API Reference
+# MyTaskKing API Reference
 
 Base URL: `https://api.example.com/api/v1`
 

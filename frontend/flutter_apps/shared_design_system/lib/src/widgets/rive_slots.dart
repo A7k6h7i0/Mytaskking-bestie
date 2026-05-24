@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'rive_animation.dart';
 
-/// Bestie — 36 premium Rive animation slots, mirroring the React catalog
+/// MyTaskKing — 36 premium Rive animation slots, mirroring the React catalog
 /// (frontend/react_web/src/components/ui/RiveSlot.tsx).
 ///
 /// Each entry maps a logical name to an asset key. Drop a `.riv` file at

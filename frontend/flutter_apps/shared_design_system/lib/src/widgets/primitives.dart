@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../tokens.dart';
 import '../motion.dart';
 
-/// Bestie — Flutter primitives. Mirrors the React design system so the same
+/// MyTaskKing — Flutter primitives. Mirrors the React design system so the same
 /// design vocabulary (Badge, EmptyState, ConfirmDialog, Spinner, Tabs,
 /// SuccessCheck, BottomSheet, Modal, SegmentedControl, ProgressRing, Toast)
 /// is available on every surface.

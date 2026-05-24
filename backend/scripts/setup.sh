@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Bestie — one-shot local setup.
+# MyTaskKing — one-shot local setup.
 #
 # Idempotent: safe to re-run. Creates a usable .env, generates a random
 # 32-byte field-encryption key + JWT secrets, installs deps, runs the
@@ -80,7 +80,7 @@ echo "→ npm run seed"
 npm run seed
 
 echo ""
-echo "✓ Bestie backend is set up."
+echo "✓ MyTaskKing backend is set up."
 echo ""
 echo "  Start the API:     npm run dev"
 echo "  Start the worker:  npm run worker   (separate terminal)"

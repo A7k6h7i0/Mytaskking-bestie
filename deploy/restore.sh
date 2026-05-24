@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# Bestie — database restore helper. ALWAYS practice on staging first.
+# MyTaskKing — database restore helper. ALWAYS practice on staging first.
 #
 # Usage:
-#   ./restore.sh /var/backups/bestie/bestie-2026-05-14T030000Z.sql.gz
+#   ./restore.sh /var/backups/mytaskking/mytaskking-2026-05-14T030000Z.sql.gz
 #
 # This script:
 #   1. confirms the operator wants to overwrite the target DB
@@ -21,7 +21,7 @@ set -euo pipefail
 
 BACKUP_FILE="${1:-}"
 if [[ -z "$BACKUP_FILE" || ! -f "$BACKUP_FILE" ]]; then
-  echo "usage: $0 <path/to/bestie-*.sql.gz>" >&2
+  echo "usage: $0 <path/to/mytaskking-*.sql.gz>" >&2
   exit 1
 fi
 

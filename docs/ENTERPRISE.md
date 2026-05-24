@@ -1,4 +1,4 @@
-# Bestie — Enterprise Architecture
+# MyTaskKing — Enterprise Architecture
 
 Reference for the platform's enterprise-grade features: multi-tenancy, advanced RBAC, sessions, audit, analytics, automations, and the AI roadmap.
 
@@ -26,7 +26,7 @@ Reference for the platform's enterprise-grade features: multi-tenancy, advanced 
 
 **Storage isolation:** `Tenant.storagePrefix` becomes a folder prefix on Cloudinary + R2 uploads. The upload paths today are flat (`bestie/chat`, `files/...`); flip them to `${storagePrefix}/...` in `services/cloudinary.js` and `services/r2.js`.
 
-**Sub-domains:** `<tenant.slug>.bestie.app` resolves via Cloudflare. Add the host parser middleware (`resolveTenantFromHost`) in front of `attachTenant` to support sub-domain login.
+**Sub-domains:** `<tenant.slug>.mytaskking.app` resolves via Cloudflare. Add the host parser middleware (`resolveTenantFromHost`) in front of `attachTenant` to support sub-domain login.
 
 ---
 

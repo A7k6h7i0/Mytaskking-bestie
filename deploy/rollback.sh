@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Bestie — emergency rollback for the API.
+# MyTaskKing — emergency rollback for the API.
 #
 # Usage:
 #   ./deploy/rollback.sh <previous-git-ref>

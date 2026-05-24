@@ -1,4 +1,4 @@
-# Bestie — Infrastructure
+# MyTaskKing — Infrastructure
 
 Operational reference for the ultra-enterprise layer: event bus, cache, queues, distributed sockets, media pipeline, video, observability, security, CI/CD, feature flags, customization, and realtime collaboration.
 

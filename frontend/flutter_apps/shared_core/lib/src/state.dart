@@ -9,7 +9,7 @@ import 'models.dart';
 import 'realtime.dart';
 import 'socket_client.dart';
 
-/// Bestie — Riverpod state graph.
+/// MyTaskKing — Riverpod state graph.
 ///
 /// `authStoreProvider`, `apiProvider`, `socketProvider` are overridden by the
 /// app's `main.dart` with concrete instances (one shared across the app).

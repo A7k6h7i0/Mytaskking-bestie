@@ -1,4 +1,4 @@
-# Bestie — Extension Architecture
+# MyTaskKing — Extension Architecture
 
 How to add capabilities without coupling them to the core. Three extension surfaces matter most: **AI**, **offline / sync**, and **third-party providers**.
 

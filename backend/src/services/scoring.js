@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Bestie — task scoring.
+ * MyTaskKing — task scoring.
  *
  * Each TaskAssignee row gets a 0-100 score at the moment the assignee marks
  * the task `COMPLETED`. The score lives forever on that row so we can

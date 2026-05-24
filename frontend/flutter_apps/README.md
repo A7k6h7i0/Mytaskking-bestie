@@ -14,7 +14,7 @@ flutter_apps/
 ├── shared_core/            API client (Dio + token refresh), typed API
 │                           extension covering every backend endpoint,
 │                           AuthStore (secure storage), Socket.IO client,
-│                           BestieRealtime event hub, Riverpod providers
+│                           MyTaskKingRealtime event hub, Riverpod providers
 │                           (auth, dashboard, channels, chat, tasks, meetings,
 │                           calendar, notifications, presence, search, saved,
 │                           sessions, flags, theme)
@@ -64,9 +64,9 @@ helpers. Re-skinning a screen for desktop is a wrap, not a rewrite.
 
 ```bash
 # 1. bootstrap each target's platform scaffolding
-cd mobile_app && flutter create --org com.bestie --platforms=android,ios . && flutter pub get
-cd windows_app && flutter create --org com.bestie --platforms=windows . && flutter pub get
-cd macos_app   && flutter create --org com.bestie --platforms=macos   . && flutter pub get
+cd mobile_app && flutter create --org com.mytaskking --platforms=android,ios . && flutter pub get
+cd windows_app && flutter create --org com.mytaskking --platforms=windows . && flutter pub get
+cd macos_app   && flutter create --org com.mytaskking --platforms=macos   . && flutter pub get
 
 # 2. run any target
 flutter run --dart-define=API_URL=http://localhost:4000 --dart-define=SOCKET_URL=http://localhost:4000
@@ -79,7 +79,7 @@ Xcode shells without touching any Dart sources.
 
 Every screen reads state through Riverpod providers in `bestie_core`:
 
-- `apiProvider` — the Dio-backed BestieApi singleton, with the typed
+- `apiProvider` — the Dio-backed MyTaskKing API singleton, with the typed
   extension methods (`dashboardOverview()`, `listChannels()`, `createTask()`,
   `meetingToken()`, etc.)
 - `realtimeProvider` — opens the socket on first watch, exposes
