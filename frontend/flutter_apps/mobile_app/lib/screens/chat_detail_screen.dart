@@ -1148,6 +1148,7 @@ class _MessageBubble extends ConsumerWidget {
                 padding: const EdgeInsets.fromLTRB(6, 2, 6, 2),
                 child: Text(body, style: TextStyle(color: fg, fontSize: 14, height: 1.35)),
               ),
+            if (!isDeleted) _ReactionsBar(message: message),
             // WhatsApp-style footer: time + (only on my messages) tick marks.
             Padding(
               padding: const EdgeInsets.fromLTRB(6, 2, 4, 0),
@@ -1200,6 +1201,19 @@ class _MessageBubble extends ConsumerWidget {
               color: c.borderStrong, borderRadius: BorderRadius.circular(BestieTokens.rPill),
             ),
           ),
+          // Quick-react row: tap any of the popular emoji to react inline,
+          // matching iMessage / WhatsApp reactions UX.
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
+              for (final e in const ['👍','❤️','😂','😮','😢','🙏'])
+                _ReactionChip(emoji: e, onTap: () {
+                  Navigator.pop(ctx);
+                  _reactWith(context, ref, e);
+                }),
+            ]),
+          ),
+          Divider(height: 1, color: c.border),
           ListTile(
             leading: Icon(Icons.copy_rounded, color: c.textSoft),
             title: Text('Copy', style: TextStyle(color: c.text)),
@@ -1208,6 +1222,15 @@ class _MessageBubble extends ConsumerWidget {
               await Clipboard.setData(ClipboardData(text: (message['body'] ?? '').toString()));
               if (context.mounted) bestieToast(context, 'Copied', kind: BestieToastKind.success);
             },
+          ),
+          ListTile(
+            leading: Icon(
+              message['pinned'] == true ? Icons.push_pin : Icons.push_pin_outlined,
+              color: c.textSoft,
+            ),
+            title: Text(message['pinned'] == true ? 'Unpin message' : 'Pin message',
+                style: TextStyle(color: c.text)),
+            onTap: () { Navigator.pop(ctx); _togglePin(context, ref); },
           ),
           if (canEdit)
             ListTile(
@@ -1230,6 +1253,31 @@ class _MessageBubble extends ConsumerWidget {
         ]),
       ),
     );
+  }
+
+  Future<void> _reactWith(BuildContext context, WidgetRef ref, String emoji) async {
+    try {
+      await ref.read(apiProvider).reactMessage(message['id'] as String, emoji);
+      ref.invalidate(messagesProvider(message['channelId'] as String));
+    } catch (e) {
+      if (context.mounted) bestieToast(context, 'Reaction failed',
+          body: formatApiError(e), kind: BestieToastKind.error);
+    }
+  }
+
+  Future<void> _togglePin(BuildContext context, WidgetRef ref) async {
+    final api = ref.read(apiProvider);
+    try {
+      if (message['pinned'] == true) {
+        await api.unpinMessage(message['id'] as String);
+      } else {
+        await api.pinMessage(message['id'] as String);
+      }
+      ref.invalidate(messagesProvider(message['channelId'] as String));
+    } catch (e) {
+      if (context.mounted) bestieToast(context, 'Pin failed',
+          body: formatApiError(e), kind: BestieToastKind.error);
+    }
   }
 
   Future<void> _editMessage(BuildContext context, WidgetRef ref) async {
@@ -1438,6 +1486,118 @@ class _Attachment extends StatelessWidget {
     if (n < 1024) return '$n B';
     if (n < 1024 * 1024) return '${(n / 1024).toStringAsFixed(0)} KB';
     return '${(n / 1024 / 1024).toStringAsFixed(1)} MB';
+  }
+}
+
+/// Tiny chip strip on top of a message bubble showing aggregated emoji
+/// reactions ("👍 3"). Tapping a chip toggles your own reaction with that
+/// emoji — adds if absent, removes if you already reacted.
+class _ReactionsBar extends ConsumerWidget {
+  final Map<String, dynamic> message;
+  const _ReactionsBar({required this.message});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = BestieColors.of(context);
+    final reactions = (message['reactions'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+    if (reactions.isEmpty) return const SizedBox.shrink();
+
+    final me = ref.watch(currentUserProvider).asData?.value
+        ?? ref.read(authStoreProvider).user;
+    // Aggregate emoji → users[].
+    final byEmoji = <String, List<String>>{};
+    for (final r in reactions) {
+      final e = r['emoji']?.toString();
+      final uid = r['userId']?.toString();
+      if (e == null || uid == null) continue;
+      byEmoji.putIfAbsent(e, () => []).add(uid);
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, left: 4, right: 4),
+      child: Wrap(spacing: 4, runSpacing: 4, children: [
+        for (final entry in byEmoji.entries)
+          _ReactionPill(
+            emoji: entry.key,
+            count: entry.value.length,
+            mine: me?.id != null && entry.value.contains(me!.id),
+            colors: c,
+            onTap: () async {
+              try {
+                final api = ref.read(apiProvider);
+                if (me?.id != null && entry.value.contains(me!.id)) {
+                  await api.unreactMessage(message['id'] as String, entry.key);
+                } else {
+                  await api.reactMessage(message['id'] as String, entry.key);
+                }
+                ref.invalidate(messagesProvider(message['channelId'] as String));
+              } catch (_) {/* ignore — refresh will show truth */}
+            },
+          ),
+      ]),
+    );
+  }
+}
+
+class _ReactionPill extends StatelessWidget {
+  final String emoji;
+  final int count;
+  final bool mine;
+  final BestieColors colors;
+  final VoidCallback onTap;
+  const _ReactionPill({
+    required this.emoji, required this.count, required this.mine,
+    required this.colors, required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(BestieTokens.rPill),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: mine ? BestieTokens.cBrand.withOpacity(0.16) : colors.surface2,
+          border: Border.all(
+            color: mine ? BestieTokens.cBrand.withOpacity(0.40) : colors.border,
+          ),
+          borderRadius: BorderRadius.circular(BestieTokens.rPill),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Text(emoji, style: const TextStyle(fontSize: 13)),
+          const SizedBox(width: 4),
+          Text(
+            '$count',
+            style: TextStyle(
+              fontSize: 11, fontWeight: BestieTokens.fwSemibold,
+              color: mine ? BestieTokens.cBrand : colors.textSoft,
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+/// Single-emoji react chip — bouncy hit target inside the message action
+/// sheet for quick reactions.
+class _ReactionChip extends StatelessWidget {
+  final String emoji;
+  final VoidCallback onTap;
+  const _ReactionChip({required this.emoji, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkResponse(
+      onTap: onTap,
+      radius: 28,
+      child: Container(
+        width: 44, height: 44,
+        alignment: Alignment.center,
+        child: Text(emoji, style: const TextStyle(fontSize: 26)),
+      ),
+    );
   }
 }
 

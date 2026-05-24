@@ -203,6 +203,177 @@ extension BestieApiExt on BestieApi {
     await dio.delete('/chat/messages/$id');
   }
 
+  /// React to a message with an emoji. Idempotent — re-acting with the same
+  /// emoji is a no-op. The reaction broadcasts to the channel room.
+  Future<Map<String, dynamic>> reactMessage(String id, String emoji) =>
+      post('/chat/messages/$id/react', body: {'emoji': emoji});
+
+  /// Remove your previous reaction with the same emoji.
+  Future<void> unreactMessage(String id, String emoji) async {
+    await post('/chat/messages/$id/unreact', body: {'emoji': emoji});
+  }
+
+  Future<Map<String, dynamic>> pinMessage(String id)   => post('/chat/messages/$id/pin');
+  Future<Map<String, dynamic>> unpinMessage(String id) => post('/chat/messages/$id/unpin');
+
+  // ---- channel admin (members + policy) ----
+  /// Add one or more members to an existing channel. Server enforces
+  /// per-channel invite policy.
+  Future<Map<String, dynamic>> addChannelMembers(String channelId, List<String> memberIds) =>
+      post('/channels/$channelId/members', body: {'memberIds': memberIds});
+
+  /// Remove a single member. Admin / channel-owner only.
+  Future<void> removeChannelMember(String channelId, String memberId) async {
+    await dio.delete('/channels/$channelId/members/$memberId');
+  }
+
+  Future<Map<String, dynamic>> pinChannel(String id)      => post('/channels/$id/pin');
+  Future<Map<String, dynamic>> unpinChannel(String id)    => post('/channels/$id/unpin');
+  Future<Map<String, dynamic>> archiveChannel(String id)  => post('/channels/$id/archive');
+  Future<Map<String, dynamic>> unarchiveChannel(String id)=> post('/channels/$id/unarchive');
+
+  // ---- task lifecycle (update / delete / comments / subtasks) ----
+  /// Update any field on a task — title, description, status, priority,
+  /// due date, or assignees. Server returns the refreshed row.
+  Future<Map<String, dynamic>> updateTask(String id, Map<String, dynamic> patch) async {
+    final r = await dio.patch('/tasks/$id', data: patch);
+    return r.data as Map<String, dynamic>;
+  }
+
+  Future<void> deleteTask(String id) async {
+    await dio.delete('/tasks/$id');
+  }
+
+  Future<Map<String, dynamic>> addTaskComment(String taskId, String body) =>
+      post('/tasks/$taskId/comments', body: {'body': body});
+
+  Future<Map<String, dynamic>> addSubtask(String taskId, String title) =>
+      post('/tasks/$taskId/subtasks', body: {'title': title});
+
+  Future<Map<String, dynamic>> toggleSubtask(String subtaskId, bool done) async {
+    final r = await dio.patch('/tasks/subtasks/$subtaskId', data: {'done': done});
+    return r.data as Map<String, dynamic>;
+  }
+
+  // ---- calendar event CRUD ----
+  Future<Map<String, dynamic>> createCalendarEvent({
+    required String title,
+    String? description,
+    required DateTime startsAt,
+    DateTime? endsAt,
+    String kind = 'event',
+    List<String>? attendeeIds,
+  }) =>
+      post('/calendar', body: {
+        'title': title,
+        if (description != null) 'description': description,
+        'startsAt': startsAt.toUtc().toIso8601String(),
+        if (endsAt != null) 'endsAt': endsAt.toUtc().toIso8601String(),
+        'kind': kind,
+        if (attendeeIds != null) 'attendeeIds': attendeeIds,
+      });
+
+  Future<Map<String, dynamic>> updateCalendarEvent(String id, Map<String, dynamic> patch) async {
+    final r = await dio.patch('/calendar/$id', data: patch);
+    return r.data as Map<String, dynamic>;
+  }
+
+  Future<void> deleteCalendarEvent(String id) async {
+    await dio.delete('/calendar/$id');
+  }
+
+  /// RSVP to an event you've been invited to.
+  Future<Map<String, dynamic>> rsvpCalendarEvent(String id, String status) =>
+      post('/calendar/$id/rsvp', body: {'status': status});
+
+  // ---- notifications: mark one + unregister device + prefs ----
+  /// Mark a single notification as read (the bulk endpoint is `/read-all`).
+  Future<void> markNotificationRead(String id) async {
+    await post('/notifications/$id/read');
+  }
+
+  /// Unregister an FCM token (call this on logout so the device stops
+  /// receiving pushes meant for the previous user).
+  Future<void> unregisterDevice(String token) async {
+    await dio.delete('/notifications/devices/$token');
+  }
+
+  Future<Map<String, dynamic>> notificationPreferences() => get('/notifications/preferences');
+
+  Future<Map<String, dynamic>> updateNotificationPreferences(Map<String, dynamic> patch) async {
+    final r = await dio.put('/notifications/preferences', data: patch);
+    return r.data as Map<String, dynamic>;
+  }
+
+  // ---- saved items: unsave + list one kind ----
+  Future<void> unsaveItem({required String kind, required String refId}) async {
+    await dio.delete('/saved', data: {'kind': kind, 'refId': refId});
+  }
+
+  // ---- audit log ----
+  /// Recent activity feed — admin scope by default, scoped to the user
+  /// otherwise. Query: actor, entity, kind, cursor, limit.
+  Future<Map<String, dynamic>> auditLog({Map<String, dynamic>? query}) =>
+      get('/audit', query: query);
+
+  // ---- analytics ----
+  /// Analytics is partitioned into named slices on the backend:
+  /// `productivity`, `tasks`, `telecaller`, `workspace`, `client-engagement`,
+  /// `calls`, `attendance`. Pass the slice name and any query knobs (most
+  /// take `from`, `to`, sometimes `userId`).
+  Future<Map<String, dynamic>> analytics(String slice, {Map<String, dynamic>? query}) =>
+      get('/analytics/$slice', query: query);
+
+  // ---- permissions + workspace + settings ----
+  /// "What can I do?" — list of permission keys the current user holds.
+  Future<Map<String, dynamic>> myPermissions() => get('/permissions/mine');
+
+  Future<Map<String, dynamic>> workspaceThemes() => get('/workspace/themes');
+  Future<Map<String, dynamic>> workspaceWidgets() => get('/workspace/widgets');
+
+  /// Replace the user's dashboard widget set in one call.
+  Future<Map<String, dynamic>> setWorkspaceWidgets(List<Map<String, dynamic>> widgets) async {
+    final r = await dio.put('/workspace/widgets', data: {'widgets': widgets});
+    return r.data as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> settingsScope({String? scope}) =>
+      get('/settings', query: {if (scope != null) 'scope': scope});
+
+  Future<Map<String, dynamic>> setSetting({
+    required String scope, required String key, required Object value,
+  }) async {
+    final r = await dio.put('/settings/$scope/$key', data: {'value': value});
+    return r.data as Map<String, dynamic>;
+  }
+
+  // ---- files: signed-url + download + delete + access control ----
+  Future<Map<String, dynamic>> requestSignedUrl({
+    required String filename, required String mimeType, int? sizeBytes,
+  }) =>
+      post('/files/signed-url', body: {
+        'filename': filename,
+        'mimeType': mimeType,
+        if (sizeBytes != null) 'sizeBytes': sizeBytes,
+      });
+
+  Future<void> deleteFile(String id) async { await dio.delete('/files/$id'); }
+
+  Future<Map<String, dynamic>> setFileAccessControl(String id, {required bool allowDownload}) =>
+      post('/files/$id/access-control', body: {'allowDownload': allowDownload});
+
+  // ---- meetings: lobby + guest approval ----
+  Future<void> endCall(String callId) async {
+    await post('/calls/$callId/leave');
+  }
+
+  /// Approve a pending guest request (host or admin only).
+  Future<Map<String, dynamic>> approveMeetingGuest(String slug, String requestId) =>
+      post('/meetings/$slug/guest-requests/$requestId/approve');
+
+  Future<Map<String, dynamic>> rejectMeetingGuest(String slug, String requestId) =>
+      post('/meetings/$slug/guest-requests/$requestId/reject');
+
   // ---- attendance (workday log: check-in / lunch / check-out) ----
   /// Today's workday log row + computed lunch state. The response also
   /// carries the server config (minRequiredWords, lunch window, etc.) so
