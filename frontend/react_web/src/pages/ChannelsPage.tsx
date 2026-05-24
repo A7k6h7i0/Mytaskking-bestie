@@ -20,6 +20,7 @@ export default function ChannelsPage() {
   const [description, setDescription] = useState('');
   const [query, setQuery] = useState('');
   const [picked, setPicked] = useState<any[]>([]);
+  const canCreateClientChannel = user.role === 'SUPER_ADMIN' || user.role === 'ADMIN';
   const { data, isLoading } = useQuery<{ items: any[] }>({
     queryKey: ['channels.mine'],
     queryFn: async () => (await api.get('/channels')).data,
@@ -27,7 +28,7 @@ export default function ChannelsPage() {
   const directory = useQuery<{ items: any[] }>({
     queryKey: ['channels.directory', query],
     queryFn: async () => (await api.get('/channels/directory', { params: { q: query || undefined } })).data,
-    enabled: open,
+    enabled: open && canCreateClientChannel,
   });
   const createMut = useMutation({
     mutationFn: async () =>
@@ -49,10 +50,16 @@ export default function ChannelsPage() {
     },
   });
 
+  const visibleChannels = useMemo(() => {
+    return (data?.items || []).filter((channel) => channel.kind !== 'DM');
+  }, [data?.items]);
+
   const candidates = useMemo(() => {
     const pickedIds = new Set(picked.map((person) => person.id));
-    return (directory.data?.items || []).filter((person) => !pickedIds.has(person.id));
+    return (directory.data?.items || []).filter((person) => person.isClient && !pickedIds.has(person.id));
   }, [directory.data?.items, picked]);
+
+  const pickedClients = useMemo(() => picked.filter((person) => person.isClient), [picked]);
 
   if (isLoading) return <div className="cn__loading">Loading channels…</div>;
 
@@ -63,15 +70,15 @@ export default function ChannelsPage() {
           <h1 className="cn__title">Channels</h1>
           <p className="cn__sub">Pinned conversations, team channels, projects, and client workspaces.</p>
         </div>
-        {user.isClient && (
+        {canCreateClientChannel && (
           <Button onClick={() => setOpen(true)}>
-            <Plus size={16} /> New client channel
+            <Plus size={16} /> New channel
           </Button>
         )}
       </header>
 
       <div className="cn__grid">
-        {data?.items.map((c) => (
+        {visibleChannels.map((c) => (
           <article key={c.id} className="cn__card" onClick={() => navigate(`/chat/${c.id}`)}>
             <header className="cn__card-head">
               <div className="cn__card-name">
@@ -88,18 +95,18 @@ export default function ChannelsPage() {
             </footer>
           </article>
         ))}
-        {data?.items.length === 0 && <div className="cn__empty">No channels yet. Ask an admin to add you.</div>}
+        {visibleChannels.length === 0 && <div className="cn__empty">No channels yet. Ask an admin to add you.</div>}
       </div>
 
       <Modal
-        open={open}
+        open={open && canCreateClientChannel}
         onClose={() => setOpen(false)}
         title="Create client channel"
-        description="Clients can create private collaboration channels and add the exact internal people they want in the room."
+        description="Create a client workspace. Active internal users are added automatically."
         footer={
           <>
             <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button onClick={() => createMut.mutate()} loading={createMut.isPending} disabled={!name.trim()}>
+            <Button onClick={() => createMut.mutate()} loading={createMut.isPending} disabled={!name.trim() || pickedClients.length === 0}>
               Create channel
             </Button>
           </>
@@ -109,11 +116,11 @@ export default function ChannelsPage() {
           <Input label="Channel name" placeholder="Campaign feedback" value={name} onChange={(e) => setName(e.target.value)} />
           <Input label="Description" placeholder="What this channel is for" value={description} onChange={(e) => setDescription(e.target.value)} />
           <div className="cn__picker">
-            <span className="cn__picker-label">Invite internal people</span>
+            <span className="cn__picker-label">Add clients</span>
             {picked.length > 0 && (
               <div className="cn__chips">
                 {picked.map((person) => (
-                  <button key={person.id} className="cn__chip" onClick={() => setPicked((prev) => prev.filter((item) => item.id !== person.id))}>
+                  <button type="button" key={person.id} className="cn__chip" onClick={() => setPicked((prev) => prev.filter((item) => item.id !== person.id))}>
                     <Avatar name={person.name} src={person.avatarUrl} isClient={person.isClient} size={18} />
                     <UserName name={person.name} isClient={person.isClient} role={person.role} />
                     <X size={12} />
@@ -121,10 +128,10 @@ export default function ChannelsPage() {
                 ))}
               </div>
             )}
-            <Input placeholder="Search employees, managers, or coordinators" value={query} onChange={(e) => setQuery(e.target.value)} />
+            <Input placeholder="Search clients" value={query} onChange={(e) => setQuery(e.target.value)} />
             <div className="cn__directory">
               {candidates.slice(0, 8).map((person) => (
-                <button key={person.id} className="cn__person" onClick={() => { setPicked((prev) => [...prev, person]); setQuery(''); }}>
+                <button type="button" key={person.id} className="cn__person" onClick={() => { setPicked((prev) => [...prev, person]); setQuery(''); }}>
                   <Avatar name={person.name} src={person.avatarUrl} isClient={person.isClient} size={24} />
                   <div>
                     <UserName name={person.name} isClient={person.isClient} role={person.role} />

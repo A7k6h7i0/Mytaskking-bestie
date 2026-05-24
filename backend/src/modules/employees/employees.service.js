@@ -7,7 +7,7 @@ const { NotFound, Conflict } = require('../../utils/errors');
 async function list({ q, role, status, page = 1, pageSize = 25 }) {
   const where = {
     isClient: false,
-    ...(role ? { role } : {}),
+    ...(role ? { role } : { role: { not: 'SUPER_ADMIN' } }),
     ...(status ? { status } : {}),
     ...(q
       ? {
@@ -73,7 +73,7 @@ async function getById(id) {
       },
     },
   });
-  if (!u || u.isClient) throw NotFound('Employee not found');
+  if (!u || u.isClient || u.role === 'SUPER_ADMIN') throw NotFound('Employee not found');
   return sanitize(u);
 }
 

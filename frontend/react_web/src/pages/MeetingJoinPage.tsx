@@ -129,7 +129,7 @@ export default function MeetingJoinPage() {
     try {
       const token = await getMeetingToken();
       if (token.disabled || !token.appId) {
-        toast.error('Agora is not configured', 'Set AGORA_APP_ID and AGORA_APP_CERTIFICATE in backend .env.');
+        toast.error('Meeting video is not configured', 'Set AGORA_APP_ID and AGORA_APP_CERTIFICATE in backend .env.');
         return;
       }
 

@@ -1,7 +1,8 @@
 .ch {
   display: grid;
   grid-template-columns: 280px 1fr;
-  height: calc(100vh - var(--topbar-h) - var(--s-5) * 2);
+  height: calc(100dvh - var(--topbar-h) - var(--s-5) * 2);
+  max-height: calc(100dvh - var(--topbar-h) - var(--s-5) * 2);
   min-height: 0;
   background: var(--c-surface);
   border: 1px solid var(--c-border);
@@ -9,14 +10,14 @@
   overflow: hidden;
 }
 
-.ch__list { border-right: 1px solid var(--c-border); display: flex; flex-direction: column; background: var(--c-surface-1); }
+.ch__list { border-right: 1px solid var(--c-border); display: flex; flex-direction: column; min-height: 0; background: var(--c-surface-1); }
 .ch__list-head {
   display: flex; align-items: center; gap: 8px;
   padding: 14px 16px;
   font-weight: 600; color: var(--c-text-soft);
   border-bottom: 1px solid var(--c-border);
 }
-.ch__list ul { list-style: none; padding: 8px; margin: 0; overflow-y: auto; flex: 1; }
+.ch__list ul { list-style: none; padding: 8px; margin: 0; min-height: 0; overflow-y: auto; flex: 1; }
 .ch__list li {
   display: flex; align-items: center; justify-content: space-between;
   padding: 8px 10px;
@@ -47,7 +48,7 @@
 .ch__pin { color: var(--c-text-muted); }
 .ch__empty { color: var(--c-text-muted); padding: 12px; }
 
-.ch__panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; position: relative; }
+.ch__panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; overflow: hidden; position: relative; }
 .ch__panel.is-dragging::after {
   content: '';
   position: absolute;
@@ -60,10 +61,23 @@
 .ch__title { display: flex; align-items: center; gap: 8px; font-weight: 700; }
 .ch__sub { font-size: var(--fs-xs); color: var(--c-text-muted); margin-top: 2px; }
 
-.ch__messages { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: var(--s-4) var(--s-5); display: flex; flex-direction: column; gap: 12px; position: relative; z-index: 2; }
-.ch__msg { display: flex; gap: 10px; align-items: flex-end; width: 100%; }
-.ch__msg--mine { flex-direction: row-reverse; align-self: flex-end; }
-.ch__msg--other { align-self: flex-start; }
+.ch__messages {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--s-4) var(--s-5);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: relative;
+  z-index: 1;
+  overscroll-behavior: contain;
+  scroll-padding-bottom: 20px;
+  scrollbar-gutter: stable;
+}
+.ch__msg { display: flex; gap: 10px; align-items: flex-end; width: 100%; justify-content: flex-start; }
+.ch__msg--mine { flex-direction: row-reverse; justify-content: flex-end; }
+.ch__msg--other { justify-content: flex-start; }
 .ch__msg-body {
   flex: 0 1 auto;
   min-width: 0;
@@ -87,7 +101,7 @@
 .ch__msg--mine .ch__msg-time,
 .ch__msg--mine .ch__msg-meta > span,
 .ch__msg--mine .ch__msg-text { color: var(--c-text-invert); }
-.ch__msg-text { font-size: var(--fs-base); line-height: var(--lh-normal); color: var(--c-text); white-space: pre-wrap; }
+.ch__msg-text { font-size: var(--fs-base); line-height: var(--lh-normal); color: var(--c-text); white-space: pre-wrap; overflow-wrap: anywhere; }
 .ch__attachments { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
 .ch__attachment {
   display: inline-flex;
@@ -124,21 +138,32 @@
   color: var(--c-text-muted); padding: var(--s-5);
 }
 
+.ch__composer-stack {
+  position: sticky;
+  bottom: 0;
+  z-index: 6;
+  background: var(--c-surface-1);
+  border-top: 1px solid var(--c-border);
+  flex-shrink: 0;
+  box-shadow: 0 -8px 16px color-mix(in srgb, var(--c-border) 26%, transparent);
+}
+
 .ch__composer {
   position: relative;
   display: flex;
   gap: 8px;
   padding: 12px 14px;
-  border-top: 1px solid var(--c-border);
+  border-top: 0;
   background: var(--c-surface-1);
   flex-shrink: 0;
-  z-index: 2;
+  z-index: 6;
 }
 .ch__composer.is-dragging {
   background: color-mix(in srgb, var(--c-brand-soft) 65%, var(--c-surface-1));
 }
 .ch__composer input {
   flex: 1;
+  min-width: 0;
   height: 40px;
   border-radius: var(--r-pill);
   border: 1px solid var(--c-border);
@@ -150,6 +175,7 @@
 .ch__composer button {
   display: inline-flex; align-items: center; justify-content: center;
   width: 40px; height: 40px;
+  flex: 0 0 40px;
   border-radius: 50%;
   background: var(--c-brand);
   color: var(--c-text-invert);
@@ -227,7 +253,7 @@
   background: var(--c-surface-1);
   border-top: 1px dashed var(--c-border);
   flex-shrink: 0;
-  z-index: 2;
+  z-index: 6;
 }
 .ch__pending-file {
   display: inline-flex;
@@ -286,6 +312,7 @@
 }
 .ch__helper-row {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 12px;
   padding: 0 14px 12px;
@@ -293,7 +320,7 @@
   font-size: var(--fs-xs);
   background: var(--c-surface-1);
   flex-shrink: 0;
-  z-index: 2;
+  z-index: 6;
 }
 .ch__helper-row span {
   display: inline-flex;

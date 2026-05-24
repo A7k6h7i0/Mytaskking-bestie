@@ -89,8 +89,11 @@ async function directoryForUser(user, q = '') {
 }
 
 async function create(input, creator) {
+  if (creator.isClient) {
+    throw Forbidden('Clients cannot create channels');
+  }
+
   if (input.kind === 'DM') {
-    if (creator.isClient) throw Forbidden('Clients cannot start direct messages');
     if (!input.memberIds || input.memberIds.length !== 1) {
       throw BadRequest('DM requires exactly one other member');
     }
@@ -111,15 +114,39 @@ async function create(input, creator) {
 
     if (existingDm) return existingDm;
   }
-  const memberIds = Array.from(new Set([creator.id, ...(input.memberIds || [])]));
+
+  const requestedIds = Array.from(new Set(input.memberIds || []));
+  let memberIds = Array.from(new Set([creator.id, ...requestedIds]));
+
+  if (input.kind === 'CLIENT') {
+    if (!['SUPER_ADMIN', 'ADMIN'].includes(creator.role)) {
+      throw Forbidden('Only admins can create client channels');
+    }
+
+    const selectedUsers = await prisma.user.findMany({
+      where: { id: { in: requestedIds }, status: 'ACTIVE' },
+      select: { id: true, isClient: true },
+    });
+    if (!selectedUsers.some((user) => user.isClient)) {
+      throw BadRequest('Client channel requires at least one client');
+    }
+
+    const internalUsers = await prisma.user.findMany({
+      where: { isClient: false, status: 'ACTIVE' },
+      select: { id: true },
+    });
+    memberIds = Array.from(new Set([
+      creator.id,
+      ...selectedUsers.map((user) => user.id),
+      ...internalUsers.map((user) => user.id),
+    ]));
+  }
+
   const members = await prisma.user.findMany({ where: { id: { in: memberIds } } });
   const hasClient = members.some((m) => m.isClient);
 
-  if (creator.isClient && input.kind !== 'CLIENT') {
-    throw Forbidden('Clients can only create client channels');
-  }
-  if (!creator.isClient && input.kind === 'CLIENT') {
-    throw Forbidden('Only clients can create client channels');
+  if (hasClient && input.kind !== 'CLIENT') {
+    throw BadRequest('Channels with clients must use CLIENT kind');
   }
 
   const channel = await prisma.channel.create({

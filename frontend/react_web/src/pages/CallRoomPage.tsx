@@ -175,9 +175,9 @@ export default function CallRoomPage() {
       setRemoteUsers([...client.remoteUsers]);
       setCurrentCall(callId);
       clearPending();
-      toast.success('Connected to Agora call');
+      toast.success('Connected to call');
     } catch (err: any) {
-      toast.error('Could not join Agora call', err?.message || 'Please try again.');
+      toast.error('Could not join call', err?.message || 'Please try again.');
       await disconnect(true);
     } finally {
       setConnecting(false);
@@ -308,7 +308,7 @@ export default function CallRoomPage() {
       await clientRef.current.publish([cam]);
       if (localVideoRef.current) cam.play(localVideoRef.current);
       setCameraOn(true);
-      toast.success('Camera is live on Agora');
+      toast.success('Camera is live');
     } catch (err: any) {
       toast.error('Could not start camera', err?.message || 'Check camera permissions.');
     }
@@ -361,7 +361,7 @@ export default function CallRoomPage() {
       screenVideoTrack.on('track-ended', () => {
         toggleScreenShare().catch(() => {});
       });
-      toast.success('Screen sharing is live on Agora');
+      toast.success('Screen sharing is live');
     } catch (err: any) {
       toast.error('Could not start screen sharing', err?.message || 'Check browser screen-share permissions.');
     }
@@ -434,17 +434,17 @@ export default function CallRoomPage() {
     <div className="cr">
       <header className="cr__head">
         <div>
-          <div className="cr__eyebrow"><Radio size={14} /> Powered by Agora</div>
+          <div className="cr__eyebrow"><Radio size={14} /> Secure live call</div>
           <h1>{activeCall?.kind === 'GROUP' ? 'Group voice room' : 'Direct voice call'}</h1>
           <p>
             {activeCall?.status ? `Status: ${activeCall.status}` : 'Connecting your secure audio room…'}
             {' · '}
-            Low-latency voice session with Agora RTC.
+            Low-latency voice session in your browser.
           </p>
         </div>
         <div className="cr__brand-card">
           <ShieldCheck size={18} />
-          <span>Agora calling</span>
+          <span>Live calling</span>
         </div>
       </header>
 
@@ -456,7 +456,7 @@ export default function CallRoomPage() {
           </div>
           <div className="cr__summary-card">
             <span className="cr__summary-label">Connection</span>
-            <strong>{joined ? `Live on Agora · ${timerText}` : connecting ? 'Joining…' : 'Waiting'}</strong>
+            <strong>{joined ? `Live · ${timerText}` : connecting ? 'Joining…' : 'Waiting'}</strong>
           </div>
           <div className="cr__summary-card">
             <span className="cr__summary-label">Remote listeners</span>
@@ -504,7 +504,7 @@ export default function CallRoomPage() {
                   <Avatar name={p.user.name} src={p.user.avatarUrl} isClient={p.user.isClient} size={42} />
                   <div>
                     <UserName name={p.user.name} isClient={p.user.isClient} role={p.user.role} />
-                    <div className="cr__person-sub">{remoteJoined ? 'Live in Agora room' : 'Waiting to join'}{remoteUsers.find((u) => String(u.uid) === p.user.id)?.videoTrack ? ' · video live' : ''}</div>
+                    <div className="cr__person-sub">{remoteJoined ? 'Live in room' : 'Waiting to join'}{remoteUsers.find((u) => String(u.uid) === p.user.id)?.videoTrack ? ' · video live' : ''}</div>
                   </div>
                   <span className={`cr__presence ${remoteJoined ? 'is-live' : ''}`}>
                     <Volume2 size={14} /> {remoteJoined ? 'Connected' : 'Pending'}

@@ -27,19 +27,23 @@ export function Modal({
   open, onClose, title, description, footer, size = 'md', children, hideClose, dismissOnBackdrop = true,
 }: ModalProps) {
   const ref = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') onCloseRef.current();
     }
     document.addEventListener('keydown', onKey);
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    // Focus the first focusable element inside the modal.
     setTimeout(() => {
       const el = ref.current?.querySelector<HTMLElement>(
-        'input, button, [tabindex]:not([tabindex="-1"]), textarea, select'
+        '.mo__body input, .mo__body textarea, .mo__body select, .mo__body button, input, textarea, select, button, [tabindex]:not([tabindex="-1"])'
       );
       el?.focus();
     }, 30);
@@ -47,7 +51,7 @@ export function Modal({
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = prevOverflow;
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 

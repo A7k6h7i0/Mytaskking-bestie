@@ -507,100 +507,102 @@ export default function ChatPage() {
               {messages.length === 0 && <div className="ch__empty-center">No messages yet — start the conversation.</div>}
             </div>
 
-            <form
-              className={`ch__composer ${dragActive ? 'is-dragging' : ''}`}
-              onSubmit={send}
-              onDragEnter={onDragEnter}
-              onDragOver={onDragOver}
-              onDragLeave={onDragLeave}
-              onDrop={onDropFiles}
-            >
-              <input
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={onComposerKeyDown}
-                onPaste={onPaste}
-                placeholder={`Message ${active.name || ''}…`}
-              />
-              <input ref={fileInputRef} type="file" multiple hidden onChange={uploadFiles} />
-              <button type="button" className="ch__icon-btn" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-                <Paperclip size={16} />
-              </button>
-              <button type="button" className={`ch__icon-btn ${recording ? 'is-recording' : ''}`} onClick={toggleRecording} disabled={uploading}>
-                {recording ? <Square size={16} /> : <Mic size={16} />}
-              </button>
-              <button type="submit" disabled={(!draft.trim() && readyAttachments.length === 0) || hasUploading}><Send size={16} /></button>
-              {!!memberSuggestions.length && (
-                <div className="ch__mentions">
-                  {memberSuggestions.map((person, index) => (
-                    <button
-                      type="button"
-                      key={person.id}
-                      className={`ch__mention-item ${index === mentionIndex ? 'is-active' : ''}`}
-                      onClick={() => applyMention(person)}
+            <div className="ch__composer-stack">
+              <form
+                className={`ch__composer ${dragActive ? 'is-dragging' : ''}`}
+                onSubmit={send}
+                onDragEnter={onDragEnter}
+                onDragOver={onDragOver}
+                onDragLeave={onDragLeave}
+                onDrop={onDropFiles}
+              >
+                <input
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={onComposerKeyDown}
+                  onPaste={onPaste}
+                  placeholder={`Message ${active.name || ''}…`}
+                />
+                <input ref={fileInputRef} type="file" multiple hidden onChange={uploadFiles} />
+                <button type="button" className="ch__icon-btn" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+                  <Paperclip size={16} />
+                </button>
+                <button type="button" className={`ch__icon-btn ${recording ? 'is-recording' : ''}`} onClick={toggleRecording} disabled={uploading}>
+                  {recording ? <Square size={16} /> : <Mic size={16} />}
+                </button>
+                <button type="submit" disabled={(!draft.trim() && readyAttachments.length === 0) || hasUploading}><Send size={16} /></button>
+                {!!memberSuggestions.length && (
+                  <div className="ch__mentions">
+                    {memberSuggestions.map((person, index) => (
+                      <button
+                        type="button"
+                        key={person.id}
+                        className={`ch__mention-item ${index === mentionIndex ? 'is-active' : ''}`}
+                        onClick={() => applyMention(person)}
+                      >
+                        <Avatar name={person.name} src={person.avatarUrl} isClient={person.isClient} size={24} />
+                        <div>
+                          <strong>{person.name}</strong>
+                          <span>@{person.userId} · {person.customTitle || person.role.replace(/_/g, ' ')}</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {dragActive && (
+                  <div className="ch__dropzone">
+                    <strong>Drop files anywhere in this chat</strong>
+                    <span>Images, docs, and other files will be attached to your next message.</span>
+                  </div>
+                )}
+              </form>
+              {!!pendingAttachments.length && (
+                <div className="ch__pending-files">
+                  {pendingAttachments.map((file) => (
+                    <div
+                      key={file.tempId}
+                      className={`ch__pending-file ch__pending-file--${file.status}`}
+                      draggable
+                      onDragStart={() => setDragAttachmentId(file.tempId)}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (dragAttachmentId) movePendingAttachment(dragAttachmentId, file.tempId);
+                        setDragAttachmentId(null);
+                      }}
+                      onDragEnd={() => setDragAttachmentId(null)}
                     >
-                      <Avatar name={person.name} src={person.avatarUrl} isClient={person.isClient} size={24} />
-                      <div>
-                        <strong>{person.name}</strong>
-                        <span>@{person.userId} · {person.customTitle || person.role.replace(/_/g, ' ')}</span>
+                      <span className="ch__drag-handle" aria-hidden="true"><GripVertical size={14} /></span>
+                      <div className="ch__pending-meta">
+                        <span>{file.originalName || 'Attachment ready'}</span>
+                        {file.status === 'uploading' && <small>{file.progress}%</small>}
+                        {file.status === 'error' && <small>Upload failed</small>}
+                        {file.status === 'ready' && <small>Ready</small>}
                       </div>
-                    </button>
+                      <div className="ch__pending-actions">
+                        {file.status === 'uploading' && <div className="ch__pending-bar"><i style={{ width: `${file.progress}%` }} /></div>}
+                        {file.status === 'uploading' && (
+                          <button type="button" className="ch__retry-btn" onClick={() => cancelUpload(file.tempId)} title="Cancel upload">
+                            <X size={14} />
+                          </button>
+                        )}
+                        {file.status === 'error' && (
+                          <button type="button" className="ch__retry-btn" onClick={() => retryAttachment(file.tempId)} title="Retry upload">
+                            <RotateCcw size={14} />
+                          </button>
+                        )}
+                        <button type="button" onClick={() => setPendingAttachments((prev) => prev.filter((item) => item.tempId !== file.tempId))}>
+                          <X size={14} />
+                        </button>
+                      </div>
+                    </div>
                   ))}
                 </div>
               )}
-              {dragActive && (
-                <div className="ch__dropzone">
-                  <strong>Drop files anywhere in this chat</strong>
-                  <span>Images, docs, and other files will be attached to your next message.</span>
-                </div>
-              )}
-            </form>
-            {!!pendingAttachments.length && (
-              <div className="ch__pending-files">
-                {pendingAttachments.map((file) => (
-                  <div
-                    key={file.tempId}
-                    className={`ch__pending-file ch__pending-file--${file.status}`}
-                    draggable
-                    onDragStart={() => setDragAttachmentId(file.tempId)}
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      if (dragAttachmentId) movePendingAttachment(dragAttachmentId, file.tempId);
-                      setDragAttachmentId(null);
-                    }}
-                    onDragEnd={() => setDragAttachmentId(null)}
-                  >
-                    <span className="ch__drag-handle" aria-hidden="true"><GripVertical size={14} /></span>
-                    <div className="ch__pending-meta">
-                      <span>{file.originalName || 'Attachment ready'}</span>
-                      {file.status === 'uploading' && <small>{file.progress}%</small>}
-                      {file.status === 'error' && <small>Upload failed</small>}
-                      {file.status === 'ready' && <small>Ready</small>}
-                    </div>
-                    <div className="ch__pending-actions">
-                      {file.status === 'uploading' && <div className="ch__pending-bar"><i style={{ width: `${file.progress}%` }} /></div>}
-                      {file.status === 'uploading' && (
-                        <button type="button" className="ch__retry-btn" onClick={() => cancelUpload(file.tempId)} title="Cancel upload">
-                          <X size={14} />
-                        </button>
-                      )}
-                      {file.status === 'error' && (
-                        <button type="button" className="ch__retry-btn" onClick={() => retryAttachment(file.tempId)} title="Retry upload">
-                          <RotateCcw size={14} />
-                        </button>
-                      )}
-                      <button type="button" onClick={() => setPendingAttachments((prev) => prev.filter((item) => item.tempId !== file.tempId))}>
-                        <X size={14} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
+              <div className="ch__helper-row">
+                <span><ClipboardPaste size={14} /> Paste images from your clipboard directly into the composer.</span>
+                <span>Drag files anywhere over this chat panel, drag chips to re-order them, or record a voice note.</span>
               </div>
-            )}
-            <div className="ch__helper-row">
-              <span><ClipboardPaste size={14} /> Paste images from your clipboard directly into the composer.</span>
-              <span>Drag files anywhere over this chat panel, drag chips to re-order them, or record a voice note.</span>
             </div>
           </>
         ) : (

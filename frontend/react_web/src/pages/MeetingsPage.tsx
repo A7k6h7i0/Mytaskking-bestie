@@ -68,7 +68,7 @@ export default function MeetingsPage() {
       <header className="mt__head">
         <div>
           <h1>Meetings</h1>
-          <p>Voice + video rooms powered by Agora. Anyone with the meeting link can join directly.</p>
+          <p>Voice + video rooms for the team. Anyone with the meeting link can join directly.</p>
         </div>
         <Button onClick={() => setShowNew((v) => !v)}><Plus size={16}/> New meeting</Button>
       </header>

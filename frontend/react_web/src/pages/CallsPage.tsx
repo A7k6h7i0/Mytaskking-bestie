@@ -20,7 +20,7 @@ export default function CallsPage() {
       <header className="cl__head">
         <div>
           <h1 className="cl__title">Calls</h1>
-          <p className="cl__sub">One-to-one and group voice calls powered by Agora.</p>
+          <p className="cl__sub">One-to-one and group voice calls for your workspace.</p>
         </div>
       </header>
 

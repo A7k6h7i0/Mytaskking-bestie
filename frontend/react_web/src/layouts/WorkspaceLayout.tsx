@@ -68,7 +68,7 @@ const ALLOWED: Record<string, string[]> = {
   PROJECT_COORDINATOR_MANAGER: ['/dashboard', '/chat', '/channels', '/tasks', '/calendar', '/calls', '/meetings', '/saved', '/employees', '/sessions'],
   EMPLOYEE: ['/dashboard', '/chat', '/channels', '/tasks', '/calendar', '/calls', '/meetings', '/saved', '/employees', '/sessions'],
   TELECALLER: ['/dashboard', '/telecaller', '/chat', '/calendar', '/saved', '/employees', '/sessions'],
-  CLIENT: ['/dashboard', '/chat', '/channels', '/saved', '/sessions'],
+  CLIENT: ['/dashboard', '/channels', '/saved', '/sessions'],
 };
 
 export default function WorkspaceLayout() {
@@ -187,7 +187,7 @@ export default function WorkspaceLayout() {
   }
 
   const callerName = pendingCall?.call?.initiator?.name || 'A teammate';
-  const callModeLabel = pendingCall?.call?.kind === 'GROUP' ? 'Group Agora room' : 'Direct Agora call';
+  const callModeLabel = pendingCall?.call?.kind === 'GROUP' ? 'Group voice room' : 'Direct voice call';
   const inLiveCallRoute = location.pathname.startsWith('/calls/live/');
 
   return (
@@ -232,7 +232,7 @@ export default function WorkspaceLayout() {
         {pendingCall?.call && (
           <div className="ws__incoming-modal" role="dialog" aria-modal="true" aria-label="Incoming call">
             <div className="ws__incoming-card">
-              <div className="ws__incoming-badge"><Radio size={14} /> Powered by Agora</div>
+              <div className="ws__incoming-badge"><Radio size={14} /> Secure live call</div>
               <div className="ws__incoming-avatar">
                 <Avatar name={callerName} src={pendingCall.call.initiator?.avatarUrl} isClient={false} size={64} />
               </div>
@@ -244,7 +244,7 @@ export default function WorkspaceLayout() {
               </div>
               <div className="ws__incoming-modal-actions">
                 <button className="bb bb--ghost bb--md" onClick={declinePendingCall}>Decline</button>
-                <button className="bb bb--primary bb--md" onClick={answerPendingCall}>Answer on Agora</button>
+                <button className="bb bb--primary bb--md" onClick={answerPendingCall}>Answer call</button>
               </div>
             </div>
           </div>
@@ -264,7 +264,7 @@ export default function WorkspaceLayout() {
           {pendingCall?.call && (
             <div className="ws__incoming-call">
               <div className="ws__incoming-copy">
-                <strong>Incoming Agora call from {callerName}</strong>
+                <strong>Incoming call from {callerName}</strong>
                 <span>{callModeLabel} · Answer to join the live browser room.</span>
               </div>
               <div className="ws__incoming-actions">
@@ -274,11 +274,11 @@ export default function WorkspaceLayout() {
             </div>
           )}
           {!pendingCall?.call && currentCallId && !inLiveCallRoute && (
-            <button className="ws__call-widget" onClick={() => navigate(`/calls/live/${currentCallId}`)} title="Return to live Agora call">
+            <button className="ws__call-widget" onClick={() => navigate(`/calls/live/${currentCallId}`)} title="Return to live call">
               <span className="ws__call-widget-icon"><PhoneCall size={18} /></span>
               <span className="ws__call-widget-copy">
                 <strong>Call in progress</strong>
-                <span>Return to the live Agora room</span>
+                <span>Return to the live call</span>
               </span>
               <span className="ws__call-widget-badge"><Minimize2 size={14} /> Live</span>
             </button>
