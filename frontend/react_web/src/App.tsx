@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
+import { useEffect } from 'react';
 import { useAuthStore } from '@/store/auth';
 import LoginPage from '@/pages/LoginPage';
 import WorkspaceLayout from '@/layouts/WorkspaceLayout';
@@ -22,8 +23,10 @@ import MeetingJoinPage from '@/pages/MeetingJoinPage';
 import FlagsPage from '@/pages/FlagsPage';
 import PermissionsPage from '@/pages/PermissionsPage';
 import { ToastHost } from '@/components/Toast';
+import { toast } from '@/components/Toast';
 import { CommandPalette } from '@/components/CommandPalette';
 import { ShortcutsOverlay } from '@/components/ShortcutsOverlay';
+import { onForegroundPush, registerWebPush } from '@/services/firebaseMessaging';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.accessToken);
@@ -38,9 +41,31 @@ function RoleGate({ allow, children }: { allow: string[]; children: React.ReactN
   return <>{children}</>;
 }
 
+function PushRegistration() {
+  const token = useAuthStore((s) => s.accessToken);
+
+  useEffect(() => {
+    if (!token) return;
+
+    registerWebPush().catch(() => {});
+
+    let unsubscribe: (() => void) | undefined;
+    onForegroundPush((payload) => {
+      toast.info(payload.notification?.title || 'New notification', payload.notification?.body);
+    }).then((off) => {
+      unsubscribe = off;
+    });
+
+    return () => unsubscribe?.();
+  }, [token]);
+
+  return null;
+}
+
 export default function App() {
   return (
     <>
+      <PushRegistration />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/meetings/join/:slug" element={<MeetingJoinPage />} />
