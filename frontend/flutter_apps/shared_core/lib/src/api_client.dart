@@ -1,13 +1,23 @@
 import 'package:dio/dio.dart';
 import 'auth_store.dart';
 
+/// Accept either a bare origin (`https://mytaskking.com`) or a fully
+/// versioned URL (`https://mytaskking.com/api/v1`) and always return the
+/// versioned form — that way callers can't accidentally produce paths
+/// like `/api/v1/api/v1/dashboard/overview` by appending `/api/v1` twice.
+String _normalizeBaseUrl(String input) {
+  final trimmed = input.endsWith('/') ? input.substring(0, input.length - 1) : input;
+  if (trimmed.endsWith('/api/v1')) return trimmed;
+  return '$trimmed/api/v1';
+}
+
 class BestieApi {
   final Dio dio;
   final BestieAuthStore auth;
 
   BestieApi({required String baseUrl, required this.auth})
       : dio = Dio(BaseOptions(
-          baseUrl: '$baseUrl/api/v1',
+          baseUrl: _normalizeBaseUrl(baseUrl),
           connectTimeout: const Duration(seconds: 15),
           receiveTimeout: const Duration(seconds: 30),
         )) {

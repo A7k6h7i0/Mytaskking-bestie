@@ -16,7 +16,10 @@ export 'package:mytaskking_core/mytaskking_core.dart';
 /// app out of the box. Local dev overrides the value via
 /// `--dart-define=API_URL=http://10.0.2.2:4000` (Android emulator → host) or
 /// `http://localhost:4000` (iOS sim / desktop).
-const String _kDefaultApiUrl = 'https://mytaskking.com/api/v1';
+// NOTE: BestieApi appends `/api/v1` to whatever it's handed, so the API
+// host here is the bare origin — `https://mytaskking.com`, not
+// `https://mytaskking.com/api/v1`.
+const String _kDefaultApiUrl = 'https://mytaskking.com';
 const String _kDefaultSocketUrl = 'https://mytaskking.com';
 
 String _devFallback() {
