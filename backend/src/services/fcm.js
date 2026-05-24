@@ -50,7 +50,10 @@ async function sendToTokens(tokens, { title, body, data }) {
   const isCallLike = stringData?.type === 'call.incoming' || stringData?.type === 'meeting.invited';
   const messages = tokens.map((token) => {
     const aps = { sound: 'default', contentAvailable: true };
-    if (isCallLike) aps.category = 'CALL_INVITE';
+    if (isCallLike) {
+      aps.category = 'CALL_INVITE';
+      aps.alert = { title, body };
+    }
     const androidNotification = {
       priority: isCallLike ? 'max' : 'high',
       visibility: 'public',
@@ -58,19 +61,23 @@ async function sendToTokens(tokens, { title, body, data }) {
       clickAction: 'FLUTTER_NOTIFICATION_CLICK',
     };
     if (isCallLike) androidNotification.channelId = 'calls';
-    return {
+    const message = {
       token,
-      notification: { title, body },
-      data: stringData,
+      notification: isCallLike ? undefined : { title, body },
+      data: isCallLike
+        ? { ...(stringData || {}), title: String(title || ''), body: String(body || '') }
+        : stringData,
       android: {
         priority: 'high',
-        notification: androidNotification,
       },
       apns: {
         headers: { 'apns-priority': '10' },
         payload: { aps },
       },
     };
+    if (isCallLike) delete message.notification;
+    else message.android.notification = androidNotification;
+    return message;
   });
   const result = await messaging.sendEach(messages);
   return { sent: result.successCount, failed: result.failureCount, responses: result.responses };

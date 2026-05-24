@@ -35,4 +35,4 @@ function generateRtcToken({ channelName, uid, role = 'publisher', ttlSeconds }) 
   return { token, channelName, uid: tokenUid, expiresAt: expireTime * 1000, disabled: false, appId: config.agora.appId };
 }
 
-module.exports = { generateRtcToken };
+module.exports = { generateRtcToken, toAgoraUid };

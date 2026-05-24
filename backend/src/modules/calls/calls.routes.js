@@ -9,6 +9,7 @@ const service = require('./calls.service');
 const audit = require('../../services/audit');
 const fcm = require('../../services/fcm');
 const prisma = require('../../database/prisma');
+const agora = require('../../services/agora');
 
 const router = Router();
 router.use(requireAuth);
@@ -109,6 +110,8 @@ router.post('/:id/join', asyncHandler(async (req, res) => {
   emitToCallParticipants(req.app.get('io'), call, 'call.participant.joined', {
     callId: call.id,
     userId: req.user.id,
+    userName: req.user.name,
+    agoraUid: agora.toAgoraUid(req.user.id),
   });
   res.json(call);
 }));

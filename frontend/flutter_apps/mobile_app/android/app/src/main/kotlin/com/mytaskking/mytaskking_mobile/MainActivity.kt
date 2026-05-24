@@ -1,36 +1,49 @@
 package com.mytaskking.mytaskking_mobile
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.media.AudioAttributes
-import android.media.RingtoneManager
-import android.os.Build
+import android.content.Intent
 import android.os.Bundle
 import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    private val launchChannel = "mytaskking/launch_intent"
+    private var latestLaunchPayload: Map<String, String?>? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        createCallNotificationChannel()
+        BestieFirebaseMessagingService.createCallNotificationChannel(this)
+        latestLaunchPayload = payloadFrom(intent)
     }
 
-    private fun createCallNotificationChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-        val attrs = AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
-            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-            .build()
-        val channel = NotificationChannel(
-            "calls",
-            "Calls and meeting invites",
-            NotificationManager.IMPORTANCE_HIGH
-        ).apply {
-            description = "Incoming MyTaskKing calls and meeting invites"
-            enableVibration(true)
-            setSound(ringtoneUri, attrs)
-            lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
-        }
-        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, launchChannel)
+            .setMethodCallHandler { call, result ->
+                if (call.method == "getInitialPayload") {
+                    result.success(latestLaunchPayload)
+                    latestLaunchPayload = null
+                } else {
+                    result.notImplemented()
+                }
+            }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        latestLaunchPayload = payloadFrom(intent)
+    }
+
+    private fun payloadFrom(intent: Intent?): Map<String, String?>? {
+        val type = intent?.getStringExtra("type") ?: return null
+        if (type != "call.incoming" && type != "meeting.invited") return null
+        return mapOf(
+            "type" to type,
+            "callId" to intent.getStringExtra("callId"),
+            "meetingSlug" to intent.getStringExtra("meetingSlug"),
+            "mode" to intent.getStringExtra("mode"),
+            "fromName" to intent.getStringExtra("fromName")
+        )
     }
 }

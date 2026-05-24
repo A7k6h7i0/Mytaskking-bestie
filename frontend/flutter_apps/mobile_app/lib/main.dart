@@ -4,6 +4,7 @@ import 'dart:io' show Platform;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:mytaskking_core/mytaskking_core.dart' as core;
@@ -92,6 +93,7 @@ class BestieApp extends ConsumerStatefulWidget {
 }
 
 class _BestieAppState extends ConsumerState<BestieApp> {
+  static const _launchIntentChannel = MethodChannel('mytaskking/launch_intent');
   StreamSubscription<RemoteMessage>? _pushTapSub;
 
   @override
@@ -116,6 +118,17 @@ class _BestieAppState extends ConsumerState<BestieApp> {
       _pushTapSub =
           FirebaseMessaging.onMessageOpenedApp.listen(_openPushTarget);
     } catch (_) {/* Firebase is optional in local builds */}
+    try {
+      final raw = await _launchIntentChannel.invokeMapMethod<String, dynamic>(
+        'getInitialPayload',
+      );
+      if (raw != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final route = _routeForPush(raw);
+          if (route != null) ref.read(routerProvider).go(route);
+        });
+      }
+    } catch (_) {/* Android native call notification bridge is optional */}
   }
 
   void _openPushTarget(RemoteMessage message) {

@@ -126,6 +126,20 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       if (data is! Map || data['callId'] != callId) return;
       _endBecauseRemoteClosed();
     }));
+    _callUnsubs.add(rt.onAny('call.participant.joined', ([data]) {
+      if (data is! Map || data['callId'] != callId) return;
+      final me = ref.read(authStoreProvider).user;
+      if (data['userId'] == me?.id) return;
+      final uidRaw = data['agoraUid'];
+      final uid = uidRaw is int ? uidRaw : int.tryParse('$uidRaw');
+      if (uid == null || uid <= 0) return;
+      if (!mounted) return;
+      setState(() {
+        _remoteUids.add(uid);
+        final name = data['userName']?.toString();
+        if (name != null && name.isNotEmpty) _remoteNames[uid] = name;
+      });
+    }));
   }
 
   Future<void> _endBecauseRemoteClosed() async {
