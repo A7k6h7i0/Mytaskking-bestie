@@ -151,7 +151,17 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       Permission.microphone,
       if (_isVideo) Permission.camera,
     ];
-    await perms.request();
+    final statuses = await perms.request();
+    final micStatus = statuses[Permission.microphone];
+    if (micStatus == null || !micStatus.isGranted) {
+      throw Exception('Microphone permission is required to join a meeting.');
+    }
+    if (_isVideo) {
+      final camStatus = statuses[Permission.camera];
+      if (camStatus == null || !camStatus.isGranted) {
+        throw Exception('Camera permission is required for video meetings.');
+      }
+    }
   }
 
   Future<void> _toggleMute() async {
