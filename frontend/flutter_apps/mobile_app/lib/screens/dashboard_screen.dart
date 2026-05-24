@@ -74,7 +74,6 @@ class DashboardScreen extends ConsumerWidget {
                 _liveMeetingsCard(context, liveMeetings),
               if (!isClient)
                 _weeklyStatsCard(context, counts, isAdmin: isAdmin),
-              _dailyQuoteCard(),
               const LeaderboardCard(topN: 5),
               if (isAdmin)
                 _activityCard(context, data['recentActivity'] as List? ?? const []),
@@ -595,65 +594,6 @@ class DashboardScreen extends ConsumerWidget {
             ),
         ],
       ),
-    );
-  }
-
-  /// Rotating productivity / focus quote, indexed by day-of-year so the
-  /// quote stays stable across screens within a day but changes every
-  /// morning. Pure decoration — never blocks the dashboard from loading.
-  Widget _dailyQuoteCard() {
-    const quotes = <(String, String)>[
-      ('The shorter way to do many things is to do only one thing at a time.', 'Mozart'),
-      ('It is not enough to be busy; so are the ants. The question is: what are we busy about?', 'Thoreau'),
-      ('You do not rise to the level of your goals. You fall to the level of your systems.', 'James Clear'),
-      ('Focus is a matter of deciding what things you are not going to do.', 'John Carmack'),
-      ('Action expresses priorities.', 'Gandhi'),
-      ('Done is better than perfect.', 'Sheryl Sandberg'),
-      ('Discipline equals freedom.', 'Jocko Willink'),
-      ('Slow is smooth. Smooth is fast.', 'Navy SEALs'),
-      ('Make each day your masterpiece.', 'John Wooden'),
-      ('Amateurs sit and wait for inspiration. The rest of us just get up and go to work.', 'Stephen King'),
-      ('The way to get started is to quit talking and begin doing.', 'Walt Disney'),
-      ('Either you run the day or the day runs you.', 'Jim Rohn'),
-    ];
-    final now = DateTime.now();
-    final dayOfYear = now.difference(DateTime(now.year, 1, 1)).inDays;
-    final q = quotes[dayOfYear % quotes.length];
-    return Container(
-      padding: const EdgeInsets.all(BestieTokens.s3),
-      decoration: BoxDecoration(
-        color: BestieTokens.cBrand.withOpacity(0.06),
-        borderRadius: BorderRadius.circular(BestieTokens.rMd),
-        border: Border.all(color: BestieTokens.cBrand.withOpacity(0.18)),
-      ),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Container(
-          width: 32, height: 32,
-          decoration: BoxDecoration(
-            color: BestieTokens.cBrand.withOpacity(0.12),
-            borderRadius: BorderRadius.circular(BestieTokens.rMd),
-          ),
-          child: const Icon(Icons.format_quote_rounded,
-              color: BestieTokens.cBrand, size: 18),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(q.$1,
-                  style: const TextStyle(fontSize: 14, height: 1.4,
-                      fontWeight: FontWeight.w500)),
-              const SizedBox(height: 4),
-              Text('— ${q.$2}',
-                  style: const TextStyle(
-                      fontSize: 11,
-                      color: BestieTokens.cTextMuted,
-                      fontWeight: FontWeight.w600)),
-            ],
-          ),
-        ),
-      ]),
     );
   }
 
