@@ -22,6 +22,7 @@ import 'screens/saved_screen.dart';
 import 'screens/sessions_screen.dart';
 import 'screens/telecaller_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/attendance_screen.dart';
 import 'state.dart' hide ThemeMode;
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -92,9 +93,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       ShellRoute(
         builder: (ctx, state, child) => ShellScreen(child: child),
         routes: [
-          GoRoute(path: '/dashboard', builder: (_, __) => const DashboardScreen()),
-          GoRoute(path: '/chat',      builder: (_, __) => const ChatListScreen()),
+          GoRoute(path: '/dashboard',     builder: (_, __) => const DashboardScreen()),
+          GoRoute(path: '/chat',          builder: (_, __) => const ChatListScreen()),
           GoRoute(path: '/tasks',         builder: (_, __) => const TasksScreen()),
+          GoRoute(path: '/attendance',    builder: (_, __) => const AttendanceScreen()),
           GoRoute(path: '/meetings',      builder: (_, __) => const MeetingsScreen()),
           GoRoute(path: '/notifications', builder: (_, __) => const NotificationsScreen()),
           GoRoute(path: '/profile',       builder: (_, __) => const ProfileScreen()),

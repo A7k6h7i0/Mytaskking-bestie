@@ -42,44 +42,152 @@ function followupRemindersJob() {
   });
 }
 
-// Every 5 minutes — find tasks whose dueAt is in the next 15 minutes and
-// haven't been reminded yet, then ping all their assignees. We track
-// "reminded" by overloading the task's `recurrenceCron` column as a marker
-// (cheap; no schema change). A proper system would have its own table.
-function dueReminderJob() {
-  cron.schedule('*/5 * * * *', async () => {
+// ---------------------------------------------------------------------------
+// Task deadline reminder pipeline — four phases:
+//
+//   T-15m: "Due in 15 minutes"
+//   T-5m:  "Due in 5 minutes"
+//   T+0:   "Time's up"
+//   T+30m, T+60m, T+90m, …: recurring "Still overdue" until DONE/CANCELLED.
+//
+// All four phases share one cron tick (every minute) for tight scheduling.
+// De-dup markers live on the existing `recurrenceCron` text column so we
+// don't spam — each phase writes a different marker key.
+// ---------------------------------------------------------------------------
+
+const REMINDER_PHASES = [
+  { id: 'pre15', label: '15 minutes left', minutesBefore: 15, withinSeconds: 90 },
+  { id: 'pre5',  label: '5 minutes left',  minutesBefore: 5,  withinSeconds: 90 },
+  { id: 'due',   label: 'Time\'s up',      minutesBefore: 0,  withinSeconds: 90 },
+];
+
+function _markerFor(taskId, phaseId, dueMs, recurrenceMin = 0) {
+  // Keep markers short — the column is a string. Recurrence min lets us
+  // collapse e.g. "+30", "+60" into the same column without bumping schema.
+  const dueBucket = Math.floor(dueMs / 60_000);
+  return `R:${phaseId}:${dueBucket}${recurrenceMin ? ':' + recurrenceMin : ''}`;
+}
+
+async function _hasMarker(taskId, marker) {
+  const row = await prisma.task.findUnique({ where: { id: taskId }, select: { recurrenceCron: true } });
+  if (!row) return true;
+  // Multiple markers may need to coexist. Store as comma-separated.
+  const current = (row.recurrenceCron || '').split(',').map((s) => s.trim()).filter(Boolean);
+  return current.includes(marker);
+}
+
+async function _addMarker(taskId, marker) {
+  const row = await prisma.task.findUnique({ where: { id: taskId }, select: { recurrenceCron: true } });
+  if (!row) return;
+  const current = (row.recurrenceCron || '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (current.includes(marker)) return;
+  current.push(marker);
+  // Cap at 12 markers (≈ 6 hours of overdue + pre-warnings) so we don't
+  // grow this string unboundedly.
+  while (current.length > 12) current.shift();
+  await prisma.task.update({
+    where: { id: taskId },
+    data: { recurrenceCron: current.join(',') },
+  }).catch(() => {});
+}
+
+async function _notifyAll(task, assignees, { title, body, data }) {
+  for (const a of assignees) {
+    await notifications.notify({
+      userId: a.userId,
+      kind: 'TASK',
+      title,
+      body,
+      data: { taskId: task.id, ...data },
+    }).catch(() => {});
+  }
+}
+
+function taskRemindersJob() {
+  // Every minute keeps the warning windows tight (a 5-min warning would
+  // otherwise drift by up to the cron interval).
+  cron.schedule('* * * * *', async () => {
     const now = new Date();
-    const horizon = new Date(now.getTime() + 15 * 60_000);
-    const due = await prisma.task.findMany({
+    const nowMs = now.getTime();
+
+    // Pre-due windows — fetch tasks coming due in the next 16 minutes.
+    const horizon = new Date(nowMs + 16 * 60_000);
+    const upcoming = await prisma.task.findMany({
       where: {
-        dueAt: { gte: now, lte: horizon },
+        dueAt: { gte: new Date(nowMs - 60_000), lte: horizon },
         status: { notIn: ['DONE', 'CANCELLED'] },
       },
       include: { assignees: { select: { userId: true } } },
     });
-    for (const t of due) {
-      // De-dupe: write a marker on the row so we don't spam every 5 minutes.
-      const markerKey = `reminded:${Math.floor(t.dueAt.getTime() / 60_000)}`;
-      if (t.recurrenceCron === markerKey) continue;
-      await prisma.task.update({ where: { id: t.id }, data: { recurrenceCron: markerKey } }).catch(() => {});
-      for (const a of t.assignees) {
-        await notifications.notify({
-          userId: a.userId,
-          kind: 'TASK',
-          title: 'Due soon',
-          body: `${t.title} — due ${new Date(t.dueAt).toUTCString()}`,
-          data: { taskId: t.id, reminder: true },
-        }).catch(() => {});
+
+    for (const t of upcoming) {
+      const dueMs = new Date(t.dueAt).getTime();
+      const deltaSec = (dueMs - nowMs) / 1000;
+      for (const phase of REMINDER_PHASES) {
+        const target = phase.minutesBefore * 60;
+        if (Math.abs(deltaSec - target) > phase.withinSeconds) continue;
+        const marker = _markerFor(t.id, phase.id, dueMs);
+        if (await _hasMarker(t.id, marker)) continue;
+        await _addMarker(t.id, marker);
+        const title = phase.id === 'due' ? `Time's up — ${t.title}` : `Due ${phase.label} — ${t.title}`;
+        const body = phase.id === 'due'
+          ? 'Your task deadline just hit. Mark it complete or extend the due date.'
+          : `Deadline ${new Date(dueMs).toUTCString()}`;
+        await _notifyAll(t, t.assignees, {
+          title,
+          body,
+          data: { reminder: phase.id, dueAt: new Date(dueMs).toISOString() },
+        });
       }
     }
-    if (due.length) logger.info({ count: due.length }, 'jobs.task_reminders.fired');
+    if (upcoming.length) logger.info({ count: upcoming.length }, 'jobs.task_reminders.window_scanned');
+  });
+}
+
+// Every 30 minutes — for tasks already past their deadline, send a recurring
+// "still overdue" push. Stops automatically when the task moves to DONE /
+// CANCELLED. Distinct markers per 30-min slot so we never double-fire.
+function overdueReminderJob() {
+  cron.schedule('*/30 * * * *', async () => {
+    const now = new Date();
+    const nowMs = now.getTime();
+    const overdue = await prisma.task.findMany({
+      where: {
+        dueAt: { lt: now },
+        status: { notIn: ['DONE', 'CANCELLED'] },
+      },
+      include: { assignees: { select: { userId: true } } },
+    });
+    for (const t of overdue) {
+      const dueMs = new Date(t.dueAt).getTime();
+      const overdueMin = Math.floor((nowMs - dueMs) / 60_000);
+      // Round to nearest 30-min slot so the marker key is stable.
+      const slot = Math.floor(overdueMin / 30) * 30;
+      // Skip the 0-min slot (the at-deadline ping is handled by taskRemindersJob).
+      if (slot < 30) continue;
+      const marker = _markerFor(t.id, 'over', dueMs, slot);
+      if (await _hasMarker(t.id, marker)) continue;
+      await _addMarker(t.id, marker);
+      const hours = Math.floor(overdueMin / 60);
+      const mins = overdueMin % 60;
+      const elapsed = hours > 0
+        ? `${hours}h ${mins}m`
+        : `${mins}m`;
+      await _notifyAll(t, t.assignees, {
+        title: `Still overdue — ${t.title}`,
+        body: `${elapsed} past deadline. Mark complete or push the due date.`,
+        data: { reminder: 'overdue', overdueMinutes: overdueMin },
+      });
+    }
+    if (overdue.length) logger.info({ count: overdue.length }, 'jobs.task_overdue.scanned');
   });
 }
 
 module.exports = function startJobs() {
   expireClientsJob();
   followupRemindersJob();
-  dueReminderJob();
+  taskRemindersJob();
+  overdueReminderJob();
   automations.startOverdueSweep();
   automations.registerSchedules().catch((err) => logger.warn({ err: err.message }, 'jobs.automations.register_failed'));
   logger.info('jobs.started');

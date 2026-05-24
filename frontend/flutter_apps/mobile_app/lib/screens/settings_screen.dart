@@ -42,6 +42,13 @@ class SettingsScreen extends ConsumerWidget {
           ),
         ),
         _SectionLabel('Workspace', colors: c),
+        if (!(user?.isClient ?? false))
+          _SettingTile(
+            colors: c,
+            icon: Icons.access_time_filled_rounded,
+            label: 'Workday (check-in / lunch / logout)',
+            onTap: () => context.go('/attendance'),
+          ),
         _SettingTile(
           colors: c,
           icon: Icons.campaign_outlined,

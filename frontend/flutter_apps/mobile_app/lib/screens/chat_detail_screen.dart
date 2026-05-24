@@ -6,14 +6,33 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../state.dart';
+
+/// Resolves the SharedPreferences instance once and shares it across widgets
+/// that need to read/write local-only chat state (e.g. "delete for me" hides).
+final _prefsProvider = FutureProvider<SharedPreferences>(
+  (_) => SharedPreferences.getInstance(),
+);
+
+/// Per-channel set of message ids the local user has hidden via "delete for
+/// me". The chat detail filters these out of the rendered list. Other
+/// members still see the original message — this is a client-side mask only.
+final _hiddenMessageIdsProvider = FutureProvider.family.autoDispose<Set<String>, String>(
+  (ref, channelId) async {
+    final prefs = await ref.watch(_prefsProvider.future);
+    final list = prefs.getStringList('chat.hidden.$channelId') ?? const <String>[];
+    return list.toSet();
+  },
+);
 
 class ChatDetailScreen extends ConsumerStatefulWidget {
   final String channelId;
@@ -523,7 +542,13 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
               title: 'Couldn\'t load messages',
               description: formatApiError(e),
             ),
-            data: (serverItems) {
+            data: (serverItemsRaw) {
+              // "Delete for me" — drop locally-hidden ids before any further work.
+              final hidden = ref.watch(_hiddenMessageIdsProvider(widget.channelId)).asData?.value
+                  ?? const <String>{};
+              final serverItems = hidden.isEmpty
+                  ? serverItemsRaw
+                  : serverItemsRaw.where((m) => !hidden.contains(m['id']?.toString())).toList();
               // Mark inbound messages as DELIVERED + SEEN now that they're on screen.
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 if (mounted) _ackReceipts(serverItems, seen: true);
@@ -1046,14 +1071,14 @@ class _SystemBubble extends StatelessWidget {
   }
 }
 
-class _MessageBubble extends StatelessWidget {
+class _MessageBubble extends ConsumerWidget {
   final Map<String, dynamic> message;
   final Map<String, dynamic> author;
   final bool mine;
   const _MessageBubble({required this.message, required this.author, required this.mine});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final c = BestieColors.of(context);
     final body = message['body'] as String? ?? '';
     final attachments = (message['attachments'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
@@ -1063,22 +1088,26 @@ class _MessageBubble extends StatelessWidget {
     final fg = mine ? Colors.white : c.text;
     final timeStr = _formatTime(message['createdAt']?.toString());
     final status = (message['status'] ?? 'SENT').toString();
+    final isDeleted = message['deletedAt'] != null;
+    final isEdited = message['editedAt'] != null;
 
-    return Align(
+    return GestureDetector(
+      onLongPress: isDeleted ? null : () => _showActions(context, ref),
+      child: Align(
       alignment: align,
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 4),
         padding: const EdgeInsets.all(8),
         constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.78),
         decoration: BoxDecoration(
-          color: bg,
+          color: isDeleted ? c.surface2 : bg,
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(16),
             topRight: const Radius.circular(16),
             bottomLeft: Radius.circular(mine ? 16 : 4),
             bottomRight: Radius.circular(mine ? 4 : 16),
           ),
-          border: mine ? null : Border.all(color: c.border),
+          border: (mine && !isDeleted) ? null : Border.all(color: c.border),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1097,11 +1126,24 @@ class _MessageBubble extends StatelessWidget {
                   ),
                 ),
               ),
-            for (final a in attachments) ...[
+            if (!isDeleted) for (final a in attachments) ...[
               _Attachment(asset: a, mine: mine, colors: c),
               const SizedBox(height: 4),
             ],
-            if (body.isNotEmpty)
+            if (isDeleted)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(6, 2, 6, 2),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.block_rounded, size: 13, color: c.textMuted),
+                  const SizedBox(width: 6),
+                  Text('Message deleted',
+                      style: TextStyle(
+                        color: c.textMuted, fontSize: 13,
+                        fontStyle: FontStyle.italic,
+                      )),
+                ]),
+              )
+            else if (body.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(6, 2, 6, 2),
                 child: Text(body, style: TextStyle(color: fg, fontSize: 14, height: 1.35)),
@@ -1110,15 +1152,23 @@ class _MessageBubble extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(6, 2, 4, 0),
               child: Row(mainAxisSize: MainAxisSize.min, children: [
+                if (isEdited && !isDeleted) ...[
+                  Text('edited · ',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontStyle: FontStyle.italic,
+                        color: mine ? Colors.white.withOpacity(0.70) : c.textFaint,
+                      )),
+                ],
                 Text(
                   timeStr,
                   style: TextStyle(
                     fontSize: 10,
                     fontWeight: BestieTokens.fwMedium,
-                    color: mine ? Colors.white.withOpacity(0.78) : c.textMuted,
+                    color: mine && !isDeleted ? Colors.white.withOpacity(0.78) : c.textMuted,
                   ),
                 ),
-                if (mine) ...[
+                if (mine && !isDeleted) ...[
                   const SizedBox(width: 4),
                   _StatusTicks(status: status),
                 ],
@@ -1127,7 +1177,128 @@ class _MessageBubble extends StatelessWidget {
           ],
         ),
       ),
+    ));
+  }
+
+  void _showActions(BuildContext context, WidgetRef ref) {
+    final c = BestieColors.of(context);
+    final canEdit = mine && (message['body'] ?? '').toString().isNotEmpty;
+    final canDeleteForEveryone = mine;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: c.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
+      ),
+      builder: (ctx) => SafeArea(
+        top: false,
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            width: 40, height: 4,
+            margin: const EdgeInsets.symmetric(vertical: 10),
+            decoration: BoxDecoration(
+              color: c.borderStrong, borderRadius: BorderRadius.circular(BestieTokens.rPill),
+            ),
+          ),
+          ListTile(
+            leading: Icon(Icons.copy_rounded, color: c.textSoft),
+            title: Text('Copy', style: TextStyle(color: c.text)),
+            onTap: () async {
+              Navigator.pop(ctx);
+              await Clipboard.setData(ClipboardData(text: (message['body'] ?? '').toString()));
+              if (context.mounted) bestieToast(context, 'Copied', kind: BestieToastKind.success);
+            },
+          ),
+          if (canEdit)
+            ListTile(
+              leading: Icon(Icons.edit_outlined, color: c.textSoft),
+              title: Text('Edit', style: TextStyle(color: c.text)),
+              onTap: () { Navigator.pop(ctx); _editMessage(context, ref); },
+            ),
+          if (canDeleteForEveryone)
+            ListTile(
+              leading: Icon(Icons.delete_outline_rounded, color: c.danger),
+              title: Text('Delete for everyone',
+                  style: TextStyle(color: c.danger, fontWeight: BestieTokens.fwSemibold)),
+              onTap: () { Navigator.pop(ctx); _deleteForEveryone(context, ref); },
+            ),
+          ListTile(
+            leading: Icon(Icons.visibility_off_outlined, color: c.textSoft),
+            title: Text('Delete for me', style: TextStyle(color: c.text)),
+            onTap: () { Navigator.pop(ctx); _deleteForMe(context, ref); },
+          ),
+        ]),
+      ),
     );
+  }
+
+  Future<void> _editMessage(BuildContext context, WidgetRef ref) async {
+    final controller = TextEditingController(text: (message['body'] ?? '').toString());
+    final c = BestieColors.of(context);
+    final newBody = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: c.surface,
+        title: Text('Edit message', style: TextStyle(color: c.text)),
+        content: TextField(
+          controller: controller, autofocus: true,
+          minLines: 1, maxLines: 6,
+          style: TextStyle(color: c.text),
+          decoration: const InputDecoration(border: OutlineInputBorder()),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            style: FilledButton.styleFrom(backgroundColor: BestieTokens.cBrand),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (newBody == null || newBody.isEmpty) return;
+    try {
+      await ref.read(apiProvider).editMessage(message['id'] as String, newBody);
+      ref.invalidate(messagesProvider(message['channelId'] as String));
+    } catch (e) {
+      if (context.mounted) bestieToast(context, 'Edit failed',
+          body: formatApiError(e), kind: BestieToastKind.error);
+    }
+  }
+
+  Future<void> _deleteForEveryone(BuildContext context, WidgetRef ref) async {
+    final ok = await bestieConfirm(context,
+        title: 'Delete for everyone?',
+        description: 'This will replace the message with "Message deleted" for all members.',
+        confirmLabel: 'Delete');
+    if (!ok) return;
+    try {
+      await ref.read(apiProvider).deleteMessageForEveryone(message['id'] as String);
+      ref.invalidate(messagesProvider(message['channelId'] as String));
+    } catch (e) {
+      if (context.mounted) bestieToast(context, 'Delete failed',
+          body: formatApiError(e), kind: BestieToastKind.error);
+    }
+  }
+
+  /// Local-only hide — adds the message id to a SharedPreferences set so we
+  /// filter it out of the displayed list. The backend never sees this and
+  /// other members still see the original message. Mirrors WhatsApp's
+  /// "Delete for me".
+  Future<void> _deleteForMe(BuildContext context, WidgetRef ref) async {
+    final ok = await bestieConfirm(context,
+        title: 'Delete for me?',
+        description: 'The message stays visible to others, but it will disappear from your chat.',
+        confirmLabel: 'Delete');
+    if (!ok) return;
+    try {
+      final prefs = await ref.read(_prefsProvider.future);
+      final key = 'chat.hidden.${message['channelId']}';
+      final hidden = prefs.getStringList(key)?.toSet() ?? <String>{};
+      hidden.add(message['id'] as String);
+      await prefs.setStringList(key, hidden.toList());
+      ref.invalidate(_hiddenMessageIdsProvider(message['channelId'] as String));
+    } catch (_) { /* silent — local-only */ }
   }
 
   String _formatTime(String? iso) {

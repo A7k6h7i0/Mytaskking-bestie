@@ -25,4 +25,5 @@ export 'screens/saved_screen.dart';
 export 'screens/sessions_screen.dart';
 export 'screens/telecaller_screen.dart';
 export 'screens/settings_screen.dart';
+export 'screens/attendance_screen.dart';
 export 'state.dart';

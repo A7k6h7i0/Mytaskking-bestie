@@ -17,11 +17,11 @@ class ShellScreen extends ConsumerWidget {
   const ShellScreen({super.key, required this.child});
 
   static const _employeeTabs = [
-    _Tab('/chat',      Icons.chat_bubble_outline_rounded, Icons.chat_bubble_rounded,   'Chat'),
-    _Tab('/tasks',     Icons.task_alt_outlined,           Icons.task_alt_rounded,      'Tasks'),
-    _Tab('/dashboard', Icons.dashboard_outlined,          Icons.dashboard_rounded,     'Home'),
-    _Tab('/meetings',  Icons.videocam_outlined,           Icons.videocam_rounded,      'Meet'),
-    _Tab('/more',      Icons.apps_rounded,                Icons.apps_rounded,          'More'),
+    _Tab('/chat',       Icons.chat_bubble_outline_rounded,    Icons.chat_bubble_rounded,    'Chat'),
+    _Tab('/tasks',      Icons.task_alt_outlined,              Icons.task_alt_rounded,       'Tasks'),
+    _Tab('/attendance', Icons.access_time_rounded,            Icons.access_time_filled_rounded, 'Workday'),
+    _Tab('/meetings',   Icons.videocam_outlined,              Icons.videocam_rounded,       'Meet'),
+    _Tab('/more',       Icons.apps_rounded,                   Icons.apps_rounded,           'More'),
   ];
 
   static const _telecallerTabs = [
@@ -144,6 +144,8 @@ class ShellScreen extends ConsumerWidget {
     final isTelecaller = role == 'TELECALLER';
 
     return [
+      // Dashboard moved from bottom nav → More since Workday now lives in
+      // the bottom-nav slot.
       _MoreEntry(Icons.dashboard_outlined,       'Dashboard',     '/dashboard',     c.brand,        true),
       _MoreEntry(Icons.notifications_outlined,   'Notifications', '/notifications', c.warning,      true),
       _MoreEntry(Icons.event_outlined,           'Calendar',      '/calendar',      c.info,         !isClient),

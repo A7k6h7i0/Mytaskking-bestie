@@ -189,6 +189,48 @@ extension BestieApiExt on BestieApi {
       get('/clients', query: {if (q != null) 'q': q})
           .then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
 
+  // ---- chat message lifecycle ----
+  /// Edit an existing text message in place. Backend uses PATCH so we hit
+  /// dio directly (the convenience helpers only cover get/post).
+  Future<Map<String, dynamic>> editMessage(String id, String body) async {
+    final r = await dio.patch('/chat/messages/$id', data: {'body': body});
+    return r.data as Map<String, dynamic>;
+  }
+
+  /// Soft-delete a message for everyone in the channel. Server marks
+  /// `deletedAt` and emits `chat.message.deleted`; all clients hide the row.
+  Future<void> deleteMessageForEveryone(String id) async {
+    await dio.delete('/chat/messages/$id');
+  }
+
+  // ---- attendance (workday log: check-in / lunch / check-out) ----
+  /// Today's workday log row + computed lunch state. The response also
+  /// carries the server config (minRequiredWords, lunch window, etc.) so
+  /// a single round trip is enough to render the whole screen.
+  Future<Map<String, dynamic>> attendanceToday({String? timezone}) =>
+      get('/attendance/today', query: {if (timezone != null) 'timezone': timezone});
+
+  /// Submit the morning plan (≥ 100 words) and clock in.
+  Future<Map<String, dynamic>> attendanceCheckIn({required String plan, String? timezone}) =>
+      post('/attendance/check-in', body: {
+        'plan': plan,
+        if (timezone != null) 'timezone': timezone,
+      });
+
+  /// Toggle lunch — first call starts the break, second ends it.
+  Future<Map<String, dynamic>> attendanceLunch({String? note, String? timezone}) =>
+      post('/attendance/lunch', body: {
+        if (note != null) 'note': note,
+        if (timezone != null) 'timezone': timezone,
+      });
+
+  /// Submit the evening report (≥ 100 words) and clock out.
+  Future<Map<String, dynamic>> attendanceCheckOut({required String report, String? timezone}) =>
+      post('/attendance/check-out', body: {
+        'report': report,
+        if (timezone != null) 'timezone': timezone,
+      });
+
   // ---- call participant management ----
   /// Adds one or more existing users to an in-flight call.
   /// Mirrors `POST /calls/:id/participants` on the backend.
