@@ -254,12 +254,35 @@ class _PremiumBottomNav extends ConsumerWidget {
     return n;
   }
 
+  /// Tasks awaiting my response — assignments in PENDING state. Surfaces
+  /// the count as a warning-colored chip on the Tasks tab so users know
+  /// they have unaccepted work.
+  int _pendingTasks(WidgetRef ref) {
+    final me = ref.read(authStoreProvider).user;
+    final kanban = ref.watch(tasksKanbanProvider).asData?.value;
+    if (me == null || kanban == null) return 0;
+    final cols = (kanban['columns'] as Map?)?.cast<String, dynamic>() ?? const {};
+    int n = 0;
+    for (final v in cols.values) {
+      for (final t in (v as List).cast<Map<String, dynamic>>()) {
+        final assignees = (t['assignees'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+        final mine = assignees.firstWhere(
+          (a) => (a['user'] as Map?)?['id'] == me.id,
+          orElse: () => const {},
+        );
+        if (mine['state'] == 'PENDING') n++;
+      }
+    }
+    return n;
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = BestieColors.of(context);
     final media = MediaQuery.of(context);
     final isDark = colors.isDark;
     final unread = _unreadCount(ref);
+    final pendingTasks = _pendingTasks(ref);
 
     return SafeArea(
       top: false,
@@ -291,9 +314,12 @@ class _PremiumBottomNav extends ConsumerWidget {
               children: List.generate(tabs.length, (i) {
                 final tab = tabs[i];
                 final selected = i == currentIndex;
-                // Surface the unread count on the Chat tab specifically —
-                // every other tab gets a null badge for now.
-                final badge = tab.path == '/chat' && unread > 0 ? unread : null;
+                // Per-tab badges:
+                //   Chat   → unread channels (red)
+                //   Tasks  → tasks awaiting my accept (warning-colored, see _NavItem)
+                int? badge;
+                if (tab.path == '/chat' && unread > 0) badge = unread;
+                if (tab.path == '/tasks' && pendingTasks > 0) badge = pendingTasks;
                 return Expanded(
                   child: _NavItem(
                     icon: tab.icon,

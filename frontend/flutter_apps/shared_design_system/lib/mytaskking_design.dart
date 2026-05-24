@@ -6,6 +6,7 @@ export 'src/tokens.dart';
 export 'src/colors.dart';
 export 'src/theme.dart';
 export 'src/motion.dart';
+export 'src/time.dart';
 export 'src/widgets/avatar.dart';
 export 'src/widgets/user_name.dart';
 export 'src/widgets/sidebar.dart';

@@ -67,6 +67,15 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
   // 0 — so anything >40px means we're a fair bit up the conversation.
   bool _showJumpToBottom = false;
 
+  // Message being quoted (reply-to). When non-null the composer renders a
+  // preview chip above the text field and `_send` includes the `replyToId`.
+  Map<String, dynamic>? _replyingTo;
+
+  // When >0 the chat detail is in "search mode": app bar is replaced with
+  // a query field and the list filters to messages containing the term.
+  String _searchQuery = '';
+  bool _searching = false;
+
   // Typing-indicator state. We track which remote users are mid-typing
   // (keyed by userId) and bump a per-user timer on every `chat.typing`
   // event; if no follow-up arrives within 4 s we drop the indicator.
@@ -267,12 +276,19 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
     if (overrideBody == null) _composer.clear();
     _scrollToLatestSoon();
 
+    final replyId = _replyingTo?['id'] as String?;
+    // Capture before clearing — the user may have already typed their next
+    // message by the time the network roundtrip lands.
+    final wasReplying = _replyingTo != null;
+    if (wasReplying) setState(() => _replyingTo = null);
+
     try {
       await ref.read(apiProvider).sendMessage(
         widget.channelId,
         body: body.isEmpty ? null : body,
         attachmentIds: attachmentIds,
         kind: attachmentIds != null && attachmentIds.isNotEmpty ? 'FILE' : 'TEXT',
+        replyToId: replyId,
       );
       // Server-side message now exists; drop the optimistic stub on next
       // refresh. The realtime socket also pushes a chat.message.created that
@@ -353,6 +369,18 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
     } finally {
       if (mounted) setState(() => _attaching = false);
     }
+  }
+
+  /// Begin replying to [message] — composer gets a quoted preview above the
+  /// text field, the next sendMessage call carries `replyToId`.
+  void _startReply(Map<String, dynamic> message) {
+    if (!mounted) return;
+    setState(() => _replyingTo = message);
+    // A frame later so the composer has rebuilt and the field's focus node
+    // is mounted.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) FocusScope.of(context).requestFocus(FocusNode());
+    });
   }
 
   /// True when `current` and `previous` are on different local calendar
@@ -731,6 +759,12 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
         // Typing indicator sits just above the composer so it doesn't shift
         // the messages list when it appears/disappears.
         if (_typing.isNotEmpty) _TypingIndicator(typing: _typing.values.toList(), colors: colors),
+        // Quoted-message preview when replying.
+        if (_replyingTo != null) _ReplyComposerChip(
+          message: _replyingTo!,
+          colors: colors,
+          onCancel: () => setState(() => _replyingTo = null),
+        ),
         _Composer(
           colors: colors,
           controller: _composer,
@@ -1265,6 +1299,12 @@ class _MessageBubble extends ConsumerWidget {
                   ),
                 ),
               ),
+            // Quoted "replying to X" preview inline at the top of the bubble.
+            if (!isDeleted && message['replyTo'] is Map)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(4, 2, 4, 6),
+                child: _ReplyQuote(replyTo: message['replyTo'] as Map, mine: mine, colors: c),
+              ),
             if (!isDeleted) for (final a in attachments) ...[
               _Attachment(asset: a, mine: mine, colors: c),
               const SizedBox(height: 4),
@@ -1371,6 +1411,22 @@ class _MessageBubble extends ConsumerWidget {
                 style: TextStyle(color: c.text)),
             onTap: () { Navigator.pop(ctx); _togglePin(context, ref); },
           ),
+          ListTile(
+            leading: Icon(Icons.reply_rounded, color: c.textSoft),
+            title: Text('Reply', style: TextStyle(color: c.text)),
+            onTap: () {
+              Navigator.pop(ctx);
+              // Look up the parent state in the widget tree so we can set
+              // its `_replyingTo` and focus the composer.
+              context.findAncestorStateOfType<_ChatDetailScreenState>()
+                  ?._startReply(message);
+            },
+          ),
+          ListTile(
+            leading: Icon(Icons.bookmark_border_rounded, color: c.textSoft),
+            title: Text('Save message', style: TextStyle(color: c.text)),
+            onTap: () { Navigator.pop(ctx); _saveMessage(context, ref); },
+          ),
           if (canEdit)
             ListTile(
               leading: Icon(Icons.edit_outlined, color: c.textSoft),
@@ -1392,6 +1448,21 @@ class _MessageBubble extends ConsumerWidget {
         ]),
       ),
     );
+  }
+
+  Future<void> _saveMessage(BuildContext context, WidgetRef ref) async {
+    try {
+      await ref.read(apiProvider).saveItem(
+        kind: 'MESSAGE',
+        refId: message['id'] as String,
+      );
+      ref.invalidate(savedProvider);
+      if (context.mounted) bestieToast(context, 'Saved to bookmarks',
+          kind: BestieToastKind.success);
+    } catch (e) {
+      if (context.mounted) bestieToast(context, 'Could not save',
+          body: formatApiError(e), kind: BestieToastKind.error);
+    }
   }
 
   Future<void> _reactWith(BuildContext context, WidgetRef ref, String emoji) async {
@@ -1719,6 +1790,104 @@ class _ReactionPill extends StatelessWidget {
   }
 }
 
+/// Compact preview chip above the composer showing which message you're
+/// replying to. WhatsApp / iMessage standard.
+class _ReplyComposerChip extends StatelessWidget {
+  final Map<String, dynamic> message;
+  final BestieColors colors;
+  final VoidCallback onCancel;
+  const _ReplyComposerChip({required this.message, required this.colors, required this.onCancel});
+
+  @override
+  Widget build(BuildContext context) {
+    final author = (message['author'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final body = (message['body'] ?? '').toString();
+    final kind = (message['kind'] ?? 'TEXT').toString();
+    final preview = body.isNotEmpty
+        ? body
+        : (kind == 'IMAGE' ? '📷 Photo' :
+           kind == 'VOICE_NOTE' ? '🎙️ Voice note' :
+           kind == 'FILE' ? '📎 File' : '');
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        border: Border(top: BorderSide(color: colors.border)),
+      ),
+      child: Row(children: [
+        Container(width: 3, height: 36, color: colors.brand),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+            Text(
+              'Replying to ${author['name'] ?? 'message'}',
+              style: TextStyle(
+                fontSize: 11, fontWeight: BestieTokens.fwSemibold, color: colors.brand,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              preview,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 13, color: colors.textMuted),
+            ),
+          ]),
+        ),
+        IconButton(
+          icon: Icon(Icons.close_rounded, color: colors.textMuted, size: 20),
+          tooltip: 'Cancel reply',
+          onPressed: onCancel,
+        ),
+      ]),
+    );
+  }
+}
+
+/// Inline quoted preview rendered inside a bubble that's a reply to another
+/// message. Tap doesn't currently scroll to original (TODO) but visually it
+/// already gives the same context users expect from WhatsApp threads.
+class _ReplyQuote extends StatelessWidget {
+  final Map replyTo;
+  final bool mine;
+  final BestieColors colors;
+  const _ReplyQuote({required this.replyTo, required this.mine, required this.colors});
+
+  @override
+  Widget build(BuildContext context) {
+    final body = (replyTo['body'] ?? '').toString();
+    final author = replyTo['authorId']?.toString() ?? 'message';
+    final bg = mine
+        ? Colors.white.withOpacity(0.16)
+        : colors.surface2;
+    final accent = mine ? Colors.white.withOpacity(0.6) : colors.brand;
+    final fg = mine ? Colors.white : colors.text;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(8, 6, 10, 6),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(BestieTokens.rXs),
+        border: Border(left: BorderSide(color: accent, width: 3)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+        Text(
+          author,
+          style: TextStyle(fontSize: 10, fontWeight: BestieTokens.fwBold, color: accent),
+        ),
+        if (body.isNotEmpty) ...[
+          const SizedBox(height: 2),
+          Text(
+            body,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 12, color: fg.withOpacity(0.85)),
+          ),
+        ],
+      ]),
+    );
+  }
+}
+
 /// Date divider chip — "Today / Yesterday / Mar 18, 2024" pill inserted
 /// between messages from different calendar days.
 class _DateDivider extends StatelessWidget {
@@ -1887,6 +2056,7 @@ class _VoiceNoteState extends State<_VoiceNote> {
   Duration _duration = Duration.zero;
   Duration _position = Duration.zero;
   bool _playing = false;
+  double _speed = 1.0;
   late final List<StreamSubscription> _subs;
 
   @override
@@ -1916,7 +2086,17 @@ class _VoiceNoteState extends State<_VoiceNote> {
       await _player.pause();
     } else {
       await _player.play(UrlSource(widget.url));
+      // Apply current speed after play() — setPlaybackRate before play()
+      // is a no-op in audioplayers 6.x.
+      await _player.setPlaybackRate(_speed);
     }
+  }
+
+  Future<void> _cycleSpeed() async {
+    setState(() {
+      _speed = switch (_speed) { 1.0 => 1.5, 1.5 => 2.0, _ => 1.0, };
+    });
+    if (_playing) await _player.setPlaybackRate(_speed);
   }
 
   @override
@@ -1979,6 +2159,27 @@ class _VoiceNoteState extends State<_VoiceNote> {
               style: TextStyle(color: fg.withOpacity(0.85), fontSize: 11,
                 fontFeatures: const [FontFeature.tabularFigures()])),
           ]),
+        ),
+        const SizedBox(width: 6),
+        // Compact speed cycle — taps 1× → 1.5× → 2× → 1×. Mirrors WhatsApp.
+        GestureDetector(
+          onTap: _cycleSpeed,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+            decoration: BoxDecoration(
+              color: (mine ? Colors.white : accent).withOpacity(mine ? 0.18 : 0.12),
+              borderRadius: BorderRadius.circular(BestieTokens.rXs),
+            ),
+            child: Text(
+              _speed == 1.0 ? '1×' : (_speed == 1.5 ? '1.5×' : '2×'),
+              style: TextStyle(
+                color: accent,
+                fontSize: 10,
+                fontWeight: BestieTokens.fwBold,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
         ),
       ]),
     );

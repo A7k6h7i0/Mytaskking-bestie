@@ -2,8 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../state.dart';
+
+const _kMutedKey = 'chat.muted_channels';
+
+/// Channel ids the user has muted locally. The backend doesn't yet have a
+/// per-user mute column, so we hide push toast + show a muted indicator on
+/// this device only. Refresh by invalidating after writes.
+final _mutedChannelsProvider = FutureProvider.autoDispose<Set<String>>((ref) async {
+  final prefs = await SharedPreferences.getInstance();
+  return (prefs.getStringList(_kMutedKey) ?? const []).toSet();
+});
 
 /// Chat home — grouped by conversation kind:
 ///   • Direct messages  (kind = DM)
@@ -32,6 +43,11 @@ class ChatListScreen extends ConsumerWidget {
             icon: const Icon(Icons.search_rounded),
             tooltip: 'Search people, messages, files',
             onPressed: () => context.go('/search'),
+          ),
+          IconButton(
+            icon: const Icon(Icons.done_all_rounded),
+            tooltip: 'Mark all chats read',
+            onPressed: () => _markAllRead(context, ref),
           ),
           IconButton(
             icon: const Icon(Icons.edit_square),
@@ -119,6 +135,32 @@ class ChatListScreen extends ConsumerWidget {
         child: const Icon(Icons.edit_outlined),
       ),
     );
+  }
+
+  Future<void> _markAllRead(BuildContext context, WidgetRef ref) async {
+    final api = ref.read(apiProvider);
+    final me = ref.read(authStoreProvider).user;
+    final channels = ref.read(channelsProvider).asData?.value ?? const [];
+    if (me == null) return;
+    final unreadIds = channels
+        .where((c) {
+          final members = (c['members'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+          final mine = members.firstWhere((m) => m['userId'] == me.id, orElse: () => const {});
+          return mine.isNotEmpty && mine['lastReadAt'] == null;
+        })
+        .map((c) => c['id'] as String)
+        .toList();
+    if (unreadIds.isEmpty) {
+      bestieToast(context, 'Already all read', kind: BestieToastKind.info);
+      return;
+    }
+    // Fire in parallel — markChannelRead is idempotent on the server.
+    await Future.wait(unreadIds.map((id) => api.markChannelRead(id).catchError((_) {})));
+    ref.invalidate(channelsProvider);
+    if (context.mounted) {
+      bestieToast(context, 'Marked ${unreadIds.length} chat${unreadIds.length == 1 ? '' : 's'} read',
+          kind: BestieToastKind.success);
+    }
   }
 
   Future<void> _newChat(BuildContext context, WidgetRef ref) async {
@@ -244,16 +286,41 @@ class _ChatTile extends ConsumerWidget {
       }
     }
 
-    final subtitle = switch (kind) {
-      'DM'     => 'Direct message',
-      'CLIENT' => '${members.length} member${members.length == 1 ? '' : 's'} · client',
-      _        => '${members.length} member${members.length == 1 ? '' : 's'}',
-    };
+    // Prefer the last message body as the preview line — what WhatsApp /
+    // Telegram show. Falls back to the member count.
+    final lastMessage = (channel['lastMessage'] as Map?)?.cast<String, dynamic>();
+    final lastBody = (lastMessage?['body'] ?? '').toString();
+    final lastKind = (lastMessage?['kind'] ?? 'TEXT').toString();
+    final hasLast = lastMessage != null;
+    String previewLine;
+    if (hasLast) {
+      previewLine = switch (lastKind) {
+        'IMAGE'      => '📷 Photo',
+        'FILE'       => '📎 File',
+        'VOICE_NOTE' => '🎙️ Voice note',
+        'CALL_EVENT' => lastBody.isEmpty ? '📞 Call' : lastBody,
+        'SYSTEM'     => lastBody,
+        _            => lastBody.isEmpty ? '' : lastBody,
+      };
+    } else {
+      previewLine = switch (kind) {
+        'DM'     => 'Direct message',
+        'CLIENT' => '${members.length} member${members.length == 1 ? '' : 's'} · client',
+        _        => '${members.length} member${members.length == 1 ? '' : 's'}',
+      };
+    }
+    final timeLine = BestieTime.shortRelative(
+      lastMessage?['createdAt']?.toString() ?? channel['updatedAt']?.toString(),
+    );
+
+    final muted = ref.watch(_mutedChannelsProvider).asData?.value
+            .contains(channel['id'] as String) ?? false;
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: () => context.go('/chat/${channel['id']}'),
+        onLongPress: () => _showTileMenu(context, ref, muted),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           child: Row(children: [
@@ -262,10 +329,10 @@ class _ChatTile extends ConsumerWidget {
                     name: displayName,
                     imageUrl: avatarUrl,
                     isClient: isClient,
-                    size: 42,
+                    size: 44,
                   )
                 : Container(
-                    width: 42, height: 42,
+                    width: 44, height: 44,
                     decoration: BoxDecoration(
                       color: isClient ? c.clientSoft : c.brandSoft,
                       borderRadius: BorderRadius.circular(BestieTokens.rMd),
@@ -282,30 +349,118 @@ class _ChatTile extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  BestieUserName(
-                    name: displayName,
-                    isClient: isClient,
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: unread ? BestieTokens.fwBold : BestieTokens.fwSemibold,
-                      color: c.text,
-                      letterSpacing: BestieTokens.lsSnug,
+                  Row(children: [
+                    Flexible(
+                      child: BestieUserName(
+                        name: displayName,
+                        isClient: isClient,
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: unread ? BestieTokens.fwBold : BestieTokens.fwSemibold,
+                          color: c.text,
+                          letterSpacing: BestieTokens.lsSnug,
+                        ),
+                      ),
                     ),
-                  ),
-                  Text(subtitle, style: TextStyle(color: c.textMuted, fontSize: 12)),
+                    if (muted) ...[
+                      const SizedBox(width: 6),
+                      Icon(Icons.volume_off_rounded, size: 13, color: c.textMuted),
+                    ],
+                    const Spacer(),
+                    if (timeLine.isNotEmpty)
+                      Text(
+                        timeLine,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: unread ? BestieTokens.fwSemibold : BestieTokens.fwMedium,
+                          color: unread ? c.brand : c.textFaint,
+                        ),
+                      ),
+                  ]),
+                  const SizedBox(height: 2),
+                  Row(children: [
+                    Expanded(
+                      child: Text(
+                        previewLine.isEmpty ? '—' : previewLine,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: unread ? c.text : c.textMuted,
+                          fontSize: 13,
+                          fontWeight: unread ? BestieTokens.fwSemibold : BestieTokens.fwRegular,
+                        ),
+                      ),
+                    ),
+                    if (unread)
+                      Container(
+                        margin: const EdgeInsets.only(left: 6),
+                        width: 9, height: 9,
+                        decoration: BoxDecoration(
+                          color: muted ? c.textMuted : c.brand,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                  ]),
                 ],
               ),
             ),
-            if (unread)
-              Container(
-                width: 8, height: 8,
-                decoration: const BoxDecoration(
-                  color: BestieTokens.cBrand,
-                  shape: BoxShape.circle,
-                ),
-              ),
           ]),
         ),
+      ),
+    );
+  }
+
+  /// Bottom-sheet menu — mute/unmute + mark read. Stored locally because the
+  /// backend doesn't have per-user channel-mute state yet; this still works
+  /// for hiding push noise on this device.
+  void _showTileMenu(BuildContext context, WidgetRef ref, bool currentlyMuted) {
+    final c = BestieColors.of(context);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: c.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
+      ),
+      builder: (ctx) => SafeArea(
+        top: false,
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            width: 40, height: 4,
+            margin: const EdgeInsets.symmetric(vertical: 10),
+            decoration: BoxDecoration(
+              color: c.borderStrong, borderRadius: BorderRadius.circular(BestieTokens.rPill),
+            ),
+          ),
+          ListTile(
+            leading: Icon(currentlyMuted ? Icons.volume_up_rounded : Icons.volume_off_rounded, color: c.textSoft),
+            title: Text(currentlyMuted ? 'Unmute notifications' : 'Mute notifications',
+                style: TextStyle(color: c.text)),
+            onTap: () async {
+              Navigator.pop(ctx);
+              final prefs = await SharedPreferences.getInstance();
+              final ids = prefs.getStringList(_kMutedKey)?.toSet() ?? <String>{};
+              currentlyMuted
+                  ? ids.remove(channel['id'])
+                  : ids.add(channel['id'] as String);
+              await prefs.setStringList(_kMutedKey, ids.toList());
+              ref.invalidate(_mutedChannelsProvider);
+            },
+          ),
+          ListTile(
+            leading: Icon(Icons.done_all_rounded, color: c.textSoft),
+            title: Text('Mark as read', style: TextStyle(color: c.text)),
+            onTap: () async {
+              Navigator.pop(ctx);
+              try {
+                await ref.read(apiProvider).markChannelRead(channel['id'] as String);
+                ref.invalidate(channelsProvider);
+              } catch (e) {
+                if (context.mounted) bestieToast(context, 'Could not mark read',
+                    body: formatApiError(e), kind: BestieToastKind.error);
+              }
+            },
+          ),
+        ]),
       ),
     );
   }
