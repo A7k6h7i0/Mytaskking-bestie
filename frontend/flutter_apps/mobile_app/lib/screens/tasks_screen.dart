@@ -150,17 +150,12 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
       ),
       floatingActionButton: _selecting
           ? null
-          : Padding(
-              padding: EdgeInsets.only(
-                bottom: 70.0 + 16 + MediaQuery.of(context).padding.bottom + 12,
-              ),
-              child: FloatingActionButton.extended(
-                onPressed: _newTask,
-                backgroundColor: BestieTokens.cBrand,
-                foregroundColor: Colors.white,
-                icon: const Icon(Icons.add_rounded),
-                label: const Text('New task'),
-              ),
+          : FloatingActionButton.extended(
+              onPressed: _newTask,
+              backgroundColor: BestieTokens.cBrand,
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('New task'),
             ),
     );
   }

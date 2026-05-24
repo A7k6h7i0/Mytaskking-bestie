@@ -12,6 +12,7 @@ class MeetingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = BestieColors.of(context);
     final meetings = ref.watch(meetingsProvider);
+    final hasMeetings = meetings.asData?.value.isNotEmpty ?? false;
 
     return Scaffold(
       backgroundColor: colors.bg,
@@ -92,16 +93,13 @@ class MeetingsScreen extends ConsumerWidget {
           },
         ),
       ),
-      floatingActionButton: Padding(
-        padding: EdgeInsets.only(
-          bottom: 70.0 + 16 + MediaQuery.of(context).padding.bottom + 12,
-        ),
-        child: FloatingActionButton.extended(
-          onPressed: () => _create(context, ref),
-          icon: const Icon(Icons.add),
-          label: const Text('New meeting'),
-        ),
-      ),
+      floatingActionButton: hasMeetings
+          ? FloatingActionButton.extended(
+              onPressed: () => _create(context, ref),
+              icon: const Icon(Icons.add),
+              label: const Text('New meeting'),
+            )
+          : null,
     );
   }
 

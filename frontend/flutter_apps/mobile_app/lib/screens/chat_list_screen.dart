@@ -131,17 +131,12 @@ class ChatListScreen extends ConsumerWidget {
           },
         ),
       ),
-      floatingActionButton: Padding(
-        padding: EdgeInsets.only(
-          bottom: 70.0 + 16 + MediaQuery.of(context).padding.bottom + 12,
-        ),
-        child: FloatingActionButton(
-          backgroundColor: BestieTokens.cBrand,
-          foregroundColor: Colors.white,
-          tooltip: 'New chat',
-          onPressed: () => _newChat(context, ref),
-          child: const Icon(Icons.edit_outlined),
-        ),
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: BestieTokens.cBrand,
+        foregroundColor: Colors.white,
+        tooltip: 'New chat',
+        onPressed: () => _newChat(context, ref),
+        child: const Icon(Icons.edit_outlined),
       ),
     );
   }
