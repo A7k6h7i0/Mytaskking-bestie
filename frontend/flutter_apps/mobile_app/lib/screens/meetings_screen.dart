@@ -30,15 +30,17 @@ class MeetingsScreen extends ConsumerWidget {
       ),
       bottomNavigationBar: SizedBox(
         // Reserve the floating nav footprint so the body stops above it.
-        height: 70.0 + MediaQuery.of(context).padding.bottom - 14,
+        height: 70.0 + MediaQuery.of(context).padding.bottom - 18,
       ),
       body: RefreshIndicator(
         onRefresh: () async => ref.refresh(meetingsProvider.future),
         child: meetings.when(
           loading: () => const Center(child: BestieSpinner()),
           error: (e, _) => BestieEmptyState(
-            icon: Icons.error_outline, iconColor: BestieTokens.cDanger,
-            title: 'Couldn\'t load meetings', description: formatApiError(e),
+            icon: Icons.error_outline,
+            iconColor: BestieTokens.cDanger,
+            title: 'Couldn\'t load meetings',
+            description: formatApiError(e),
           ),
           data: (items) {
             if (items.isEmpty) {
@@ -48,7 +50,8 @@ class MeetingsScreen extends ConsumerWidget {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.videocam_outlined, size: 64, color: colors.textFaint),
+                      Icon(Icons.videocam_outlined,
+                          size: 64, color: colors.textFaint),
                       const SizedBox(height: 16),
                       Text('No live rooms',
                           style: TextStyle(
@@ -58,7 +61,8 @@ class MeetingsScreen extends ConsumerWidget {
                       const SizedBox(height: 6),
                       Text('Create a room or join one with its meeting ID.',
                           textAlign: TextAlign.center,
-                          style: TextStyle(color: colors.textMuted, fontSize: 13)),
+                          style:
+                              TextStyle(color: colors.textMuted, fontSize: 13)),
                       const SizedBox(height: 16),
                       OutlinedButton.icon(
                         icon: const Icon(Icons.input_rounded, size: 16),
@@ -78,24 +82,29 @@ class MeetingsScreen extends ConsumerWidget {
                 final m = items[i];
                 final mode = (m['mode'] as String? ?? 'VIDEO').toLowerCase();
                 final accentColor = switch (mode) {
-                  'voice'      => BestieTokens.cInfo,
-                  'webinar'    => BestieTokens.cAccent,
+                  'voice' => BestieTokens.cInfo,
+                  'webinar' => BestieTokens.cAccent,
                   'livestream' => BestieTokens.cDanger,
-                  _            => BestieTokens.cBrand,
+                  _ => BestieTokens.cBrand,
                 };
                 return Card(
                   child: ListTile(
                     leading: CircleAvatar(
                       backgroundColor: accentColor.withOpacity(0.12),
                       child: Icon(
-                        mode == 'voice' ? Icons.call_outlined : Icons.videocam_outlined,
+                        mode == 'voice'
+                            ? Icons.call_outlined
+                            : Icons.videocam_outlined,
                         color: accentColor,
                       ),
                     ),
-                    title: Text(m['name'] ?? '—', style: const TextStyle(fontWeight: FontWeight.w700)),
+                    title: Text(m['name'] ?? '—',
+                        style: const TextStyle(fontWeight: FontWeight.w700)),
                     subtitle: Wrap(spacing: 6, children: [
                       BestieBadge(child: Text(mode.toUpperCase())),
-                      Text(m['slug'] ?? '', style: const TextStyle(color: BestieTokens.cTextMuted, fontSize: 11)),
+                      Text(m['slug'] ?? '',
+                          style: const TextStyle(
+                              color: BestieTokens.cTextMuted, fontSize: 11)),
                     ]),
                     trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                       IconButton(
@@ -135,10 +144,11 @@ class MeetingsScreen extends ConsumerWidget {
 
     Future<void> loadPeople(StateSetter set, [String? q]) async {
       try {
-        final res = await api.listEmployees(q: q?.trim().isEmpty ?? true ? null : q!.trim());
+        final res = await api.listEmployees(
+            q: q?.trim().isEmpty ?? true ? null : q!.trim());
         // Filter out the host themselves.
         set(() => employees = res.where((e) => e['id'] != me?.id).toList());
-      } catch (_) { /* leave empty */ }
+      } catch (_) {/* leave empty */}
     }
 
     await bestieBottomSheet(context, title: 'New meeting', builder: (ctx) {
@@ -164,7 +174,8 @@ class MeetingsScreen extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    BestieTextField(label: 'Name', controller: name, hint: 'Design review'),
+                    BestieTextField(
+                        label: 'Name', controller: name, hint: 'Design review'),
                     const SizedBox(height: BestieTokens.s3),
                     const Text('Mode',
                         style: TextStyle(
@@ -176,9 +187,9 @@ class MeetingsScreen extends ConsumerWidget {
                       value: mode,
                       onChanged: (v) => set(() => mode = v),
                       options: const [
-                        BestieSegmentOption(value: 'VOICE',      label: 'Voice'),
-                        BestieSegmentOption(value: 'VIDEO',      label: 'Video'),
-                        BestieSegmentOption(value: 'WEBINAR',    label: 'Webinar'),
+                        BestieSegmentOption(value: 'VOICE', label: 'Voice'),
+                        BestieSegmentOption(value: 'VIDEO', label: 'Video'),
+                        BestieSegmentOption(value: 'WEBINAR', label: 'Webinar'),
                         BestieSegmentOption(value: 'LIVESTREAM', label: 'Live'),
                       ],
                     ),
@@ -205,10 +216,12 @@ class MeetingsScreen extends ConsumerWidget {
                                 ),
                                 label: Text(
                                   p['name']?.toString() ?? '',
-                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                                  style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600),
                                 ),
-                                onDeleted: () => set(() =>
-                                    picked.removeWhere((x) => x['id'] == p['id'])),
+                                onDeleted: () => set(() => picked
+                                    .removeWhere((x) => x['id'] == p['id'])),
                               ),
                           ],
                         ),
@@ -272,9 +285,8 @@ class MeetingsScreen extends ConsumerWidget {
                     await api.createMeeting(
                       name: name.text.trim(),
                       mode: mode,
-                      participantIds: picked
-                          .map((p) => p['id'] as String)
-                          .toList(),
+                      participantIds:
+                          picked.map((p) => p['id'] as String).toList(),
                     );
                     if (ctx.mounted) Navigator.pop(ctx);
                     ref.invalidate(meetingsProvider);
@@ -312,12 +324,15 @@ class MeetingsScreen extends ConsumerWidget {
       isScrollControlled: true,
       backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
+        borderRadius:
+            BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
       ),
       builder: (ctx) {
         return Padding(
           padding: EdgeInsets.fromLTRB(
-            BestieTokens.s4, BestieTokens.s4, BestieTokens.s4,
+            BestieTokens.s4,
+            BestieTokens.s4,
+            BestieTokens.s4,
             MediaQuery.of(ctx).viewInsets.bottom + BestieTokens.s4,
           ),
           child: Column(
@@ -325,13 +340,12 @@ class MeetingsScreen extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Text('Join by meeting ID',
-                  style: TextStyle(
-                      fontSize: 17, fontWeight: BestieTokens.fwBold)),
+                  style:
+                      TextStyle(fontSize: 17, fontWeight: BestieTokens.fwBold)),
               const SizedBox(height: 4),
               const Text(
                 'Paste the meeting ID (or the full join URL) shared with you.',
-                style: TextStyle(
-                    color: BestieTokens.cTextMuted, fontSize: 13),
+                style: TextStyle(color: BestieTokens.cTextMuted, fontSize: 13),
               ),
               const SizedBox(height: BestieTokens.s3),
               BestieTextField(
@@ -364,10 +378,13 @@ class MeetingsScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _join(BuildContext context, WidgetRef ref, Map<String, dynamic> m) async {
+  Future<void> _join(
+      BuildContext context, WidgetRef ref, Map<String, dynamic> m) async {
     final slug = m['slug']?.toString();
     if (slug == null) return;
-    final mode = (m['mode'] ?? 'VIDEO').toString().toLowerCase() == 'voice' ? 'voice' : 'video';
+    final mode = (m['mode'] ?? 'VIDEO').toString().toLowerCase() == 'voice'
+        ? 'voice'
+        : 'video';
     context.go('/meeting/$slug?mode=$mode');
   }
 
@@ -381,7 +398,9 @@ class MeetingsScreen extends ConsumerWidget {
       await ref.read(apiProvider).endMeeting(slug);
       ref.invalidate(meetingsProvider);
     } catch (e) {
-      if (context.mounted) bestieToast(context, 'Couldn\'t end', body: formatApiError(e), kind: BestieToastKind.error);
+      if (context.mounted)
+        bestieToast(context, 'Couldn\'t end',
+            body: formatApiError(e), kind: BestieToastKind.error);
     }
   }
 }

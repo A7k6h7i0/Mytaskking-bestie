@@ -10,31 +10,38 @@ import 'api_client.dart';
 /// evolve quickly. Promote to typed models once the surface freezes.
 extension BestieApiExt on BestieApi {
   // ---- dashboard ----
-  Future<Map<String, dynamic>> dashboardOverview() => get('/dashboard/overview');
+  Future<Map<String, dynamic>> dashboardOverview() =>
+      get('/dashboard/overview');
 
   // ---- channels ----
-  Future<List<Map<String, dynamic>>> listChannels() =>
-      get('/channels').then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
+  Future<List<Map<String, dynamic>>> listChannels() => get(
+    '/channels',
+  ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
   Future<Map<String, dynamic>> getChannel(String id) => get('/channels/$id');
   Future<Map<String, dynamic>> createChannel({
     required String kind,
     String? name,
     String? description,
     List<String>? memberIds,
-  }) =>
-      post('/channels', body: {
-        'kind': kind,
-        if (name != null) 'name': name,
-        if (description != null) 'description': description,
-        if (memberIds != null) 'memberIds': memberIds,
-      });
+  }) => post(
+    '/channels',
+    body: {
+      'kind': kind,
+      if (name != null) 'name': name,
+      if (description != null) 'description': description,
+      if (memberIds != null) 'memberIds': memberIds,
+    },
+  );
 
   // ---- chat ----
-  Future<Map<String, dynamic>> listMessages(String channelId, {String? cursor, int limit = 40}) =>
-      get('/chat/channels/$channelId/messages', query: {
-        if (cursor != null) 'cursor': cursor,
-        'limit': limit,
-      });
+  Future<Map<String, dynamic>> listMessages(
+    String channelId, {
+    String? cursor,
+    int limit = 40,
+  }) => get(
+    '/chat/channels/$channelId/messages',
+    query: {if (cursor != null) 'cursor': cursor, 'limit': limit},
+  );
   Future<Map<String, dynamic>> sendMessage(
     String channelId, {
     String? body,
@@ -42,49 +49,79 @@ extension BestieApiExt on BestieApi {
     String? replyToId,
     String? threadRootId,
     String kind = 'TEXT',
-  }) =>
-      post('/chat/channels/$channelId/messages', body: {
-        if (body != null) 'body': body,
-        if (attachmentIds != null) 'attachmentIds': attachmentIds,
-        if (replyToId != null) 'replyToId': replyToId,
-        if (threadRootId != null) 'threadRootId': threadRootId,
-        'kind': kind,
-      });
+  }) => post(
+    '/chat/channels/$channelId/messages',
+    body: {
+      if (body != null) 'body': body,
+      if (attachmentIds != null) 'attachmentIds': attachmentIds,
+      if (replyToId != null) 'replyToId': replyToId,
+      if (threadRootId != null) 'threadRootId': threadRootId,
+      'kind': kind,
+    },
+  );
   Future<Map<String, dynamic>> listThread(String rootId, {int limit = 100}) =>
       get('/chat/threads/$rootId', query: {'limit': limit});
   Future<void> markChannelRead(String channelId) async {
     await post('/chat/channels/$channelId/read');
   }
-  Future<void> sendReceipts(String channelId, List<String> messageIds, String state) async {
-    await post('/chat/channels/$channelId/receipts/bulk',
-        body: {'messageIds': messageIds, 'state': state});
+
+  Future<void> sendReceipts(
+    String channelId,
+    List<String> messageIds,
+    String state,
+  ) async {
+    await post(
+      '/chat/channels/$channelId/receipts/bulk',
+      body: {'messageIds': messageIds, 'state': state},
+    );
   }
 
   // ---- tasks ----
-  Future<Map<String, dynamic>> listTasks({String view = 'kanban', String? status}) =>
-      get('/tasks', query: {'view': view, if (status != null) 'status': status});
+  Future<Map<String, dynamic>> listTasks({
+    String view = 'kanban',
+    String? status,
+  }) => get(
+    '/tasks',
+    query: {'view': view, if (status != null) 'status': status},
+  );
   Future<Map<String, dynamic>> createTask({
     required String title,
     String? description,
     String? status,
     String? priority,
     List<String>? assigneeIds,
-  }) =>
-      post('/tasks', body: {
-        'title': title,
-        if (description != null) 'description': description,
-        if (status != null) 'status': status,
-        if (priority != null) 'priority': priority,
-        if (assigneeIds != null) 'assigneeIds': assigneeIds,
-      });
-  Future<Map<String, dynamic>> moveTask(String id, {required String status, int? order}) =>
-      post('/tasks/$id/move', body: {'status': status, if (order != null) 'order': order});
+  }) => post(
+    '/tasks',
+    body: {
+      'title': title,
+      if (description != null) 'description': description,
+      if (status != null) 'status': status,
+      if (priority != null) 'priority': priority,
+      if (assigneeIds != null) 'assigneeIds': assigneeIds,
+    },
+  );
+  Future<Map<String, dynamic>> moveTask(
+    String id, {
+    required String status,
+    int? order,
+  }) => post(
+    '/tasks/$id/move',
+    body: {'status': status, if (order != null) 'order': order},
+  );
   Future<Map<String, dynamic>> getTask(String id) => get('/tasks/$id');
-  Future<Map<String, dynamic>> acceptTask(String id)   => post('/tasks/$id/accept');
-  Future<Map<String, dynamic>> declineTask(String id)  => post('/tasks/$id/decline');
-  Future<Map<String, dynamic>> completeTask(String id) => post('/tasks/$id/complete');
-  Future<Map<String, dynamic>> leaderboard({int limit = 20, int sinceDays = 30}) =>
-      get('/tasks/leaderboard', query: {'limit': limit, 'sinceDays': sinceDays});
+  Future<Map<String, dynamic>> acceptTask(String id) =>
+      post('/tasks/$id/accept');
+  Future<Map<String, dynamic>> declineTask(String id) =>
+      post('/tasks/$id/decline');
+  Future<Map<String, dynamic>> completeTask(String id) =>
+      post('/tasks/$id/complete');
+  Future<Map<String, dynamic>> leaderboard({
+    int limit = 20,
+    int sinceDays = 30,
+  }) => get(
+    '/tasks/leaderboard',
+    query: {'limit': limit, 'sinceDays': sinceDays},
+  );
 
   // ---- calls + meetings ----
   Future<Map<String, dynamic>> callHistory({int page = 1, int pageSize = 25}) =>
@@ -94,90 +131,138 @@ extension BestieApiExt on BestieApi {
     String kind = 'ONE_TO_ONE',
     String? channelId,
     String mode = 'VIDEO',
-  }) =>
-      post('/calls/initiate', body: {
-        'participantIds': participantIds,
-        'kind': kind,
-        'mode': mode,
-        if (channelId != null) 'channelId': channelId,
-      });
-  Future<List<Map<String, dynamic>>> listMeetings() =>
-      get('/meetings').then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
+  }) => post(
+    '/calls/initiate',
+    body: {
+      'participantIds': participantIds,
+      'kind': kind,
+      'mode': mode,
+      if (channelId != null) 'channelId': channelId,
+    },
+  );
+  Future<List<Map<String, dynamic>>> listMeetings() => get(
+    '/meetings',
+  ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
   Future<Map<String, dynamic>> createMeeting({
     required String name,
     String mode = 'VIDEO',
     List<String>? participantIds,
-  }) =>
-      post('/meetings', body: {
-        'name': name,
-        'mode': mode,
-        if (participantIds != null && participantIds.isNotEmpty)
-          'participantIds': participantIds,
-      });
-  Future<Map<String, dynamic>> meetingToken(String slug) => post('/meetings/$slug/token');
+  }) => post(
+    '/meetings',
+    body: {
+      'name': name,
+      'mode': mode,
+      if (participantIds != null && participantIds.isNotEmpty)
+        'participantIds': participantIds,
+    },
+  );
+  Future<Map<String, dynamic>> inviteMeetingParticipants(
+    String slug,
+    List<String> participantIds,
+  ) => post(
+    '/meetings/$slug/participants',
+    body: {'participantIds': participantIds},
+  );
+  Future<Map<String, dynamic>> meetingToken(String slug) =>
+      post('/meetings/$slug/token');
   Future<void> endMeeting(String slug) async {
     await post('/meetings/$slug/end');
   }
 
   // ---- calendar ----
-  Future<List<Map<String, dynamic>>> listEvents(DateTime from, DateTime to, {String view = 'week'}) =>
-      get('/calendar', query: {
-        'from': from.toUtc().toIso8601String(),
-        'to': to.toUtc().toIso8601String(),
-        'view': view,
-      }).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
+  Future<List<Map<String, dynamic>>> listEvents(
+    DateTime from,
+    DateTime to, {
+    String view = 'week',
+  }) => get(
+    '/calendar',
+    query: {
+      'from': from.toUtc().toIso8601String(),
+      'to': to.toUtc().toIso8601String(),
+      'view': view,
+    },
+  ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
 
   // ---- notifications ----
-  Future<Map<String, dynamic>> notificationsGrouped() => get('/notifications/grouped');
+  Future<Map<String, dynamic>> notificationsGrouped() =>
+      get('/notifications/grouped');
   Future<void> markAllNotificationsRead() async {
     await post('/notifications/read-all');
   }
-  Future<void> registerDevice({required String token, required String platform}) async {
-    await post('/notifications/devices', body: {'token': token, 'platform': platform});
+
+  Future<void> registerDevice({
+    required String token,
+    required String platform,
+  }) async {
+    await post(
+      '/notifications/devices',
+      body: {'token': token, 'platform': platform},
+    );
   }
 
   // ---- presence ----
-  Future<void> setPresence({required String status, String? customStatus}) async {
-    await dio.put('/presence/me', data: {
-      'status': status,
-      if (customStatus != null) 'customStatus': customStatus,
-    });
+  Future<void> setPresence({
+    required String status,
+    String? customStatus,
+  }) async {
+    await dio.put(
+      '/presence/me',
+      data: {
+        'status': status,
+        if (customStatus != null) 'customStatus': customStatus,
+      },
+    );
   }
-  Future<List<Map<String, dynamic>>> presenceFor(List<String> userIds) =>
-      get('/presence/users', query: {'userIds': userIds.join(',')})
-          .then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
+
+  Future<List<Map<String, dynamic>>> presenceFor(List<String> userIds) => get(
+    '/presence/users',
+    query: {'userIds': userIds.join(',')},
+  ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
 
   // ---- sessions ----
-  Future<List<Map<String, dynamic>>> mySessions() =>
-      get('/sessions/mine').then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
+  Future<List<Map<String, dynamic>>> mySessions() => get(
+    '/sessions/mine',
+  ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
   Future<void> revokeSession(String id) async {
     await dio.delete('/sessions/$id');
   }
+
   Future<void> signOutEverywhere() async {
     await post('/sessions/mine/sign-out-everywhere');
   }
 
   // ---- announcements ----
-  Future<List<Map<String, dynamic>>> listAnnouncements() =>
-      get('/announcements').then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
+  Future<List<Map<String, dynamic>>> listAnnouncements() => get(
+    '/announcements',
+  ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
   Future<void> ackAnnouncement(String id) async {
     await post('/announcements/$id/ack');
   }
 
   // ---- search ----
-  Future<Map<String, dynamic>> search(String q, {int perEntity = 6, String? kinds}) =>
-      get('/search', query: {
-        'q': q,
-        'perEntity': perEntity,
-        if (kinds != null) 'kinds': kinds,
-      });
+  Future<Map<String, dynamic>> search(
+    String q, {
+    int perEntity = 6,
+    String? kinds,
+  }) => get(
+    '/search',
+    query: {'q': q, 'perEntity': perEntity, if (kinds != null) 'kinds': kinds},
+  );
 
   // ---- saved items ----
-  Future<List<Map<String, dynamic>>> listSaved({String? kind}) =>
-      get('/saved', query: {if (kind != null) 'kind': kind})
-          .then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
-  Future<void> saveItem({required String kind, required String refId, String? note}) async {
-    await post('/saved', body: {'kind': kind, 'refId': refId, if (note != null) 'note': note});
+  Future<List<Map<String, dynamic>>> listSaved({String? kind}) => get(
+    '/saved',
+    query: {if (kind != null) 'kind': kind},
+  ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
+  Future<void> saveItem({
+    required String kind,
+    required String refId,
+    String? note,
+  }) async {
+    await post(
+      '/saved',
+      body: {'kind': kind, 'refId': refId, if (note != null) 'note': note},
+    );
   }
 
   // ---- feature flags ----
@@ -185,20 +270,22 @@ extension BestieApiExt on BestieApi {
 
   // ---- telecaller ----
   Future<List<Map<String, dynamic>>> listLeads({String? q, String? status}) =>
-      get('/telecaller/leads', query: {
-        if (q != null) 'q': q,
-        if (status != null) 'status': status,
-      }).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
+      get(
+        '/telecaller/leads',
+        query: {if (q != null) 'q': q, if (status != null) 'status': status},
+      ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
   Future<Map<String, dynamic>> callLead(String leadId) =>
       post('/telecaller/leads/$leadId/call');
 
   // ---- employees + clients (admin) ----
-  Future<List<Map<String, dynamic>>> listEmployees({String? q}) =>
-      get('/employees', query: {if (q != null) 'q': q})
-          .then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
-  Future<List<Map<String, dynamic>>> listClients({String? q}) =>
-      get('/clients', query: {if (q != null) 'q': q})
-          .then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
+  Future<List<Map<String, dynamic>>> listEmployees({String? q}) => get(
+    '/employees',
+    query: {if (q != null) 'q': q},
+  ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
+  Future<List<Map<String, dynamic>>> listClients({String? q}) => get(
+    '/clients',
+    query: {if (q != null) 'q': q},
+  ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
 
   // ---- chat message lifecycle ----
   /// Edit an existing text message in place. Backend uses PATCH so we hit
@@ -224,29 +311,40 @@ extension BestieApiExt on BestieApi {
     await post('/chat/messages/$id/unreact', body: {'emoji': emoji});
   }
 
-  Future<Map<String, dynamic>> pinMessage(String id)   => post('/chat/messages/$id/pin');
-  Future<Map<String, dynamic>> unpinMessage(String id) => post('/chat/messages/$id/unpin');
+  Future<Map<String, dynamic>> pinMessage(String id) =>
+      post('/chat/messages/$id/pin');
+  Future<Map<String, dynamic>> unpinMessage(String id) =>
+      post('/chat/messages/$id/unpin');
 
   // ---- channel admin (members + policy) ----
   /// Add one or more members to an existing channel. Server enforces
   /// per-channel invite policy.
-  Future<Map<String, dynamic>> addChannelMembers(String channelId, List<String> memberIds) =>
-      post('/channels/$channelId/members', body: {'memberIds': memberIds});
+  Future<Map<String, dynamic>> addChannelMembers(
+    String channelId,
+    List<String> memberIds,
+  ) => post('/channels/$channelId/members', body: {'memberIds': memberIds});
 
   /// Remove a single member. Admin / channel-owner only.
   Future<void> removeChannelMember(String channelId, String memberId) async {
     await dio.delete('/channels/$channelId/members/$memberId');
   }
 
-  Future<Map<String, dynamic>> pinChannel(String id)      => post('/channels/$id/pin');
-  Future<Map<String, dynamic>> unpinChannel(String id)    => post('/channels/$id/unpin');
-  Future<Map<String, dynamic>> archiveChannel(String id)  => post('/channels/$id/archive');
-  Future<Map<String, dynamic>> unarchiveChannel(String id)=> post('/channels/$id/unarchive');
+  Future<Map<String, dynamic>> pinChannel(String id) =>
+      post('/channels/$id/pin');
+  Future<Map<String, dynamic>> unpinChannel(String id) =>
+      post('/channels/$id/unpin');
+  Future<Map<String, dynamic>> archiveChannel(String id) =>
+      post('/channels/$id/archive');
+  Future<Map<String, dynamic>> unarchiveChannel(String id) =>
+      post('/channels/$id/unarchive');
 
   // ---- task lifecycle (update / delete / comments / subtasks) ----
   /// Update any field on a task — title, description, status, priority,
   /// due date, or assignees. Server returns the refreshed row.
-  Future<Map<String, dynamic>> updateTask(String id, Map<String, dynamic> patch) async {
+  Future<Map<String, dynamic>> updateTask(
+    String id,
+    Map<String, dynamic> patch,
+  ) async {
     final r = await dio.patch('/tasks/$id', data: patch);
     return r.data as Map<String, dynamic>;
   }
@@ -261,8 +359,14 @@ extension BestieApiExt on BestieApi {
   Future<Map<String, dynamic>> addSubtask(String taskId, String title) =>
       post('/tasks/$taskId/subtasks', body: {'title': title});
 
-  Future<Map<String, dynamic>> toggleSubtask(String subtaskId, bool done) async {
-    final r = await dio.patch('/tasks/subtasks/$subtaskId', data: {'done': done});
+  Future<Map<String, dynamic>> toggleSubtask(
+    String subtaskId,
+    bool done,
+  ) async {
+    final r = await dio.patch(
+      '/tasks/subtasks/$subtaskId',
+      data: {'done': done},
+    );
     return r.data as Map<String, dynamic>;
   }
 
@@ -274,17 +378,22 @@ extension BestieApiExt on BestieApi {
     DateTime? endsAt,
     String kind = 'event',
     List<String>? attendeeIds,
-  }) =>
-      post('/calendar', body: {
-        'title': title,
-        if (description != null) 'description': description,
-        'startsAt': startsAt.toUtc().toIso8601String(),
-        if (endsAt != null) 'endsAt': endsAt.toUtc().toIso8601String(),
-        'kind': kind,
-        if (attendeeIds != null) 'attendeeIds': attendeeIds,
-      });
+  }) => post(
+    '/calendar',
+    body: {
+      'title': title,
+      if (description != null) 'description': description,
+      'startsAt': startsAt.toUtc().toIso8601String(),
+      if (endsAt != null) 'endsAt': endsAt.toUtc().toIso8601String(),
+      'kind': kind,
+      if (attendeeIds != null) 'attendeeIds': attendeeIds,
+    },
+  );
 
-  Future<Map<String, dynamic>> updateCalendarEvent(String id, Map<String, dynamic> patch) async {
+  Future<Map<String, dynamic>> updateCalendarEvent(
+    String id,
+    Map<String, dynamic> patch,
+  ) async {
     final r = await dio.patch('/calendar/$id', data: patch);
     return r.data as Map<String, dynamic>;
   }
@@ -309,9 +418,12 @@ extension BestieApiExt on BestieApi {
     await dio.delete('/notifications/devices/$token');
   }
 
-  Future<Map<String, dynamic>> notificationPreferences() => get('/notifications/preferences');
+  Future<Map<String, dynamic>> notificationPreferences() =>
+      get('/notifications/preferences');
 
-  Future<Map<String, dynamic>> updateNotificationPreferences(Map<String, dynamic> patch) async {
+  Future<Map<String, dynamic>> updateNotificationPreferences(
+    Map<String, dynamic> patch,
+  ) async {
     final r = await dio.put('/notifications/preferences', data: patch);
     return r.data as Map<String, dynamic>;
   }
@@ -332,8 +444,10 @@ extension BestieApiExt on BestieApi {
   /// `productivity`, `tasks`, `telecaller`, `workspace`, `client-engagement`,
   /// `calls`, `attendance`. Pass the slice name and any query knobs (most
   /// take `from`, `to`, sometimes `userId`).
-  Future<Map<String, dynamic>> analytics(String slice, {Map<String, dynamic>? query}) =>
-      get('/analytics/$slice', query: query);
+  Future<Map<String, dynamic>> analytics(
+    String slice, {
+    Map<String, dynamic>? query,
+  }) => get('/analytics/$slice', query: query);
 
   // ---- permissions + workspace + settings ----
   /// "What can I do?" — list of permission keys the current user holds.
@@ -343,7 +457,9 @@ extension BestieApiExt on BestieApi {
   Future<Map<String, dynamic>> workspaceWidgets() => get('/workspace/widgets');
 
   /// Replace the user's dashboard widget set in one call.
-  Future<Map<String, dynamic>> setWorkspaceWidgets(List<Map<String, dynamic>> widgets) async {
+  Future<Map<String, dynamic>> setWorkspaceWidgets(
+    List<Map<String, dynamic>> widgets,
+  ) async {
     final r = await dio.put('/workspace/widgets', data: {'widgets': widgets});
     return r.data as Map<String, dynamic>;
   }
@@ -352,7 +468,9 @@ extension BestieApiExt on BestieApi {
       get('/settings', query: {if (scope != null) 'scope': scope});
 
   Future<Map<String, dynamic>> setSetting({
-    required String scope, required String key, required Object value,
+    required String scope,
+    required String key,
+    required Object value,
   }) async {
     final r = await dio.put('/settings/$scope/$key', data: {'value': value});
     return r.data as Map<String, dynamic>;
@@ -360,17 +478,26 @@ extension BestieApiExt on BestieApi {
 
   // ---- files: signed-url + download + delete + access control ----
   Future<Map<String, dynamic>> requestSignedUrl({
-    required String filename, required String mimeType, int? sizeBytes,
+    required String filename,
+    required String mimeType,
+    int? sizeBytes,
+  }) => post(
+    '/files/signed-url',
+    body: {
+      'filename': filename,
+      'mimeType': mimeType,
+      if (sizeBytes != null) 'sizeBytes': sizeBytes,
+    },
+  );
+
+  Future<void> deleteFile(String id) async {
+    await dio.delete('/files/$id');
+  }
+
+  Future<Map<String, dynamic>> setFileAccessControl(
+    String id, {
+    required bool allowDownload,
   }) =>
-      post('/files/signed-url', body: {
-        'filename': filename,
-        'mimeType': mimeType,
-        if (sizeBytes != null) 'sizeBytes': sizeBytes,
-      });
-
-  Future<void> deleteFile(String id) async { await dio.delete('/files/$id'); }
-
-  Future<Map<String, dynamic>> setFileAccessControl(String id, {required bool allowDownload}) =>
       post('/files/$id/access-control', body: {'allowDownload': allowDownload});
 
   // ---- meetings: lobby + guest approval ----
@@ -379,39 +506,54 @@ extension BestieApiExt on BestieApi {
   }
 
   /// Approve a pending guest request (host or admin only).
-  Future<Map<String, dynamic>> approveMeetingGuest(String slug, String requestId) =>
-      post('/meetings/$slug/guest-requests/$requestId/approve');
+  Future<Map<String, dynamic>> approveMeetingGuest(
+    String slug,
+    String requestId,
+  ) => post('/meetings/$slug/guest-requests/$requestId/approve');
 
-  Future<Map<String, dynamic>> rejectMeetingGuest(String slug, String requestId) =>
-      post('/meetings/$slug/guest-requests/$requestId/reject');
+  Future<Map<String, dynamic>> rejectMeetingGuest(
+    String slug,
+    String requestId,
+  ) => post('/meetings/$slug/guest-requests/$requestId/reject');
 
   // ---- attendance (workday log: check-in / lunch / check-out) ----
   /// Today's workday log row + computed lunch state. The response also
   /// carries the server config (minRequiredWords, lunch window, etc.) so
   /// a single round trip is enough to render the whole screen.
-  Future<Map<String, dynamic>> attendanceToday({String? timezone}) =>
-      get('/attendance/today', query: {if (timezone != null) 'timezone': timezone});
+  Future<Map<String, dynamic>> attendanceToday({String? timezone}) => get(
+    '/attendance/today',
+    query: {if (timezone != null) 'timezone': timezone},
+  );
 
   /// Submit the morning plan (≥ 100 words) and clock in.
-  Future<Map<String, dynamic>> attendanceCheckIn({required String plan, String? timezone}) =>
-      post('/attendance/check-in', body: {
-        'plan': plan,
-        if (timezone != null) 'timezone': timezone,
-      });
+  Future<Map<String, dynamic>> attendanceCheckIn({
+    required String plan,
+    String? timezone,
+  }) => post(
+    '/attendance/check-in',
+    body: {'plan': plan, if (timezone != null) 'timezone': timezone},
+  );
 
   /// Toggle lunch — first call starts the break, second ends it.
-  Future<Map<String, dynamic>> attendanceLunch({String? note, String? timezone}) =>
-      post('/attendance/lunch', body: {
-        if (note != null) 'note': note,
-        if (timezone != null) 'timezone': timezone,
-      });
+  Future<Map<String, dynamic>> attendanceLunch({
+    String? note,
+    String? timezone,
+  }) => post(
+    '/attendance/lunch',
+    body: {
+      if (note != null) 'note': note,
+      if (timezone != null) 'timezone': timezone,
+    },
+  );
 
   /// Submit the evening report (≥ 100 words) and clock out.
-  Future<Map<String, dynamic>> attendanceCheckOut({required String report, String? timezone}) =>
-      post('/attendance/check-out', body: {
-        'report': report,
-        if (timezone != null) 'timezone': timezone,
-      });
+  Future<Map<String, dynamic>> attendanceCheckOut({
+    required String report,
+    String? timezone,
+  }) => post(
+    '/attendance/check-out',
+    body: {'report': report, if (timezone != null) 'timezone': timezone},
+  );
 
   /// Range of workday entries between two ISO dates, used by the streak
   /// counter to walk back from today and count consecutive check-ins.
@@ -419,17 +561,22 @@ extension BestieApiExt on BestieApi {
     required DateTime from,
     required DateTime to,
     String? timezone,
-  }) => get('/attendance/range', query: {
-        'from': from.toUtc().toIso8601String(),
-        'to': to.toUtc().toIso8601String(),
-        if (timezone != null) 'timezone': timezone,
-      });
+  }) => get(
+    '/attendance/range',
+    query: {
+      'from': from.toUtc().toIso8601String(),
+      'to': to.toUtc().toIso8601String(),
+      if (timezone != null) 'timezone': timezone,
+    },
+  );
 
   // ---- call participant management ----
   /// Adds one or more existing users to an in-flight call.
   /// Mirrors `POST /calls/:id/participants` on the backend.
-  Future<Map<String, dynamic>> addCallParticipants(String callId, List<String> userIds) =>
-      post('/calls/$callId/participants', body: {'userIds': userIds});
+  Future<Map<String, dynamic>> addCallParticipants(
+    String callId,
+    List<String> userIds,
+  ) => post('/calls/$callId/participants', body: {'userIds': userIds});
 
   // ---- file upload (multipart) ----
   /// Uploads [bytes] to `POST /files/upload` and returns the created file

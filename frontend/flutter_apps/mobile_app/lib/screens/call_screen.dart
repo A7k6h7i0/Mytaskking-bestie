@@ -53,9 +53,14 @@ class _CallSession {
     if (meetingSlug != null) return activeMeetingSlug == meetingSlug;
     return false;
   }
+
   static Future<void> teardown() async {
-    try { await engine?.leaveChannel(); } catch (_) {}
-    try { await engine?.release(); } catch (_) {}
+    try {
+      await engine?.leaveChannel();
+    } catch (_) {}
+    try {
+      await engine?.release();
+    } catch (_) {}
     engine = null;
     channelName = null;
     activeCallId = null;
@@ -68,7 +73,6 @@ class _CallSession {
 
 class _CallScreenState extends ConsumerState<CallScreen> {
   RtcEngine? get _engine => _CallSession.engine;
-  set _engine(RtcEngine? v) => _CallSession.engine = v;
   String? get _channelName => _CallSession.channelName;
   set _channelName(String? v) => _CallSession.channelName = v;
   bool get _joined => _CallSession.joined;
@@ -84,26 +88,65 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   bool _recording = false;
   String? _error;
   Map<String, dynamic>? _callMeta;
+  final List<void Function()> _callUnsubs = [];
+  bool _remoteClosed = false;
 
   bool get _isVideo => widget.mode == 'video';
 
   @override
   void initState() {
     super.initState();
+    _subscribeCallLifecycle();
     _bootstrap();
   }
 
   @override
   void dispose() {
+    for (final u in _callUnsubs) {
+      u();
+    }
+    _callUnsubs.clear();
     // Do NOT tear down on dispose — the user closing the call window
     // should keep the call running in the background. Only explicit
     // Hang Up (`_hangup`) ends the session.
     super.dispose();
   }
 
-  Future<void> _teardown() async {
-    if (widget.callId != null) {
-      try { await ref.read(apiProvider).post('/calls/${widget.callId}/leave'); } catch (_) {}
+  void _subscribeCallLifecycle() {
+    final callId = widget.callId;
+    if (callId == null) return;
+    final rt = ref.read(realtimeProvider);
+    _callUnsubs.add(rt.onAny('call.declined', ([data]) {
+      if (data is! Map || data['callId'] != callId) return;
+      final me = ref.read(authStoreProvider).user;
+      if (data['userId'] == me?.id) return;
+      _endBecauseRemoteClosed();
+    }));
+    _callUnsubs.add(rt.onAny('call.ended', ([data]) {
+      if (data is! Map || data['callId'] != callId) return;
+      _endBecauseRemoteClosed();
+    }));
+  }
+
+  Future<void> _endBecauseRemoteClosed() async {
+    if (_remoteClosed) return;
+    _remoteClosed = true;
+    await _teardown(notifyServer: false);
+    if (!mounted) return;
+    bestieToast(
+      context,
+      'Call ended',
+      body: 'The other person declined or left the call.',
+      kind: BestieToastKind.info,
+    );
+    context.go('/chat');
+  }
+
+  Future<void> _teardown({bool notifyServer = true}) async {
+    if (notifyServer && widget.callId != null) {
+      try {
+        await ref.read(apiProvider).post('/calls/${widget.callId}/leave');
+      } catch (_) {}
     }
     await _CallSession.teardown();
   }
@@ -117,7 +160,10 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     engine.registerEventHandler(RtcEngineEventHandler(
       onJoinChannelSuccess: (conn, elapsed) {
         if (!mounted) return;
-        setState(() { _joined = true; _status = 'Connected'; });
+        setState(() {
+          _joined = true;
+          _status = 'Connected';
+        });
       },
       onUserJoined: (conn, remoteUid, elapsed) {
         if (!mounted) return;
@@ -125,7 +171,10 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       },
       onUserOffline: (conn, remoteUid, reason) {
         if (!mounted) return;
-        setState(() { _remoteUids.remove(remoteUid); _remoteNames.remove(remoteUid); });
+        setState(() {
+          _remoteUids.remove(remoteUid);
+          _remoteNames.remove(remoteUid);
+        });
         // No auto-hangup here — only an explicit tap on Hang Up ends the
         // call. Lets the user keep the channel open if a remote drops and
         // comes right back, or wait for the next participant in a group.
@@ -139,11 +188,17 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       },
       onError: (err, msg) {
         if (!mounted) return;
-        setState(() { _error = 'Agora native error ${err.value()}${msg.isNotEmpty ? ' — $msg' : ''}'; });
+        setState(() {
+          _error =
+              'Agora native error ${err.value()}${msg.isNotEmpty ? ' — $msg' : ''}';
+        });
       },
       onLeaveChannel: (conn, stats) {
         if (!mounted) return;
-        setState(() { _joined = false; _status = 'Ended'; });
+        setState(() {
+          _joined = false;
+          _status = 'Ended';
+        });
       },
     ));
   }
@@ -190,7 +245,8 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       }
       if (_isVideo) {
         final cam = granted[Permission.camera];
-        if (cam != PermissionStatus.granted && cam != PermissionStatus.limited) {
+        if (cam != PermissionStatus.granted &&
+            cam != PermissionStatus.limited) {
           throw 'Camera permission denied. Open Settings → Apps → MyTaskKing → Permissions and enable it.';
         }
       }
@@ -282,19 +338,25 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       );
 
       if (widget.callId != null) {
-        try { await ref.read(apiProvider).post('/calls/${widget.callId}/join'); } catch (_) {}
+        try {
+          await ref.read(apiProvider).post('/calls/${widget.callId}/join');
+        } catch (_) {}
       }
     } on AgoraRtcException catch (e) {
       if (!mounted) return;
       final code = e.code;
       final hint = _hintForAgoraCode(code, step);
       setState(() {
-        _error = 'Agora error $code at "$step"${hint != null ? '\n\n$hint' : ''}';
+        _error =
+            'Agora error $code at "$step"${hint != null ? '\n\n$hint' : ''}';
         _status = 'Failed';
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() { _error = '${e.toString()} (during "$step")'; _status = 'Failed'; });
+      setState(() {
+        _error = '${e.toString()} (during "$step")';
+        _status = 'Failed';
+      });
     } finally {
       _booting = false;
     }
@@ -304,14 +366,22 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   /// bootstrap. Shown alongside the raw code so the user knows what to do.
   String? _hintForAgoraCode(int code, String step) {
     switch (code) {
-      case -2:  return 'Invalid argument passed to Agora. Likely a malformed App ID or channel name.';
-      case -3:  return 'Agora SDK is not ready. Usually means the App ID is rejected by Agora, the device denied a permission, or the engine is being re-initialized while a previous instance is still alive. Try: 1) confirm AGORA_APP_ID matches an active Agora project, 2) grant mic/camera in system settings, 3) restart the app.';
-      case -7:  return 'Engine not initialized — internal bug.';
-      case -17: return 'Already joined this channel. Hangup first and try again.';
-      case -101:return 'Invalid App ID — Agora rejected the credentials. Verify AGORA_APP_ID on the server.';
-      case -109:return 'Token expired. Re-open the call to fetch a fresh token.';
-      case -110:return 'Invalid token — the App Certificate on the server doesn\'t match the App ID, or the uid in the token doesn\'t match the uid passed to joinChannel.';
-      default:  return null;
+      case -2:
+        return 'Invalid argument passed to Agora. Likely a malformed App ID or channel name.';
+      case -3:
+        return 'Agora SDK is not ready. Usually means the App ID is rejected by Agora, the device denied a permission, or the engine is being re-initialized while a previous instance is still alive. Try: 1) confirm AGORA_APP_ID matches an active Agora project, 2) grant mic/camera in system settings, 3) restart the app.';
+      case -7:
+        return 'Engine not initialized — internal bug.';
+      case -17:
+        return 'Already joined this channel. Hangup first and try again.';
+      case -101:
+        return 'Invalid App ID — Agora rejected the credentials. Verify AGORA_APP_ID on the server.';
+      case -109:
+        return 'Token expired. Re-open the call to fetch a fresh token.';
+      case -110:
+        return 'Invalid token — the App Certificate on the server doesn\'t match the App ID, or the uid in the token doesn\'t match the uid passed to joinChannel.';
+      default:
+        return null;
     }
   }
 
@@ -353,18 +423,23 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       if (_sharing) {
         await _engine!.stopScreenCapture();
         setState(() => _sharing = false);
-        if (mounted) bestieToast(context, 'Screen share stopped', kind: BestieToastKind.info);
+        if (mounted)
+          bestieToast(context, 'Screen share stopped',
+              kind: BestieToastKind.info);
       } else {
         await _engine!.startScreenCapture(const ScreenCaptureParameters2(
           captureVideo: true,
           captureAudio: false,
         ));
         setState(() => _sharing = true);
-        if (mounted) bestieToast(context, 'Sharing your screen', kind: BestieToastKind.success);
+        if (mounted)
+          bestieToast(context, 'Sharing your screen',
+              kind: BestieToastKind.success);
       }
     } catch (e) {
-      if (mounted) bestieToast(context, 'Screen share not available',
-          body: e.toString(), kind: BestieToastKind.error);
+      if (mounted)
+        bestieToast(context, 'Screen share not available',
+            body: e.toString(), kind: BestieToastKind.error);
     }
   }
 
@@ -374,20 +449,28 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     setState(() => _recording = !_recording);
     try {
       if (_recording) {
-        await ref.read(apiProvider).post('/meetings/$slug/recording/start').catchError((_) => <String, dynamic>{});
+        await ref
+            .read(apiProvider)
+            .post('/meetings/$slug/recording/start')
+            .catchError((_) => <String, dynamic>{});
         if (mounted) {
           bestieToast(context, 'Recording started',
               body: 'A copy will be saved to Files when the call ends.',
               kind: BestieToastKind.success);
         }
       } else {
-        await ref.read(apiProvider).post('/meetings/$slug/recording/stop').catchError((_) => <String, dynamic>{});
-        if (mounted) bestieToast(context, 'Recording stopped', kind: BestieToastKind.info);
+        await ref
+            .read(apiProvider)
+            .post('/meetings/$slug/recording/stop')
+            .catchError((_) => <String, dynamic>{});
+        if (mounted)
+          bestieToast(context, 'Recording stopped', kind: BestieToastKind.info);
       }
     } catch (e) {
       setState(() => _recording = !_recording);
-      if (mounted) bestieToast(context, 'Recording unavailable',
-          body: e.toString(), kind: BestieToastKind.error);
+      if (mounted)
+        bestieToast(context, 'Recording unavailable',
+            body: e.toString(), kind: BestieToastKind.error);
     }
   }
 
@@ -400,31 +483,41 @@ class _CallScreenState extends ConsumerState<CallScreen> {
         final participants = <_Participant>[];
         final me = ref.read(authStoreProvider).user;
         if (me != null) {
-          participants.add(_Participant(name: me.name, role: 'You', muted: _muted, video: !_cameraOff));
+          participants.add(_Participant(
+              name: me.name, role: 'You', muted: _muted, video: !_cameraOff));
         }
         for (final uid in _remoteUids) {
-          participants.add(_Participant(name: _remoteNames[uid] ?? 'Participant', role: 'Remote', muted: false, video: true));
+          participants.add(_Participant(
+              name: _remoteNames[uid] ?? 'Participant',
+              role: 'Remote',
+              muted: false,
+              video: true));
         }
         final invited = ((_callMeta?['call']?['participants'] as List?) ??
-            (_callMeta?['participants'] as List?) ?? const []).cast<dynamic>();
+                (_callMeta?['participants'] as List?) ??
+                const [])
+            .cast<dynamic>();
         for (final p in invited) {
           if (p is Map) {
             final u = (p['user'] as Map?)?.cast<String, dynamic>();
             final n = (u?['name'] ?? '').toString();
             if (n.isEmpty || n == me?.name) continue;
             if (participants.any((pp) => pp.name == n)) continue;
-            participants.add(_Participant(name: n, role: 'Invited', muted: true, video: false));
+            participants.add(_Participant(
+                name: n, role: 'Invited', muted: true, video: false));
           }
         }
         return Container(
           decoration: BoxDecoration(
             color: c.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
+            borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(BestieTokens.rXl)),
           ),
           padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Container(
-              width: 40, height: 4,
+              width: 40,
+              height: 4,
               margin: const EdgeInsets.only(bottom: 14),
               decoration: BoxDecoration(
                 color: c.borderStrong,
@@ -434,7 +527,9 @@ class _CallScreenState extends ConsumerState<CallScreen> {
             Row(children: [
               Text('Participants (${participants.length})',
                   style: TextStyle(
-                    fontSize: 16, fontWeight: BestieTokens.fwBold, color: c.text,
+                    fontSize: 16,
+                    fontWeight: BestieTokens.fwBold,
+                    color: c.text,
                     letterSpacing: BestieTokens.lsTight,
                   )),
               const Spacer(),
@@ -461,17 +556,26 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Text(p.name,
-                                  style: TextStyle(color: c.text, fontWeight: BestieTokens.fwSemibold)),
+                                  style: TextStyle(
+                                      color: c.text,
+                                      fontWeight: BestieTokens.fwSemibold)),
                               Text(p.role,
-                                  style: TextStyle(color: c.textMuted, fontSize: 11)),
+                                  style: TextStyle(
+                                      color: c.textMuted, fontSize: 11)),
                             ],
                           ),
                         ),
-                        Icon(p.muted ? Icons.mic_off_rounded : Icons.mic_rounded,
-                            size: 16, color: p.muted ? c.danger : c.success),
+                        Icon(
+                            p.muted ? Icons.mic_off_rounded : Icons.mic_rounded,
+                            size: 16,
+                            color: p.muted ? c.danger : c.success),
                         const SizedBox(width: 12),
-                        Icon(p.video ? Icons.videocam_rounded : Icons.videocam_off_rounded,
-                            size: 16, color: p.video ? c.success : c.textFaint),
+                        Icon(
+                            p.video
+                                ? Icons.videocam_rounded
+                                : Icons.videocam_off_rounded,
+                            size: 16,
+                            color: p.video ? c.success : c.textFaint),
                       ]),
                     ),
                 ],
@@ -497,8 +601,10 @@ class _CallScreenState extends ConsumerState<CallScreen> {
           Positioned.fill(child: _remoteSurface()),
           if (_isVideo && _joined && !_cameraOff)
             Positioned(
-              right: 16, top: 16,
-              width: 110, height: 160,
+              right: 16,
+              top: 16,
+              width: 110,
+              height: 160,
               child: Container(
                 clipBehavior: Clip.antiAlias,
                 decoration: BoxDecoration(
@@ -506,7 +612,8 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                   borderRadius: BorderRadius.circular(BestieTokens.rMd),
                 ),
                 child: _engine != null
-                    ? AgoraVideoView(controller: VideoViewController(
+                    ? AgoraVideoView(
+                        controller: VideoViewController(
                         rtcEngine: _engine!,
                         canvas: const VideoCanvas(uid: 0),
                       ))
@@ -523,24 +630,31 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   Widget _header() {
     return Row(children: [
       IconButton(
-        icon: const Icon(Icons.expand_more_rounded, color: Colors.white, size: 28),
+        icon: const Icon(Icons.expand_more_rounded,
+            color: Colors.white, size: 28),
         onPressed: _hangup,
         tooltip: 'Minimize',
       ),
       Expanded(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(_channelName ?? 'Connecting…',
-              maxLines: 1, overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                color: Colors.white, fontSize: 15,
-                fontWeight: BestieTokens.fwBold, letterSpacing: BestieTokens.lsSnug,
+                color: Colors.white,
+                fontSize: 15,
+                fontWeight: BestieTokens.fwBold,
+                letterSpacing: BestieTokens.lsSnug,
               )),
           Row(children: [
-            if (_recording) Container(
-              margin: const EdgeInsets.only(right: 6, top: 2),
-              width: 8, height: 8,
-              decoration: const BoxDecoration(color: Color(0xFFEF4444), shape: BoxShape.circle),
-            ),
+            if (_recording)
+              Container(
+                margin: const EdgeInsets.only(right: 6, top: 2),
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(
+                    color: Color(0xFFEF4444), shape: BoxShape.circle),
+              ),
             Text(_recording ? 'Recording · $_status' : _status,
                 style: const TextStyle(color: Colors.white70, fontSize: 12)),
           ]),
@@ -570,7 +684,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   /// can invite teammates or external participants by URL.
   Future<void> _showInvite() async {
     if (widget.meetingSlug != null) {
-      _showMeetingShare();
+      _showMeetingInvite();
       return;
     }
     final callId = widget.callId;
@@ -586,9 +700,18 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     Future<void> fetchPeople(StateSetter set, String q) async {
       try {
         final res = await api.listEmployees(q: q.isEmpty ? null : q);
-        if (mounted) set(() { employees = res; loading = false; error = null; });
+        if (mounted)
+          set(() {
+            employees = res;
+            loading = false;
+            error = null;
+          });
       } catch (e) {
-        if (mounted) set(() { error = e.toString(); loading = false; });
+        if (mounted)
+          set(() {
+            error = e.toString();
+            loading = false;
+          });
       }
     }
 
@@ -603,15 +726,20 @@ class _CallScreenState extends ConsumerState<CallScreen> {
           }
           final c = BestieColors.of(ctx);
           return DraggableScrollableSheet(
-            initialChildSize: 0.7, minChildSize: 0.4, maxChildSize: 0.95, expand: false,
+            initialChildSize: 0.7,
+            minChildSize: 0.4,
+            maxChildSize: 0.95,
+            expand: false,
             builder: (ctx, sc) => Container(
               decoration: BoxDecoration(
                 color: c.surface,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
+                borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(BestieTokens.rXl)),
               ),
               child: Column(children: [
                 Container(
-                  width: 40, height: 4,
+                  width: 40,
+                  height: 4,
                   margin: const EdgeInsets.only(top: 10, bottom: 10),
                   decoration: BoxDecoration(
                     color: c.borderStrong,
@@ -621,12 +749,16 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 4, 16, 4),
                   child: Row(children: [
-                    Expanded(child: Text('Invite to call',
-                        style: TextStyle(
-                          fontSize: 18, fontWeight: BestieTokens.fwBold,
-                          color: c.text, letterSpacing: BestieTokens.lsTight,
-                        ))),
-                    IconButton(icon: Icon(Icons.close_rounded, color: c.textMuted),
+                    Expanded(
+                        child: Text('Invite to call',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: BestieTokens.fwBold,
+                              color: c.text,
+                              letterSpacing: BestieTokens.lsTight,
+                            ))),
+                    IconButton(
+                        icon: Icon(Icons.close_rounded, color: c.textMuted),
                         onPressed: () => Navigator.pop(ctx)),
                   ]),
                 ),
@@ -634,19 +766,25 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                   padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
                   child: TextField(
                     controller: controller,
-                    onChanged: (v) { set(() => loading = true); fetchPeople(set, v.trim()); },
+                    onChanged: (v) {
+                      set(() => loading = true);
+                      fetchPeople(set, v.trim());
+                    },
                     decoration: InputDecoration(
                       isDense: true,
-                      prefixIcon: Icon(Icons.search_rounded, color: c.textMuted, size: 18),
+                      prefixIcon: Icon(Icons.search_rounded,
+                          color: c.textMuted, size: 18),
                       hintText: 'Search teammates',
-                      filled: true, fillColor: c.surface2,
+                      filled: true,
+                      fillColor: c.surface2,
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(BestieTokens.rSm),
                         borderSide: BorderSide(color: c.border),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(BestieTokens.rSm),
-                        borderSide: const BorderSide(color: BestieTokens.cBrand, width: 1.6),
+                        borderSide: const BorderSide(
+                            color: BestieTokens.cBrand, width: 1.6),
                       ),
                     ),
                   ),
@@ -655,8 +793,11 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                   child: loading
                       ? const Center(child: BestieSpinner())
                       : error != null
-                          ? BestieEmptyState(icon: Icons.error_outline_rounded,
-                              iconColor: c.danger, title: 'Could not load', description: error)
+                          ? BestieEmptyState(
+                              icon: Icons.error_outline_rounded,
+                              iconColor: c.danger,
+                              title: 'Could not load',
+                              description: error)
                           : ListView.builder(
                               controller: sc,
                               itemCount: employees.length,
@@ -667,19 +808,29 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                                 return CheckboxListTile(
                                   value: picked,
                                   onChanged: (_) => set(() {
-                                    picked ? selected.remove(id) : selected.add(id);
+                                    picked
+                                        ? selected.remove(id)
+                                        : selected.add(id);
                                   }),
-                                  controlAffinity: ListTileControlAffinity.trailing,
+                                  controlAffinity:
+                                      ListTileControlAffinity.trailing,
                                   secondary: BestieAvatar(
                                     name: (u['name'] ?? '—').toString(),
                                     imageUrl: u['avatarUrl']?.toString(),
-                                    isClient: u['isClient'] == true, size: 36,
+                                    isClient: u['isClient'] == true,
+                                    size: 36,
                                   ),
                                   title: Text((u['name'] ?? '—').toString(),
-                                      style: TextStyle(color: c.text, fontWeight: BestieTokens.fwSemibold)),
-                                  subtitle: Text((u['customTitle'] ?? u['role'] ?? '').toString()
-                                      .replaceAll('_', ' ').toLowerCase(),
-                                      style: TextStyle(color: c.textMuted, fontSize: 12)),
+                                      style: TextStyle(
+                                          color: c.text,
+                                          fontWeight: BestieTokens.fwSemibold)),
+                                  subtitle: Text(
+                                      (u['customTitle'] ?? u['role'] ?? '')
+                                          .toString()
+                                          .replaceAll('_', ' ')
+                                          .toLowerCase(),
+                                      style: TextStyle(
+                                          color: c.textMuted, fontSize: 12)),
                                   activeColor: BestieTokens.cBrand,
                                 );
                               },
@@ -692,24 +843,241 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                     child: SizedBox(
                       width: double.infinity,
                       child: FilledButton.icon(
-                        onPressed: selected.isEmpty ? null : () async {
-                          try {
-                            await api.addCallParticipants(callId, selected.toList());
-                            if (ctx.mounted) Navigator.pop(ctx);
-                            if (mounted) bestieToast(context, 'Invited ${selected.length}',
-                                kind: BestieToastKind.success);
-                          } catch (e) {
-                            if (ctx.mounted) bestieToast(ctx, 'Invite failed',
-                                body: formatApiError(e), kind: BestieToastKind.error);
-                          }
-                        },
+                        onPressed: selected.isEmpty
+                            ? null
+                            : () async {
+                                try {
+                                  await api.addCallParticipants(
+                                      callId, selected.toList());
+                                  if (ctx.mounted) Navigator.pop(ctx);
+                                  if (mounted)
+                                    bestieToast(
+                                        context, 'Invited ${selected.length}',
+                                        kind: BestieToastKind.success);
+                                } catch (e) {
+                                  if (ctx.mounted)
+                                    bestieToast(ctx, 'Invite failed',
+                                        body: formatApiError(e),
+                                        kind: BestieToastKind.error);
+                                }
+                              },
                         style: FilledButton.styleFrom(
                           backgroundColor: BestieTokens.cBrand,
                           padding: const EdgeInsets.symmetric(vertical: 14),
                         ),
-                        icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
+                        icon: const Icon(Icons.person_add_alt_1_rounded,
+                            size: 18),
                         label: Text(selected.isEmpty
                             ? 'Pick teammates to invite'
+                            : 'Invite ${selected.length}'),
+                      ),
+                    ),
+                  ),
+                ),
+              ]),
+            ),
+          );
+        });
+      },
+    );
+  }
+
+  Future<void> _showMeetingInvite() async {
+    final slug = widget.meetingSlug;
+    if (slug == null) return;
+
+    final selected = <String>{};
+    final api = ref.read(apiProvider);
+    final controller = TextEditingController();
+    List<Map<String, dynamic>> employees = [];
+    String? error;
+    bool loading = true;
+
+    Future<void> fetchPeople(StateSetter set, String q) async {
+      try {
+        final me = ref.read(authStoreProvider).user;
+        final res = await api.listEmployees(q: q.isEmpty ? null : q);
+        if (mounted) {
+          set(() {
+            employees = res.where((u) => u['id'] != me?.id).toList();
+            loading = false;
+            error = null;
+          });
+        }
+      } catch (e) {
+        if (mounted)
+          set(() {
+            error = e.toString();
+            loading = false;
+          });
+      }
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StatefulBuilder(builder: (ctx, set) {
+          if (employees.isEmpty && loading && error == null) {
+            fetchPeople(set, '');
+          }
+          final c = BestieColors.of(ctx);
+          return DraggableScrollableSheet(
+            initialChildSize: 0.72,
+            minChildSize: 0.42,
+            maxChildSize: 0.95,
+            expand: false,
+            builder: (ctx, sc) => Container(
+              decoration: BoxDecoration(
+                color: c.surface,
+                borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(BestieTokens.rXl)),
+              ),
+              child: Column(children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(top: 10, bottom: 10),
+                  decoration: BoxDecoration(
+                    color: c.borderStrong,
+                    borderRadius: BorderRadius.circular(BestieTokens.rPill),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 16, 4),
+                  child: Row(children: [
+                    Expanded(
+                        child: Text('Invite to meeting',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: BestieTokens.fwBold,
+                              color: c.text,
+                              letterSpacing: BestieTokens.lsTight,
+                            ))),
+                    IconButton(
+                      icon: Icon(Icons.link_rounded, color: c.textMuted),
+                      tooltip: 'Copy meeting link',
+                      onPressed: _showMeetingShare,
+                    ),
+                    IconButton(
+                      icon: Icon(Icons.close_rounded, color: c.textMuted),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ]),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                  child: TextField(
+                    controller: controller,
+                    onChanged: (v) {
+                      set(() => loading = true);
+                      fetchPeople(set, v.trim());
+                    },
+                    decoration: InputDecoration(
+                      isDense: true,
+                      prefixIcon: Icon(Icons.search_rounded,
+                          color: c.textMuted, size: 18),
+                      hintText: 'Search organization people',
+                      filled: true,
+                      fillColor: c.surface2,
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(BestieTokens.rSm),
+                        borderSide: BorderSide(color: c.border),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(BestieTokens.rSm),
+                        borderSide: const BorderSide(
+                            color: BestieTokens.cBrand, width: 1.6),
+                      ),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: loading
+                      ? const Center(child: BestieSpinner())
+                      : error != null
+                          ? BestieEmptyState(
+                              icon: Icons.error_outline_rounded,
+                              iconColor: c.danger,
+                              title: 'Could not load people',
+                              description: formatApiError(error!),
+                            )
+                          : ListView.builder(
+                              controller: sc,
+                              itemCount: employees.length,
+                              itemBuilder: (ctx, i) {
+                                final u = employees[i];
+                                final id = u['id'] as String;
+                                final picked = selected.contains(id);
+                                return CheckboxListTile(
+                                  value: picked,
+                                  onChanged: (_) => set(() {
+                                    picked
+                                        ? selected.remove(id)
+                                        : selected.add(id);
+                                  }),
+                                  controlAffinity:
+                                      ListTileControlAffinity.trailing,
+                                  secondary: BestieAvatar(
+                                    name: (u['name'] ?? '—').toString(),
+                                    imageUrl: u['avatarUrl']?.toString(),
+                                    isClient: u['isClient'] == true,
+                                    size: 36,
+                                  ),
+                                  title: Text((u['name'] ?? '—').toString(),
+                                      style: TextStyle(
+                                          color: c.text,
+                                          fontWeight: BestieTokens.fwSemibold)),
+                                  subtitle: Text(
+                                      (u['customTitle'] ?? u['role'] ?? '')
+                                          .toString()
+                                          .replaceAll('_', ' ')
+                                          .toLowerCase(),
+                                      style: TextStyle(
+                                          color: c.textMuted, fontSize: 12)),
+                                  activeColor: BestieTokens.cBrand,
+                                );
+                              },
+                            ),
+                ),
+                SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: selected.isEmpty
+                            ? null
+                            : () async {
+                                try {
+                                  await api.inviteMeetingParticipants(
+                                      slug, selected.toList());
+                                  if (ctx.mounted) Navigator.pop(ctx);
+                                  if (mounted) {
+                                    bestieToast(
+                                        context, 'Invited ${selected.length}',
+                                        body:
+                                            'They will get a meeting preview and notification.',
+                                        kind: BestieToastKind.success);
+                                  }
+                                } catch (e) {
+                                  if (ctx.mounted) {
+                                    bestieToast(ctx, 'Invite failed',
+                                        body: formatApiError(e),
+                                        kind: BestieToastKind.error);
+                                  }
+                                }
+                              },
+                        style: FilledButton.styleFrom(
+                          backgroundColor: BestieTokens.cBrand,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        icon: const Icon(Icons.person_add_alt_1_rounded,
+                            size: 18),
+                        label: Text(selected.isEmpty
+                            ? 'Pick people to invite'
                             : 'Invite ${selected.length}'),
                       ),
                     ),
@@ -737,65 +1105,84 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       context: context,
       backgroundColor: c.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
+        borderRadius:
+            BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
       ),
       builder: (ctx) => SafeArea(
         top: false,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Invite to meeting',
-                style: TextStyle(
-                  fontSize: 18, fontWeight: BestieTokens.fwBold,
-                  color: c.text, letterSpacing: BestieTokens.lsTight,
-                )),
-            const SizedBox(height: 4),
-            Text('Share this link — teammates or external guests can join.',
-                style: TextStyle(color: c.textMuted, fontSize: 13)),
-            const SizedBox(height: 14),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-              decoration: BoxDecoration(
-                color: c.surface2, borderRadius: BorderRadius.circular(BestieTokens.rMd),
-                border: Border.all(color: c.border),
-              ),
-              child: Row(children: [
-                Expanded(child: Text(link, style: TextStyle(
-                  fontFamily: 'monospace', fontSize: 12,
-                  color: c.text, fontWeight: BestieTokens.fwSemibold,
-                ))),
-                IconButton(
-                  icon: const Icon(Icons.copy_rounded, size: 18),
-                  tooltip: 'Copy',
-                  onPressed: () async {
-                    await Clipboard.setData(ClipboardData(text: link));
-                    if (ctx.mounted) bestieToast(ctx, 'Copied to clipboard',
-                        kind: BestieToastKind.success);
-                  },
+          child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Invite to meeting',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: BestieTokens.fwBold,
+                      color: c.text,
+                      letterSpacing: BestieTokens.lsTight,
+                    )),
+                const SizedBox(height: 4),
+                Text('Share this link — teammates or external guests can join.',
+                    style: TextStyle(color: c.textMuted, fontSize: 13)),
+                const SizedBox(height: 14),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: c.surface2,
+                    borderRadius: BorderRadius.circular(BestieTokens.rMd),
+                    border: Border.all(color: c.border),
+                  ),
+                  child: Row(children: [
+                    Expanded(
+                        child: Text(link,
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 12,
+                              color: c.text,
+                              fontWeight: BestieTokens.fwSemibold,
+                            ))),
+                    IconButton(
+                      icon: const Icon(Icons.copy_rounded, size: 18),
+                      tooltip: 'Copy',
+                      onPressed: () async {
+                        await Clipboard.setData(ClipboardData(text: link));
+                        if (ctx.mounted)
+                          bestieToast(ctx, 'Copied to clipboard',
+                              kind: BestieToastKind.success);
+                      },
+                    ),
+                  ]),
                 ),
+                const SizedBox(height: 14),
+                Row(children: [
+                  Expanded(
+                      child: OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                    },
+                    icon: const Icon(Icons.close_rounded, size: 16),
+                    label: const Text('Close'),
+                  )),
+                  const SizedBox(width: 10),
+                  Expanded(
+                      child: FilledButton.icon(
+                    onPressed: () async {
+                      await Clipboard.setData(ClipboardData(text: link));
+                      if (ctx.mounted) Navigator.pop(ctx);
+                      if (mounted)
+                        bestieToast(context, 'Link copied — share away',
+                            kind: BestieToastKind.success);
+                    },
+                    style: FilledButton.styleFrom(
+                        backgroundColor: BestieTokens.cBrand),
+                    icon: const Icon(Icons.share_rounded, size: 16),
+                    label: const Text('Copy & share'),
+                  )),
+                ]),
               ]),
-            ),
-            const SizedBox(height: 14),
-            Row(children: [
-              Expanded(child: OutlinedButton.icon(
-                onPressed: () { Navigator.pop(ctx); },
-                icon: const Icon(Icons.close_rounded, size: 16),
-                label: const Text('Close'),
-              )),
-              const SizedBox(width: 10),
-              Expanded(child: FilledButton.icon(
-                onPressed: () async {
-                  await Clipboard.setData(ClipboardData(text: link));
-                  if (ctx.mounted) Navigator.pop(ctx);
-                  if (mounted) bestieToast(context, 'Link copied — share away',
-                      kind: BestieToastKind.success);
-                },
-                style: FilledButton.styleFrom(backgroundColor: BestieTokens.cBrand),
-                icon: const Icon(Icons.share_rounded, size: 16),
-                label: const Text('Copy & share'),
-              )),
-            ]),
-          ]),
         ),
       ),
     );
@@ -807,13 +1194,20 @@ class _CallScreenState extends ConsumerState<CallScreen> {
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Icon(Icons.error_outline_rounded, color: Colors.white70, size: 42),
+            const Icon(Icons.error_outline_rounded,
+                color: Colors.white70, size: 42),
             const SizedBox(height: 10),
-            Text(_error!, textAlign: TextAlign.center,
+            Text(_error!,
+                textAlign: TextAlign.center,
                 style: const TextStyle(color: Colors.white)),
             const SizedBox(height: 16),
             FilledButton.tonal(
-              onPressed: () { setState(() { _error = null; }); _bootstrap(); },
+              onPressed: () {
+                setState(() {
+                  _error = null;
+                });
+                _bootstrap();
+              },
               child: const Text('Retry'),
             ),
           ]),
@@ -832,7 +1226,8 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       );
     }
     final firstRemote = _remoteUids.first;
-    return AgoraVideoView(controller: VideoViewController.remote(
+    return AgoraVideoView(
+        controller: VideoViewController.remote(
       rtcEngine: _engine!,
       canvas: VideoCanvas(uid: firstRemote),
       connection: RtcConnection(channelId: _channelName ?? ''),
@@ -841,25 +1236,33 @@ class _CallScreenState extends ConsumerState<CallScreen> {
 
   Widget _controls() {
     Widget pill({
-      required IconData icon, required VoidCallback onTap,
-      bool active = false, String? label,
+      required IconData icon,
+      required VoidCallback onTap,
+      bool active = false,
+      String? label,
     }) {
       return Column(mainAxisSize: MainAxisSize.min, children: [
         GestureDetector(
           onTap: onTap,
           child: Container(
-            width: 52, height: 52,
+            width: 52,
+            height: 52,
             decoration: BoxDecoration(
               color: active ? Colors.white : Colors.white.withOpacity(0.14),
               shape: BoxShape.circle,
               border: Border.all(color: Colors.white.withOpacity(0.18)),
             ),
-            child: Icon(icon, color: active ? Colors.black : Colors.white, size: 22),
+            child: Icon(icon,
+                color: active ? Colors.black : Colors.white, size: 22),
           ),
         ),
         if (label != null) ...[
           const SizedBox(height: 4),
-          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: BestieTokens.fwSemibold)),
+          Text(label,
+              style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 10,
+                  fontWeight: BestieTokens.fwSemibold)),
         ],
       ]);
     }
@@ -870,33 +1273,54 @@ class _CallScreenState extends ConsumerState<CallScreen> {
         Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
           pill(
             icon: _muted ? Icons.mic_off_rounded : Icons.mic_rounded,
-            onTap: _toggleMute, active: _muted, label: 'Mute',
+            onTap: _toggleMute,
+            active: _muted,
+            label: 'Mute',
           ),
           if (_isVideo)
             pill(
-              icon: _cameraOff ? Icons.videocam_off_rounded : Icons.videocam_rounded,
-              onTap: _toggleCamera, active: _cameraOff, label: 'Camera',
+              icon: _cameraOff
+                  ? Icons.videocam_off_rounded
+                  : Icons.videocam_rounded,
+              onTap: _toggleCamera,
+              active: _cameraOff,
+              label: 'Camera',
             ),
           pill(
-            icon: _speakerOn ? Icons.volume_up_rounded : Icons.volume_down_rounded,
-            onTap: _toggleSpeaker, active: !_speakerOn, label: 'Speaker',
+            icon: _speakerOn
+                ? Icons.volume_up_rounded
+                : Icons.volume_down_rounded,
+            onTap: _toggleSpeaker,
+            active: !_speakerOn,
+            label: 'Speaker',
           ),
           pill(
-            icon: _sharing ? Icons.stop_screen_share_rounded : Icons.screen_share_rounded,
-            onTap: _toggleShare, active: _sharing, label: _sharing ? 'Stop' : 'Share',
+            icon: _sharing
+                ? Icons.stop_screen_share_rounded
+                : Icons.screen_share_rounded,
+            onTap: _toggleShare,
+            active: _sharing,
+            label: _sharing ? 'Stop' : 'Share',
           ),
           pill(
-            icon: _recording ? Icons.stop_circle_rounded : Icons.fiber_manual_record_rounded,
-            onTap: _toggleRecord, active: _recording, label: _recording ? 'Stop' : 'Record',
+            icon: _recording
+                ? Icons.stop_circle_rounded
+                : Icons.fiber_manual_record_rounded,
+            onTap: _toggleRecord,
+            active: _recording,
+            label: _recording ? 'Stop' : 'Record',
           ),
         ]),
         const SizedBox(height: 18),
         GestureDetector(
           onTap: _hangup,
           child: Container(
-            width: 64, height: 64,
-            decoration: const BoxDecoration(color: BestieTokens.cDanger, shape: BoxShape.circle),
-            child: const Icon(Icons.call_end_rounded, color: Colors.white, size: 30),
+            width: 64,
+            height: 64,
+            decoration: const BoxDecoration(
+                color: BestieTokens.cDanger, shape: BoxShape.circle),
+            child: const Icon(Icons.call_end_rounded,
+                color: Colors.white, size: 30),
           ),
         ),
       ]),
@@ -909,5 +1333,9 @@ class _Participant {
   final String role;
   final bool muted;
   final bool video;
-  const _Participant({required this.name, required this.role, required this.muted, required this.video});
+  const _Participant(
+      {required this.name,
+      required this.role,
+      required this.muted,
+      required this.video});
 }

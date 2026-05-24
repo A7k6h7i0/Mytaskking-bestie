@@ -4,9 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
+import '../router.dart';
 import '../state.dart';
 
 /// Mounted once at the top of the router (inside [MaterialApp.router] via a
@@ -19,7 +19,8 @@ class IncomingCallOverlay extends ConsumerStatefulWidget {
   const IncomingCallOverlay({super.key, required this.child});
 
   @override
-  ConsumerState<IncomingCallOverlay> createState() => _IncomingCallOverlayState();
+  ConsumerState<IncomingCallOverlay> createState() =>
+      _IncomingCallOverlayState();
 }
 
 class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
@@ -34,7 +35,9 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
     _autoMiss?.cancel();
     _hapticTimer?.cancel();
     _ringtone.stop();
-    for (final u in _unsubs) { u(); }
+    for (final u in _unsubs) {
+      u();
+    }
     super.dispose();
   }
 
@@ -45,21 +48,25 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
   void _subscribeFor(String? userId) {
     if (_lastUserId == userId) return;
     _lastUserId = userId;
-    for (final u in _unsubs) { u(); }
+    for (final u in _unsubs) {
+      u();
+    }
     _unsubs.clear();
     if (userId == null) return; // logged out — clear listeners only
 
     final rt = ref.read(realtimeProvider);
     _unsubs.add(rt.onAny('call.incoming', ([data]) => _onIncoming(data)));
-    _unsubs.add(rt.onAny('call.invited',  ([data]) => _onIncoming(data)));
+    _unsubs.add(rt.onAny('call.invited', ([data]) => _onIncoming(data)));
     // Meeting invites get the same ringer treatment as a call so the user
     // can Accept and land directly inside the meeting room.
-    _unsubs.add(rt.onAny('meeting.invited', ([data]) => _onMeetingInvited(data)));
+    _unsubs
+        .add(rt.onAny('meeting.invited', ([data]) => _onMeetingInvited(data)));
     // Default OS notification tone whenever the server pushes a new
     // notification (chat message, mention, task assignment, etc). The
     // backend already filters out muted / off-channel events via
     // notify(), so we ring whenever this fires.
-    _unsubs.add(rt.onAny('notification.created', ([_]) => _playNotificationTone()));
+    _unsubs.add(
+        rt.onAny('notification.created', ([_]) => _playNotificationTone()));
     // Chat messages also ding — skipping messages the current user sent
     // themselves so the chime doesn't fire on every keystroke send.
     _unsubs.add(rt.onAny('chat.message.created', ([data]) {
@@ -71,7 +78,9 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
     _unsubs.add(rt.onAny('call.declined', ([data]) {
       // Caller side: another participant declined. We dismiss our ringer if
       // it was the same call (some race conditions on group calls).
-      if (_pending != null && data is Map && data['callId'] == _pending!['call']?['id']) {
+      if (_pending != null &&
+          data is Map &&
+          data['callId'] == _pending!['call']?['id']) {
         _dismiss();
       }
     }));
@@ -138,6 +147,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
   }
 
   DateTime? _lastNotifChime;
+
   /// Plays a single OS-default notification chime — used for incoming chat
   /// messages + non-call notifications. Rate-limited to one chime per 800 ms
   /// so a flurry of arrivals (e.g. backfill on reconnect) doesn't turn into
@@ -173,7 +183,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
         volume: 1.0,
         asAlarm: false,
       );
-    } catch (_) { /* best-effort — silent fall back to haptics */ }
+    } catch (_) {/* best-effort — silent fall back to haptics */}
   }
 
   void _dismiss() {
@@ -187,7 +197,9 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
     final id = _pending?['call']?['id']?.toString();
     _dismiss();
     if (id == null) return;
-    try { await ref.read(apiProvider).post('/calls/$id/decline'); } catch (_) { /* server still records timeout */ }
+    try {
+      await ref.read(apiProvider).post('/calls/$id/decline');
+    } catch (_) {/* server still records timeout */}
   }
 
   Future<void> _accept() async {
@@ -207,11 +219,10 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
     _autoMiss?.cancel();
     _hapticTimer?.cancel();
     _ringtone.stop();
-    if (!context.mounted) return;
     final target = meetingSlug != null
         ? '/meeting/$meetingSlug?mode=$mode'
         : '/call/$callId?mode=$mode';
-    context.go(target);
+    ref.read(routerProvider).go(target);
     // One frame after navigation has taken effect, wipe the ringer state
     // so a stale _pending doesn't leak into the next incoming call.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -220,10 +231,10 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
   }
 
   String _modeFor(Map<String, dynamic>? p) {
-    final m = (p?['call']?['mode'] ?? p?['mode'] ?? 'VIDEO').toString().toUpperCase();
+    final m =
+        (p?['call']?['mode'] ?? p?['mode'] ?? 'VIDEO').toString().toUpperCase();
     return m == 'VOICE' ? 'voice' : 'video';
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -235,8 +246,8 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
     // (Re)subscribe whenever the authenticated user changes — login, logout,
     // token refresh. Without this the ringer was attaching to a token-less
     // socket and the recipient never saw an incoming-call screen.
-    final user = ref.watch(currentUserProvider).asData?.value
-        ?? ref.watch(authStoreProvider).user;
+    final user = ref.watch(currentUserProvider).asData?.value ??
+        ref.watch(authStoreProvider).user;
     final uid = user?.id;
     if (uid != _lastUserId) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _subscribeFor(uid));
@@ -245,7 +256,8 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
     return Stack(children: [
       widget.child,
       if (_pending != null)
-        Positioned.fill(child: _RingerScreen(
+        Positioned.fill(
+            child: _RingerScreen(
           payload: _pending!,
           onAccept: _accept,
           onDecline: _decline,
@@ -258,23 +270,26 @@ class _RingerScreen extends ConsumerWidget {
   final Map<String, dynamic> payload;
   final VoidCallback onAccept;
   final VoidCallback onDecline;
-  const _RingerScreen({required this.payload, required this.onAccept, required this.onDecline});
+  const _RingerScreen(
+      {required this.payload, required this.onAccept, required this.onDecline});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final call = (payload['call'] as Map?)?.cast<String, dynamic>() ?? const {};
-    final initiator = (call['initiator'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final initiator =
+        (call['initiator'] as Map?)?.cast<String, dynamic>() ?? const {};
     final name = (initiator['name'] ?? 'Someone').toString();
     final isClient = initiator['isClient'] == true;
     final kind = (call['kind'] ?? 'ONE_TO_ONE').toString();
     // Mode (voice / video) lives at the top of the socket payload — the DB
     // doesn't persist it. Fall back to call.mode for backwards-compat and
     // VIDEO as the historic default.
-    final mode = (call['mode'] ?? payload['mode'] ?? 'VIDEO')
-        .toString().toUpperCase();
+    final mode =
+        (call['mode'] ?? payload['mode'] ?? 'VIDEO').toString().toUpperCase();
     final participantCount = ((call['participants'] as List?)?.length ?? 0);
     final isMeeting = kind == 'MEETING' || payload['meetingSlug'] != null;
-    final meetingName = (payload['meetingName'] ?? call['name'] ?? '').toString();
+    final meetingName =
+        (payload['meetingName'] ?? call['name'] ?? '').toString();
 
     return Material(
       color: const Color(0xFF0B1220),
@@ -285,7 +300,8 @@ class _RingerScreen extends ConsumerWidget {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.10),
                   borderRadius: BorderRadius.circular(999),
@@ -299,26 +315,37 @@ class _RingerScreen extends ConsumerWidget {
                         : (kind == 'GROUP'
                             ? 'Group ringing · $participantCount'
                             : 'Incoming ${mode.toLowerCase()} call'),
-                    style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: BestieTokens.fwSemibold, letterSpacing: BestieTokens.lsWide),
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: BestieTokens.fwSemibold,
+                        letterSpacing: BestieTokens.lsWide),
                   ),
                 ]),
               ),
               const Spacer(),
               Text(
                 mode == 'VOICE' ? '🎙️ Voice' : '🎥 Video',
-                style: const TextStyle(color: Colors.white60, fontSize: 12, fontWeight: BestieTokens.fwSemibold),
+                style: const TextStyle(
+                    color: Colors.white60,
+                    fontSize: 12,
+                    fontWeight: BestieTokens.fwSemibold),
               ),
             ]),
           ),
           const Spacer(),
           // Avatar with concentric pulse rings.
-          _RingingAvatar(name: name, imageUrl: initiator['avatarUrl']?.toString(), isClient: isClient),
+          _RingingAvatar(
+              name: name,
+              imageUrl: initiator['avatarUrl']?.toString(),
+              isClient: isClient),
           const SizedBox(height: 22),
           BestieUserName(
             name: name,
             isClient: isClient,
             style: const TextStyle(
-              color: Colors.white, fontSize: 26,
+              color: Colors.white,
+              fontSize: 26,
               fontWeight: BestieTokens.fwBold,
               letterSpacing: BestieTokens.lsTight,
             ),
@@ -326,7 +353,9 @@ class _RingerScreen extends ConsumerWidget {
           const SizedBox(height: 8),
           Text(
             isMeeting
-                ? (meetingName.isEmpty ? 'invited you to a meeting' : 'invited you to "$meetingName"')
+                ? (meetingName.isEmpty
+                    ? 'invited you to a meeting'
+                    : 'invited you to "$meetingName"')
                 : (kind == 'GROUP' ? 'is calling the team' : 'is calling…'),
             textAlign: TextAlign.center,
             style: const TextStyle(color: Colors.white70, fontSize: 14),
@@ -334,21 +363,25 @@ class _RingerScreen extends ConsumerWidget {
           const Spacer(),
           Padding(
             padding: const EdgeInsets.fromLTRB(40, 0, 40, 56),
-            child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              _RingerButton(
-                icon: Icons.call_end_rounded,
-                label: 'Decline',
-                color: BestieTokens.cDanger,
-                onTap: onDecline,
-              ),
-              _RingerButton(
-                icon: mode == 'VOICE' ? Icons.call_rounded : Icons.videocam_rounded,
-                label: 'Accept',
-                color: BestieTokens.cSuccess,
-                onTap: onAccept,
-                bounce: true,
-              ),
-            ]),
+            child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _RingerButton(
+                    icon: Icons.call_end_rounded,
+                    label: 'Decline',
+                    color: BestieTokens.cDanger,
+                    onTap: onDecline,
+                  ),
+                  _RingerButton(
+                    icon: mode == 'VOICE'
+                        ? Icons.call_rounded
+                        : Icons.videocam_rounded,
+                    label: 'Accept',
+                    color: BestieTokens.cSuccess,
+                    onTap: onAccept,
+                    bounce: true,
+                  ),
+                ]),
           ),
         ]),
       ),
@@ -362,15 +395,22 @@ class _RingerButton extends StatefulWidget {
   final Color color;
   final VoidCallback onTap;
   final bool bounce;
-  const _RingerButton({required this.icon, required this.label, required this.color, required this.onTap, this.bounce = false});
+  const _RingerButton(
+      {required this.icon,
+      required this.label,
+      required this.color,
+      required this.onTap,
+      this.bounce = false});
 
   @override
   State<_RingerButton> createState() => _RingerButtonState();
 }
 
-class _RingerButtonState extends State<_RingerButton> with SingleTickerProviderStateMixin {
+class _RingerButtonState extends State<_RingerButton>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl = AnimationController(
-    vsync: this, duration: const Duration(milliseconds: 1200),
+    vsync: this,
+    duration: const Duration(milliseconds: 1200),
   );
 
   @override
@@ -380,7 +420,10 @@ class _RingerButtonState extends State<_RingerButton> with SingleTickerProviderS
   }
 
   @override
-  void dispose() { _ctrl.dispose(); super.dispose(); }
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -393,22 +436,29 @@ class _RingerButtonState extends State<_RingerButton> with SingleTickerProviderS
         behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
         child: SizedBox(
-          width: 96, height: 96,
+          width: 96,
+          height: 96,
           child: Center(
             child: AnimatedBuilder(
               animation: _ctrl,
               builder: (ctx, _) {
-                final t = widget.bounce ? (1 + 0.06 * (1 - (_ctrl.value - 0.5).abs() * 2)) : 1.0;
+                final t = widget.bounce
+                    ? (1 + 0.06 * (1 - (_ctrl.value - 0.5).abs() * 2))
+                    : 1.0;
                 return IgnorePointer(
                   child: Transform.scale(
                     scale: t,
                     child: Container(
-                      width: 72, height: 72,
+                      width: 72,
+                      height: 72,
                       decoration: BoxDecoration(
                         color: widget.color,
                         shape: BoxShape.circle,
                         boxShadow: [
-                          BoxShadow(color: widget.color.withOpacity(0.45), blurRadius: 24, spreadRadius: 1),
+                          BoxShadow(
+                              color: widget.color.withOpacity(0.45),
+                              blurRadius: 24,
+                              spreadRadius: 1),
                         ],
                       ),
                       child: Icon(widget.icon, color: Colors.white, size: 32),
@@ -421,7 +471,9 @@ class _RingerButtonState extends State<_RingerButton> with SingleTickerProviderS
         ),
       ),
       const SizedBox(height: 8),
-      Text(widget.label, style: const TextStyle(color: Colors.white, fontWeight: BestieTokens.fwSemibold)),
+      Text(widget.label,
+          style: const TextStyle(
+              color: Colors.white, fontWeight: BestieTokens.fwSemibold)),
     ]);
   }
 }
@@ -430,19 +482,25 @@ class _RingingAvatar extends StatefulWidget {
   final String name;
   final String? imageUrl;
   final bool isClient;
-  const _RingingAvatar({required this.name, required this.imageUrl, required this.isClient});
+  const _RingingAvatar(
+      {required this.name, required this.imageUrl, required this.isClient});
 
   @override
   State<_RingingAvatar> createState() => _RingingAvatarState();
 }
 
-class _RingingAvatarState extends State<_RingingAvatar> with SingleTickerProviderStateMixin {
+class _RingingAvatarState extends State<_RingingAvatar>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl = AnimationController(
-    vsync: this, duration: const Duration(milliseconds: 1800),
+    vsync: this,
+    duration: const Duration(milliseconds: 1800),
   )..repeat();
 
   @override
-  void dispose() { _ctrl.dispose(); super.dispose(); }
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -450,12 +508,17 @@ class _RingingAvatarState extends State<_RingingAvatar> with SingleTickerProvide
       animation: _ctrl,
       builder: (ctx, _) {
         return SizedBox(
-          width: 200, height: 200,
+          width: 200,
+          height: 200,
           child: Stack(alignment: Alignment.center, children: [
             for (int i = 0; i < 3; i++) ...[
               _ring((_ctrl.value + i / 3) % 1.0),
             ],
-            BestieAvatar(name: widget.name, imageUrl: widget.imageUrl, isClient: widget.isClient, size: 124),
+            BestieAvatar(
+                name: widget.name,
+                imageUrl: widget.imageUrl,
+                isClient: widget.isClient,
+                size: 124),
           ]),
         );
       },
@@ -466,10 +529,12 @@ class _RingingAvatarState extends State<_RingingAvatar> with SingleTickerProvide
     final size = 130 + 80 * t;
     final opacity = (1 - t).clamp(0.0, 1.0) * 0.45;
     return Container(
-      width: size, height: size,
+      width: size,
+      height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        border: Border.all(color: BestieTokens.cBrand.withOpacity(opacity), width: 2),
+        border: Border.all(
+            color: BestieTokens.cBrand.withOpacity(opacity), width: 2),
       ),
     );
   }
@@ -480,18 +545,26 @@ class _PulseDot extends StatefulWidget {
   @override
   State<_PulseDot> createState() => _PulseDotState();
 }
-class _PulseDotState extends State<_PulseDot> with SingleTickerProviderStateMixin {
+
+class _PulseDotState extends State<_PulseDot>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl = AnimationController(
-    vsync: this, duration: const Duration(milliseconds: 900),
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
   )..repeat(reverse: true);
   @override
-  void dispose() { _ctrl.dispose(); super.dispose(); }
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _ctrl,
       builder: (_, __) => Container(
-        width: 6, height: 6,
+        width: 6,
+        height: 6,
         decoration: BoxDecoration(
           color: BestieTokens.cSuccess.withOpacity(0.6 + 0.4 * _ctrl.value),
           shape: BoxShape.circle,

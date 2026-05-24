@@ -58,7 +58,7 @@ class ChatListScreen extends ConsumerWidget {
       ),
       bottomNavigationBar: SizedBox(
         // Reserve the floating nav footprint so the body stops above it.
-        height: 70.0 + MediaQuery.of(context).padding.bottom - 14,
+        height: 70.0 + MediaQuery.of(context).padding.bottom - 18,
       ),
       body: RefreshIndicator(
         onRefresh: () async => ref.refresh(channelsProvider.future),

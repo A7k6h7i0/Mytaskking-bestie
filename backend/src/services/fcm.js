@@ -44,13 +44,34 @@ async function sendToTokens(tokens, { title, body, data }) {
     return { sent: 0, failed: 0, disabled: !a };
   }
   const messaging = admin.messaging();
-  const messages = tokens.map((token) => ({
-    token,
-    notification: { title, body },
-    data: data ? Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])) : undefined,
-    android: { priority: 'high' },
-    apns: { headers: { 'apns-priority': '10' } },
-  }));
+  const stringData = data
+    ? Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)]))
+    : undefined;
+  const isCallLike = stringData?.type === 'call.incoming' || stringData?.type === 'meeting.invited';
+  const messages = tokens.map((token) => {
+    const aps = { sound: 'default', contentAvailable: true };
+    if (isCallLike) aps.category = 'CALL_INVITE';
+    const androidNotification = {
+      priority: isCallLike ? 'max' : 'high',
+      visibility: 'public',
+      sound: 'default',
+      clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+    };
+    if (isCallLike) androidNotification.channelId = 'calls';
+    return {
+      token,
+      notification: { title, body },
+      data: stringData,
+      android: {
+        priority: 'high',
+        notification: androidNotification,
+      },
+      apns: {
+        headers: { 'apns-priority': '10' },
+        payload: { aps },
+      },
+    };
+  });
   const result = await messaging.sendEach(messages);
   return { sent: result.successCount, failed: result.failureCount, responses: result.responses };
 }

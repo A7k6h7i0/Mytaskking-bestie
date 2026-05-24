@@ -73,6 +73,7 @@ async function initiate({ initiator, participantIds, kind = 'ONE_TO_ONE', channe
   });
 
   const tokenForUser = (uid) => agora.generateRtcToken({ channelName: call.channelName, uid });
+  await postCallEventMessage({ call, kind: 'STARTED', actor: initiator });
 
   return {
     call,
@@ -100,7 +101,6 @@ async function join({ callId, user }) {
   });
   if (call.status === 'RINGING') {
     await prisma.call.update({ where: { id: callId }, data: { status: 'ACTIVE', startedAt: new Date() } });
-    await postCallEventMessage({ call, kind: 'STARTED', actor: user });
   }
   return prisma.call.findUnique({ where: { id: callId }, include: callInclude });
 }
@@ -134,8 +134,23 @@ async function decline({ callId, user }) {
   });
 
   if (call.status === 'RINGING') {
+    await prisma.callParticipant.updateMany({
+      where: { callId, leftAt: null },
+      data: { leftAt: new Date() },
+    });
     await prisma.call.update({ where: { id: callId }, data: { status: 'MISSED', endedAt: new Date() } });
     await postCallEventMessage({ call, kind: 'MISSED', actor: user });
+  } else if (call.kind === 'ONE_TO_ONE') {
+    const ended = await prisma.call.update({
+      where: { id: callId },
+      data: { status: 'ENDED', endedAt: new Date() },
+      include: callInclude,
+    });
+    await prisma.callParticipant.updateMany({
+      where: { callId, leftAt: null },
+      data: { leftAt: new Date() },
+    });
+    await postCallEventMessage({ call: ended, kind: 'DECLINED', actor: user });
   } else {
     await postCallEventMessage({ call, kind: 'DECLINED', actor: user });
   }

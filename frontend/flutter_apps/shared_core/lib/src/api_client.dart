@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'auth_store.dart';
 
@@ -6,7 +8,9 @@ import 'auth_store.dart';
 /// versioned form — that way callers can't accidentally produce paths
 /// like `/api/v1/api/v1/dashboard/overview` by appending `/api/v1` twice.
 String _normalizeBaseUrl(String input) {
-  final trimmed = input.endsWith('/') ? input.substring(0, input.length - 1) : input;
+  final trimmed = input.endsWith('/')
+      ? input.substring(0, input.length - 1)
+      : input;
   if (trimmed.endsWith('/api/v1')) return trimmed;
   return '$trimmed/api/v1';
 }
@@ -14,53 +18,87 @@ String _normalizeBaseUrl(String input) {
 class BestieApi {
   final Dio dio;
   final BestieAuthStore auth;
+  Future<bool>? _refreshInFlight;
 
   BestieApi({required String baseUrl, required this.auth})
-      : dio = Dio(BaseOptions(
+    : dio = Dio(
+        BaseOptions(
           baseUrl: _normalizeBaseUrl(baseUrl),
           connectTimeout: const Duration(seconds: 15),
           receiveTimeout: const Duration(seconds: 30),
-        )) {
-    dio.interceptors.add(InterceptorsWrapper(
-      onRequest: (options, handler) {
-        final token = auth.accessToken;
-        if (token != null) options.headers['Authorization'] = 'Bearer $token';
-        handler.next(options);
-      },
-      onError: (e, handler) async {
-        if (e.response?.statusCode == 401 && auth.refreshToken != null) {
-          final ok = await _refresh();
-          if (ok) {
-            final req = e.requestOptions;
-            req.headers['Authorization'] = 'Bearer ${auth.accessToken}';
-            try {
-              final r = await dio.fetch(req);
-              return handler.resolve(r);
-            } catch (_) {}
+        ),
+      ) {
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          final token = auth.accessToken;
+          if (token != null) options.headers['Authorization'] = 'Bearer $token';
+          handler.next(options);
+        },
+        onError: (e, handler) async {
+          final isRefreshCall = e.requestOptions.path.endsWith('/auth/refresh');
+          if (!isRefreshCall &&
+              e.response?.statusCode == 401 &&
+              auth.refreshToken != null) {
+            final ok = await _refresh();
+            if (ok) {
+              final req = e.requestOptions;
+              req.headers['Authorization'] = 'Bearer ${auth.accessToken}';
+              try {
+                final r = await dio.fetch(req);
+                return handler.resolve(r);
+              } catch (_) {}
+            }
           }
-        }
-        handler.next(e);
-      },
-    ));
+          handler.next(e);
+        },
+      ),
+    );
   }
 
   Future<bool> _refresh() async {
+    final existing = _refreshInFlight;
+    if (existing != null) return existing;
+    final pending = _refreshOnce();
+    _refreshInFlight = pending;
     try {
-      final r = await dio.post('/auth/refresh', data: {'refreshToken': auth.refreshToken});
+      return await pending;
+    } finally {
+      _refreshInFlight = null;
+    }
+  }
+
+  Future<bool> _refreshOnce() async {
+    try {
+      final r = await dio.post(
+        '/auth/refresh',
+        data: {'refreshToken': auth.refreshToken},
+      );
       await auth.setSession(
         accessToken: r.data['accessToken'],
         refreshToken: r.data['refreshToken'],
         userJson: r.data['user'] as Map<String, dynamic>,
       );
       return true;
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 401 || code == 403 || code == 410) {
+        await auth.clear();
+      }
+      return false;
     } catch (_) {
-      await auth.clear();
       return false;
     }
   }
 
-  Future<Map<String, dynamic>> login({required String userId, required String password}) async {
-    final r = await dio.post('/auth/login', data: {'userId': userId, 'password': password});
+  Future<Map<String, dynamic>> login({
+    required String userId,
+    required String password,
+  }) async {
+    final r = await dio.post(
+      '/auth/login',
+      data: {'userId': userId, 'password': password},
+    );
     await auth.setSession(
       accessToken: r.data['accessToken'],
       refreshToken: r.data['refreshToken'],
@@ -76,7 +114,10 @@ class BestieApi {
     await auth.clear();
   }
 
-  Future<Map<String, dynamic>> get(String path, {Map<String, dynamic>? query}) async {
+  Future<Map<String, dynamic>> get(
+    String path, {
+    Map<String, dynamic>? query,
+  }) async {
     final r = await dio.get(path, queryParameters: query);
     return r.data as Map<String, dynamic>;
   }

@@ -326,6 +326,91 @@ router.post(
 );
 
 router.post(
+  '/:slug/participants',
+  validate({
+    body: Joi.object({
+      participantIds: Joi.array().items(Joi.string()).min(1).required(),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    const room = await prisma.meetingRoom.findUnique({ where: { slug: req.params.slug } });
+    if (!room || room.endedAt) throw NotFound('Meeting not found');
+    if (!canManageRoom(room, req.user)) throw Forbidden();
+
+    const requestedIds = Array.from(new Set(
+      req.body.participantIds
+        .map((uid) => String(uid || '').trim())
+        .filter((uid) => uid && uid !== req.user.id)
+    ));
+    if (!requestedIds.length) throw BadRequest('Need at least one participant');
+
+    const existing = await prisma.meetingRoomParticipant.findMany({
+      where: { roomId: room.id, userId: { in: requestedIds } },
+      select: { userId: true },
+    });
+    const existingIds = new Set(existing.map((p) => p.userId));
+    const inviteeIds = requestedIds.filter((uid) => !existingIds.has(uid));
+    const users = inviteeIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: inviteeIds }, tenantId: room.tenantId || undefined },
+          select: { id: true, name: true },
+        })
+      : [];
+
+    if (users.length) {
+      await prisma.meetingRoomParticipant.createMany({
+        data: users.map((u) => ({
+          roomId: room.id,
+          userId: u.id,
+          displayName: u.name || 'Invited',
+          joinedVia: 'INVITED',
+        })),
+      });
+
+      const payload = {
+        meeting: {
+          id: room.id,
+          slug: room.slug,
+          name: room.name,
+          mode: room.mode,
+          host: { id: req.user.id, name: req.user.name, avatarUrl: req.user.avatarUrl },
+        },
+      };
+      const io = req.app.get('io');
+      for (const u of users) {
+        io?.to(`user:${u.id}`).emit('meeting.invited', payload);
+      }
+      prisma.deviceToken
+        .findMany({ where: { userId: { in: users.map((u) => u.id) } } })
+        .then((devices) => {
+          if (!devices.length) return null;
+          return require('../../services/fcm').sendToTokens(devices.map((d) => d.token), {
+            title: `${req.user.name} invited you to a meeting`,
+            body: room.name,
+            data: {
+              type: 'meeting.invited',
+              meetingSlug: room.slug,
+              mode: room.mode,
+              fromName: req.user.name,
+            },
+          });
+        })
+        .catch(() => {});
+    }
+
+    const refreshed = await prisma.meetingRoom.findUnique({
+      where: { id: room.id },
+      include: { _count: { select: { participants: true } } },
+    });
+    res.json({
+      room: serializeRoom(refreshed),
+      invited: users.map((u) => ({ id: u.id, name: u.name })),
+      skipped: requestedIds.length - users.length,
+    });
+  })
+);
+
+router.post(
   '/',
   validate({
     body: Joi.object({

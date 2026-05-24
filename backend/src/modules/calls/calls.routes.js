@@ -13,6 +13,12 @@ const prisma = require('../../database/prisma');
 const router = Router();
 router.use(requireAuth);
 
+function emitToCallParticipants(io, call, event, payload) {
+  for (const p of call?.participants || []) {
+    io?.to(`user:${p.userId}`).emit(event, payload);
+  }
+}
+
 router.post(
   '/initiate',
   validate({
@@ -80,11 +86,13 @@ router.post(
       try {
         const cur = await prisma.call.findUnique({ where: { id: result.call.id } });
         if (!cur || cur.status !== 'RINGING') return;
-        await prisma.call.update({
+        const missed = await prisma.call.update({
           where: { id: cur.id },
           data: { status: 'MISSED', endedAt: new Date() },
+          include: { participants: true },
         });
-        req.app.get('io')?.emit('call.declined', { callId: cur.id, status: 'MISSED' });
+        emitToCallParticipants(req.app.get('io'), missed, 'call.declined', { callId: cur.id, status: 'MISSED' });
+        emitToCallParticipants(req.app.get('io'), missed, 'call.ended', { callId: cur.id, status: 'MISSED' });
       } catch (_) {/* job runner cleans up stragglers */}
     }, 60 * 1000);
     res.status(201).json({ ...result, mode });
@@ -98,19 +106,44 @@ router.get(
 
 router.post('/:id/join', asyncHandler(async (req, res) => {
   const call = await service.join({ callId: req.params.id, user: req.user });
-  req.app.get('io')?.emit('call.participant.joined', { callId: call.id, userId: req.user.id });
+  emitToCallParticipants(req.app.get('io'), call, 'call.participant.joined', {
+    callId: call.id,
+    userId: req.user.id,
+  });
   res.json(call);
 }));
 
 router.post('/:id/leave', asyncHandler(async (req, res) => {
   const call = await service.leave({ callId: req.params.id, user: req.user });
-  req.app.get('io')?.emit('call.participant.left', { callId: call.id, userId: req.user.id });
+  emitToCallParticipants(req.app.get('io'), call, 'call.participant.left', {
+    callId: call.id,
+    userId: req.user.id,
+    status: call.status,
+  });
+  if (call.status === 'ENDED') {
+    emitToCallParticipants(req.app.get('io'), call, 'call.ended', {
+      callId: call.id,
+      userId: req.user.id,
+      status: call.status,
+    });
+  }
   res.json(call);
 }));
 
 router.post('/:id/decline', asyncHandler(async (req, res) => {
   const call = await service.decline({ callId: req.params.id, user: req.user });
-  req.app.get('io')?.emit('call.declined', { callId: call.id, userId: req.user.id, status: call.status });
+  emitToCallParticipants(req.app.get('io'), call, 'call.declined', {
+    callId: call.id,
+    userId: req.user.id,
+    status: call.status,
+  });
+  if (call.status === 'ENDED' || call.status === 'MISSED') {
+    emitToCallParticipants(req.app.get('io'), call, 'call.ended', {
+      callId: call.id,
+      userId: req.user.id,
+      status: call.status,
+    });
+  }
   res.json(call);
 }));
 

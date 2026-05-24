@@ -12,6 +12,13 @@ import 'router.dart';
 import 'screens/incoming_call_overlay.dart';
 import 'state.dart' hide ThemeMode;
 
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  try {
+    await Firebase.initializeApp();
+  } catch (_) {}
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final auth = core.BestieAuthStore();
@@ -25,6 +32,7 @@ void main() async {
   // log + carry on rather than crash the app at boot.
   try {
     await Firebase.initializeApp();
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
     unawaited(_wirePushNotifications(api, auth));
   } catch (_) {/* push will silently no-op */}
 
@@ -50,14 +58,18 @@ Future<void> _wirePushNotifications(
   // iOS requires explicit permission; Android grants by default below 13.
   try {
     await messaging.requestPermission(alert: true, badge: true, sound: true);
-  } catch (_) {/* keep going — silent permission denial still allows data msgs */}
+  } catch (_) {
+    /* keep going — silent permission denial still allows data msgs */
+  }
 
   Future<void> registerCurrent() async {
     if (auth.user == null) return;
     final token = await messaging.getToken();
     if (token == null) return;
     final platform = Platform.isIOS ? 'ios' : 'android';
-    try { await api.registerDevice(token: token, platform: platform); } catch (_) {}
+    try {
+      await api.registerDevice(token: token, platform: platform);
+    } catch (_) {}
   }
 
   // Initial register + refresh on token rotation.
@@ -72,11 +84,67 @@ Future<void> _wirePushNotifications(
   FirebaseMessaging.onMessage.listen((_) {/* socket handles UI */});
 }
 
-class BestieApp extends ConsumerWidget {
+class BestieApp extends ConsumerStatefulWidget {
   const BestieApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<BestieApp> createState() => _BestieAppState();
+}
+
+class _BestieAppState extends ConsumerState<BestieApp> {
+  StreamSubscription<RemoteMessage>? _pushTapSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _wirePushDeepLinks();
+  }
+
+  @override
+  void dispose() {
+    _pushTapSub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _wirePushDeepLinks() async {
+    try {
+      final initial = await FirebaseMessaging.instance.getInitialMessage();
+      if (initial != null) {
+        WidgetsBinding.instance
+            .addPostFrameCallback((_) => _openPushTarget(initial));
+      }
+      _pushTapSub =
+          FirebaseMessaging.onMessageOpenedApp.listen(_openPushTarget);
+    } catch (_) {/* Firebase is optional in local builds */}
+  }
+
+  void _openPushTarget(RemoteMessage message) {
+    final route = _routeForPush(message.data);
+    if (route == null) return;
+    ref.read(routerProvider).go(route);
+  }
+
+  String? _routeForPush(Map<String, dynamic> data) {
+    final type = data['type']?.toString();
+    if (type == 'call.incoming') {
+      final callId = data['callId']?.toString();
+      if (callId == null || callId.isEmpty) return null;
+      final mode =
+          data['mode']?.toString().toLowerCase() == 'voice' ? 'voice' : 'video';
+      return '/call/$callId?mode=$mode';
+    }
+    if (type == 'meeting.invited') {
+      final slug = data['meetingSlug']?.toString();
+      if (slug == null || slug.isEmpty) return null;
+      final mode =
+          data['mode']?.toString().toLowerCase() == 'voice' ? 'voice' : 'video';
+      return '/meeting/$slug?mode=$mode';
+    }
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final mode = ref.watch(themeModeProvider);
     return MaterialApp.router(
       title: 'MyTaskKing',
@@ -84,14 +152,15 @@ class BestieApp extends ConsumerWidget {
       theme: BestieTheme.light(),
       darkTheme: BestieTheme.dark(),
       themeMode: switch (mode) {
-        core.ThemeMode.light  => ThemeMode.light,
-        core.ThemeMode.dark   => ThemeMode.dark,
+        core.ThemeMode.light => ThemeMode.light,
+        core.ThemeMode.dark => ThemeMode.dark,
         core.ThemeMode.system => ThemeMode.system,
       },
       routerConfig: ref.watch(routerProvider),
       // The overlay listens for incoming-call socket events globally and
       // covers whatever screen you're on with an Accept/Decline ringer.
-      builder: (ctx, child) => IncomingCallOverlay(child: child ?? const SizedBox.shrink()),
+      builder: (ctx, child) =>
+          IncomingCallOverlay(child: child ?? const SizedBox.shrink()),
     );
   }
 }
