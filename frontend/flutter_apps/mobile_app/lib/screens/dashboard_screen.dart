@@ -59,14 +59,9 @@ class DashboardScreen extends ConsumerWidget {
             final sections = <Widget>[
               if (!isClient && _shouldShowCheckInBanner(attendanceData))
                 _checkInBanner(context, attendanceData),
-              GridView.count(
-                crossAxisCount: 2,
-                crossAxisSpacing: BestieTokens.s2,
-                mainAxisSpacing: BestieTokens.s2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                childAspectRatio: 1.5,
-                children: _statsFor(context, counts, isAdmin: isAdmin, isClient: isClient),
+              _statsGrid(
+                context,
+                _statsFor(context, counts, isAdmin: isAdmin, isClient: isClient),
               ),
               if (!isClient && todayTasks.isNotEmpty)
                 _todayTasksCard(context, todayTasks),
@@ -421,6 +416,25 @@ class DashboardScreen extends ConsumerWidget {
       tile(Icons.chat_bubble_outline,      'Channels',           c['activeChannels'],     BestieTokens.cBrand),
       tile(Icons.notifications_none,       'Unread',             c['unreadNotifs'],       BestieTokens.cInfo),
     ];
+  }
+
+  Widget _statsGrid(BuildContext context, List<Widget> children) {
+    return LayoutBuilder(builder: (context, constraints) {
+      const gap = BestieTokens.s2;
+      final tileWidth = (constraints.maxWidth - gap) / 2;
+      return Wrap(
+        spacing: gap,
+        runSpacing: gap,
+        children: [
+          for (final child in children)
+            SizedBox(
+              width: tileWidth,
+              height: 112,
+              child: child,
+            ),
+        ],
+      );
+    });
   }
 
   /// Compact "Your week in numbers" card — tasks shipped, still open, and a
