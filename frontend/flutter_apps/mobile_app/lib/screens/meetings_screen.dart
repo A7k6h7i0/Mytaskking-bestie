@@ -21,8 +21,11 @@ class MeetingsScreen extends ConsumerWidget {
         foregroundColor: colors.text,
         title: const Text('Meetings'),
       ),
-      body: Stack(fit: StackFit.expand, children: [
-        RefreshIndicator(
+      bottomNavigationBar: SizedBox(
+        // Reserve the floating nav footprint so the body stops above it.
+        height: 70.0 + 16 + MediaQuery.of(context).padding.bottom + 12,
+      ),
+      body: RefreshIndicator(
         onRefresh: () async => ref.refresh(meetingsProvider.future),
         child: meetings.when(
           loading: () => const Center(child: BestieSpinner()),
@@ -89,17 +92,11 @@ class MeetingsScreen extends ConsumerWidget {
           },
         ),
       ),
-        Positioned(
-          right: 16,
-          // Nav: 70 height + 16 bottom margin + safe-area + 12 gap.
-          bottom: 70 + 16 + MediaQuery.of(context).padding.bottom + 12,
-          child: FloatingActionButton.extended(
-            onPressed: () => _create(context, ref),
-            icon: const Icon(Icons.add),
-            label: const Text('New meeting'),
-          ),
-        ),
-      ]),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _create(context, ref),
+        icon: const Icon(Icons.add),
+        label: const Text('New meeting'),
+      ),
     );
   }
 

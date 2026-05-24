@@ -65,9 +65,11 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
     final c = BestieColors.of(context);
     final tasks = ref.watch(tasksKanbanProvider);
 
-    // Shell nav: 70 px tall + 16 px outer bottom margin + safe-area inset.
-    // Add 12 px gap so the FAB doesn't kiss the top of the nav pill.
-    final fabOffset = 70.0 + 16 + MediaQuery.of(context).padding.bottom + 12;
+    // Reserve the floating nav footprint (70 px height + 16 outer margin +
+    // safe-area inset + a 12 px gap) so the inner body stops above the nav
+    // pill rather than extending behind it. Lets the default FAB anchor
+    // sit naturally above the nav without any custom positioning.
+    final navReserve = 70.0 + 16 + MediaQuery.of(context).padding.bottom + 12;
     return Scaffold(
       backgroundColor: c.bg,
       appBar: _selecting ? _selectionAppBar(c) : AppBar(
@@ -76,8 +78,8 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
         foregroundColor: c.text,
         title: const Text('Tasks'),
       ),
-      body: Stack(fit: StackFit.expand, children: [
-        RefreshIndicator(
+      bottomNavigationBar: SizedBox(height: navReserve),
+      body: RefreshIndicator(
         onRefresh: () async => ref.refresh(tasksKanbanProvider.future),
         child: tasks.when(
           loading: () => const BestieSkeletonList(
@@ -146,23 +148,15 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
           },
         ),
       ),
-        // Shell sets extendBody: true so Scaffold's FAB slot lands behind
-        // the floating bottom nav. Render the FAB ourselves inside the body
-        // via a Positioned so its offset is explicit and never tangled up
-        // with Scaffold's positioning math.
-        if (!_selecting)
-          Positioned(
-            right: 16,
-            bottom: fabOffset,
-            child: FloatingActionButton.extended(
+      floatingActionButton: _selecting
+          ? null
+          : FloatingActionButton.extended(
               onPressed: _newTask,
               backgroundColor: BestieTokens.cBrand,
               foregroundColor: Colors.white,
               icon: const Icon(Icons.add_rounded),
               label: const Text('New task'),
             ),
-          ),
-      ]),
     );
   }
 

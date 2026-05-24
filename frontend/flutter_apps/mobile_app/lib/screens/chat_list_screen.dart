@@ -56,8 +56,11 @@ class ChatListScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: Stack(fit: StackFit.expand, children: [
-        RefreshIndicator(
+      bottomNavigationBar: SizedBox(
+        // Reserve the floating nav footprint so the body stops above it.
+        height: 70.0 + 16 + MediaQuery.of(context).padding.bottom + 12,
+      ),
+      body: RefreshIndicator(
         onRefresh: () async => ref.refresh(channelsProvider.future),
         child: channels.when(
           loading: () => const BestieSkeletonList(itemCount: 6),
@@ -128,19 +131,13 @@ class ChatListScreen extends ConsumerWidget {
           },
         ),
       ),
-        Positioned(
-          right: 16,
-          // Nav: 70 height + 16 bottom margin + safe-area + 12 gap.
-          bottom: 70 + 16 + MediaQuery.of(context).padding.bottom + 12,
-          child: FloatingActionButton(
-            backgroundColor: BestieTokens.cBrand,
-            foregroundColor: Colors.white,
-            tooltip: 'New chat',
-            onPressed: () => _newChat(context, ref),
-            child: const Icon(Icons.edit_outlined),
-          ),
-        ),
-      ]),
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: BestieTokens.cBrand,
+        foregroundColor: Colors.white,
+        tooltip: 'New chat',
+        onPressed: () => _newChat(context, ref),
+        child: const Icon(Icons.edit_outlined),
+      ),
     );
   }
 
