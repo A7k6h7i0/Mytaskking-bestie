@@ -29,7 +29,7 @@ class BestieWindowsApp extends ConsumerWidget {
     final user = ref.watch(authStoreProvider).user;
     final mode = ref.watch(themeModeProvider);
     return MaterialApp(
-      title: 'Bestie · Windows',
+      title: 'MyTaskKing · Windows',
       debugShowCheckedModeBanner: false,
       theme: BestieTheme.light(),
       darkTheme: BestieTheme.dark(),

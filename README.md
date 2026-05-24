@@ -1,4 +1,4 @@
-# Bestie — Enterprise Company Management Platform
+# MyTaskKing — Enterprise Company Management Platform
 
 Premium enterprise collaboration and management platform: internal company collaboration, employee + client management, realtime chat, advanced task management, telecaller CRM, group channels, voice calling, desktop + mobile + web.
 

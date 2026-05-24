@@ -31,7 +31,7 @@ class BestieApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final mode = ref.watch(themeModeProvider);
     return MaterialApp.router(
-      title: 'Bestie',
+      title: 'MyTaskKing',
       debugShowCheckedModeBanner: false,
       theme: BestieTheme.light(),
       darkTheme: BestieTheme.dark(),

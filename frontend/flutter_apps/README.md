@@ -1,4 +1,4 @@
-# Bestie — Flutter apps
+# MyTaskKing — Flutter apps
 
 Four targets, one shared codebase. Mobile (Android + iOS) is the source of
 truth for the screen widgets; the desktop apps consume the same screens

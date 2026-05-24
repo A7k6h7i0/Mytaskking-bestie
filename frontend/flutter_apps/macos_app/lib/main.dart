@@ -29,7 +29,7 @@ class BestieMacApp extends ConsumerWidget {
     final user = ref.watch(authStoreProvider).user;
     final mode = ref.watch(themeModeProvider);
     return MaterialApp(
-      title: 'Bestie · macOS',
+      title: 'MyTaskKing · macOS',
       debugShowCheckedModeBanner: false,
       theme: BestieTheme.light(),
       darkTheme: BestieTheme.dark(),

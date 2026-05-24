@@ -1,4 +1,4 @@
-# Bestie Web
+# MyTaskKing Web
 
 React 18 + Vite + TypeScript. Renders the Admin Panel, the Company Dashboard, and the Client Portal from one codebase — the role on the authenticated user decides what they see.
 

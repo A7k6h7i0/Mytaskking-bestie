@@ -44,7 +44,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               SizedBox(height: 16),
               Text('Welcome back', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
               SizedBox(height: 4),
-              Text('Loading your workspace…', style: TextStyle(color: BestieTokens.cTextMuted)),
+              Text('Loading MyTaskKing…', style: TextStyle(color: BestieTokens.cTextMuted)),
             ],
           ),
         ),
