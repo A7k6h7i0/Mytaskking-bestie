@@ -56,7 +56,8 @@ class ChatListScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: RefreshIndicator(
+      body: Stack(children: [
+        RefreshIndicator(
         onRefresh: () async => ref.refresh(channelsProvider.future),
         child: channels.when(
           loading: () => const BestieSkeletonList(itemCount: 6),
@@ -127,21 +128,19 @@ class ChatListScreen extends ConsumerWidget {
           },
         ),
       ),
-      floatingActionButton: Transform.translate(
-        // Lift above the shell's floating bottom nav (70 px + 12 px outer
-        // margin + safe-area inset). Transform.translate shifts the FAB
-        // visually without re-running Scaffold's positioning math.
-        offset: Offset(
-          0, -(70 + MediaQuery.of(context).padding.bottom + 12),
+        Positioned(
+          right: 16,
+          // Nav: 70 height + 16 bottom margin + safe-area + 12 gap.
+          bottom: 70 + 16 + MediaQuery.of(context).padding.bottom + 12,
+          child: FloatingActionButton(
+            backgroundColor: BestieTokens.cBrand,
+            foregroundColor: Colors.white,
+            tooltip: 'New chat',
+            onPressed: () => _newChat(context, ref),
+            child: const Icon(Icons.edit_outlined),
+          ),
         ),
-        child: FloatingActionButton(
-          backgroundColor: BestieTokens.cBrand,
-          foregroundColor: Colors.white,
-          tooltip: 'New chat',
-          onPressed: () => _newChat(context, ref),
-          child: const Icon(Icons.edit_outlined),
-        ),
-      ),
+      ]),
     );
   }
 

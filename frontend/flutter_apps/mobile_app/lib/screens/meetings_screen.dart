@@ -21,7 +21,8 @@ class MeetingsScreen extends ConsumerWidget {
         foregroundColor: colors.text,
         title: const Text('Meetings'),
       ),
-      body: RefreshIndicator(
+      body: Stack(children: [
+        RefreshIndicator(
         onRefresh: () async => ref.refresh(meetingsProvider.future),
         child: meetings.when(
           loading: () => const Center(child: BestieSpinner()),
@@ -88,19 +89,17 @@ class MeetingsScreen extends ConsumerWidget {
           },
         ),
       ),
-      floatingActionButton: Transform.translate(
-        // Lift above the shell's floating bottom nav (70 + outer margin +
-        // safe-area inset). Transform shifts visually without changing the
-        // FAB's layout size in Scaffold's positioning math.
-        offset: Offset(
-          0, -(70 + MediaQuery.of(context).padding.bottom + 12),
+        Positioned(
+          right: 16,
+          // Nav: 70 height + 16 bottom margin + safe-area + 12 gap.
+          bottom: 70 + 16 + MediaQuery.of(context).padding.bottom + 12,
+          child: FloatingActionButton.extended(
+            onPressed: () => _create(context, ref),
+            icon: const Icon(Icons.add),
+            label: const Text('New meeting'),
+          ),
         ),
-        child: FloatingActionButton.extended(
-          onPressed: () => _create(context, ref),
-          icon: const Icon(Icons.add),
-          label: const Text('New meeting'),
-        ),
-      ),
+      ]),
     );
   }
 

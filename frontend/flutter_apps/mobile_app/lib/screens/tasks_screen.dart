@@ -65,6 +65,9 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
     final c = BestieColors.of(context);
     final tasks = ref.watch(tasksKanbanProvider);
 
+    // Shell nav: 70 px tall + 16 px outer bottom margin + safe-area inset.
+    // Add 12 px gap so the FAB doesn't kiss the top of the nav pill.
+    final fabOffset = 70.0 + 16 + MediaQuery.of(context).padding.bottom + 12;
     return Scaffold(
       backgroundColor: c.bg,
       appBar: _selecting ? _selectionAppBar(c) : AppBar(
@@ -73,7 +76,8 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
         foregroundColor: c.text,
         title: const Text('Tasks'),
       ),
-      body: RefreshIndicator(
+      body: Stack(children: [
+        RefreshIndicator(
         onRefresh: () async => ref.refresh(tasksKanbanProvider.future),
         child: tasks.when(
           loading: () => const BestieSkeletonList(
@@ -142,25 +146,23 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
           },
         ),
       ),
-      // Shell sets extendBody: true so the body extends behind the floating
-      // bottom nav (70 px + 12 px outer margin + safe-area inset). The
-      // Scaffold positions FABs against the body bottom, so without this
-      // shift the FAB lands on top of the Meet/More tabs.
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-      floatingActionButton: _selecting
-          ? null
-          : Transform.translate(
-              offset: Offset(
-                0, -(70 + MediaQuery.of(context).padding.bottom + 12),
-              ),
-              child: FloatingActionButton.extended(
-                onPressed: _newTask,
-                backgroundColor: BestieTokens.cBrand,
-                foregroundColor: Colors.white,
-                icon: const Icon(Icons.add_rounded),
-                label: const Text('New task'),
-              ),
+        // Shell sets extendBody: true so Scaffold's FAB slot lands behind
+        // the floating bottom nav. Render the FAB ourselves inside the body
+        // via a Positioned so its offset is explicit and never tangled up
+        // with Scaffold's positioning math.
+        if (!_selecting)
+          Positioned(
+            right: 16,
+            bottom: fabOffset,
+            child: FloatingActionButton.extended(
+              onPressed: _newTask,
+              backgroundColor: BestieTokens.cBrand,
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('New task'),
             ),
+          ),
+      ]),
     );
   }
 
