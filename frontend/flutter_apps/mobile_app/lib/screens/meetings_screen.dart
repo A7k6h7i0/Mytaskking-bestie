@@ -146,137 +146,136 @@ class MeetingsScreen extends ConsumerWidget {
         if (employees.isEmpty) {
           WidgetsBinding.instance.addPostFrameCallback((_) => loadPeople(set));
         }
-        return Padding(
-          padding: EdgeInsets.fromLTRB(BestieTokens.s4, 0, BestieTokens.s4,
-              MediaQuery.of(ctx).viewInsets.bottom + BestieTokens.s4),
-          child: ListView(
-            shrinkWrap: true,
-            children: [
-              BestieTextField(label: 'Name', controller: name, hint: 'Design review'),
-              const SizedBox(height: BestieTokens.s3),
-              const Text('Mode',
-                  style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: BestieTokens.cTextSoft)),
-              const SizedBox(height: 6),
-              BestieSegmentedControl<String>(
-                value: mode,
-                onChanged: (v) => set(() => mode = v),
-                options: const [
-                  BestieSegmentOption(value: 'VOICE',      label: 'Voice'),
-                  BestieSegmentOption(value: 'VIDEO',      label: 'Video'),
-                  BestieSegmentOption(value: 'WEBINAR',    label: 'Webinar'),
-                  BestieSegmentOption(value: 'LIVESTREAM', label: 'Live'),
-                ],
-              ),
-              const SizedBox(height: BestieTokens.s3),
-              const Text('Invite from organization',
-                  style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: BestieTokens.cTextSoft)),
-              if (picked.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
-                      for (final p in picked)
-                        InputChip(
-                          avatar: BestieAvatar(
-                            name: p['name'] ?? '?',
-                            imageUrl: p['avatarUrl']?.toString(),
-                            isClient: p['isClient'] ?? false,
-                            size: 18,
-                          ),
-                          label: Text(
-                            p['name']?.toString() ?? '',
-                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-                          ),
-                          onDeleted: () => set(() =>
-                              picked.removeWhere((x) => x['id'] == p['id'])),
+        // Two-zone layout: the form scrolls in the top zone, the Create
+        // button is pinned in the bottom zone. Earlier the button sat at
+        // the end of a long ListView and a long invitee list pushed it
+        // off-screen.
+        final candidates = employees
+            .where((e) => !picked.any((p) => p['id'] == e['id']))
+            .take(20)
+            .toList();
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(
+                    BestieTokens.s4, 0, BestieTokens.s4, BestieTokens.s2),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    BestieTextField(label: 'Name', controller: name, hint: 'Design review'),
+                    const SizedBox(height: BestieTokens.s3),
+                    const Text('Mode',
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: BestieTokens.cTextSoft)),
+                    const SizedBox(height: 6),
+                    BestieSegmentedControl<String>(
+                      value: mode,
+                      onChanged: (v) => set(() => mode = v),
+                      options: const [
+                        BestieSegmentOption(value: 'VOICE',      label: 'Voice'),
+                        BestieSegmentOption(value: 'VIDEO',      label: 'Video'),
+                        BestieSegmentOption(value: 'WEBINAR',    label: 'Webinar'),
+                        BestieSegmentOption(value: 'LIVESTREAM', label: 'Live'),
+                      ],
+                    ),
+                    const SizedBox(height: BestieTokens.s3),
+                    const Text('Invite from organization',
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: BestieTokens.cTextSoft)),
+                    if (picked.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            for (final p in picked)
+                              InputChip(
+                                avatar: BestieAvatar(
+                                  name: p['name'] ?? '?',
+                                  imageUrl: p['avatarUrl']?.toString(),
+                                  isClient: p['isClient'] ?? false,
+                                  size: 18,
+                                ),
+                                label: Text(
+                                  p['name']?.toString() ?? '',
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                                ),
+                                onDeleted: () => set(() =>
+                                    picked.removeWhere((x) => x['id'] == p['id'])),
+                              ),
+                          ],
                         ),
+                      ),
+                    const SizedBox(height: 6),
+                    BestieTextField(
+                      label: 'Search people',
+                      controller: search,
+                      icon: Icons.search,
+                      onChanged: (v) => loadPeople(set, v),
+                    ),
+                    const SizedBox(height: 6),
+                    // Inline list — no inner scroll, the outer
+                    // SingleChildScrollView owns scrolling so the Create
+                    // button stays pinned no matter how many people show.
+                    for (var i = 0; i < candidates.length; i++) ...[
+                      if (i > 0) const Divider(height: 1),
+                      ListTile(
+                        dense: true,
+                        leading: BestieAvatar(
+                          name: candidates[i]['name'] ?? '?',
+                          imageUrl: candidates[i]['avatarUrl']?.toString(),
+                          isClient: candidates[i]['isClient'] ?? false,
+                          size: 28,
+                        ),
+                        title: BestieUserName(
+                          name: candidates[i]['name'] ?? '',
+                          isClient: candidates[i]['isClient'] ?? false,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        subtitle: Text(
+                          '${candidates[i]['userId'] ?? ''} · ${(candidates[i]['role'] ?? '').toString().replaceAll('_', ' ')}',
+                          style: const TextStyle(
+                              color: BestieTokens.cTextMuted, fontSize: 12),
+                        ),
+                        trailing: const Icon(Icons.add, size: 16),
+                        onTap: () => set(() => picked.add(candidates[i])),
+                      ),
                     ],
-                  ),
-                ),
-              const SizedBox(height: 6),
-              BestieTextField(
-                label: 'Search people',
-                controller: search,
-                icon: Icons.search,
-                onChanged: (v) => loadPeople(set, v),
-              ),
-              const SizedBox(height: 6),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 220),
-                child: ListView.separated(
-                  shrinkWrap: true,
-                  itemCount: employees.where((e) => !picked.any((p) => p['id'] == e['id'])).take(20).length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
-                  itemBuilder: (_, i) {
-                    final candidates = employees
-                        .where((e) => !picked.any((p) => p['id'] == e['id']))
-                        .take(20)
-                        .toList();
-                    final p = candidates[i];
-                    return ListTile(
-                      dense: true,
-                      leading: BestieAvatar(
-                        name: p['name'] ?? '?',
-                        imageUrl: p['avatarUrl']?.toString(),
-                        isClient: p['isClient'] ?? false,
-                        size: 28,
-                      ),
-                      title: BestieUserName(
-                        name: p['name'] ?? '',
-                        isClient: p['isClient'] ?? false,
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      subtitle: Text(
-                        '${p['userId'] ?? ''} · ${(p['role'] ?? '').toString().replaceAll('_', ' ')}',
-                        style: const TextStyle(
-                            color: BestieTokens.cTextMuted, fontSize: 12),
-                      ),
-                      trailing: const Icon(Icons.add, size: 16),
-                      onTap: () => set(() => picked.add(p)),
-                    );
-                  },
+                    const SizedBox(height: BestieTokens.s3),
+                  ],
                 ),
               ),
-              const SizedBox(height: BestieTokens.s3),
-              BestiePrimaryButton(
+            ),
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                BestieTokens.s4,
+                8,
+                BestieTokens.s4,
+                MediaQuery.of(ctx).viewInsets.bottom + BestieTokens.s4,
+              ),
+              child: BestiePrimaryButton(
                 label: picked.isEmpty
                     ? 'Create room'
                     : 'Create + invite ${picked.length}',
                 onPressed: () async {
                   if (name.text.trim().isEmpty) return;
                   try {
-                    final room = await api.createMeeting(
+                    // The backend now handles invite fan-out (socket
+                    // ringer + FCM push) when we pass participantIds.
+                    await api.createMeeting(
                       name: name.text.trim(),
                       mode: mode,
+                      participantIds: picked
+                          .map((p) => p['id'] as String)
+                          .toList(),
                     );
-                    final slug = room['slug']?.toString();
-                    // For each picked invitee, drop a DM with the join URL so
-                    // they get a tap-to-join notification. Done sequentially
-                    // to avoid the per-route rate limiter.
-                    if (slug != null && picked.isNotEmpty) {
-                      final link = 'https://mytaskking.com/meetings/join/$slug';
-                      final body = 'You\'re invited to "${room['name']}" — $link';
-                      for (final invitee in picked) {
-                        try {
-                          final ch = await api.createChannel(
-                            kind: 'DM',
-                            memberIds: [invitee['id'] as String],
-                          );
-                          final chId = ch['id']?.toString();
-                          if (chId != null) {
-                            await api.sendMessage(chId, body: body, kind: 'TEXT');
-                          }
-                        } catch (_) {/* keep going on individual failures */}
-                      }
-                    }
                     if (ctx.mounted) Navigator.pop(ctx);
                     ref.invalidate(meetingsProvider);
                     if (context.mounted) {
@@ -296,8 +295,8 @@ class MeetingsScreen extends ConsumerWidget {
                   }
                 },
               ),
-            ],
-          ),
+            ),
+          ],
         );
       });
     });

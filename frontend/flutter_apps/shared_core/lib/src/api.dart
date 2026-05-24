@@ -103,8 +103,17 @@ extension BestieApiExt on BestieApi {
       });
   Future<List<Map<String, dynamic>>> listMeetings() =>
       get('/meetings').then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
-  Future<Map<String, dynamic>> createMeeting({required String name, String mode = 'VIDEO'}) =>
-      post('/meetings', body: {'name': name, 'mode': mode});
+  Future<Map<String, dynamic>> createMeeting({
+    required String name,
+    String mode = 'VIDEO',
+    List<String>? participantIds,
+  }) =>
+      post('/meetings', body: {
+        'name': name,
+        'mode': mode,
+        if (participantIds != null && participantIds.isNotEmpty)
+          'participantIds': participantIds,
+      });
   Future<Map<String, dynamic>> meetingToken(String slug) => post('/meetings/$slug/token');
   Future<void> endMeeting(String slug) async {
     await post('/meetings/$slug/end');

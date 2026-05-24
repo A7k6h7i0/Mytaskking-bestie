@@ -22,12 +22,23 @@ function makeChannelName() {
 async function postCallEventMessage({ call, kind, actor }) {
   if (!call?.channelId) return;
   const initiatorName = call.initiator?.name || 'Someone';
-  const body =
+  const text =
     kind === 'MISSED'   ? `📞 Missed call from ${initiatorName}` :
     kind === 'DECLINED' ? `📞 ${actor?.name || 'A teammate'} declined the call` :
     kind === 'STARTED'  ? `📞 ${initiatorName} started a ${call.kind === 'GROUP' ? 'group call' : 'call'}` :
     kind === 'ENDED'    ? `📞 Call ended` :
                           `📞 Call event`;
+  // Append a pipe-delimited trailer with the call id + status so the
+  // Flutter chat bubble can offer a tap-to-join affordance (like WhatsApp).
+  // The Message model has no JSON `data` column yet — a deterministic
+  // suffix string is the lightest-weight way to carry the metadata until
+  // we run a migration.
+  const status =
+    kind === 'STARTED' ? 'ACTIVE' :
+    kind === 'ENDED'   ? 'ENDED'  :
+    kind === 'MISSED'  ? 'MISSED' :
+    kind === 'DECLINED'? 'DECLINED': 'UNKNOWN';
+  const body = `${text}|call:${call.id}:${status}`;
   try {
     const channel = await prisma.channel.findUnique({ where: { id: call.channelId } });
     if (!channel) return;

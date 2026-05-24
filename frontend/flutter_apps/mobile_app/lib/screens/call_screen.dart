@@ -158,6 +158,13 @@ class _CallScreenState extends ConsumerState<CallScreen> {
         onUserOffline: (conn, remoteUid, reason) {
           if (!mounted) return;
           setState(() { _remoteUids.remove(remoteUid); _remoteNames.remove(remoteUid); });
+          // If we're the last one in the room (1:1 calls always, group calls
+          // when everyone else has dropped), hang up automatically so the
+          // caller isn't left staring at a "Waiting for others…" screen
+          // after the other party ends.
+          if (_remoteUids.isEmpty && _joined) {
+            _hangup();
+          }
         },
         onTokenPrivilegeWillExpire: (conn, t) async {
           try {

@@ -7,6 +7,8 @@ const validate = require('../../middleware/validate');
 const { requireAuth } = require('../../middleware/auth');
 const service = require('./calls.service');
 const audit = require('../../services/audit');
+const fcm = require('../../services/fcm');
+const prisma = require('../../database/prisma');
 
 const router = Router();
 router.use(requireAuth);
@@ -47,6 +49,44 @@ router.post(
         token: result.tokens[p.userId],
       });
     }
+    // FCM push to every invited participant so the recipient's phone rings
+    // even when the app is backgrounded or killed. The Flutter side reads
+    // the `type` / `callId` data fields to know to show the ringer.
+    const inviteeIds = result.call.participants
+      .map((p) => p.userId)
+      .filter((uid) => uid !== req.user.id);
+    if (inviteeIds.length) {
+      prisma.deviceToken
+        .findMany({ where: { userId: { in: inviteeIds } } })
+        .then((devices) => {
+          if (!devices.length) return null;
+          return fcm.sendToTokens(devices.map((d) => d.token), {
+            title: `Incoming ${mode.toLowerCase()} call`,
+            body: `${req.user.name} is calling…`,
+            data: {
+              type: 'call.incoming',
+              callId: result.call.id,
+              mode,
+              fromName: req.user.name,
+            },
+          });
+        })
+        .catch(() => {/* push is best-effort */});
+    }
+    // 60-second auto-miss: if no one has joined within a minute, mark the
+    // call MISSED and post a system message so the recipient still sees it
+    // in their chat history with a tap-to-call-back affordance.
+    setTimeout(async () => {
+      try {
+        const cur = await prisma.call.findUnique({ where: { id: result.call.id } });
+        if (!cur || cur.status !== 'RINGING') return;
+        await prisma.call.update({
+          where: { id: cur.id },
+          data: { status: 'MISSED', endedAt: new Date() },
+        });
+        req.app.get('io')?.emit('call.declined', { callId: cur.id, status: 'MISSED' });
+      } catch (_) {/* job runner cleans up stragglers */}
+    }, 60 * 1000);
     res.status(201).json({ ...result, mode });
   })
 );

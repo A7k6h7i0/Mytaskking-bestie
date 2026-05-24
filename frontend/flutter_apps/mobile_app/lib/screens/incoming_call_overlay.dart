@@ -52,6 +52,22 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
     final rt = ref.read(realtimeProvider);
     _unsubs.add(rt.onAny('call.incoming', ([data]) => _onIncoming(data)));
     _unsubs.add(rt.onAny('call.invited',  ([data]) => _onIncoming(data)));
+    // Meeting invites get the same ringer treatment as a call so the user
+    // can Accept and land directly inside the meeting room.
+    _unsubs.add(rt.onAny('meeting.invited', ([data]) => _onMeetingInvited(data)));
+    // Default OS notification tone whenever the server pushes a new
+    // notification (chat message, mention, task assignment, etc). The
+    // backend already filters out muted / off-channel events via
+    // notify(), so we ring whenever this fires.
+    _unsubs.add(rt.onAny('notification.created', ([_]) => _playNotificationTone()));
+    // Chat messages also ding — skipping messages the current user sent
+    // themselves so the chime doesn't fire on every keystroke send.
+    _unsubs.add(rt.onAny('chat.message.created', ([data]) {
+      if (data is! Map) return;
+      final author = (data['author'] as Map?)?.cast<String, dynamic>();
+      if (author != null && author['id'] == userId) return;
+      _playNotificationTone();
+    }));
     _unsubs.add(rt.onAny('call.declined', ([data]) {
       // Caller side: another participant declined. We dismiss our ringer if
       // it was the same call (some race conditions on group calls).
@@ -73,13 +89,37 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
 
   Timer? _hapticTimer;
 
+  /// Reshape a `meeting.invited` payload into the same `_pending` schema as
+  /// an incoming call so the ringer screen can render it without a second
+  /// code path. Accept navigates to /meeting/:slug instead of /call/:id —
+  /// handled in `_accept` by checking for `meetingSlug`.
+  void _onMeetingInvited(dynamic data) {
+    if (data is! Map) return;
+    final meeting = (data['meeting'] as Map?)?.cast<String, dynamic>();
+    if (meeting == null) return;
+    _onIncoming({
+      'call': {
+        // Synthetic call object so the ringer screen reuses its layout.
+        'id': null,
+        'kind': 'MEETING',
+        'mode': meeting['mode'] ?? 'VIDEO',
+        'initiator': meeting['host'],
+        'name': meeting['name'],
+      },
+      'mode': meeting['mode'] ?? 'VIDEO',
+      'meetingSlug': meeting['slug'],
+      'meetingName': meeting['name'],
+    });
+  }
+
   void _onIncoming(dynamic data) {
     if (data is! Map) return;
     final me = ref.read(authStoreProvider).user;
     final call = (data['call'] as Map?)?.cast<String, dynamic>();
     if (call == null) return;
-    // Don't ring myself for outbound calls.
+    // Don't ring myself for outbound calls / meetings I'm hosting.
     if (call['initiator']?['id'] == me?.id) return;
+    if ((call['host'] as Map?)?['id'] == me?.id) return;
     setState(() => _pending = Map<String, dynamic>.from(data));
     // Auto-miss after 45s if the user ignores it (matches backend RINGING TTL).
     _autoMiss?.cancel();
@@ -95,6 +135,29 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
       HapticFeedback.heavyImpact();
     });
     _playRingtone();
+  }
+
+  DateTime? _lastNotifChime;
+  /// Plays a single OS-default notification chime — used for incoming chat
+  /// messages + non-call notifications. Rate-limited to one chime per 800 ms
+  /// so a flurry of arrivals (e.g. backfill on reconnect) doesn't turn into
+  /// a machine-gun ding.
+  Future<void> _playNotificationTone() async {
+    final now = DateTime.now();
+    if (_lastNotifChime != null &&
+        now.difference(_lastNotifChime!).inMilliseconds < 800) {
+      return;
+    }
+    _lastNotifChime = now;
+    try {
+      await _ringtone.play(
+        android: AndroidSounds.notification,
+        ios: IosSounds.glass,
+        looping: false,
+        volume: 0.9,
+        asAlarm: false,
+      );
+    } catch (_) {/* best effort */}
   }
 
   Future<void> _playRingtone() async {
@@ -128,22 +191,27 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
   }
 
   Future<void> _accept() async {
-    final id = _pending?['call']?['id']?.toString();
+    final meetingSlug = _pending?['meetingSlug']?.toString();
+    final callId = _pending?['call']?['id']?.toString();
     final mode = _modeFor(_pending);
-    if (id == null) {
+    if (meetingSlug == null && callId == null) {
       _dismiss();
       return;
     }
     // Stop the ringtone + haptic immediately so the user gets instant
     // feedback the tap landed, but leave _pending alone so the overlay
-    // stays painted until GoRouter has actually mounted the call screen.
-    // Tearing the overlay down *before* navigation has occasionally left
-    // the user back on /chat — this ordering is the bullet-proof version.
+    // stays painted until GoRouter has actually mounted the destination
+    // screen. Tearing the overlay down *before* navigation has occasionally
+    // left the user back on /chat — this ordering is the bullet-proof
+    // version.
     _autoMiss?.cancel();
     _hapticTimer?.cancel();
     _ringtone.stop();
     if (!context.mounted) return;
-    context.go('/call/$id?mode=$mode');
+    final target = meetingSlug != null
+        ? '/meeting/$meetingSlug?mode=$mode'
+        : '/call/$callId?mode=$mode';
+    context.go(target);
     // One frame after navigation has taken effect, wipe the ringer state
     // so a stale _pending doesn't leak into the next incoming call.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -205,6 +273,8 @@ class _RingerScreen extends ConsumerWidget {
     final mode = (call['mode'] ?? payload['mode'] ?? 'VIDEO')
         .toString().toUpperCase();
     final participantCount = ((call['participants'] as List?)?.length ?? 0);
+    final isMeeting = kind == 'MEETING' || payload['meetingSlug'] != null;
+    final meetingName = (payload['meetingName'] ?? call['name'] ?? '').toString();
 
     return Material(
       color: const Color(0xFF0B1220),
@@ -224,7 +294,11 @@ class _RingerScreen extends ConsumerWidget {
                   const _PulseDot(),
                   const SizedBox(width: 6),
                   Text(
-                    kind == 'GROUP' ? 'Group ringing · $participantCount' : 'Incoming ${mode.toLowerCase()} call',
+                    isMeeting
+                        ? 'Incoming meeting invite'
+                        : (kind == 'GROUP'
+                            ? 'Group ringing · $participantCount'
+                            : 'Incoming ${mode.toLowerCase()} call'),
                     style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: BestieTokens.fwSemibold, letterSpacing: BestieTokens.lsWide),
                   ),
                 ]),
@@ -251,7 +325,10 @@ class _RingerScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            kind == 'GROUP' ? 'is calling the team' : 'is calling…',
+            isMeeting
+                ? (meetingName.isEmpty ? 'invited you to a meeting' : 'invited you to "$meetingName"')
+                : (kind == 'GROUP' ? 'is calling the team' : 'is calling…'),
+            textAlign: TextAlign.center,
             style: const TextStyle(color: Colors.white70, fontSize: 14),
           ),
           const Spacer(),
@@ -308,27 +385,39 @@ class _RingerButtonState extends State<_RingerButton> with SingleTickerProviderS
   @override
   Widget build(BuildContext context) {
     return Column(mainAxisSize: MainAxisSize.min, children: [
+      // Outer GestureDetector with `behavior: opaque` so the whole 96-px
+      // square is tappable (not just the painted 72-px circle) — the
+      // bouncing scale animation kept eating taps that just clipped the
+      // edge of the visible icon. Inner widget keeps the visual bounce.
       GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
-        child: AnimatedBuilder(
-          animation: _ctrl,
-          builder: (ctx, _) {
-            final t = widget.bounce ? (1 + 0.06 * (1 - (_ctrl.value - 0.5).abs() * 2)) : 1.0;
-            return Transform.scale(
-              scale: t,
-              child: Container(
-                width: 72, height: 72,
-                decoration: BoxDecoration(
-                  color: widget.color,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(color: widget.color.withOpacity(0.45), blurRadius: 24, spreadRadius: 1),
-                  ],
-                ),
-                child: Icon(widget.icon, color: Colors.white, size: 32),
-              ),
-            );
-          },
+        child: SizedBox(
+          width: 96, height: 96,
+          child: Center(
+            child: AnimatedBuilder(
+              animation: _ctrl,
+              builder: (ctx, _) {
+                final t = widget.bounce ? (1 + 0.06 * (1 - (_ctrl.value - 0.5).abs() * 2)) : 1.0;
+                return IgnorePointer(
+                  child: Transform.scale(
+                    scale: t,
+                    child: Container(
+                      width: 72, height: 72,
+                      decoration: BoxDecoration(
+                        color: widget.color,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(color: widget.color.withOpacity(0.45), blurRadius: 24, spreadRadius: 1),
+                        ],
+                      ),
+                      child: Icon(widget.icon, color: Colors.white, size: 32),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
         ),
       ),
       const SizedBox(height: 8),

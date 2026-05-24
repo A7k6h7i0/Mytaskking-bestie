@@ -323,6 +323,7 @@ router.post(
       name: Joi.string().min(1).max(180).required(),
       mode: Mode.default('VIDEO'),
       scheduledAt: Joi.date().iso().allow(null),
+      participantIds: Joi.array().items(Joi.string()),
     }),
   }),
   asyncHandler(async (req, res) => {
@@ -340,6 +341,44 @@ router.post(
     });
     audit.record({ kind: 'meeting.created', entity: 'meeting', entityId: room.id, payload: { mode: room.mode }, req });
     await eventBus.publish('meeting.created', { meetingId: room.id, mode: room.mode }, { tenantId: room.tenantId });
+
+    // Ring the invitees in real time + FCM push so they get a meeting
+    // preview (like an incoming call) even if the app is backgrounded.
+    const inviteeIds = Array.isArray(req.body.participantIds)
+      ? req.body.participantIds.filter((uid) => uid && uid !== req.user.id)
+      : [];
+    if (inviteeIds.length) {
+      const io = req.app.get('io');
+      const payload = {
+        meeting: {
+          id: room.id,
+          slug: room.slug,
+          name: room.name,
+          mode: room.mode,
+          host: { id: req.user.id, name: req.user.name, avatarUrl: req.user.avatarUrl },
+        },
+      };
+      for (const uid of inviteeIds) {
+        io?.to(`user:${uid}`).emit('meeting.invited', payload);
+      }
+      // FCM push so it rings even when the app is closed.
+      prisma.deviceToken
+        .findMany({ where: { userId: { in: inviteeIds } } })
+        .then((devices) => {
+          if (!devices.length) return null;
+          return require('../../services/fcm').sendToTokens(devices.map((d) => d.token), {
+            title: `${req.user.name} invited you to a meeting`,
+            body: room.name,
+            data: {
+              type: 'meeting.invited',
+              meetingSlug: room.slug,
+              mode: room.mode,
+              fromName: req.user.name,
+            },
+          });
+        })
+        .catch(() => {});
+    }
     res.status(201).json(serializeRoom(room));
   })
 );

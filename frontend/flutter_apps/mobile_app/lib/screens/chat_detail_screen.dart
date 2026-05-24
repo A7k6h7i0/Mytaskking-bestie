@@ -1661,18 +1661,33 @@ class _MemberTile extends StatelessWidget {
 /// System message bubble — call events (missed / declined / ended), member
 /// joined/left, channel renamed. Rendered as a centered chip, not a side
 /// bubble. The backend posts these with `kind: 'CALL_EVENT'` or `'SYSTEM'`.
+/// Call events carry a pipe-suffix `|call:<id>:<status>` in body so we can
+/// surface a tap-to-join button while the call is still ACTIVE.
 class _SystemBubble extends StatelessWidget {
   final Map<String, dynamic> message;
   const _SystemBubble({required this.message});
 
+  ({String display, String? callId, String? status}) _parseBody(String raw) {
+    final marker = raw.lastIndexOf('|call:');
+    if (marker < 0) return (display: raw, callId: null, status: null);
+    final display = raw.substring(0, marker);
+    final tail = raw.substring(marker + 6); // skip "|call:"
+    final colon = tail.indexOf(':');
+    if (colon < 0) return (display: display, callId: tail, status: null);
+    return (display: display, callId: tail.substring(0, colon), status: tail.substring(colon + 1));
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
-    final body = (message['body'] ?? '').toString();
-    final meta = (message['meta'] as Map?)?.cast<String, dynamic>() ?? const {};
-    final eventType = (meta['eventType'] ?? message['kind'] ?? '').toString().toLowerCase();
-    final isMissed = eventType.contains('missed') || body.toLowerCase().contains('missed');
-    final isDeclined = eventType.contains('declined') || body.toLowerCase().contains('declined');
+    final raw = (message['body'] ?? '').toString();
+    final parsed = _parseBody(raw);
+    final body = parsed.display;
+    final status = parsed.status;
+    final eventType = (message['kind'] ?? '').toString().toLowerCase();
+    final isMissed = status == 'MISSED' || body.toLowerCase().contains('missed');
+    final isDeclined = status == 'DECLINED' || body.toLowerCase().contains('declined');
+    final isActive = status == 'ACTIVE';
     final isCall = eventType.contains('call') || body.toLowerCase().contains('call');
 
     Color accent;
@@ -1691,33 +1706,63 @@ class _SystemBubble extends StatelessWidget {
       icon = Icons.info_outline_rounded;
     }
 
+    // Tap-to-join when the call is still ACTIVE — mirrors WhatsApp's
+    // "Tap to join" pill on missed/in-progress calls.
+    final canJoin = isActive && parsed.callId != null;
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Center(
-        child: Container(
-          constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.85),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          decoration: BoxDecoration(
-            color: accent.withOpacity(0.10),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: canJoin ? () => context.go('/call/${parsed.callId}?mode=video') : null,
             borderRadius: BorderRadius.circular(BestieTokens.rPill),
-            border: Border.all(color: accent.withOpacity(0.20)),
-          ),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(icon, size: 14, color: accent),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                body.isEmpty ? 'Call event' : body,
-                style: TextStyle(
-                  color: accent,
-                  fontWeight: BestieTokens.fwSemibold,
-                  fontSize: 12,
-                  letterSpacing: BestieTokens.lsNormal,
-                ),
-                textAlign: TextAlign.center,
+            child: Container(
+              constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.85),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: accent.withOpacity(0.10),
+                borderRadius: BorderRadius.circular(BestieTokens.rPill),
+                border: Border.all(color: accent.withOpacity(0.20)),
               ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(icon, size: 14, color: accent),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    body.isEmpty ? 'Call event' : body,
+                    style: TextStyle(
+                      color: accent,
+                      fontWeight: BestieTokens.fwSemibold,
+                      fontSize: 12,
+                      letterSpacing: BestieTokens.lsNormal,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+                if (canJoin) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: accent,
+                      borderRadius: BorderRadius.circular(BestieTokens.rPill),
+                    ),
+                    child: const Text(
+                      'Tap to join',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: BestieTokens.fwBold,
+                        fontSize: 10,
+                        letterSpacing: BestieTokens.lsWide,
+                      ),
+                    ),
+                  ),
+                ],
+              ]),
             ),
-          ]),
+          ),
         ),
       ),
     );
