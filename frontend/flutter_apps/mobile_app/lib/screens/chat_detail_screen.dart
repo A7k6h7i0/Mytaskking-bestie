@@ -583,6 +583,243 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
     }
   }
 
+  /// Thin banner above the messages list that surfaces messages someone has
+  /// pinned in this channel. Tapping it opens a bottom sheet with the full
+  /// list — handy when an admin pins a release plan, a checklist, or a
+  /// "single source of truth" link in a busy group.
+  Widget _pinnedBar(List<Map<String, dynamic>> items, BestieColors c) {
+    final pinned = items.where((m) => m['pinned'] == true).toList();
+    if (pinned.isEmpty) return const SizedBox.shrink();
+    // The most recently pinned message is the most useful preview.
+    pinned.sort((a, b) => '${b['updatedAt']}'.compareTo('${a['updatedAt']}'));
+    final top = pinned.first;
+    final author = (top['author'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final body = (top['body'] ?? '').toString();
+    final preview = body.length > 80 ? '${body.substring(0, 77)}…' : body;
+    return Material(
+      color: c.surface,
+      child: InkWell(
+        onTap: () => _openPinnedSheet(pinned, c),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+          decoration: BoxDecoration(
+            border: Border(bottom: BorderSide(color: c.border)),
+          ),
+          child: Row(children: [
+            Container(
+              width: 4, height: 32,
+              decoration: BoxDecoration(
+                color: c.warning,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Icon(Icons.push_pin_rounded, size: 14, color: c.warning),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    pinned.length > 1
+                        ? 'Pinned · ${pinned.length} messages'
+                        : 'Pinned by ${author['name'] ?? 'someone'}',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: BestieTokens.fwBold,
+                      color: c.warning,
+                      letterSpacing: BestieTokens.lsEyebrow,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    preview.isEmpty ? '(attachment)' : preview,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12, color: c.textSoft),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right_rounded, color: c.textFaint, size: 18),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openPinnedSheet(
+      List<Map<String, dynamic>> pinned, BestieColors c) async {
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: c.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
+      ),
+      builder: (ctx) => SafeArea(
+        top: false,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.7,
+          ),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+              child: Row(children: [
+                Icon(Icons.push_pin_rounded, size: 18, color: c.warning),
+                const SizedBox(width: 8),
+                Text('Pinned messages',
+                    style: TextStyle(
+                      color: c.text, fontSize: 16,
+                      fontWeight: BestieTokens.fwBold,
+                    )),
+                const Spacer(),
+                Text('${pinned.length}',
+                    style: TextStyle(color: c.textMuted, fontSize: 13)),
+              ]),
+            ),
+            Divider(height: 1, color: c.border),
+            Flexible(
+              child: ListView.separated(
+                shrinkWrap: true,
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                itemCount: pinned.length,
+                separatorBuilder: (_, __) => Divider(height: 1, color: c.border),
+                itemBuilder: (_, i) {
+                  final m = pinned[i];
+                  final author =
+                      (m['author'] as Map?)?.cast<String, dynamic>() ?? const {};
+                  final body = (m['body'] ?? '').toString();
+                  return ListTile(
+                    leading: BestieAvatar(
+                      name: author['name']?.toString() ?? '?',
+                      imageUrl: author['avatarUrl']?.toString(),
+                      isClient: author['isClient'] ?? false,
+                      size: 32,
+                    ),
+                    title: BestieUserName(
+                      name: author['name']?.toString() ?? 'Someone',
+                      isClient: author['isClient'] ?? false,
+                      style: TextStyle(
+                        color: c.text,
+                        fontWeight: BestieTokens.fwSemibold,
+                        fontSize: 13,
+                      ),
+                    ),
+                    subtitle: Text(
+                      body.isEmpty ? '(attachment)' : body,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: c.textSoft, fontSize: 12),
+                    ),
+                    trailing: IconButton(
+                      icon: Icon(Icons.push_pin, size: 18, color: c.warning),
+                      tooltip: 'Unpin',
+                      onPressed: () async {
+                        Navigator.pop(ctx);
+                        try {
+                          await ref.read(apiProvider).unpinMessage(m['id'] as String);
+                          ref.invalidate(messagesProvider(widget.channelId));
+                          if (mounted) {
+                            bestieToast(context, 'Unpinned',
+                                kind: BestieToastKind.success);
+                          }
+                        } catch (e) {
+                          if (mounted) {
+                            bestieToast(context, 'Could not unpin',
+                                body: formatApiError(e),
+                                kind: BestieToastKind.error);
+                          }
+                        }
+                      },
+                    ),
+                  );
+                },
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  /// Suggest 3 short canned replies based on the last message body.
+  /// Returns an empty list when nothing useful applies (typing already,
+  /// last message is mine, or already replying).
+  List<String> _smartReplyOptions(String? lastBody) {
+    if (_composer.text.trim().isNotEmpty) return const [];
+    final b = (lastBody ?? '').toLowerCase().trim();
+    if (b.isEmpty) return const [];
+    // Question → confirmation-style replies.
+    if (b.endsWith('?') || b.startsWith('can ') || b.startsWith('could ') ||
+        b.startsWith('would ') || b.startsWith('shall ') || b.startsWith('any ')) {
+      return const ['Yes 👍', 'Working on it', "Let me check"];
+    }
+    // Thanks → graceful acks.
+    if (b.contains('thank')) return const ['Anytime 🙌', 'My pleasure', 'Happy to help'];
+    // Greetings.
+    if (b.contains('good morning') || b.contains('hi ') || b.startsWith('hi') ||
+        b.contains('hello') || b.contains('hey')) {
+      return const ['Hey 👋', 'Morning!', 'How can I help?'];
+    }
+    // Done / shipped / merged → praise.
+    if (b.contains('done') || b.contains('shipped') || b.contains('merged') ||
+        b.contains('deployed') || b.contains('finished')) {
+      return const ['🎉 Nice!', 'Great work', 'Awesome'];
+    }
+    // Default — short, generic, useful.
+    return const ['👍 Got it', 'On it', "Thanks!"];
+  }
+
+  Widget _smartReplies(BestieColors c, BestieUser? me) {
+    final messages = ref.watch(messagesProvider(widget.channelId));
+    final items = messages.asData?.value ?? const <Map<String, dynamic>>[];
+    if (items.isEmpty || me == null) return const SizedBox.shrink();
+    // The latest message (most recent createdAt) — the list is in chrono order.
+    final last = items.last;
+    final author = (last['author'] as Map?)?.cast<String, dynamic>() ?? const {};
+    if (author['id'] == me.id) return const SizedBox.shrink();
+    final kind = (last['kind'] ?? 'TEXT').toString();
+    if (kind != 'TEXT') return const SizedBox.shrink();
+    final options = _smartReplyOptions(last['body']?.toString());
+    if (options.isEmpty) return const SizedBox.shrink();
+    return Container(
+      padding: const EdgeInsets.fromLTRB(10, 4, 10, 6),
+      child: SizedBox(
+        height: 34,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          itemCount: options.length,
+          separatorBuilder: (_, __) => const SizedBox(width: 6),
+          itemBuilder: (_, i) {
+            final text = options[i];
+            return InkWell(
+              borderRadius: BorderRadius.circular(BestieTokens.rPill),
+              onTap: () => _send(overrideBody: text),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: c.brandSoft,
+                  borderRadius: BorderRadius.circular(BestieTokens.rPill),
+                  border: Border.all(color: c.brand.withOpacity(0.25)),
+                ),
+                child: Text(
+                  text,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: BestieTokens.fwSemibold,
+                    color: c.brandStrong,
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = BestieColors.of(context);
@@ -672,6 +909,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
         ],
       ),
       body: Column(children: [
+        _pinnedBar(messages.asData?.value ?? const [], colors),
         Expanded(
           child: messages.when(
             loading: () => const Center(child: BestieSpinner()),
@@ -776,6 +1014,9 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
         // Typing indicator sits just above the composer so it doesn't shift
         // the messages list when it appears/disappears.
         if (_typing.isNotEmpty) _TypingIndicator(typing: _typing.values.toList(), colors: colors),
+        // Smart reply chips — surface 3 quick canned replies when the last
+        // message is from someone else and the user hasn't started typing.
+        if (_replyingTo == null) _smartReplies(colors, me),
         // Quoted-message preview when replying.
         if (_replyingTo != null) _ReplyComposerChip(
           message: _replyingTo!,
@@ -1377,10 +1618,20 @@ class _MessageBubble extends ConsumerWidget {
     ));
   }
 
-  void _showActions(BuildContext context, WidgetRef ref) {
+  Future<void> _showActions(BuildContext context, WidgetRef ref) async {
     final c = BestieColors.of(context);
     final canEdit = mine && (message['body'] ?? '').toString().isNotEmpty;
     final canDeleteForEveryone = mine;
+    // Pre-load the recents MRU before opening the sheet so the row paints
+    // immediately rather than flashing the default set first.
+    final recents = await _RecentEmojis.read();
+    // Merged set: recents first, then defaults that aren't already in recents.
+    final defaults = const ['👍','❤️','😂','😮','😢','🙏'];
+    final merged = <String>[
+      ...recents,
+      ...defaults.where((e) => !recents.contains(e)),
+    ].take(6).toList();
+    if (!context.mounted) return;
     showModalBottomSheet(
       context: context,
       backgroundColor: c.surface,
@@ -1397,14 +1648,15 @@ class _MessageBubble extends ConsumerWidget {
               color: c.borderStrong, borderRadius: BorderRadius.circular(BestieTokens.rPill),
             ),
           ),
-          // Quick-react row: tap any of the popular emoji to react inline,
-          // matching iMessage / WhatsApp reactions UX.
+          // Quick-react row: recently-used first (so the user's habits stay
+          // one tap away), then the iMessage / WhatsApp defaults.
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
-              for (final e in const ['👍','❤️','😂','😮','😢','🙏'])
+              for (final e in merged)
                 _ReactionChip(emoji: e, onTap: () {
                   Navigator.pop(ctx);
+                  _RecentEmojis.push(e);
                   _reactWith(context, ref, e);
                 }),
             ]),
@@ -1444,6 +1696,11 @@ class _MessageBubble extends ConsumerWidget {
             title: Text('Save message', style: TextStyle(color: c.text)),
             onTap: () { Navigator.pop(ctx); _saveMessage(context, ref); },
           ),
+          ListTile(
+            leading: Icon(Icons.task_alt_rounded, color: c.textSoft),
+            title: Text('Create task from message', style: TextStyle(color: c.text)),
+            onTap: () { Navigator.pop(ctx); _createTaskFromMessage(context, ref); },
+          ),
           if (canEdit)
             ListTile(
               leading: Icon(Icons.edit_outlined, color: c.textSoft),
@@ -1479,6 +1736,129 @@ class _MessageBubble extends ConsumerWidget {
     } catch (e) {
       if (context.mounted) bestieToast(context, 'Could not save',
           body: formatApiError(e), kind: BestieToastKind.error);
+    }
+  }
+
+  /// Turn the highlighted chat message into a task. Prefills the title with
+  /// the (possibly truncated) message body, prefills the description with
+  /// the full body + author handle so context isn't lost, and assigns the
+  /// task to the message's author unless that's the current user.
+  Future<void> _createTaskFromMessage(BuildContext context, WidgetRef ref) async {
+    final c = BestieColors.of(context);
+    final body = (message['body'] ?? '').toString().trim();
+    if (body.isEmpty) {
+      bestieToast(context, 'Nothing to turn into a task',
+          body: 'Pick a text message.', kind: BestieToastKind.warning);
+      return;
+    }
+    final me = ref.read(authStoreProvider).user;
+    final author = (message['author'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final authorId = author['id']?.toString();
+    final authorName = author['name']?.toString() ?? 'Someone';
+    final title = body.length > 80 ? '${body.substring(0, 77)}…' : body;
+    final ctl = TextEditingController(text: title);
+    final dueDefault =
+        DateTime.now().add(const Duration(days: 1)).copyWith(hour: 17, minute: 0);
+
+    final ok = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: c.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
+      ),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.fromLTRB(
+          20, 20, 20, MediaQuery.of(ctx).viewInsets.bottom + 20,
+        ),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Row(children: [
+            Icon(Icons.task_alt_rounded, color: c.brandStrong),
+            const SizedBox(width: 8),
+            Text('Create task',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: BestieTokens.fwBold,
+                  color: c.text,
+                )),
+          ]),
+          const SizedBox(height: 16),
+          BestieTextField(
+            label: 'Title',
+            controller: ctl,
+            hint: 'What needs to happen?',
+          ),
+          const SizedBox(height: 12),
+          if (authorId != null && authorId != me?.id)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: c.brandSoft,
+                borderRadius: BorderRadius.circular(BestieTokens.rMd),
+                border: Border.all(color: c.brand.withOpacity(0.25)),
+              ),
+              child: Row(children: [
+                Icon(Icons.person_outline, size: 16, color: c.brandStrong),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Will be assigned to $authorName',
+                    style: TextStyle(
+                      fontSize: 12, color: c.brandStrong,
+                      fontWeight: BestieTokens.fwSemibold,
+                    ),
+                  ),
+                ),
+              ]),
+            ),
+          const SizedBox(height: 12),
+          Row(children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: () => Navigator.pop(ctx, true),
+                icon: const Icon(Icons.send_rounded, size: 18),
+                label: const Text('Create'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: BestieTokens.cBrand,
+                ),
+              ),
+            ),
+          ]),
+        ]),
+      ),
+    );
+
+    if (ok != true || !context.mounted) return;
+    final fullTitle = ctl.text.trim();
+    if (fullTitle.isEmpty) return;
+
+    try {
+      await ref.read(apiProvider).post('/tasks', body: {
+        'title': fullTitle,
+        'description': 'From $authorName in chat:\n\n"$body"',
+        'priority': 'MEDIUM',
+        'status': 'TODO',
+        'dueAt': dueDefault.toUtc().toIso8601String(),
+        if (authorId != null && authorId != me?.id)
+          'assigneeIds': [authorId],
+      });
+      ref.invalidate(tasksKanbanProvider);
+      if (context.mounted) {
+        bestieToast(context, 'Task created',
+            body: fullTitle, kind: BestieToastKind.success);
+      }
+    } catch (e) {
+      if (context.mounted) {
+        bestieToast(context, 'Could not create task',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
     }
   }
 
@@ -2200,5 +2580,33 @@ class _VoiceNoteState extends State<_VoiceNote> {
         ),
       ]),
     );
+  }
+}
+
+/// Tiny MRU cache of the last few emoji reactions the user picked, kept in
+/// SharedPreferences so the bottom-sheet's reaction row can surface
+/// frequently-used emoji first.
+class _RecentEmojis {
+  static const _key = 'chat.recentEmojis.v1';
+  static const _max = 6;
+
+  static Future<List<String>> read() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getStringList(_key) ?? const [];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  static Future<void> push(String emoji) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cur = (prefs.getStringList(_key) ?? const <String>[]).toList();
+      cur.remove(emoji);
+      cur.insert(0, emoji);
+      if (cur.length > _max) cur.removeRange(_max, cur.length);
+      await prefs.setStringList(_key, cur);
+    } catch (_) {/* best-effort */}
   }
 }

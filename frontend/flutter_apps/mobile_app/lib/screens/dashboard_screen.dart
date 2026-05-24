@@ -6,6 +6,14 @@ import 'package:mytaskking_design/mytaskking_design.dart';
 import '../state.dart';
 import 'leaderboard_card.dart';
 
+/// Today's `/attendance/today` snapshot — used to power the dashboard
+/// check-in banner and the working-hours pill. Cheap, autoDispose so it
+/// re-fetches each time the dashboard mounts.
+final _dashboardAttendanceProvider =
+    FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
+  return ref.watch(apiProvider).attendanceToday();
+});
+
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
 
@@ -13,11 +21,17 @@ class DashboardScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(authStoreProvider).user;
     final overview = ref.watch(dashboardProvider);
+    final attendance = ref.watch(_dashboardAttendanceProvider);
+    final tasks = ref.watch(tasksKanbanProvider);
 
     return Scaffold(
       appBar: _appBar(context),
       body: RefreshIndicator(
-        onRefresh: () async => ref.refresh(dashboardProvider.future),
+        onRefresh: () async {
+          ref.invalidate(_dashboardAttendanceProvider);
+          ref.invalidate(tasksKanbanProvider);
+          await ref.refresh(dashboardProvider.future);
+        },
         child: overview.when(
           loading: () => const Center(child: BestieSpinner()),
           error: (e, _) => BestieEmptyState(
@@ -30,10 +44,17 @@ class DashboardScreen extends ConsumerWidget {
             final counts = (data['counts'] as Map?)?.cast<String, dynamic>() ?? const {};
             final isAdmin = ['SUPER_ADMIN', 'ADMIN'].contains(user?.role);
             final isClient = user?.isClient ?? false;
+            final attendanceData = attendance.asData?.value;
+            final tasksData = tasks.asData?.value;
+            final todayTasks = _todayTasksFor(tasksData, user?.id);
             return ListView(
               padding: const EdgeInsets.all(BestieTokens.s4),
               children: [
-                _greeting(user),
+                _greeting(user, attendanceData),
+                if (!isClient && _shouldShowCheckInBanner(attendanceData)) ...[
+                  const SizedBox(height: BestieTokens.s3),
+                  _checkInBanner(context, attendanceData),
+                ],
                 const SizedBox(height: BestieTokens.s3),
                 GridView.count(
                   crossAxisCount: 2,
@@ -44,6 +65,10 @@ class DashboardScreen extends ConsumerWidget {
                   childAspectRatio: 1.5,
                   children: _statsFor(context, counts, isAdmin: isAdmin, isClient: isClient),
                 ),
+                if (!isClient && todayTasks.isNotEmpty) ...[
+                  const SizedBox(height: BestieTokens.s4),
+                  _todayTasksCard(context, todayTasks),
+                ],
                 const SizedBox(height: BestieTokens.s4),
                 const SizedBox(height: BestieTokens.s3),
                 // Performance leaderboard — visible to everyone; useful for both
@@ -78,7 +103,7 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  Widget _greeting(dynamic user) {
+  Widget _greeting(dynamic user, Map<String, dynamic>? attendance) {
     return Row(children: [
       BestieAvatar(name: user?.name ?? '—', imageUrl: user?.avatarUrl, isClient: user?.isClient ?? false, size: 44),
       const SizedBox(width: 12),
@@ -86,7 +111,11 @@ class DashboardScreen extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Good to see you', style: TextStyle(color: BestieTokens.cTextMuted, fontSize: 12)),
+            Row(children: [
+              Text(_greetingPrefix(), style: const TextStyle(color: BestieTokens.cTextMuted, fontSize: 12)),
+              const SizedBox(width: 6),
+              _workingHoursPill(attendance),
+            ]),
             BestieUserName(name: user?.name ?? 'Friend',
                 isClient: user?.isClient ?? false,
                 style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
@@ -95,6 +124,237 @@ class DashboardScreen extends ConsumerWidget {
       ),
       const PulseDot(color: BestieTokens.cSuccess),
     ]);
+  }
+
+  /// Time-of-day-aware salutation. Tiny touch, but it makes the dashboard
+  /// feel attentive to context instead of static "Good to see you" copy.
+  String _greetingPrefix() {
+    final h = DateTime.now().hour;
+    if (h < 5) return 'Burning the midnight oil';
+    if (h < 12) return 'Good morning';
+    if (h < 17) return 'Good afternoon';
+    if (h < 21) return 'Good evening';
+    return 'Working late';
+  }
+
+  /// Compact pill that surfaces how long the user has been clocked in today
+  /// (e.g. "On the clock · 3h 12m") so the workday rhythm is always visible
+  /// at a glance. Renders nothing when the user hasn't checked in yet or has
+  /// already clocked out for the day.
+  Widget _workingHoursPill(Map<String, dynamic>? attendance) {
+    if (attendance == null) return const SizedBox.shrink();
+    final entry = (attendance['entry'] as Map?)?.cast<String, dynamic>();
+    final checkInIso = entry?['checkInAt']?.toString();
+    final checkOutIso = entry?['checkOutAt']?.toString();
+    if (checkInIso == null) return const SizedBox.shrink();
+    final checkIn = DateTime.tryParse(checkInIso)?.toLocal();
+    if (checkIn == null) return const SizedBox.shrink();
+    final end = checkOutIso != null
+        ? (DateTime.tryParse(checkOutIso)?.toLocal() ?? DateTime.now())
+        : DateTime.now();
+    final lunchState = entry?['lunchState']?.toString();
+    final live = checkOutIso == null && lunchState != 'STARTED';
+    final dur = end.difference(checkIn);
+    final h = dur.inHours;
+    final m = dur.inMinutes.remainder(60);
+    final label = '${h}h ${m}m';
+    final color = live ? BestieTokens.cSuccess : BestieTokens.cTextMuted;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(BestieTokens.rPill),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Container(
+          width: 6, height: 6,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 5),
+        Text(label,
+            style: TextStyle(
+                fontSize: 11, fontWeight: FontWeight.w700, color: color)),
+      ]),
+    );
+  }
+
+  bool _shouldShowCheckInBanner(Map<String, dynamic>? attendance) {
+    if (attendance == null) return false;
+    final entry = (attendance['entry'] as Map?)?.cast<String, dynamic>();
+    final checkedIn = entry?['checkInAt'] != null;
+    if (checkedIn) return false;
+    // The banner only nags between the configured open hour and noon —
+    // before that the screen isn't open yet, after noon the day is
+    // arguably gone and the reminder becomes noise.
+    final opensHour = (attendance['opensAt'] as Map?)?['hour'] as num?;
+    final now = DateTime.now();
+    if (opensHour != null && now.hour < opensHour.toInt()) return false;
+    if (now.hour >= 18) return false;
+    return true;
+  }
+
+  Widget _checkInBanner(BuildContext context, Map<String, dynamic>? attendance) {
+    final minWords = (attendance?['minRequiredWords'] as num?)?.toInt() ?? 100;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(BestieTokens.rMd),
+        onTap: () => context.go('/attendance'),
+        child: Container(
+          padding: const EdgeInsets.all(BestieTokens.s3),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [BestieTokens.cBrand, BestieTokens.cAccent],
+            ),
+            borderRadius: BorderRadius.circular(BestieTokens.rMd),
+          ),
+          child: Row(children: [
+            Container(
+              width: 40, height: 40,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.18),
+                borderRadius: BorderRadius.circular(BestieTokens.rMd),
+              ),
+              child: const Icon(Icons.flag_rounded, color: Colors.white, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Plan your day',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 2),
+                  Text('Write ≥ $minWords words to check in.',
+                      style: TextStyle(
+                          color: Colors.white.withOpacity(0.85), fontSize: 12)),
+                ],
+              ),
+            ),
+            const Icon(Icons.arrow_forward_ios_rounded,
+                color: Colors.white, size: 14),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  List<Map<String, dynamic>> _todayTasksFor(
+      Map<String, dynamic>? data, String? meId) {
+    if (data == null || meId == null) return const [];
+    final cols = (data['columns'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final all = cols.values
+        .expand((v) => (v as List).cast<Map<String, dynamic>>())
+        .toList();
+    final now = DateTime.now();
+    bool isTodayOrOverdue(DateTime d) {
+      final today = DateTime(now.year, now.month, now.day);
+      final dDay = DateTime(d.year, d.month, d.day);
+      return !dDay.isAfter(today);
+    }
+    final mine = all.where((t) {
+      final assignees = (t['assignees'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+      if (!assignees.any((a) => (a['user'] as Map?)?['id'] == meId)) return false;
+      final status = (t['status'] ?? 'TODO').toString();
+      if (status == 'DONE' || status == 'CANCELLED') return false;
+      final due = DateTime.tryParse('${t['dueAt']}')?.toLocal();
+      if (due == null) return false;
+      return isTodayOrOverdue(due);
+    }).toList();
+    mine.sort((a, b) =>
+        '${a['dueAt']}'.compareTo('${b['dueAt']}'));
+    return mine;
+  }
+
+  Widget _todayTasksCard(BuildContext context, List<Map<String, dynamic>> tasks) {
+    final now = DateTime.now();
+    return Container(
+      padding: const EdgeInsets.all(BestieTokens.s3),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(BestieTokens.rMd),
+        border: Border.all(color: BestieTokens.cBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Icon(Icons.today_rounded, size: 18, color: BestieTokens.cWarning),
+            const SizedBox(width: 6),
+            const Expanded(
+              child: Text('Due today & overdue',
+                  style: TextStyle(fontWeight: FontWeight.w700)),
+            ),
+            TextButton(
+              onPressed: () => context.go('/tasks'),
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                visualDensity: VisualDensity.compact,
+                minimumSize: const Size(0, 28),
+              ),
+              child: const Text('See all'),
+            ),
+          ]),
+          const SizedBox(height: 4),
+          for (final t in tasks.take(3))
+            Builder(builder: (_) {
+              final due = DateTime.tryParse('${t['dueAt']}')?.toLocal();
+              final overdue = due != null && due.isBefore(now);
+              final hm = due == null
+                  ? ''
+                  : '${due.hour.toString().padLeft(2, '0')}:${due.minute.toString().padLeft(2, '0')}';
+              return InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: () => context.push('/tasks/${t['id']}'),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Row(children: [
+                    Container(
+                      width: 8, height: 8,
+                      decoration: BoxDecoration(
+                        color: overdue ? BestieTokens.cDanger : BestieTokens.cWarning,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        '${t['title'] ?? ''}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      overdue ? 'Overdue · $hm' : hm,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: overdue ? BestieTokens.cDanger : BestieTokens.cTextMuted,
+                      ),
+                    ),
+                  ]),
+                ),
+              );
+            }),
+          if (tasks.length > 3)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text('+${tasks.length - 3} more',
+                  style: const TextStyle(
+                      fontSize: 11,
+                      color: BestieTokens.cTextMuted,
+                      fontWeight: FontWeight.w600)),
+            ),
+        ],
+      ),
+    );
   }
 
   List<Widget> _statsFor(BuildContext context, Map<String, dynamic> c, {required bool isAdmin, required bool isClient}) {

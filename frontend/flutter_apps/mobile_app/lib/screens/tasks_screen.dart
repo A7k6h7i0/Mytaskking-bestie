@@ -16,6 +16,7 @@ class TasksScreen extends ConsumerStatefulWidget {
 
 class _TasksScreenState extends ConsumerState<TasksScreen> {
   void Function()? _offAssigned;
+  _TaskFilter _filter = _TaskFilter.all;
 
   @override
   void initState() {
@@ -86,6 +87,10 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
                 .toList();
             all.sort((a, b) => '${b['updatedAt']}'.compareTo('${a['updatedAt']}'));
 
+            final me = ref.read(authStoreProvider).user;
+            final counts = _countsFor(all, me?.id);
+            final filtered = _applyFilter(all, _filter, me?.id);
+
             if (all.isEmpty) {
               return BestieEmptyState(
                 icon: Icons.task_alt,
@@ -99,11 +104,24 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
               );
             }
 
-            return ListView.separated(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
-              itemBuilder: (_, i) => _taskCard(all[i], c),
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
-              itemCount: all.length,
+            return Column(
+              children: [
+                _filterRow(c, counts),
+                Expanded(
+                  child: filtered.isEmpty
+                      ? BestieEmptyState(
+                          icon: Icons.filter_alt_off_outlined,
+                          title: 'No tasks match',
+                          description: 'Try a different filter or pull to refresh.',
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.fromLTRB(12, 4, 12, 96),
+                          itemBuilder: (_, i) => _taskCard(filtered[i], c),
+                          separatorBuilder: (_, __) => const SizedBox(height: 8),
+                          itemCount: filtered.length,
+                        ),
+                ),
+              ],
             );
           },
         ),
@@ -114,6 +132,90 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
         foregroundColor: Colors.white,
         icon: const Icon(Icons.add_rounded),
         label: const Text('New task'),
+      ),
+    );
+  }
+
+  Map<_TaskFilter, int> _countsFor(List<Map<String, dynamic>> all, String? meId) {
+    final now = DateTime.now();
+    bool isToday(DateTime d) =>
+        d.year == now.year && d.month == now.month && d.day == now.day;
+    final out = {for (final f in _TaskFilter.values) f: 0};
+    for (final t in all) {
+      final status = (t['status'] ?? 'TODO').toString();
+      final done = status == 'DONE' || status == 'CANCELLED';
+      final assignees = (t['assignees'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+      final mine = meId != null && assignees.any((a) => (a['user'] as Map?)?['id'] == meId);
+      final due = DateTime.tryParse('${t['dueAt']}')?.toLocal();
+      out[_TaskFilter.all] = out[_TaskFilter.all]! + 1;
+      if (mine && !done) out[_TaskFilter.mine] = out[_TaskFilter.mine]! + 1;
+      if (due != null && isToday(due) && !done) {
+        out[_TaskFilter.dueToday] = out[_TaskFilter.dueToday]! + 1;
+      }
+      if (due != null && due.isBefore(now) && !done) {
+        out[_TaskFilter.overdue] = out[_TaskFilter.overdue]! + 1;
+      }
+      if (status == 'DONE') out[_TaskFilter.done] = out[_TaskFilter.done]! + 1;
+    }
+    return out;
+  }
+
+  List<Map<String, dynamic>> _applyFilter(
+      List<Map<String, dynamic>> all, _TaskFilter f, String? meId) {
+    if (f == _TaskFilter.all) return all;
+    final now = DateTime.now();
+    bool isToday(DateTime d) =>
+        d.year == now.year && d.month == now.month && d.day == now.day;
+    return all.where((t) {
+      final status = (t['status'] ?? 'TODO').toString();
+      final done = status == 'DONE' || status == 'CANCELLED';
+      final assignees = (t['assignees'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+      final mine = meId != null && assignees.any((a) => (a['user'] as Map?)?['id'] == meId);
+      final due = DateTime.tryParse('${t['dueAt']}')?.toLocal();
+      switch (f) {
+        case _TaskFilter.mine:
+          return mine && !done;
+        case _TaskFilter.dueToday:
+          return due != null && isToday(due) && !done;
+        case _TaskFilter.overdue:
+          return due != null && due.isBefore(now) && !done;
+        case _TaskFilter.done:
+          return status == 'DONE';
+        case _TaskFilter.all:
+          return true;
+      }
+    }).toList();
+  }
+
+  Widget _filterRow(BestieColors c, Map<_TaskFilter, int> counts) {
+    return Container(
+      height: 48,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: _TaskFilter.values.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (_, i) {
+          final f = _TaskFilter.values[i];
+          final selected = _filter == f;
+          final count = counts[f] ?? 0;
+          return ChoiceChip(
+            selected: selected,
+            onSelected: (_) => setState(() => _filter = f),
+            label: Text(count > 0 ? '${f.label} · $count' : f.label),
+            labelStyle: TextStyle(
+              fontSize: 12,
+              fontWeight: BestieTokens.fwSemibold,
+              color: selected ? Colors.white : c.textSoft,
+            ),
+            backgroundColor: c.surface,
+            selectedColor: BestieTokens.cBrand,
+            side: BorderSide(color: selected ? BestieTokens.cBrand : c.border),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(BestieTokens.rPill)),
+            visualDensity: VisualDensity.compact,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          );
+        },
       ),
     );
   }
@@ -321,6 +423,17 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
       builder: (ctx) => _NewTaskSheet(ref: ref),
     );
   }
+}
+
+enum _TaskFilter {
+  all('All'),
+  mine('Mine'),
+  dueToday('Due today'),
+  overdue('Overdue'),
+  done('Done');
+
+  final String label;
+  const _TaskFilter(this.label);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

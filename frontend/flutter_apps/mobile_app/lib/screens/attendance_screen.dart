@@ -26,6 +26,8 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
   Map<String, dynamic>? _config;
   bool _loading = true;
   String? _error;
+  // Consecutive workdays (incl. today, if checked in) the user has logged.
+  int _streak = 0;
 
   final _plan = TextEditingController();
   final _report = TextEditingController();
@@ -66,10 +68,51 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
         };
         _loading = false;
       });
+      // Best-effort streak fetch — don't fail the screen if it errors.
+      _refreshStreak();
     } catch (e) {
       if (!mounted) return;
       setState(() { _error = formatApiError(e); _loading = false; });
     }
+  }
+
+  /// Walks backward from today through the last 60 days of workday entries
+  /// and counts the longest unbroken run of check-ins. Weekends are skipped
+  /// (a missing Saturday or Sunday doesn't break the streak).
+  Future<void> _refreshStreak() async {
+    try {
+      final now = DateTime.now();
+      final from = now.subtract(const Duration(days: 60));
+      final resp = await ref.read(apiProvider).attendanceRange(from: from, to: now);
+      final items = (resp['items'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+      final byDate = <String, Map<String, dynamic>>{
+        for (final e in items)
+          if (e['localDate'] != null) '${e['localDate']}': e,
+      };
+      String fmt(DateTime d) {
+        return '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+      }
+      int streak = 0;
+      var day = DateTime(now.year, now.month, now.day);
+      // If today isn't checked in yet, start counting from yesterday so we
+      // don't penalize someone for opening the screen before clocking in.
+      final todayKey = fmt(day);
+      if (byDate[todayKey]?['checkInAt'] == null) {
+        day = day.subtract(const Duration(days: 1));
+      }
+      for (var i = 0; i < 60; i++) {
+        // Weekend: skip without breaking.
+        if (day.weekday == DateTime.saturday || day.weekday == DateTime.sunday) {
+          day = day.subtract(const Duration(days: 1));
+          continue;
+        }
+        final entry = byDate[fmt(day)];
+        if (entry == null || entry['checkInAt'] == null) break;
+        streak += 1;
+        day = day.subtract(const Duration(days: 1));
+      }
+      if (mounted) setState(() => _streak = streak);
+    } catch (_) {/* silent — streak is decorative */}
   }
 
   int _wordCount(String text) =>
@@ -182,6 +225,10 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
                     children: [
                       _StatusCard(today: _today, colors: c),
+                      if (_streak > 0) ...[
+                        const SizedBox(height: 12),
+                        _streakCard(c),
+                      ],
                       const SizedBox(height: 16),
                       _checkInSection(c),
                       const SizedBox(height: 16),
@@ -191,6 +238,73 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
                     ],
                   ),
                 ),
+    );
+  }
+
+  /// Gentle dopamine hit — surfaces consecutive workdays the user has
+  /// checked in. Plays the same role as a Duolingo streak: tiny visible
+  /// reward that nudges people to keep the chain unbroken. Weekends don't
+  /// reset it (computed in `_refreshStreak`).
+  Widget _streakCard(BestieColors c) {
+    final label = _streak == 1 ? 'day' : 'days';
+    final encourage = switch (_streak) {
+      < 3 => 'Nice start — keep it rolling.',
+      < 7 => 'You\'re on a roll.',
+      < 14 => "Habit forming. Don't break it.",
+      < 30 => 'Two-week streak — keep showing up.',
+      _ => "Legend. ${_streak ~/ 7} weeks strong.",
+    };
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            c.warning.withOpacity(0.18),
+            c.danger.withOpacity(0.10),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(BestieTokens.rMd),
+        border: Border.all(color: c.warning.withOpacity(0.30)),
+      ),
+      child: Row(children: [
+        Container(
+          width: 44, height: 44,
+          decoration: BoxDecoration(
+            color: c.warning.withOpacity(0.20),
+            borderRadius: BorderRadius.circular(BestieTokens.rMd),
+          ),
+          child: Icon(Icons.local_fire_department_rounded,
+              color: c.warning, size: 26),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              RichText(
+                text: TextSpan(
+                  style: TextStyle(color: c.text, fontSize: 16,
+                      fontWeight: BestieTokens.fwBold),
+                  children: [
+                    TextSpan(text: '$_streak '),
+                    TextSpan(
+                      text: '$label streak',
+                      style: TextStyle(color: c.textSoft,
+                          fontWeight: BestieTokens.fwSemibold,
+                          fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(encourage,
+                  style: TextStyle(color: c.textMuted, fontSize: 12)),
+            ],
+          ),
+        ),
+      ]),
     );
   }
 

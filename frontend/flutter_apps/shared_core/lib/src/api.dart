@@ -402,6 +402,18 @@ extension BestieApiExt on BestieApi {
         if (timezone != null) 'timezone': timezone,
       });
 
+  /// Range of workday entries between two ISO dates, used by the streak
+  /// counter to walk back from today and count consecutive check-ins.
+  Future<Map<String, dynamic>> attendanceRange({
+    required DateTime from,
+    required DateTime to,
+    String? timezone,
+  }) => get('/attendance/range', query: {
+        'from': from.toUtc().toIso8601String(),
+        'to': to.toUtc().toIso8601String(),
+        if (timezone != null) 'timezone': timezone,
+      });
+
   // ---- call participant management ----
   /// Adds one or more existing users to an in-flight call.
   /// Mirrors `POST /calls/:id/participants` on the backend.
