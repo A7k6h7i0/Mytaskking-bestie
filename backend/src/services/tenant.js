@@ -24,7 +24,7 @@ async function ensureDefaultTenant() {
       data: {
         id: DEFAULT_TENANT_ID,
         slug: 'default',
-        name: process.env.WORKSPACE_NAME || 'Bestie',
+        name: process.env.WORKSPACE_NAME || 'MyTaskKing',
       },
     });
     logger.info({ id: DEFAULT_TENANT_ID }, 'tenant.default.created');

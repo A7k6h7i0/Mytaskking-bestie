@@ -16,7 +16,7 @@ interface LogoProps {
 }
 
 /**
- * Bestie — premium animated brand mark.
+ * MyTaskKing — premium animated brand mark.
  *
  * The mark is two stacked rounded "ribbons" inside a rounded gradient
  * container, reading as a stylized monogram. On first paint the container
@@ -35,7 +35,7 @@ export function Logo({
   ambient = false,
   className,
   onClick,
-  title = 'Bestie',
+  title = 'MyTaskKing',
 }: LogoProps) {
   const inner = (
     <span
@@ -118,7 +118,7 @@ export function Logo({
 
       {withWordmark && (
         <span className="lg__wordmark">
-          <span className="lg__word">Bestie</span>
+          <span className="lg__word">MyTaskKing</span>
           <span className="lg__tag">Workspace</span>
         </span>
       )}

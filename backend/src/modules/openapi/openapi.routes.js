@@ -29,7 +29,7 @@ router.get('/docs', (_req, res) => {
 <html lang="en">
   <head>
     <meta charset="UTF-8">
-    <title>Bestie API · Reference</title>
+    <title>MyTaskKing API · Reference</title>
     <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
   </head>
   <body>

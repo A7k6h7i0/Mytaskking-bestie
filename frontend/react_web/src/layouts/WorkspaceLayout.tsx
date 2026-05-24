@@ -124,7 +124,7 @@ export default function WorkspaceLayout() {
     <div className="ws">
       <aside className="ws__sidebar">
         <div className="ws__brand">
-          <Logo size={32} withWordmark onClick={() => navigate('/dashboard')} title="Bestie · Home" />
+          <Logo size={32} withWordmark onClick={() => navigate('/dashboard')} title="MyTaskKing · Home" />
         </div>
 
         <button className="ws__search-trigger" onClick={openSearch}>

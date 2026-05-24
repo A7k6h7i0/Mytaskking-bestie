@@ -23,7 +23,7 @@ const logger = require('../utils/logger');
  */
 
 const PROVIDER = (process.env.EMAIL_PROVIDER || 'noop').toLowerCase();
-const FROM = process.env.EMAIL_FROM || 'no-reply@bestie.app';
+const FROM = process.env.EMAIL_FROM || 'no-reply@mytaskking.com';
 
 async function send(payload) {
   // Validate at enqueue time so bad calls fail loudly instead of silently piling

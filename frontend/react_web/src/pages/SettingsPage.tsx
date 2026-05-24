@@ -23,7 +23,7 @@ export default function SettingsPage() {
   });
 
   const [branding, setBranding] = useState({
-    name: settings?.branding?.name ?? 'Bestie',
+    name: settings?.branding?.name ?? 'MyTaskKing',
     tagline: settings?.branding?.tagline ?? 'Premium workspace · enterprise',
     primaryColor: settings?.branding?.primaryColor ?? '#5b8cff',
     logoUrl: settings?.branding?.logoUrl ?? '',
@@ -44,7 +44,7 @@ export default function SettingsPage() {
   useEffect(() => {
     if (!settings) return;
     setBranding({
-      name: settings?.branding?.name ?? 'Bestie',
+      name: settings?.branding?.name ?? 'MyTaskKing',
       tagline: settings?.branding?.tagline ?? 'Premium workspace · enterprise',
       primaryColor: settings?.branding?.primaryColor ?? '#5b8cff',
       logoUrl: settings?.branding?.logoUrl ?? '',

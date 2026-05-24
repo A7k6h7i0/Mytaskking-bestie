@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Bestie API",
+    "title": "MyTaskKing API",
     "version": "1.0.0",
     "description": "Enterprise collaboration platform \u2014 REST + Socket.IO. See /docs/API.md for full prose reference and /docs/ARCHITECTURE.md for system design."
   },
