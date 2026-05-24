@@ -88,10 +88,12 @@ class MeetingsScreen extends ConsumerWidget {
           },
         ),
       ),
-      floatingActionButton: Padding(
-        // Lift above the shell's bottom nav (70 px + bottom safe-area inset).
-        padding: EdgeInsets.only(
-          bottom: 70 + MediaQuery.of(context).padding.bottom + 12,
+      floatingActionButton: Transform.translate(
+        // Lift above the shell's floating bottom nav (70 + outer margin +
+        // safe-area inset). Transform shifts visually without changing the
+        // FAB's layout size in Scaffold's positioning math.
+        offset: Offset(
+          0, -(70 + MediaQuery.of(context).padding.bottom + 12),
         ),
         child: FloatingActionButton.extended(
           onPressed: () => _create(context, ref),

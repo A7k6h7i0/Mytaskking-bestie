@@ -142,15 +142,16 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
           },
         ),
       ),
-      // The shell's bottom nav (70 px + safe-area inset) sits *above* this
-      // Scaffold's FAB slot, so the default position overlaps the Meet tab.
-      // Lift the FAB by the nav height + an extra 12 px breathing room.
+      // Shell sets extendBody: true so the body extends behind the floating
+      // bottom nav (70 px + 12 px outer margin + safe-area inset). The
+      // Scaffold positions FABs against the body bottom, so without this
+      // shift the FAB lands on top of the Meet/More tabs.
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       floatingActionButton: _selecting
           ? null
-          : Padding(
-              padding: EdgeInsets.only(
-                bottom: 70 + MediaQuery.of(context).padding.bottom + 12,
+          : Transform.translate(
+              offset: Offset(
+                0, -(70 + MediaQuery.of(context).padding.bottom + 12),
               ),
               child: FloatingActionButton.extended(
                 onPressed: _newTask,
