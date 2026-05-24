@@ -464,7 +464,7 @@ export default function ChatPage() {
 
             <div className="ch__messages" ref={scrollRef}>
               {messages.map((m) => (
-                <div key={m.id} className="ch__msg">
+                <div key={m.id} className={`ch__msg ${m.authorId === me.id ? 'ch__msg--mine' : 'ch__msg--other'}`}>
                   <Avatar name={m.author.name} src={m.author.avatarUrl} isClient={m.author.isClient} size={32} />
                   <div className="ch__msg-body">
                     <div className="ch__msg-meta">

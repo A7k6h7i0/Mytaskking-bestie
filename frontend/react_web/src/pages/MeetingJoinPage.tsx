@@ -101,6 +101,23 @@ export default function MeetingJoinPage() {
     return (await axios.post(`${apiUrl}/api/v1/meetings/public/${slug}/token`, { guestName: displayName })).data as MeetingToken;
   }
 
+  async function startMicrophone({ quiet = false } = {}) {
+    if (!clientRef.current) return false;
+    try {
+      const mic = await AgoraRTC.createMicrophoneAudioTrack();
+      micTrackRef.current = mic;
+      await clientRef.current.publish([mic]);
+      setMuted(false);
+      return true;
+    } catch (err: any) {
+      setMuted(true);
+      if (!quiet) {
+        toast.warn('No microphone found', err?.message || 'You joined without audio.');
+      }
+      return false;
+    }
+  }
+
   async function joinMeeting() {
     if (joined || joining) return;
     if (!me && !displayName) {
@@ -132,20 +149,9 @@ export default function MeetingJoinPage() {
       client.on('user-left', () => setRemoteUsers([...client.remoteUsers]));
 
       await client.join(token.appId, token.channelName, token.token, token.uid);
-      const mic = await AgoraRTC.createMicrophoneAudioTrack();
-      micTrackRef.current = mic;
-      await client.publish([mic]);
-
-      if (isVideoMode) {
-        const cam = await AgoraRTC.createCameraVideoTrack();
-        cameraTrackRef.current = cam;
-        await client.publish([cam]);
-        if (localVideoRef.current) cam.play(localVideoRef.current);
-        setCameraOn(true);
-      }
+      await startMicrophone({ quiet: true });
 
       setJoined(true);
-      setMuted(false);
       setRemoteUsers([...client.remoteUsers]);
       lobbyQuery.refetch();
       toast.success(`Joined ${meetingTitle}`);
@@ -183,7 +189,11 @@ export default function MeetingJoinPage() {
   }
 
   async function toggleMute() {
-    if (!micTrackRef.current) return;
+    if (!clientRef.current) return;
+    if (!micTrackRef.current) {
+      await startMicrophone();
+      return;
+    }
     const next = !muted;
     await micTrackRef.current.setEnabled(!next);
     setMuted(next);
