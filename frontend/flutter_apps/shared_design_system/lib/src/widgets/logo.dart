@@ -4,10 +4,11 @@ import '../tokens.dart';
 
 /// MyTaskKing — premium animated brand mark for Flutter.
 ///
-/// Mirrors the React [Logo] visually: rounded gradient container, three
-/// stroke-drawn ribbons that animate in on mount, a corner accent dot with a
-/// pulsing ring. Use [withWordmark] for the brand+tagline layout, [ambient]
-/// for the gentle floating hero variant.
+/// A rounded gradient square with a stylized "checklist" mark — three white
+/// task lines + a bold check on the first row — to match the MyTaskKing
+/// productivity identity. Animated stroke-on for the lines, a corner accent
+/// dot with a pulsing ring. `withWordmark` adds the MyTaskKing wordmark next
+/// to the mark.
 class BestieLogo extends StatefulWidget {
   final double size;
   final bool withWordmark;
@@ -27,7 +28,7 @@ class BestieLogo extends StatefulWidget {
 
 class _BestieLogoState extends State<BestieLogo> with TickerProviderStateMixin {
   late final AnimationController _draw =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 1000))..forward();
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 1100))..forward();
   late final AnimationController _pulse =
       AnimationController(vsync: this, duration: const Duration(milliseconds: 1800))..repeat();
   late final AnimationController _float =
@@ -63,9 +64,16 @@ class _BestieLogoState extends State<BestieLogo> with TickerProviderStateMixin {
       children: [
         mark,
         if (widget.withWordmark) ...[
-          const SizedBox(width: 12),
+          SizedBox(width: widget.size * 0.30),
           DefaultTextStyle.merge(
-            style: TextStyle(fontSize: widget.size * 0.5, fontWeight: FontWeight.w800, letterSpacing: -0.02 * widget.size),
+            // Slightly tighter than before because "MyTaskKing" is longer
+            // than "Bestie" — keep it from crowding the mark on small sizes.
+            style: TextStyle(
+              fontSize: widget.size * 0.42,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.015 * widget.size,
+              height: 1.0,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
@@ -75,15 +83,16 @@ class _BestieLogoState extends State<BestieLogo> with TickerProviderStateMixin {
                   shaderCallback: (rect) => const LinearGradient(
                     colors: [BestieTokens.cAccent, BestieTokens.cBrand, Color(0xFF3AA1FF)],
                   ).createShader(rect),
-                  child: const Text('Bestie'),
+                  child: const Text('MyTaskKing'),
                 ),
+                SizedBox(height: widget.size * 0.04),
                 Text(
-                  'Workspace',
+                  'Productivity',
                   style: TextStyle(
-                    fontSize: widget.size * 0.24,
+                    fontSize: widget.size * 0.22,
                     fontWeight: FontWeight.w600,
                     color: BestieTokens.cTextMuted,
-                    letterSpacing: 0.04 * widget.size * 0.24,
+                    letterSpacing: 0.06 * widget.size * 0.22,
                   ),
                 ),
               ],
@@ -130,29 +139,39 @@ class _LogoPainter extends CustomPainter {
       ..close();
     canvas.drawPath(gloss, Paint()..color = Colors.white.withOpacity(0.14));
 
-    // Ribbon strokes — stem, top loop, bottom loop, drawn sequentially.
+    final sx = s / 48; // scale factor from our 48-unit canvas
+
     final stroke = Paint()
       ..color = Colors.white
-      ..strokeWidth = s * 0.073
+      ..strokeWidth = s * 0.075
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round
       ..style = PaintingStyle.stroke;
 
-    final sx = s / 48; // scale factor from our 48-unit canvas
-    Path stem() => Path()..moveTo(14 * sx, 13 * sx)..lineTo(14 * sx, 35 * sx);
-    Path top()  => Path()
-      ..moveTo(14 * sx, 13 * sx)
-      ..lineTo(26 * sx, 13 * sx)
-      ..arcToPoint(Offset(26 * sx, 23 * sx), radius: Radius.circular(5 * sx))
-      ..lineTo(14 * sx, 23 * sx);
-    Path bot()  => Path()
-      ..moveTo(14 * sx, 23 * sx)
-      ..lineTo(28 * sx, 23 * sx)
-      ..arcToPoint(Offset(28 * sx, 33 * sx), radius: Radius.circular(5 * sx))
-      ..lineTo(14 * sx, 33 * sx);
+    // ---- Checklist mark — three task rows with a bold check on the first ----
+    Path topLine()    => Path()..moveTo(22 * sx, 15 * sx)..lineTo(36 * sx, 15 * sx);
+    Path middleLine() => Path()..moveTo(22 * sx, 24 * sx)..lineTo(36 * sx, 24 * sx);
+    Path bottomLine() => Path()..moveTo(22 * sx, 33 * sx)..lineTo(36 * sx, 33 * sx);
+    // Checkmark for the first row, drawn as two strokes.
+    Path checkBase() => Path()
+      ..moveTo(11 * sx, 16 * sx)
+      ..lineTo(15 * sx, 19 * sx);
+    Path checkTip() => Path()
+      ..moveTo(15 * sx, 19 * sx)
+      ..lineTo(20 * sx, 12 * sx);
+    // Empty bullets for rows 2 and 3 (small circles).
+    void drawBullet(Offset c, double radius, double t) {
+      if (t <= 0) return;
+      canvas.drawCircle(
+        c, radius,
+        Paint()
+          ..color = Colors.white.withOpacity(t)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = s * 0.055,
+      );
+    }
 
     void drawSlice(Path p, double from, double to) {
-      // Animate by clamping the drawn fraction of the metric.
       final t = ((draw - from) / (to - from)).clamp(0.0, 1.0);
       if (t == 0) return;
       for (final m in p.computeMetrics()) {
@@ -160,13 +179,19 @@ class _LogoPainter extends CustomPainter {
       }
     }
 
-    drawSlice(stem(), 0.12, 0.40);
-    drawSlice(top(),  0.30, 0.65);
-    drawSlice(bot(),  0.50, 0.90);
+    drawSlice(checkBase(),  0.05, 0.30);
+    drawSlice(checkTip(),   0.20, 0.55);
+    drawSlice(topLine(),    0.25, 0.55);
+    drawBullet(Offset(13 * sx, 24 * sx), 2.4 * sx,
+        ((draw - 0.45) / 0.20).clamp(0.0, 1.0));
+    drawSlice(middleLine(), 0.50, 0.75);
+    drawBullet(Offset(13 * sx, 33 * sx), 2.4 * sx,
+        ((draw - 0.65) / 0.20).clamp(0.0, 1.0));
+    drawSlice(bottomLine(), 0.70, 0.95);
 
-    // Accent dot + ping ring.
-    final dotCenter = Offset(37 * sx, 11 * sx);
-    final dotRadius = 3 * sx;
+    // Accent dot + ping ring (top-right corner).
+    final dotCenter = Offset(40 * sx, 11 * sx);
+    final dotRadius = 2.8 * sx;
     canvas.drawCircle(dotCenter, dotRadius, Paint()..color = Colors.white);
 
     final ringRadius = (5 * sx) * (0.7 + pulse * 1.3);

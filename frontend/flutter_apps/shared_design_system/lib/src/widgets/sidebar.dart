@@ -54,8 +54,12 @@ class BestieSidebar extends StatelessWidget {
                 if (!collapsed) ...[
                   const SizedBox(width: 12),
                   const Expanded(
-                    child: Text('Bestie',
-                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17)),
+                    child: Text('MyTaskKing',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 17,
+                          letterSpacing: -0.3,
+                        )),
                   ),
                 ],
               ],

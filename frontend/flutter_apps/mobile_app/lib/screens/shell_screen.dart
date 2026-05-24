@@ -248,7 +248,9 @@ class _PremiumBottomNav extends StatelessWidget {
           12 + (media.padding.bottom > 0 ? 0 : 4),
         ),
         child: Container(
-          height: 66,
+          // Vertical icon + label layout needs a touch more breathing room
+          // than the prior icon-only design.
+          height: 70,
           decoration: BoxDecoration(
             color: colors.surface.withOpacity(isDark ? 0.92 : 0.96),
             borderRadius: BorderRadius.circular(22),
@@ -355,8 +357,8 @@ class _NavItemState extends State<_NavItem> with SingleTickerProviderStateMixin 
 
           return Center(
             child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
               decoration: BoxDecoration(
                 color: pill,
                 borderRadius: BorderRadius.circular(14),
@@ -371,8 +373,12 @@ class _NavItemState extends State<_NavItem> with SingleTickerProviderStateMixin 
                       ]
                     : const [],
               ),
-              child: Row(
+              // Vertical layout — icon on top, label below — so labels are
+              // always visible (typical mobile bottom-nav). Active state
+              // adds the brand-soft pill background + filled icon variant.
+              child: Column(
                 mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Transform.scale(
                     scale: 1.0 + 0.06 * t,
@@ -382,34 +388,20 @@ class _NavItemState extends State<_NavItem> with SingleTickerProviderStateMixin 
                       color: iconColor,
                     ),
                   ),
-                  if (t > 0.05)
-                    Flexible(
-                      child: ClipRect(
-                        child: AnimatedSize(
-                          duration: const Duration(milliseconds: 220),
-                          curve: Curves.easeOutCubic,
-                          alignment: Alignment.centerLeft,
-                          child: Padding(
-                            padding: EdgeInsets.only(left: 6 * t),
-                            child: Opacity(
-                              opacity: t,
-                              child: Text(
-                                widget.label,
-                                maxLines: 1,
-                                softWrap: false,
-                                overflow: TextOverflow.fade,
-                                style: TextStyle(
-                                  fontSize: 12.5,
-                                  fontWeight: FontWeight.w600,
-                                  letterSpacing: -0.1,
-                                  color: labelColor,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
+                  const SizedBox(height: 2),
+                  Text(
+                    widget.label,
+                    maxLines: 1,
+                    softWrap: false,
+                    overflow: TextOverflow.fade,
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: widget.selected ? FontWeight.w700 : FontWeight.w500,
+                      letterSpacing: -0.1,
+                      color: labelColor,
+                      height: 1.0,
                     ),
+                  ),
                 ],
               ),
             ),
