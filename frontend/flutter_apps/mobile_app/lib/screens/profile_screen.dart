@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:bestie_design/bestie_design.dart';
+import 'package:bestie_core/bestie_core.dart' as core;
 
-import '../state.dart';
+import '../state.dart' hide ThemeMode;
 import 'leaderboard_card.dart';
 
 class ProfileScreen extends ConsumerWidget {
@@ -85,13 +86,13 @@ class ProfileScreen extends ConsumerWidget {
           ListTile(
             leading: const Icon(Icons.palette_outlined),
             title: const Text('Theme'),
-            trailing: BestieSegmentedControl<ThemeMode>(
+            trailing: BestieSegmentedControl<core.ThemeMode>(
               value: themeMode,
               onChanged: (v) => ref.read(themeModeProvider.notifier).state = v,
               options: const [
-                BestieSegmentOption(value: ThemeMode.light,  label: 'Light', icon: Icons.light_mode),
-                BestieSegmentOption(value: ThemeMode.dark,   label: 'Dark',  icon: Icons.dark_mode),
-                BestieSegmentOption(value: ThemeMode.system, label: 'Auto', icon: Icons.brightness_auto),
+                BestieSegmentOption(value: core.ThemeMode.light,  label: 'Light', icon: Icons.light_mode),
+                BestieSegmentOption(value: core.ThemeMode.dark,   label: 'Dark',  icon: Icons.dark_mode),
+                BestieSegmentOption(value: core.ThemeMode.system, label: 'Auto', icon: Icons.brightness_auto),
               ],
             ),
           ),

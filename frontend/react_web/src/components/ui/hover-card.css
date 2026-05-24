@@ -1,16 +1,23 @@
 .hc-wrap { position: relative; display: inline-flex; }
 .hc {
   position: absolute;
-  z-index: 250;
+  z-index: var(--z-overlay);
   min-width: 240px;
   max-width: 360px;
-  background: var(--c-surface);
-  border: 1px solid var(--c-border);
+  background: color-mix(in srgb, var(--c-surface) 96%, transparent);
+  backdrop-filter: blur(18px) saturate(180%);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  border: 1px solid color-mix(in srgb, var(--c-border) 80%, transparent);
   border-radius: var(--r-md);
   box-shadow: var(--sh-pop);
   padding: var(--s-3);
+  animation: hc-in var(--dur) var(--ease-out) both;
+}
+@keyframes hc-in {
+  from { opacity: 0; transform: scale(0.96) translateY(-4px); }
+  to   { opacity: 1; transform: none; }
 }
 .hc--bottom { top: calc(100% + 8px); left: 0; }
-.hc--top    { bottom: calc(100% + 8px); left: 0; }
-.hc--left   { right: calc(100% + 8px); top: 0; }
-.hc--right  { left: calc(100% + 8px); top: 0; }
+.hc--top    { bottom: calc(100% + 8px); left: 0; transform-origin: bottom; }
+.hc--left   { right: calc(100% + 8px); top: 0; transform-origin: right; }
+.hc--right  { left: calc(100% + 8px); top: 0; transform-origin: left; }

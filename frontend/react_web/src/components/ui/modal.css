@@ -4,25 +4,32 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 200;
+  z-index: var(--z-modal);
   padding: var(--s-4);
 }
 
 .mo__panel {
   background: var(--c-surface);
-  border-radius: var(--r-lg);
-  border: 1px solid var(--c-border);
-  box-shadow: var(--sh-pop);
+  background-image: linear-gradient(180deg, color-mix(in srgb, var(--c-surface) 94%, white 6%), var(--c-surface));
+  border-radius: var(--r-xl);
+  border: 1px solid color-mix(in srgb, var(--c-border) 80%, transparent);
+  box-shadow: var(--sh-hi);
   width: 100%;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  animation: mo-pop var(--dur-medium) var(--ease-spring) both;
 }
 .mo__panel--sm { max-width: 380px; }
 .mo__panel--md { max-width: 520px; }
 .mo__panel--lg { max-width: 720px; }
 .mo__panel--xl { max-width: 960px; }
+
+@keyframes mo-pop {
+  from { opacity: 0; transform: translateY(12px) scale(0.96); }
+  to   { opacity: 1; transform: none; }
+}
 
 .mo__head {
   display: flex;
@@ -30,24 +37,45 @@
   justify-content: space-between;
   gap: 12px;
   padding: var(--s-4) var(--s-5);
-  border-bottom: 1px solid var(--c-border);
+  border-bottom: 1px solid color-mix(in srgb, var(--c-border) 80%, transparent);
 }
-.mo__title { margin: 0; font-size: var(--fs-lg); font-weight: 700; letter-spacing: -0.005em; }
-.mo__desc  { margin: 4px 0 0; color: var(--c-text-muted); font-size: var(--fs-sm); }
+.mo__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--ls-snug);
+  color: var(--c-text);
+}
+.mo__desc {
+  margin: 4px 0 0;
+  color: var(--c-text-muted);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+}
 
 .mo__close {
-  width: 30px; height: 30px;
+  width: 32px; height: 32px;
   display: inline-flex; align-items: center; justify-content: center;
-  border-radius: 8px;
+  border-radius: var(--r-sm);
   color: var(--c-text-muted);
-  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease-spring);
 }
-.mo__close:hover { background: var(--c-surface-2); color: var(--c-text); }
+.mo__close:hover {
+  background: var(--c-surface-2);
+  color: var(--c-text);
+  transform: scale(1.06);
+}
+.mo__close:active { transform: scale(0.92); }
 
 .mo__body {
   padding: var(--s-4) var(--s-5);
   overflow-y: auto;
   flex: 1;
+  color: var(--c-text-soft);
 }
 
 .mo__foot {
@@ -55,6 +83,6 @@
   justify-content: flex-end;
   gap: 8px;
   padding: var(--s-3) var(--s-5);
-  border-top: 1px solid var(--c-border);
-  background: var(--c-surface-1);
+  border-top: 1px solid color-mix(in srgb, var(--c-border) 80%, transparent);
+  background: color-mix(in srgb, var(--c-surface-1) 75%, transparent);
 }

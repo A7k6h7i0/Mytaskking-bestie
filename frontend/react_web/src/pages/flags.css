@@ -47,10 +47,10 @@
   color: var(--c-text-muted);
   text-transform: uppercase;
 }
-.fl__rollout--global { background: #d9eefb; color: var(--c-info); }
+.fl__rollout--global { background: var(--c-info-soft); color: var(--c-info); }
 .fl__rollout--role { background: var(--c-brand-soft); color: var(--c-brand-strong); }
-.fl__rollout--percent { background: #fff3d6; color: #b6791f; }
-.fl__rollout--tenant { background: #d9f5e8; color: var(--c-success); }
+.fl__rollout--percent { background: var(--c-warning-soft); color: var(--c-warning); }
+.fl__rollout--tenant { background: var(--c-success-soft); color: var(--c-success); }
 .fl__rollout--user { background: var(--c-client-soft); color: var(--c-client); }
 .fl__desc { color: var(--c-text-muted); font-size: var(--fs-xs); margin-top: 4px; }
 

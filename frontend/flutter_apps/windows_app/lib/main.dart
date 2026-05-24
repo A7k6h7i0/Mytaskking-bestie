@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bestie_design/bestie_design.dart';
-import 'package:bestie_core/bestie_core.dart';
-import 'package:bestie_mobile/screens.dart';
+import 'package:bestie_core/bestie_core.dart' as core show ThemeMode;
+import 'package:bestie_mobile/screens.dart' hide ThemeMode;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -32,10 +32,11 @@ class BestieWindowsApp extends ConsumerWidget {
       title: 'Bestie · Windows',
       debugShowCheckedModeBanner: false,
       theme: BestieTheme.light(),
+      darkTheme: BestieTheme.dark(),
       themeMode: switch (mode) {
-        ThemeMode.light  => ThemeMode.light,
-        ThemeMode.dark   => ThemeMode.dark,
-        ThemeMode.system => ThemeMode.system,
+        core.ThemeMode.light  => ThemeMode.light,
+        core.ThemeMode.dark   => ThemeMode.dark,
+        core.ThemeMode.system => ThemeMode.system,
       },
       home: user == null ? const LoginScreen() : const DesktopShell(),
     );

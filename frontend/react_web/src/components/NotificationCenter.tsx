@@ -67,16 +67,21 @@ export function NotificationCenter() {
   return (
     <div className="nc" ref={panelRef}>
       <button
-        className="nc__trigger"
+        className={clsx('nc__trigger', open && 'is-open')}
         onClick={() => setOpen((v) => !v)}
         title="Notifications"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label={data && data.unread > 0 ? `Notifications, ${data.unread} unread` : 'Notifications'}
       >
         <Bell size={18} />
-        {data && data.unread > 0 && <span className="nc__badge">{data.unread > 99 ? '99+' : data.unread}</span>}
+        {data && data.unread > 0 && (
+          <span className="nc__badge" aria-hidden="true">{data.unread > 99 ? '99+' : data.unread}</span>
+        )}
       </button>
 
       {open && (
-        <div className="nc__panel fade-in" role="dialog">
+        <div className="nc__panel" role="dialog" aria-label="Notifications" aria-live="polite">
           <header className="nc__panel-head">
             <h3>Notifications</h3>
             <div className="nc__actions">

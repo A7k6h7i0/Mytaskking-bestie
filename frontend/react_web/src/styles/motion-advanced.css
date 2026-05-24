@@ -282,3 +282,110 @@
   transform: translateY(calc(var(--py, 0px) * var(--depth, 0.2)));
   will-change: transform;
 }
+
+/* ------------------------------------------------------------------ */
+/*  PREMIUM PAGE ENTRY — apply to top-level route content              */
+/* ------------------------------------------------------------------ */
+@keyframes m-page-enter {
+  from { opacity: 0; transform: translateY(8px); filter: blur(6px); }
+  to   { opacity: 1; transform: none; filter: none; }
+}
+.m-page-enter { animation: m-page-enter 420ms var(--ease-out) both; }
+
+/* ------------------------------------------------------------------ */
+/*  INTERACTIVE SURFACE — premium card hover (lift + glow + border)    */
+/* ------------------------------------------------------------------ */
+.m-surface {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-1);
+  transition:
+    transform var(--dur) var(--ease-out),
+    box-shadow var(--dur) var(--ease-out),
+    border-color var(--dur) var(--ease-out),
+    background var(--dur) var(--ease-out);
+  will-change: transform;
+}
+.m-surface:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--sh-3);
+  border-color: color-mix(in srgb, var(--c-brand) 22%, var(--c-border));
+}
+.m-surface:active { transform: translateY(-1px); box-shadow: var(--sh-2); }
+
+/* ------------------------------------------------------------------ */
+/*  CTA — premium primary button glow (composable with .bb--primary)   */
+/* ------------------------------------------------------------------ */
+.m-cta {
+  position: relative;
+  isolation: isolate;
+  transition:
+    transform var(--dur) var(--ease-out),
+    box-shadow var(--dur) var(--ease-out);
+}
+.m-cta::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--g-brand);
+  opacity: 0;
+  filter: blur(14px);
+  transition: opacity var(--dur) var(--ease-out);
+}
+.m-cta:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--sh-glow-brand);
+}
+.m-cta:hover::after { opacity: 0.55; }
+.m-cta:active { transform: translateY(0); }
+
+/* ------------------------------------------------------------------ */
+/*  PILL TAB GROUP — smooth active background transition (no JS)       */
+/* ------------------------------------------------------------------ */
+.m-pill-group {
+  display: inline-flex;
+  gap: 2px;
+  padding: 4px;
+  border-radius: var(--r-pill);
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border);
+}
+.m-pill-group > * {
+  padding: 6px 14px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--c-text-soft);
+  transition:
+    background var(--dur) var(--ease-out),
+    color var(--dur) var(--ease-out),
+    transform var(--dur-fast) var(--ease-spring),
+    box-shadow var(--dur) var(--ease-out);
+}
+.m-pill-group > *:hover { color: var(--c-text); }
+.m-pill-group > *.is-active {
+  background: var(--c-surface);
+  color: var(--c-text);
+  box-shadow: var(--sh-1);
+  font-weight: var(--fw-semibold);
+}
+
+/* ------------------------------------------------------------------ */
+/*  ICON BUTTON SPRING — drop on .ws__icon-btn-style buttons           */
+/* ------------------------------------------------------------------ */
+.m-icon-spring {
+  transition: transform var(--dur-fast) var(--ease-spring), background var(--dur-fast) var(--ease);
+}
+.m-icon-spring:hover { transform: scale(1.06); }
+.m-icon-spring:active { transform: scale(0.92); }
+
+/* ------------------------------------------------------------------ */
+/*  HALO RING — focus emphasis for important controls                  */
+/* ------------------------------------------------------------------ */
+.m-halo:focus-visible {
+  box-shadow: var(--sh-ring), var(--sh-1);
+  outline: none;
+}

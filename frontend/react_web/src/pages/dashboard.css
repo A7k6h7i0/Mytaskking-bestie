@@ -30,9 +30,9 @@
   background: var(--c-brand-soft);
   color: var(--c-brand-strong);
 }
-.db__stat--success .db__stat-icon { background: #d9f5e8; color: var(--c-success); }
-.db__stat--warning .db__stat-icon { background: #fdf1d6; color: #b6791f; }
-.db__stat--info    .db__stat-icon { background: #d9eefb; color: var(--c-info); }
+.db__stat--success .db__stat-icon { background: var(--c-success-soft); color: var(--c-success); }
+.db__stat--warning .db__stat-icon { background: var(--c-warning-soft); color: var(--c-warning); }
+.db__stat--info    .db__stat-icon { background: var(--c-info-soft); color: var(--c-info); }
 .db__stat--client  .db__stat-icon { background: var(--c-client-soft); color: var(--c-client); }
 
 .db__stat-label { font-size: var(--fs-sm); color: var(--c-text-muted); }

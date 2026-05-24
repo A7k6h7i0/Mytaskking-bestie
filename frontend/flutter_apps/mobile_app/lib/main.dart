@@ -1,18 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bestie_design/bestie_design.dart';
-import 'package:bestie_core/bestie_core.dart';
+import 'package:bestie_core/bestie_core.dart' as core;
 
 import 'router.dart';
-import 'state.dart';
+import 'state.dart' hide ThemeMode;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final auth = BestieAuthStore();
+  final auth = core.BestieAuthStore();
   await auth.load();
 
-  final api = BestieApi(baseUrl: kApiBaseUrl, auth: auth);
-  final socket = BestieSocket(url: kSocketUrl, auth: auth);
+  final api = core.BestieApi(baseUrl: kApiBaseUrl, auth: auth);
+  final socket = core.BestieSocket(url: kSocketUrl, auth: auth);
 
   runApp(ProviderScope(
     overrides: [
@@ -34,11 +34,11 @@ class BestieApp extends ConsumerWidget {
       title: 'Bestie',
       debugShowCheckedModeBanner: false,
       theme: BestieTheme.light(),
-      darkTheme: BestieTheme.light(),
+      darkTheme: BestieTheme.dark(),
       themeMode: switch (mode) {
-        ThemeMode.light  => ThemeMode.light,
-        ThemeMode.dark   => ThemeMode.dark,
-        ThemeMode.system => ThemeMode.system,
+        core.ThemeMode.light  => ThemeMode.light,
+        core.ThemeMode.dark   => ThemeMode.dark,
+        core.ThemeMode.system => ThemeMode.system,
       },
       routerConfig: ref.watch(routerProvider),
     );

@@ -39,7 +39,7 @@
   padding: 3px 8px;
   border-radius: var(--r-pill);
 }
-.pm__chip.is-allow { background: #d9f5e8; color: var(--c-success); }
+.pm__chip.is-allow { background: var(--c-success-soft); color: var(--c-success); }
 .pm__chip.is-deny  { background: var(--c-client-soft); color: var(--c-client); }
 
 .pm__key { font-family: var(--font-mono); font-weight: 600; }

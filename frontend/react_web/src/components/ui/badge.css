@@ -3,11 +3,12 @@
   align-items: center;
   gap: 6px;
   border-radius: var(--r-pill);
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--ls-wide);
   text-transform: uppercase;
   line-height: 1;
   white-space: nowrap;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
 }
 .bd--sm { font-size: 10px; padding: 3px 8px; }
 .bd--md { font-size: 12px; padding: 4px 10px; }
@@ -19,14 +20,14 @@
 }
 
 /* --- soft (default) --- */
-.bd--soft.bd--neutral { background: var(--c-surface-2); color: var(--c-text-muted); }
-.bd--soft.bd--brand   { background: var(--c-brand-soft); color: var(--c-brand-strong); }
-.bd--soft.bd--success { background: #d9f5e8; color: var(--c-success); }
-.bd--soft.bd--warning { background: #fdf1d6; color: #b6791f; }
-.bd--soft.bd--danger  { background: #fde2e2; color: var(--c-danger); }
-.bd--soft.bd--info    { background: #d9eefb; color: var(--c-info); }
-.bd--soft.bd--client  { background: var(--c-client-soft); color: var(--c-client); }
-.bd--soft.bd--accent  { background: #ece5ff; color: #5a3edb; }
+.bd--soft.bd--neutral { background: var(--c-surface-2);    color: var(--c-text-muted); }
+.bd--soft.bd--brand   { background: var(--c-brand-soft);   color: var(--c-brand-strong); }
+.bd--soft.bd--success { background: var(--c-success-soft); color: var(--c-success); }
+.bd--soft.bd--warning { background: var(--c-warning-soft); color: var(--c-warning); }
+.bd--soft.bd--danger  { background: var(--c-danger-soft);  color: var(--c-danger); }
+.bd--soft.bd--info    { background: var(--c-info-soft);    color: var(--c-info); }
+.bd--soft.bd--client  { background: var(--c-client-soft);  color: var(--c-client); }
+.bd--soft.bd--accent  { background: var(--c-accent-soft);  color: var(--c-accent); }
 
 /* --- solid --- */
 .bd--solid                  { color: var(--c-text-invert); }
@@ -47,8 +48,8 @@
 .bd--outline.bd--neutral { color: var(--c-text-muted); }
 .bd--outline.bd--brand   { color: var(--c-brand-strong); }
 .bd--outline.bd--success { color: var(--c-success); }
-.bd--outline.bd--warning { color: #b6791f; }
+.bd--outline.bd--warning { color: var(--c-warning); }
 .bd--outline.bd--danger  { color: var(--c-danger); }
 .bd--outline.bd--info    { color: var(--c-info); }
 .bd--outline.bd--client  { color: var(--c-client); }
-.bd--outline.bd--accent  { color: #5a3edb; }
+.bd--outline.bd--accent  { color: var(--c-accent); }

@@ -1,14 +1,21 @@
 .pv-wrap { position: relative; display: inline-flex; }
 .pv {
   position: absolute;
-  z-index: 250;
+  z-index: var(--z-overlay);
   min-width: 200px;
-  background: var(--c-surface);
-  border: 1px solid var(--c-border);
+  background: color-mix(in srgb, var(--c-surface) 96%, transparent);
+  backdrop-filter: blur(18px) saturate(180%);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  border: 1px solid color-mix(in srgb, var(--c-border) 80%, transparent);
   border-radius: var(--r-md);
   box-shadow: var(--sh-pop);
   padding: 6px;
   transform-origin: top left;
+  animation: pv-in var(--dur) var(--ease-out) both;
+}
+@keyframes pv-in {
+  from { opacity: 0; transform: scale(0.96) translateY(-4px); }
+  to   { opacity: 1; transform: none; }
 }
 .pv--bottom-start { top: calc(100% + 6px); left: 0; }
 .pv--bottom-end   { top: calc(100% + 6px); right: 0; transform-origin: top right; }

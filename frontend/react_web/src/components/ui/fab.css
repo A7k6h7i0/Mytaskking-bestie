@@ -1,6 +1,6 @@
 .fab {
   position: fixed;
-  z-index: 90;
+  z-index: var(--z-overlay);
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -12,17 +12,18 @@
 .fab__main {
   width: 56px; height: 56px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--c-accent), var(--c-brand));
+  background: var(--g-brand);
   color: white;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 12px 28px rgba(91, 140, 255, 0.45);
+  box-shadow: var(--sh-glow-brand), 0 12px 28px rgba(20, 28, 60, 0.30);
   cursor: pointer;
   transition: transform var(--dur) var(--ease-spring), box-shadow var(--dur) var(--ease);
 }
-.fab__main:hover { transform: translateY(-2px) scale(1.05); }
-.fab.is-open .fab__main { transform: rotate(135deg); box-shadow: 0 16px 32px rgba(124, 92, 255, 0.55); }
+.fab__main:hover { transform: translateY(-3px) scale(1.06); box-shadow: var(--sh-glow-brand), 0 18px 40px rgba(20, 28, 60, 0.36); }
+.fab__main:active { transform: scale(0.96); }
+.fab.is-open .fab__main { transform: rotate(135deg); box-shadow: var(--sh-glow-brand), 0 16px 32px rgba(124, 92, 255, 0.55); }
 
 .fab__main-icon { display: inline-flex; transition: transform var(--dur) var(--ease); }
 

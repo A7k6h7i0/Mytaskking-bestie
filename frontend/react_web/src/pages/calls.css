@@ -22,10 +22,10 @@
 .cl__person { display: inline-flex; align-items: center; gap: 4px; }
 .cl__row-meta { font-size: var(--fs-xs); color: var(--c-text-faint); display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 .cl__status { font-size: var(--fs-xs); padding: 2px 8px; border-radius: var(--r-pill); margin-left: 6px; }
-.cl__status--ringing { background: #fff3d6; color: #b6791f; }
-.cl__status--active  { background: #d9f5e8; color: var(--c-success); }
+.cl__status--ringing { background: var(--c-warning-soft); color: var(--c-warning); }
+.cl__status--active  { background: var(--c-success-soft); color: var(--c-success); }
 .cl__status--ended   { background: var(--c-surface-2); color: var(--c-text-muted); }
-.cl__status--missed  { background: #fde2e2; color: var(--c-danger); }
+.cl__status--missed  { background: var(--c-danger-soft); color: var(--c-danger); }
 .cl__empty { padding: var(--s-5); color: var(--c-text-muted); }
 
 .cl__missed { margin-top: 6px; font-size: var(--fs-xs); color: var(--c-danger); font-weight: 600; }

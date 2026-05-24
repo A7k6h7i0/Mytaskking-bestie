@@ -1,18 +1,64 @@
 .tt-wrap { position: relative; display: inline-flex; }
 .tt {
   position: absolute;
-  z-index: 300;
-  padding: 4px 10px;
-  background: var(--c-text);
+  z-index: var(--z-tooltip);
+  padding: 5px 10px;
+  background: color-mix(in srgb, var(--c-text) 94%, transparent);
   color: var(--c-text-invert);
-  border-radius: 6px;
+  border-radius: var(--r-xs);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-normal);
   white-space: nowrap;
   pointer-events: none;
-  box-shadow: var(--sh-2);
+  box-shadow: var(--sh-3);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: tt-in var(--dur-fast) var(--ease-out) both;
 }
-.tt--top    { bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); }
-.tt--bottom { top:    calc(100% + 6px); left: 50%; transform: translateX(-50%); }
-.tt--left   { right:  calc(100% + 6px); top:  50%; transform: translateY(-50%); }
-.tt--right  { left:   calc(100% + 6px); top:  50%; transform: translateY(-50%); }
+@keyframes tt-in {
+  from { opacity: 0; transform: var(--tt-translate, none) scale(0.92); }
+  to   { opacity: 1; transform: var(--tt-translate, none); }
+}
+
+/* arrow */
+.tt::after {
+  content: "";
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: inherit;
+  transform: rotate(45deg);
+}
+
+.tt--top {
+  bottom: calc(100% + 8px);
+  left: 50%;
+  --tt-translate: translateX(-50%);
+  transform: translateX(-50%);
+}
+.tt--top::after    { bottom: -3px; left: 50%; margin-left: -4px; border-bottom-right-radius: 2px; }
+
+.tt--bottom {
+  top: calc(100% + 8px);
+  left: 50%;
+  --tt-translate: translateX(-50%);
+  transform: translateX(-50%);
+}
+.tt--bottom::after { top: -3px; left: 50%; margin-left: -4px; border-top-left-radius: 2px; }
+
+.tt--left {
+  right: calc(100% + 8px);
+  top: 50%;
+  --tt-translate: translateY(-50%);
+  transform: translateY(-50%);
+}
+.tt--left::after   { right: -3px; top: 50%; margin-top: -4px; border-top-right-radius: 2px; }
+
+.tt--right {
+  left: calc(100% + 8px);
+  top: 50%;
+  --tt-translate: translateY(-50%);
+  transform: translateY(-50%);
+}
+.tt--right::after  { left: -3px; top: 50%; margin-top: -4px; border-bottom-left-radius: 2px; }

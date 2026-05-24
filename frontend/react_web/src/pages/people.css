@@ -51,7 +51,7 @@
 .pp__mono { font-family: var(--font-mono); color: var(--c-text-soft); }
 .pp__chip { display: inline-block; padding: 2px 8px; border-radius: var(--r-pill); background: var(--c-surface-2); font-size: var(--fs-xs); color: var(--c-text-soft); text-transform: capitalize; }
 .pp__status { font-size: var(--fs-xs); font-weight: 700; padding: 2px 8px; border-radius: var(--r-pill); }
-.pp__status--active { background: #d9f5e8; color: var(--c-success); }
+.pp__status--active { background: var(--c-success-soft); color: var(--c-success); }
 .pp__status--suspended { background: var(--c-surface-2); color: var(--c-text-muted); }
 .pp__status--expired { background: var(--c-client-soft); color: var(--c-client); }
 .pp__link { margin-left: 8px; color: var(--c-brand); font-size: var(--fs-xs); }

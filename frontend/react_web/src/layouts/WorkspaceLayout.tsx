@@ -24,10 +24,10 @@ import './workspace-layout.css';
 type NavItem = { to: string; label: string; icon: LucideIcon };
 
 const NAV: NavItem[] = [
-  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/chat', label: 'Chat', icon: MessageSquare },
-  { to: '/channels', label: 'Channels', icon: Hash },
   { to: '/tasks', label: 'Tasks', icon: KanbanSquare },
+  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/channels', label: 'Channels', icon: Hash },
   { to: '/calendar', label: 'Calendar', icon: Calendar },
   { to: '/calls', label: 'Calls', icon: Phone },
   { to: '/meetings', label: 'Meetings', icon: Video },

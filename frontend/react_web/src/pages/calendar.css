@@ -142,10 +142,10 @@
   border-left: 3px solid var(--c-brand);
   font-size: var(--fs-xs);
 }
-.cal__event--meeting { background: #e7efff; border-left-color: var(--c-brand); }
-.cal__event--call { background: #ffe7e9; border-left-color: var(--c-danger); }
-.cal__event--task_deadline { background: #fff3d6; border-left-color: var(--c-warning); }
-.cal__event--reminder { background: #d9f5e8; border-left-color: var(--c-success); }
+.cal__event--meeting { background: var(--c-brand-soft); border-left-color: var(--c-brand); }
+.cal__event--call { background: var(--c-danger-soft); border-left-color: var(--c-danger); }
+.cal__event--task_deadline { background: var(--c-warning-soft); border-left-color: var(--c-warning); }
+.cal__event--reminder { background: var(--c-success-soft); border-left-color: var(--c-success); }
 .cal__event-time { font-family: var(--font-mono); font-weight: 600; color: var(--c-text-soft); }
 .cal__event-title { font-weight: 600; margin: 2px 0; color: var(--c-text); }
 .cal__event-loc { color: var(--c-text-muted); }

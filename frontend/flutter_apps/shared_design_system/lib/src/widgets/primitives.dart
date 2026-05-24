@@ -117,26 +117,25 @@ class BestieStatusBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final dotChild = BestieBadge(tone: _tone, dot: true, child: Text(status.toUpperCase()));
     if (!pulse) return dotChild;
-    return PulseDot.wrap(child: dotChild, color: BestieBadge._solid(_tone));
+    return _wrapWithPulse(child: dotChild, color: BestieBadge._solid(_tone));
   }
 }
 
-// A tiny helper that adds a 0.5s pulse glow around any widget — used by
-// StatusBadge when pulse=true.
-extension PulseDotWrap on PulseDot {
-  static Widget wrap({required Widget child, required Color color}) {
-    return Stack(alignment: Alignment.center, children: [
-      Positioned.fill(
-        child: Center(
-          child: SizedBox(
-            width: 40, height: 22,
-            child: PulseDot(color: color.withOpacity(0.35), size: 22),
-          ),
+// A tiny helper that adds a soft pulse glow around any widget — used by
+// StatusBadge when pulse=true. Free function instead of a static extension
+// (Dart doesn't support static methods on extensions of other types).
+Widget _wrapWithPulse({required Widget child, required Color color}) {
+  return Stack(alignment: Alignment.center, children: [
+    Positioned.fill(
+      child: Center(
+        child: SizedBox(
+          width: 40, height: 22,
+          child: PulseDot(color: color.withOpacity(0.35), size: 22),
         ),
       ),
-      child,
-    ]);
-  }
+    ),
+    child,
+  ]);
 }
 
 // ---------------------------------------------------------------------------

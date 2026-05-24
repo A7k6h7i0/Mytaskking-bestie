@@ -11,7 +11,7 @@
   color: var(--c-text-muted);
 }
 .ac__live.is-on {
-  background: #d9f5e8; color: var(--c-success);
+  background: var(--c-success-soft); color: var(--c-success);
   animation: ac-pulse 2s ease-in-out infinite;
 }
 @keyframes ac-pulse {

@@ -20,9 +20,9 @@
   border-radius: 10px;
   background: var(--c-brand-soft); color: var(--c-brand-strong);
 }
-.an__kpi--success .an__kpi-icon { background: #d9f5e8; color: var(--c-success); }
-.an__kpi--info    .an__kpi-icon { background: #d9eefb; color: var(--c-info); }
-.an__kpi--warning .an__kpi-icon { background: #fdf1d6; color: #b6791f; }
+.an__kpi--success .an__kpi-icon { background: var(--c-success-soft); color: var(--c-success); }
+.an__kpi--info    .an__kpi-icon { background: var(--c-info-soft); color: var(--c-info); }
+.an__kpi--warning .an__kpi-icon { background: var(--c-warning-soft); color: var(--c-warning); }
 .an__kpi-label { font-size: var(--fs-xs); color: var(--c-text-muted); }
 .an__kpi-value { font-size: var(--fs-xl); font-weight: 700; letter-spacing: -0.01em; }
 
@@ -65,9 +65,9 @@
   background: var(--c-surface-2);
   color: var(--c-text-soft);
 }
-.an__pill--done { background: #d9f5e8; color: var(--c-success); }
+.an__pill--done { background: var(--c-success-soft); color: var(--c-success); }
 .an__pill--in_progress { background: var(--c-brand-soft); color: var(--c-brand-strong); }
-.an__pill--review { background: #fff3d6; color: #b6791f; }
+.an__pill--review { background: var(--c-warning-soft); color: var(--c-warning); }
 .an__pill--cancelled { background: var(--c-client-soft); color: var(--c-client); }
 
 .an__empty { padding: var(--s-3); color: var(--c-text-muted); }

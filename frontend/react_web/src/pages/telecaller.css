@@ -22,10 +22,10 @@
 
 .tc__status { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: var(--r-pill); text-transform: uppercase; letter-spacing: 0.04em; }
 .tc__status--new { background: var(--c-brand-soft); color: var(--c-brand-strong); }
-.tc__status--contacted { background: #d9eefb; color: var(--c-info); }
-.tc__status--interested { background: #fff3d6; color: #b6791f; }
-.tc__status--followup { background: #fde7e7; color: #c0392b; }
-.tc__status--won { background: #d9f5e8; color: var(--c-success); }
+.tc__status--contacted { background: var(--c-info-soft); color: var(--c-info); }
+.tc__status--interested { background: var(--c-warning-soft); color: var(--c-warning); }
+.tc__status--followup { background: var(--c-danger-soft); color: var(--c-danger); }
+.tc__status--won { background: var(--c-success-soft); color: var(--c-success); }
 .tc__status--lost { background: var(--c-surface-2); color: var(--c-text-muted); }
 
 .tc__panel { display: flex; flex-direction: column; padding: var(--s-5); gap: var(--s-4); }

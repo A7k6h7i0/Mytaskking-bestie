@@ -9,8 +9,9 @@
   background: var(--c-client-soft);
   color: var(--c-client);
 }
-.cd__title--warning .cd__icon { background: #fdf1d6; color: #b6791f; }
-.cd__title--info    .cd__icon { background: var(--c-brand-soft); color: var(--c-brand-strong); }
+.cd__title--warning .cd__icon { background: var(--c-warning-soft); color: var(--c-warning); }
+.cd__title--info    .cd__icon { background: var(--c-brand-soft);   color: var(--c-brand-strong); }
+.cd__title--success .cd__icon { background: var(--c-success-soft); color: var(--c-success); }
 
 .cd__type-to-confirm { margin-top: var(--s-3); }
 .cd__type-to-confirm label {
@@ -32,7 +33,14 @@
   font: inherit;
   outline: none;
 }
+.cd__type-to-confirm input {
+  transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+.cd__type-to-confirm input:focus {
+  border-color: var(--c-brand);
+  box-shadow: var(--sh-ring);
+}
 .cd__type-to-confirm input.is-match {
   border-color: var(--c-success);
-  box-shadow: 0 0 0 3px rgba(16,185,129,0.12);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--c-success) 18%, transparent);
 }

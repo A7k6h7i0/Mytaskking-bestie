@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, AlertTriangle, XCircle, Info, X } from 'lucide-react';
 import clsx from 'clsx';
 import './toast.css';
@@ -38,7 +38,7 @@ export function ToastHost() {
   const dismiss = useToast((s) => s.dismiss);
 
   return (
-    <div className="ts">
+    <div className="ts" role="region" aria-live="polite" aria-label="Notifications">
       {toasts.map((t) => (
         <ToastItem key={t.id} toast={t} onDismiss={() => dismiss(t.id)} />
       ))}
@@ -48,19 +48,39 @@ export function ToastHost() {
 
 function ToastItem({ toast: t, onDismiss }: { toast: Toast; onDismiss: () => void }) {
   const Icon = ICONS[t.kind];
+  const [paused, setPaused] = useState(false);
+  const remainingRef = useRef(t.ttl);
+  const startRef = useRef(Date.now());
+  const timerRef = useRef<number | undefined>(undefined);
+
   useEffect(() => {
-    const id = setTimeout(onDismiss, t.ttl);
-    return () => clearTimeout(id);
-  }, [onDismiss, t.ttl]);
+    if (paused) {
+      if (timerRef.current) window.clearTimeout(timerRef.current);
+      remainingRef.current -= Date.now() - startRef.current;
+      return;
+    }
+    startRef.current = Date.now();
+    timerRef.current = window.setTimeout(onDismiss, remainingRef.current);
+    return () => {
+      if (timerRef.current) window.clearTimeout(timerRef.current);
+    };
+  }, [paused, onDismiss]);
 
   return (
-    <div className={clsx('ts__item', `ts__item--${t.kind}`)}>
-      <Icon size={18} className="ts__icon" />
+    <div
+      className={clsx('ts__item', `ts__item--${t.kind}`)}
+      role="status"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      onFocus={() => setPaused(true)}
+      onBlur={() => setPaused(false)}
+    >
+      <span className="ts__icon"><Icon size={16} /></span>
       <div className="ts__body">
         <div className="ts__title">{t.title}</div>
         {t.body && <div className="ts__text">{t.body}</div>}
       </div>
-      <button className="ts__close" onClick={onDismiss}><X size={14} /></button>
+      <button className="ts__close" onClick={onDismiss} aria-label="Dismiss notification"><X size={14} /></button>
     </div>
   );
 }

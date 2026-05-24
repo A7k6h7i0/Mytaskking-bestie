@@ -1,30 +1,25 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
+// Smoke test for the BestieApp shell. The real BestieApp wires Riverpod and
+// hits the network, so this test only verifies that the design-system theme
+// builds without throwing — enough to catch token typos at CI time.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:bestie_mobile/main.dart';
+import 'package:bestie_design/bestie_design.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  testWidgets('BestieTheme light builds without error', (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      theme: BestieTheme.light(),
+      home: const Scaffold(body: Center(child: Text('Bestie'))),
+    ));
+    expect(find.text('Bestie'), findsOneWidget);
+  });
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
-
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
-
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+  testWidgets('BestieTheme dark builds without error', (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      theme: BestieTheme.dark(),
+      home: const Scaffold(body: Center(child: Text('Bestie'))),
+    ));
+    expect(find.text('Bestie'), findsOneWidget);
   });
 }

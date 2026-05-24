@@ -1,13 +1,12 @@
-// Re-exports the shared Riverpod providers + app-level constants so screens
-// can `import 'state.dart'` and get everything in one shot.
+// Re-exports the shared Riverpod providers, API types and extensions, plus
+// app-level constants so screens can `import 'state.dart'` and get everything
+// they need to call providers and BestieApi methods in one shot.
+//
+// We export the bestie_core library wholesale (no `show` filter) so that the
+// `BestieApiExt` extension on `BestieApi` is visible at call sites — Dart
+// extensions only resolve when both the type AND the extension are in scope.
 
-export 'package:bestie_core/bestie_core.dart' show
-    authStoreProvider, apiProvider, socketProvider, currentUserProvider,
-    realtimeProvider, dashboardProvider, channelsProvider, messagesProvider,
-    tasksKanbanProvider, meetingsProvider, calendarRangeProvider,
-    notificationsProvider, savedProvider, announcementsProvider, flagsProvider,
-    mySessionsProvider, presenceStatusProvider, searchQueryProvider,
-    searchResultsProvider, themeModeProvider, ThemeMode, formatApiError;
+export 'package:bestie_core/bestie_core.dart';
 
 const kApiBaseUrl = String.fromEnvironment(
   'API_URL',

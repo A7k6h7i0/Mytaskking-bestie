@@ -27,7 +27,7 @@
 .cr__person--me { background: color-mix(in srgb, var(--c-brand-soft) 75%, var(--c-surface-1)); }
 .cr__person-sub { color: var(--c-text-muted); font-size: var(--fs-xs); margin-top: 2px; }
 .cr__presence { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: var(--r-pill); background: var(--c-surface-2); color: var(--c-text-soft); font-size: var(--fs-xs); }
-.cr__presence.is-live { background: #d9f5e8; color: var(--c-success); }
+.cr__presence.is-live { background: var(--c-success-soft); color: var(--c-success); }
 .cr__actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .cr__invite-panel {
   padding: 16px;
