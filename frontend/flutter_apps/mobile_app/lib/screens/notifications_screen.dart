@@ -29,7 +29,7 @@ class NotificationsScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: BestieTokens.cSurface,
+        backgroundColor: Theme.of(context).colorScheme.surface,
         title: const Text('Notifications'),
         actions: [
           IconButton(

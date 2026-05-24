@@ -32,7 +32,7 @@ class _LeaderboardCardState extends ConsumerState<LeaderboardCard> {
     return Container(
       padding: const EdgeInsets.all(BestieTokens.s3),
       decoration: BoxDecoration(
-        color: BestieTokens.cSurface,
+        color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(BestieTokens.rMd),
         border: Border.all(color: BestieTokens.cBorder),
       ),
@@ -196,7 +196,7 @@ class _MyScoreCardState extends ConsumerState<MyScoreCard> {
         margin: const EdgeInsets.symmetric(horizontal: BestieTokens.s3, vertical: 6),
         padding: const EdgeInsets.all(BestieTokens.s3),
         decoration: BoxDecoration(
-          color: BestieTokens.cSurface,
+          color: Theme.of(context).colorScheme.surface,
           border: Border.all(color: BestieTokens.cBorder),
           borderRadius: BorderRadius.circular(BestieTokens.rMd),
         ),

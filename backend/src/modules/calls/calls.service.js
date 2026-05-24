@@ -14,6 +14,36 @@ function makeChannelName() {
   return `call_${nanoid(10)}`;
 }
 
+/**
+ * Posts a CALL_EVENT message in the chat channel a call belongs to (if any),
+ * so the timeline shows "📞 Missed call from Priya · 2:14 PM" instead of the
+ * call vanishing silently. Safe no-op when the call has no associated channel.
+ */
+async function postCallEventMessage({ call, kind, actor }) {
+  if (!call?.channelId) return;
+  const initiatorName = call.initiator?.name || 'Someone';
+  const body =
+    kind === 'MISSED'   ? `📞 Missed call from ${initiatorName}` :
+    kind === 'DECLINED' ? `📞 ${actor?.name || 'A teammate'} declined the call` :
+    kind === 'STARTED'  ? `📞 ${initiatorName} started a ${call.kind === 'GROUP' ? 'group call' : 'call'}` :
+    kind === 'ENDED'    ? `📞 Call ended` :
+                          `📞 Call event`;
+  try {
+    const channel = await prisma.channel.findUnique({ where: { id: call.channelId } });
+    if (!channel) return;
+    return await prisma.message.create({
+      data: {
+        channelId: call.channelId,
+        authorId: actor?.id || call.initiatorId,
+        kind: 'CALL_EVENT',
+        body,
+      },
+    });
+  } catch (_) {
+    // Don't let a missing chat channel break call lifecycle.
+  }
+}
+
 async function initiate({ initiator, participantIds, kind = 'ONE_TO_ONE', channelId = null }) {
   if (!participantIds || participantIds.length === 0) throw BadRequest('Need at least one participant');
   const realKind = participantIds.length > 1 ? 'GROUP' : kind;
@@ -59,6 +89,7 @@ async function join({ callId, user }) {
   });
   if (call.status === 'RINGING') {
     await prisma.call.update({ where: { id: callId }, data: { status: 'ACTIVE', startedAt: new Date() } });
+    await postCallEventMessage({ call, kind: 'STARTED', actor: user });
   }
   return prisma.call.findUnique({ where: { id: callId }, include: callInclude });
 }
@@ -70,10 +101,12 @@ async function leave({ callId, user }) {
   });
   const remaining = await prisma.callParticipant.count({ where: { callId, leftAt: null } });
   if (remaining === 0) {
-    await prisma.call.update({
+    const ended = await prisma.call.update({
       where: { id: callId },
       data: { status: 'ENDED', endedAt: new Date() },
+      include: callInclude,
     });
+    await postCallEventMessage({ call: ended, kind: 'ENDED', actor: user });
   }
   return prisma.call.findUnique({ where: { id: callId }, include: callInclude });
 }
@@ -91,6 +124,9 @@ async function decline({ callId, user }) {
 
   if (call.status === 'RINGING') {
     await prisma.call.update({ where: { id: callId }, data: { status: 'MISSED', endedAt: new Date() } });
+    await postCallEventMessage({ call, kind: 'MISSED', actor: user });
+  } else {
+    await postCallEventMessage({ call, kind: 'DECLINED', actor: user });
   }
 
   return prisma.call.findUnique({ where: { id: callId }, include: callInclude });

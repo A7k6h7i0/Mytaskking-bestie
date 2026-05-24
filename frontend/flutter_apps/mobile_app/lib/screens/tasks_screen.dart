@@ -73,7 +73,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
     return Scaffold(
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: BestieTokens.cSurface,
+        backgroundColor: Theme.of(context).colorScheme.surface,
         title: const Text('Tasks'),
         actions: [
           Padding(
@@ -199,7 +199,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
         child: Container(
           width: 240,
           padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(color: BestieTokens.cSurface, borderRadius: BorderRadius.circular(BestieTokens.rSm)),
+          decoration: BoxDecoration(color: Theme.of(context).colorScheme.surface, borderRadius: BorderRadius.circular(BestieTokens.rSm)),
           child: Text(t['title'] ?? '', style: const TextStyle(fontWeight: FontWeight.w600)),
         ),
       ),
@@ -209,7 +209,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
           margin: const EdgeInsets.symmetric(vertical: 3),
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: BestieTokens.cSurface,
+            color: Theme.of(context).colorScheme.surface,
             borderRadius: BorderRadius.circular(BestieTokens.rSm),
             border: Border.all(color: BestieTokens.cBorder),
             boxShadow: const [BoxShadow(color: Color(0x10000000), blurRadius: 2, offset: Offset(0, 1))],

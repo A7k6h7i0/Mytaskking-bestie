@@ -20,7 +20,7 @@ class ProfileScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: BestieTokens.cSurface,
+        backgroundColor: Theme.of(context).colorScheme.surface,
         title: const Text('Profile'),
       ),
       body: ListView(children: [
@@ -58,7 +58,7 @@ class ProfileScreen extends ConsumerWidget {
         const MyScoreCard(),
 
         // ----- presence picker -----
-        _section('Presence', [
+        _section(context, 'Presence', [
           for (final s in const ['ACTIVE', 'BUSY', 'IN_MEETING', 'AWAY', 'INVISIBLE'])
             RadioListTile<String>(
               value: s,
@@ -82,7 +82,7 @@ class ProfileScreen extends ConsumerWidget {
         ]),
 
         // ----- appearance -----
-        _section('Appearance', [
+        _section(context, 'Appearance', [
           ListTile(
             leading: const Icon(Icons.palette_outlined),
             title: const Text('Theme'),
@@ -99,7 +99,7 @@ class ProfileScreen extends ConsumerWidget {
         ]),
 
         // ----- sessions -----
-        _section('Active sessions', [
+        _section(context, 'Active sessions', [
           sessions.when(
             loading: () => const Padding(padding: EdgeInsets.all(16), child: BestieSpinner()),
             error: (e, _) => ListTile(title: Text('Couldn\'t load: ${formatApiError(e)}',
@@ -166,12 +166,12 @@ class ProfileScreen extends ConsumerWidget {
     );
   }
 
-  Widget _section(String title, List<Widget> children) {
+  Widget _section(BuildContext context, String title, List<Widget> children) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: BestieTokens.s3, vertical: 6),
       child: Container(
         decoration: BoxDecoration(
-          color: BestieTokens.cSurface,
+          color: Theme.of(context).colorScheme.surface,
           borderRadius: BorderRadius.circular(BestieTokens.rMd),
           border: Border.all(color: BestieTokens.cBorder),
         ),

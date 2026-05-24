@@ -42,7 +42,7 @@ class DashboardScreen extends ConsumerWidget {
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   childAspectRatio: 1.5,
-                  children: _statsFor(counts, isAdmin: isAdmin, isClient: isClient),
+                  children: _statsFor(context, counts, isAdmin: isAdmin, isClient: isClient),
                 ),
                 const SizedBox(height: BestieTokens.s4),
                 const SizedBox(height: BestieTokens.s3),
@@ -51,7 +51,7 @@ class DashboardScreen extends ConsumerWidget {
                 const LeaderboardCard(topN: 5),
                 if (isAdmin) ...[
                   const SizedBox(height: BestieTokens.s3),
-                  _activityCard(data['recentActivity'] as List? ?? const []),
+                  _activityCard(context, data['recentActivity'] as List? ?? const []),
                 ],
               ],
             );
@@ -64,7 +64,7 @@ class DashboardScreen extends ConsumerWidget {
   PreferredSizeWidget _appBar(BuildContext context) {
     return AppBar(
       elevation: 0,
-      backgroundColor: BestieTokens.cSurface,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       title: const BestieLogo(size: 28, withWordmark: true),
       titleSpacing: 16,
       actions: [
@@ -97,13 +97,13 @@ class DashboardScreen extends ConsumerWidget {
     ]);
   }
 
-  List<Widget> _statsFor(Map<String, dynamic> c, {required bool isAdmin, required bool isClient}) {
+  List<Widget> _statsFor(BuildContext context, Map<String, dynamic> c, {required bool isAdmin, required bool isClient}) {
     Widget tile(IconData icon, String label, dynamic v, Color color) {
       final n = v is num ? v : num.tryParse('$v');
       return Container(
         padding: const EdgeInsets.all(BestieTokens.s3),
         decoration: BoxDecoration(
-          color: BestieTokens.cSurface,
+          color: Theme.of(context).colorScheme.surface,
           borderRadius: BorderRadius.circular(BestieTokens.rMd),
           border: Border.all(color: BestieTokens.cBorder),
         ),
@@ -155,11 +155,11 @@ class DashboardScreen extends ConsumerWidget {
     ];
   }
 
-  Widget _activityCard(List items) {
+  Widget _activityCard(BuildContext context, List items) {
     return Container(
       padding: const EdgeInsets.all(BestieTokens.s3),
       decoration: BoxDecoration(
-        color: BestieTokens.cSurface,
+        color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(BestieTokens.rMd),
         border: Border.all(color: BestieTokens.cBorder),
       ),

@@ -3,26 +3,56 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
-/// Mobile shell with a premium bottom navigation. Chat is the primary
-/// destination, followed by Tasks; deep-links (`/chat/abc`) still land in the
-/// right place inside the shell.
+import '../state.dart';
+
+/// Mobile shell with role-aware bottom navigation.
+///
+/// • EMPLOYEE / MANAGER / ADMIN — Chat · Tasks · Home · Meet · More
+/// • TELECALLER — Chat · Leads · Home · Calls · More
+/// • CLIENT — Chat · Saved · Home · More (no Tasks, no Meet)
+///
+/// "More" opens a 4-column grid drawer with every other screen.
 class ShellScreen extends ConsumerWidget {
   final Widget child;
   const ShellScreen({super.key, required this.child});
 
-  static const _tabs = [
-    _Tab('/chat',      Icons.chat_bubble_outline_rounded,  Icons.chat_bubble_rounded,    'Chat'),
-    _Tab('/tasks',     Icons.task_alt_outlined,            Icons.task_alt_rounded,       'Tasks'),
-    _Tab('/dashboard', Icons.dashboard_outlined,           Icons.dashboard_rounded,      'Home'),
-    _Tab('/meetings',  Icons.videocam_outlined,            Icons.videocam_rounded,       'Meet'),
-    _Tab('/more',      Icons.apps_rounded,                 Icons.apps_rounded,           'More'),
+  static const _employeeTabs = [
+    _Tab('/chat',      Icons.chat_bubble_outline_rounded, Icons.chat_bubble_rounded,   'Chat'),
+    _Tab('/tasks',     Icons.task_alt_outlined,           Icons.task_alt_rounded,      'Tasks'),
+    _Tab('/dashboard', Icons.dashboard_outlined,          Icons.dashboard_rounded,     'Home'),
+    _Tab('/meetings',  Icons.videocam_outlined,           Icons.videocam_rounded,      'Meet'),
+    _Tab('/more',      Icons.apps_rounded,                Icons.apps_rounded,          'More'),
   ];
+
+  static const _telecallerTabs = [
+    _Tab('/chat',       Icons.chat_bubble_outline_rounded, Icons.chat_bubble_rounded,   'Chat'),
+    _Tab('/telecaller', Icons.headset_mic_outlined,        Icons.headset_mic_rounded,   'Leads'),
+    _Tab('/dashboard',  Icons.dashboard_outlined,          Icons.dashboard_rounded,     'Home'),
+    _Tab('/calls',      Icons.call_outlined,               Icons.call_rounded,          'Calls'),
+    _Tab('/more',       Icons.apps_rounded,                Icons.apps_rounded,          'More'),
+  ];
+
+  static const _clientTabs = [
+    _Tab('/chat',      Icons.chat_bubble_outline_rounded, Icons.chat_bubble_rounded,   'Chat'),
+    _Tab('/saved',     Icons.bookmark_outline_rounded,    Icons.bookmark_rounded,      'Saved'),
+    _Tab('/dashboard', Icons.dashboard_outlined,          Icons.dashboard_rounded,     'Home'),
+    _Tab('/more',      Icons.apps_rounded,                Icons.apps_rounded,          'More'),
+  ];
+
+  List<_Tab> _tabsFor(BestieUser? user) {
+    if (user == null) return _employeeTabs;
+    if (user.isClient) return _clientTabs;
+    if (user.role == 'TELECALLER') return _telecallerTabs;
+    return _employeeTabs;
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = BestieColors.of(context);
+    final user = ref.watch(authStoreProvider).user;
+    final tabs = _tabsFor(user);
     final location = GoRouterState.of(context).matchedLocation;
-    int index = _tabs.indexWhere((t) => location.startsWith(t.path));
+    int index = tabs.indexWhere((t) => location.startsWith(t.path));
     if (index < 0) index = 0;
 
     return Scaffold(
@@ -30,21 +60,22 @@ class ShellScreen extends ConsumerWidget {
       backgroundColor: colors.bg,
       body: child,
       bottomNavigationBar: _PremiumBottomNav(
-        tabs: _tabs,
+        tabs: tabs,
         currentIndex: index,
         onTap: (i) {
-          if (_tabs[i].path == '/more') {
-            _openMore(context);
+          if (tabs[i].path == '/more') {
+            _openMore(context, ref, user);
           } else {
-            context.go(_tabs[i].path);
+            context.go(tabs[i].path);
           }
         },
       ),
     );
   }
 
-  void _openMore(BuildContext context) {
+  void _openMore(BuildContext context, WidgetRef ref, BestieUser? user) {
     final c = BestieColors.of(context);
+    final entries = _moreEntries(user, c);
     showModalBottomSheet(
       context: context,
       backgroundColor: c.surface,
@@ -52,20 +83,6 @@ class ShellScreen extends ConsumerWidget {
         borderRadius: BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
       ),
       builder: (ctx) {
-        final entries = <_MoreEntry>[
-          _MoreEntry(Icons.dashboard_outlined,         'Dashboard',     '/dashboard',     c.brand),
-          _MoreEntry(Icons.notifications_outlined,     'Notifications', '/notifications', c.warning),
-          _MoreEntry(Icons.event_outlined,             'Calendar',      '/calendar',      c.info),
-          _MoreEntry(Icons.history_rounded,            'Call history',  '/calls',         c.success),
-          _MoreEntry(Icons.campaign_outlined,          'Announcements', '/announcements', c.accent),
-          _MoreEntry(Icons.bookmark_outline_rounded,   'Saved',         '/saved',         c.brand),
-          _MoreEntry(Icons.people_outline_rounded,     'Employees',     '/employees',     c.brand),
-          _MoreEntry(Icons.business_center_outlined,   'Clients',       '/clients',       c.client),
-          _MoreEntry(Icons.headset_mic_outlined,       'Telecaller',    '/telecaller',    c.warning),
-          _MoreEntry(Icons.devices_outlined,           'Sessions',      '/sessions',      c.textMuted),
-          _MoreEntry(Icons.person_outline_rounded,     'Profile',       '/profile',       c.brandStrong),
-          _MoreEntry(Icons.settings_outlined,          'Settings',      '/settings',      c.textSoft),
-        ];
         return SafeArea(
           top: false,
           child: Padding(
@@ -117,6 +134,39 @@ class ShellScreen extends ConsumerWidget {
       },
     );
   }
+
+  /// Curated list of every nested screen, filtered by role. Each tile shows
+  /// even when the related provider has no data so users can still reach it.
+  List<_MoreEntry> _moreEntries(BestieUser? user, BestieColors c) {
+    final isClient = user?.isClient ?? false;
+    final role = user?.role ?? '';
+    final isAdmin = role == 'SUPER_ADMIN' || role == 'ADMIN';
+    final isTelecaller = role == 'TELECALLER';
+
+    return [
+      _MoreEntry(Icons.dashboard_outlined,       'Dashboard',     '/dashboard',     c.brand,        true),
+      _MoreEntry(Icons.notifications_outlined,   'Notifications', '/notifications', c.warning,      true),
+      _MoreEntry(Icons.event_outlined,           'Calendar',      '/calendar',      c.info,         !isClient),
+      _MoreEntry(Icons.videocam_outlined,        'Meetings',      '/meetings',      c.brand,        !isClient),
+      _MoreEntry(Icons.history_rounded,          'Call history',  '/calls',         c.success,      !isClient),
+      _MoreEntry(Icons.campaign_outlined,        'Announcements', '/announcements', c.accent,       true),
+      _MoreEntry(Icons.bookmark_outline_rounded, 'Saved',         '/saved',         c.brand,        true),
+      _MoreEntry(Icons.people_outline_rounded,   'Employees',     '/employees',     c.brand,        !isClient),
+      _MoreEntry(Icons.business_center_outlined, 'Clients',       '/clients',       c.client,       isAdmin || role == 'MANAGER'),
+      _MoreEntry(Icons.headset_mic_outlined,     'Telecaller',    '/telecaller',    c.warning,      isTelecaller || isAdmin),
+      _MoreEntry(Icons.devices_outlined,         'Sessions',      '/sessions',      c.textMuted,    true),
+      _MoreEntry(Icons.person_outline_rounded,   'Profile',       '/profile',       c.brandStrong,  true),
+      _MoreEntry(Icons.settings_outlined,        'Settings',      '/settings',      c.textSoft,     true),
+    ].where((e) => e.visible).toList();
+  }
+}
+
+class _Tab {
+  final String path;
+  final IconData icon;
+  final IconData activeIcon;
+  final String label;
+  const _Tab(this.path, this.icon, this.activeIcon, this.label);
 }
 
 class _MoreEntry {
@@ -124,7 +174,8 @@ class _MoreEntry {
   final String label;
   final String route;
   final Color accent;
-  const _MoreEntry(this.icon, this.label, this.route, this.accent);
+  final bool visible;
+  const _MoreEntry(this.icon, this.label, this.route, this.accent, this.visible);
 }
 
 class _MoreTile extends StatelessWidget {
@@ -170,14 +221,6 @@ class _MoreTile extends StatelessWidget {
   }
 }
 
-class _Tab {
-  final String path;
-  final IconData icon;
-  final IconData activeIcon;
-  final String label;
-  const _Tab(this.path, this.icon, this.activeIcon, this.label);
-}
-
 class _PremiumBottomNav extends StatelessWidget {
   final List<_Tab> tabs;
   final int currentIndex;
@@ -191,31 +234,26 @@ class _PremiumBottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = BestieColors.of(context);
     final media = MediaQuery.of(context);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isDark = colors.isDark;
 
     return SafeArea(
       top: false,
       child: Padding(
         padding: EdgeInsets.fromLTRB(
-          12,
-          0,
-          12,
+          12, 0, 12,
           12 + (media.padding.bottom > 0 ? 0 : 4),
         ),
         child: Container(
           height: 66,
           decoration: BoxDecoration(
-            color: isDark
-                ? BestieTokens.cSurface.withOpacity(0.78)
-                : BestieTokens.cSurface.withOpacity(0.82),
+            color: colors.surface.withOpacity(isDark ? 0.92 : 0.96),
             borderRadius: BorderRadius.circular(22),
-            border: Border.all(
-              color: BestieTokens.cBorder.withOpacity(isDark ? 0.6 : 0.7),
-            ),
+            border: Border.all(color: colors.border.withOpacity(0.7)),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(isDark ? 0.35 : 0.10),
+                color: Colors.black.withOpacity(isDark ? 0.45 : 0.10),
                 blurRadius: 24,
                 offset: const Offset(0, 12),
                 spreadRadius: -4,
@@ -234,6 +272,7 @@ class _PremiumBottomNav extends StatelessWidget {
                     activeIcon: tab.activeIcon,
                     label: tab.label,
                     selected: selected,
+                    colors: colors,
                     onTap: () => onTap(i),
                   ),
                 );
@@ -251,6 +290,7 @@ class _NavItem extends StatefulWidget {
   final IconData activeIcon;
   final String label;
   final bool selected;
+  final BestieColors colors;
   final VoidCallback onTap;
 
   const _NavItem({
@@ -258,6 +298,7 @@ class _NavItem extends StatefulWidget {
     required this.activeIcon,
     required this.label,
     required this.selected,
+    required this.colors,
     required this.onTap,
   });
 
@@ -303,20 +344,12 @@ class _NavItemState extends State<_NavItem> with SingleTickerProviderStateMixin 
         builder: (context, _) {
           final t = _t.value;
           final pill = Color.lerp(
-            BestieTokens.cBrandSoft.withOpacity(0.0),
-            BestieTokens.cBrandSoft,
+            widget.colors.brandSoft.withOpacity(0.0),
+            widget.colors.brandSoft,
             t,
           )!;
-          final iconColor = Color.lerp(
-            BestieTokens.cTextMuted,
-            BestieTokens.cBrandStrong,
-            t,
-          )!;
-          final labelColor = Color.lerp(
-            BestieTokens.cTextMuted,
-            BestieTokens.cBrandStrong,
-            t,
-          )!;
+          final iconColor = Color.lerp(widget.colors.textMuted, widget.colors.brandStrong, t)!;
+          final labelColor = Color.lerp(widget.colors.textMuted, widget.colors.brandStrong, t)!;
 
           return Center(
             child: Container(
@@ -347,8 +380,6 @@ class _NavItemState extends State<_NavItem> with SingleTickerProviderStateMixin 
                       color: iconColor,
                     ),
                   ),
-                  // Label only when active AND when there's room. Flexible lets
-                  // the text ellipsize before overflowing the slot.
                   if (t > 0.05)
                     Flexible(
                       child: ClipRect(

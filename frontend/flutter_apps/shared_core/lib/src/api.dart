@@ -188,6 +188,26 @@ extension BestieApiExt on BestieApi {
   Future<List<Map<String, dynamic>>> listClients({String? q}) =>
       get('/clients', query: {if (q != null) 'q': q})
           .then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
+
+  // ---- file upload (multipart) ----
+  /// Uploads [bytes] to `POST /files/upload` and returns the created file
+  /// asset (`{ id, url, mimeType, size, ... }`). The chat composer then sends
+  /// the message with `attachmentIds: [asset.id]`.
+  Future<Map<String, dynamic>> uploadFile({
+    required List<int> bytes,
+    required String filename,
+    String? mimeType,
+  }) async {
+    final form = FormData.fromMap({
+      'file': MultipartFile.fromBytes(
+        bytes,
+        filename: filename,
+        contentType: mimeType != null ? DioMediaType.parse(mimeType) : null,
+      ),
+    });
+    final r = await dio.post('/files/upload', data: form);
+    return Map<String, dynamic>.from(r.data as Map);
+  }
 }
 
 // BestieApi already exposes `get(path, query:)` and `post(path, body:)`

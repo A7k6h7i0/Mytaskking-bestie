@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../state.dart';
@@ -16,6 +18,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
   final _composer = TextEditingController();
   final _scroll = ScrollController();
   bool _sending = false;
+  bool _attaching = false;
   Map<String, dynamic>? _channel;
 
   @override
@@ -35,21 +38,122 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
     try {
       final c = await ref.read(apiProvider).getChannel(widget.channelId);
       if (mounted) setState(() => _channel = c);
-    } catch (_) {/* header falls back to generic title */}
+    } catch (_) { /* header falls back to generic title */ }
   }
 
-  Future<void> _send() async {
-    final body = _composer.text.trim();
-    if (body.isEmpty) return;
+  Future<void> _send({List<String>? attachmentIds, String? overrideBody}) async {
+    final body = overrideBody ?? _composer.text.trim();
+    if (body.isEmpty && (attachmentIds == null || attachmentIds.isEmpty)) return;
     setState(() => _sending = true);
     try {
-      await ref.read(apiProvider).sendMessage(widget.channelId, body: body);
-      _composer.clear();
+      await ref.read(apiProvider).sendMessage(
+        widget.channelId,
+        body: body.isEmpty ? null : body,
+        attachmentIds: attachmentIds,
+        kind: attachmentIds != null && attachmentIds.isNotEmpty ? 'FILE' : 'TEXT',
+      );
+      if (overrideBody == null) _composer.clear();
       ref.invalidate(messagesProvider(widget.channelId));
     } catch (e) {
-      if (mounted) bestieToast(context, 'Could not send', body: formatApiError(e), kind: BestieToastKind.error);
+      if (mounted) bestieToast(context, 'Could not send',
+          body: formatApiError(e), kind: BestieToastKind.error);
     } finally {
       if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  /// Bottom-sheet attachment menu — camera, gallery, document picker.
+  Future<void> _attach() async {
+    final c = BestieColors.of(context);
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: c.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
+      ),
+      builder: (ctx) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Container(
+              width: 40, height: 4,
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: c.borderStrong,
+                borderRadius: BorderRadius.circular(BestieTokens.rPill),
+              ),
+            ),
+            _ChooserTile(icon: Icons.photo_camera_rounded, label: 'Camera',
+                colors: c, accent: c.brand, onTap: () => Navigator.pop(ctx, 'camera')),
+            _ChooserTile(icon: Icons.image_rounded, label: 'Photo / video',
+                colors: c, accent: c.accent, onTap: () => Navigator.pop(ctx, 'gallery')),
+            _ChooserTile(icon: Icons.description_rounded, label: 'Document',
+                colors: c, accent: c.info, onTap: () => Navigator.pop(ctx, 'document')),
+          ]),
+        ),
+      ),
+    );
+    if (choice == null) return;
+    await _pickAndUpload(choice);
+  }
+
+  Future<void> _pickAndUpload(String kind) async {
+    setState(() => _attaching = true);
+    try {
+      List<int>? bytes;
+      String? filename;
+      String? mimeType;
+
+      if (kind == 'camera' || kind == 'gallery') {
+        final picker = ImagePicker();
+        final source = kind == 'camera' ? ImageSource.camera : ImageSource.gallery;
+        final x = await picker.pickImage(source: source, imageQuality: 85);
+        if (x == null) return;
+        bytes = await x.readAsBytes();
+        filename = x.name;
+        mimeType = x.mimeType ?? 'image/jpeg';
+      } else {
+        final res = await FilePicker.platform.pickFiles(withData: true);
+        if (res == null || res.files.isEmpty) return;
+        final f = res.files.first;
+        bytes = f.bytes;
+        filename = f.name;
+        mimeType = _mimeFromExt(f.extension);
+        if (bytes == null) throw 'Could not read the picked file';
+      }
+
+      final asset = await ref.read(apiProvider).uploadFile(
+        bytes: bytes,
+        filename: filename!,
+        mimeType: mimeType,
+      );
+      final assetId = asset['id']?.toString();
+      if (assetId == null) throw 'Upload succeeded but no asset id was returned';
+      await _send(attachmentIds: [assetId]);
+    } catch (e) {
+      if (mounted) bestieToast(context, 'Attachment failed',
+          body: formatApiError(e), kind: BestieToastKind.error);
+    } finally {
+      if (mounted) setState(() => _attaching = false);
+    }
+  }
+
+  String? _mimeFromExt(String? ext) {
+    switch ((ext ?? '').toLowerCase()) {
+      case 'jpg':
+      case 'jpeg': return 'image/jpeg';
+      case 'png':  return 'image/png';
+      case 'gif':  return 'image/gif';
+      case 'pdf':  return 'application/pdf';
+      case 'mp4':  return 'video/mp4';
+      case 'mp3':  return 'audio/mpeg';
+      case 'wav':  return 'audio/wav';
+      case 'doc':
+      case 'docx': return 'application/msword';
+      case 'xls':
+      case 'xlsx': return 'application/vnd.ms-excel';
+      default: return null;
     }
   }
 
@@ -81,9 +185,6 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
       final callId = call['id']?.toString();
       if (callId != null && mounted) {
         context.go('/call/$callId?mode=$kind');
-      } else if (mounted) {
-        bestieToast(context, 'Call started', body: 'Ringing teammates…',
-            kind: BestieToastKind.success);
       }
     } catch (e) {
       if (mounted) bestieToast(context, 'Could not start call',
@@ -226,6 +327,10 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
                 itemCount: items.length,
                 itemBuilder: (_, i) {
                   final m = items[i];
+                  final kindStr = (m['kind'] ?? 'TEXT').toString();
+                  if (kindStr == 'SYSTEM' || kindStr == 'CALL_EVENT') {
+                    return _SystemBubble(message: m);
+                  }
                   final author = (m['author'] as Map?)?.cast<String, dynamic>() ?? const {};
                   final mine = author['id'] == me?.id;
                   return _MessageBubble(message: m, author: author, mine: mine);
@@ -238,10 +343,9 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
           colors: colors,
           controller: _composer,
           sending: _sending,
+          attaching: _attaching,
           onSend: _send,
-          onAttach: () => bestieToast(context, 'Attachments',
-              body: 'Coming soon — use the web app to attach files for now.',
-              kind: BestieToastKind.info),
+          onAttach: _attach,
         ),
       ]),
     );
@@ -298,17 +402,48 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
   }
 }
 
+class _ChooserTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final BestieColors colors;
+  final Color accent;
+  final VoidCallback onTap;
+  const _ChooserTile({
+    required this.icon, required this.label, required this.colors,
+    required this.accent, required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: Container(
+        width: 40, height: 40,
+        decoration: BoxDecoration(
+          color: accent.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(BestieTokens.rSm),
+        ),
+        child: Icon(icon, color: accent, size: 22),
+      ),
+      title: Text(label,
+          style: TextStyle(color: colors.text, fontWeight: BestieTokens.fwSemibold)),
+      onTap: onTap,
+    );
+  }
+}
+
 class _Composer extends StatelessWidget {
   final BestieColors colors;
   final TextEditingController controller;
   final bool sending;
-  final VoidCallback onSend;
+  final bool attaching;
+  final Future<void> Function({List<String>? attachmentIds, String? overrideBody}) onSend;
   final VoidCallback onAttach;
 
   const _Composer({
     required this.colors,
     required this.controller,
     required this.sending,
+    required this.attaching,
     required this.onSend,
     required this.onAttach,
   });
@@ -324,11 +459,13 @@ class _Composer extends StatelessWidget {
         ),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-          IconButton(
-            icon: Icon(Icons.add_circle_outline_rounded, color: colors.textSoft),
-            onPressed: onAttach,
-            tooltip: 'Attach',
-          ),
+          attaching
+              ? const Padding(padding: EdgeInsets.all(12), child: BestieSpinner(size: 18))
+              : IconButton(
+                  icon: Icon(Icons.add_circle_outline_rounded, color: colors.textSoft),
+                  onPressed: onAttach,
+                  tooltip: 'Attach',
+                ),
           Expanded(
             child: TextField(
               controller: controller,
@@ -367,7 +504,7 @@ class _Composer extends StatelessWidget {
                     foregroundColor: Colors.white,
                   ),
                   icon: const Icon(Icons.send_rounded, size: 18),
-                  onPressed: onSend,
+                  onPressed: () => onSend(),
                 ),
         ]),
       ),
@@ -419,6 +556,72 @@ class _MemberTile extends StatelessWidget {
   }
 }
 
+/// System message bubble — call events (missed / declined / ended), member
+/// joined/left, channel renamed. Rendered as a centered chip, not a side
+/// bubble. The backend posts these with `kind: 'CALL_EVENT'` or `'SYSTEM'`.
+class _SystemBubble extends StatelessWidget {
+  final Map<String, dynamic> message;
+  const _SystemBubble({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
+    final body = (message['body'] ?? '').toString();
+    final meta = (message['meta'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final eventType = (meta['eventType'] ?? message['kind'] ?? '').toString().toLowerCase();
+    final isMissed = eventType.contains('missed') || body.toLowerCase().contains('missed');
+    final isDeclined = eventType.contains('declined') || body.toLowerCase().contains('declined');
+    final isCall = eventType.contains('call') || body.toLowerCase().contains('call');
+
+    Color accent;
+    IconData icon;
+    if (isMissed) {
+      accent = c.danger;
+      icon = Icons.call_missed_rounded;
+    } else if (isDeclined) {
+      accent = c.warning;
+      icon = Icons.call_end_rounded;
+    } else if (isCall) {
+      accent = c.success;
+      icon = Icons.call_rounded;
+    } else {
+      accent = c.textMuted;
+      icon = Icons.info_outline_rounded;
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Center(
+        child: Container(
+          constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.85),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: accent.withOpacity(0.10),
+            borderRadius: BorderRadius.circular(BestieTokens.rPill),
+            border: Border.all(color: accent.withOpacity(0.20)),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon, size: 14, color: accent),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                body.isEmpty ? 'Call event' : body,
+                style: TextStyle(
+                  color: accent,
+                  fontWeight: BestieTokens.fwSemibold,
+                  fontSize: 12,
+                  letterSpacing: BestieTokens.lsNormal,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
 class _MessageBubble extends StatelessWidget {
   final Map<String, dynamic> message;
   final Map<String, dynamic> author;
@@ -429,15 +632,17 @@ class _MessageBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
     final body = message['body'] as String? ?? '';
+    final attachments = (message['attachments'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
     final isClient = author['isClient'] == true;
     final align = mine ? Alignment.centerRight : Alignment.centerLeft;
     final bg = mine ? c.brand : c.surface;
     final fg = mine ? Colors.white : c.text;
+
     return Align(
       alignment: align,
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+        padding: const EdgeInsets.all(8),
         constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.78),
         decoration: BoxDecoration(
           color: bg,
@@ -455,7 +660,7 @@ class _MessageBubble extends StatelessWidget {
           children: [
             if (!mine)
               Padding(
-                padding: const EdgeInsets.only(bottom: 2),
+                padding: const EdgeInsets.only(left: 4, bottom: 2),
                 child: BestieUserName(
                   name: author['name'] ?? '',
                   isClient: isClient,
@@ -466,10 +671,88 @@ class _MessageBubble extends StatelessWidget {
                   ),
                 ),
               ),
-            Text(body, style: TextStyle(color: fg, fontSize: 14, height: 1.35)),
+            for (final a in attachments) ...[
+              _Attachment(asset: a, mine: mine, colors: c),
+              const SizedBox(height: 4),
+            ],
+            if (body.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(6, 2, 6, 4),
+                child: Text(body, style: TextStyle(color: fg, fontSize: 14, height: 1.35)),
+              ),
           ],
         ),
       ),
     );
+  }
+}
+
+class _Attachment extends StatelessWidget {
+  final Map<String, dynamic> asset;
+  final bool mine;
+  final BestieColors colors;
+  const _Attachment({required this.asset, required this.mine, required this.colors});
+
+  @override
+  Widget build(BuildContext context) {
+    final mime = (asset['mimeType'] ?? '').toString();
+    final url = asset['url']?.toString() ?? '';
+    final name = (asset['originalName'] ?? 'file').toString();
+    final size = asset['size'];
+    final isImage = mime.startsWith('image/');
+    if (isImage && url.isNotEmpty) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(BestieTokens.rSm),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 220, maxWidth: 240),
+          child: Image.network(url, fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => _fileChip(mime, name, size)),
+        ),
+      );
+    }
+    return _fileChip(mime, name, size);
+  }
+
+  Widget _fileChip(String mime, String name, Object? size) {
+    final accent = mine ? Colors.white : BestieTokens.cBrand;
+    final fg = mine ? Colors.white : colors.text;
+    final sizeStr = size is int ? _formatBytes(size) : '';
+    final icon = mime.contains('pdf') ? Icons.picture_as_pdf_rounded :
+                 mime.startsWith('video/') ? Icons.movie_rounded :
+                 mime.startsWith('audio/') ? Icons.audiotrack_rounded :
+                 Icons.description_rounded;
+    return Container(
+      padding: const EdgeInsets.all(8),
+      constraints: const BoxConstraints(minWidth: 180, maxWidth: 240),
+      decoration: BoxDecoration(
+        color: (mine ? Colors.white : colors.surface2).withOpacity(mine ? 0.16 : 1),
+        borderRadius: BorderRadius.circular(BestieTokens.rSm),
+      ),
+      child: Row(children: [
+        Container(
+          width: 34, height: 34,
+          decoration: BoxDecoration(
+            color: accent.withOpacity(mine ? 0.25 : 0.12),
+            borderRadius: BorderRadius.circular(BestieTokens.rXs),
+          ),
+          child: Icon(icon, size: 18, color: accent),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+            Text(name, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: fg, fontSize: 13, fontWeight: BestieTokens.fwSemibold)),
+            if (sizeStr.isNotEmpty)
+              Text(sizeStr, style: TextStyle(color: fg.withOpacity(0.7), fontSize: 11)),
+          ]),
+        ),
+      ]),
+    );
+  }
+
+  String _formatBytes(int n) {
+    if (n < 1024) return '$n B';
+    if (n < 1024 * 1024) return '${(n / 1024).toStringAsFixed(0)} KB';
+    return '${(n / 1024 / 1024).toStringAsFixed(1)} MB';
   }
 }
