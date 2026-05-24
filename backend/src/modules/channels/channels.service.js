@@ -25,7 +25,22 @@ async function listForUser(user) {
     },
     orderBy: [{ pinned: 'desc' }, { updatedAt: 'desc' }],
   });
-  return channels;
+
+  return Promise.all(
+    channels.map(async (channel) => {
+      const myMember = channel.members.find((member) => member.userId === user.id);
+      const since = myMember?.lastReadAt || myMember?.joinedAt || new Date(0);
+      const unreadCount = await prisma.message.count({
+        where: {
+          channelId: channel.id,
+          deletedAt: null,
+          authorId: { not: user.id },
+          createdAt: { gt: since },
+        },
+      });
+      return { ...channel, unreadCount };
+    })
+  );
 }
 
 async function directoryForUser(user, q = '') {

@@ -31,6 +31,44 @@ function canManageRoom(room, user) {
   return room.hostId === user.id || ['SUPER_ADMIN', 'ADMIN'].includes(user.role);
 }
 
+async function recordParticipant({ room, userId = null, displayName, joinedVia }) {
+  if (userId) {
+    const existing = await prisma.meetingRoomParticipant.findFirst({
+      where: { roomId: room.id, userId },
+    });
+    if (existing) {
+      return prisma.meetingRoomParticipant.update({
+        where: { id: existing.id },
+        data: { lastSeenAt: new Date(), displayName },
+      });
+    }
+  }
+
+  return prisma.meetingRoomParticipant.create({
+    data: {
+      roomId: room.id,
+      userId,
+      displayName,
+      joinedVia,
+    },
+  });
+}
+
+function notifyMeetingJoin(io, room, participant) {
+  io?.to(`user:${room.hostId}`).emit('meeting.participant.joined', {
+    roomId: room.id,
+    slug: room.slug,
+    name: room.name,
+    participant: {
+      id: participant.id,
+      displayName: participant.displayName,
+      joinedVia: participant.joinedVia,
+      joinedAt: participant.joinedAt,
+      userId: participant.userId,
+    },
+  });
+}
+
 router.get(
   '/public/:slug',
   asyncHandler(async (req, res) => {
@@ -146,29 +184,25 @@ router.post(
   '/public/:slug/token',
   validate({
     body: Joi.object({
-      requestId: Joi.string().required(),
+      guestName: Joi.string().trim().min(2).max(120).required(),
     }),
   }),
   asyncHandler(async (req, res) => {
     const room = await prisma.meetingRoom.findUnique({ where: { slug: req.params.slug } });
     if (!room || room.endedAt) throw NotFound('Meeting not found');
-    const request = await prisma.meetingRoomGuestRequest.findFirst({
-      where: { id: req.body.requestId, roomId: room.id },
-    });
-    if (!request) throw NotFound('Guest request not found');
-    if (request.status !== 'APPROVED') throw BadRequest('Guest access is not approved yet');
-    const token = agora.generateRtcToken({ channelName: room.channelName, uid: request.guestUid });
-    await prisma.meetingRoomParticipant.create({
-      data: {
-        roomId: room.id,
-        displayName: request.guestName.trim(),
-        joinedVia: 'GUEST',
-      },
-    }).catch(() => {});
+    const guestName = req.body.guestName.trim();
+    const guestUid = `guest_${nanoid(12)}`;
+    const token = agora.generateRtcToken({ channelName: room.channelName, uid: guestUid });
+    const participant = await recordParticipant({
+      room,
+      displayName: guestName,
+      joinedVia: 'GUEST',
+    }).catch(() => null);
+    if (participant) notifyMeetingJoin(req.app.get('io'), room, participant);
     res.json({
       ...token,
       mode: room.mode,
-      guestName: request.guestName.trim(),
+      guestName,
       room: serializeRoom({ id: room.id, slug: room.slug, name: room.name, mode: room.mode }),
     });
   })
@@ -183,6 +217,7 @@ router.get(
       where: { OR: [{ hostId: req.user.id }, { tenantId: req.user.tenantId || 'default' }], endedAt: null },
       orderBy: { createdAt: 'desc' },
       include: {
+        _count: { select: { participants: true } },
         guestRequests: {
           where: { status: 'PENDING' },
           select: { id: true },
@@ -193,6 +228,7 @@ router.get(
       items: items.map((room) => ({
         ...serializeRoom(room),
         pendingGuestCount: room.guestRequests.length,
+        participantCount: room._count.participants,
       })),
     });
   })
@@ -203,6 +239,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const room = await prisma.meetingRoom.findUnique({ where: { slug: req.params.slug } });
     if (!room) throw NotFound('Meeting not found');
+    if (room.endedAt) throw BadRequest('Meeting has ended');
     if (!canManageRoom(room, req.user)) throw Forbidden();
     const items = await prisma.meetingRoomGuestRequest.findMany({
       where: { roomId: room.id },
@@ -321,28 +358,18 @@ router.post(
   asyncHandler(async (req, res) => {
     const room = await prisma.meetingRoom.findUnique({ where: { slug: req.params.slug } });
     if (!room) throw NotFound('Meeting not found');
+    if (room.endedAt) throw BadRequest('Meeting has ended');
 
     // Same Agora primitive as voice calls — video is just a different
     // publish track on the same channel. The token doesn't change shape.
     const token = agora.generateRtcToken({ channelName: room.channelName, uid: req.user.id });
-    const existing = await prisma.meetingRoomParticipant.findFirst({
-      where: { roomId: room.id, userId: req.user.id },
+    const participant = await recordParticipant({
+      room,
+      userId: req.user.id,
+      displayName: req.user.name,
+      joinedVia: 'INTERNAL',
     });
-    if (existing) {
-      await prisma.meetingRoomParticipant.update({
-        where: { id: existing.id },
-        data: { lastSeenAt: new Date(), displayName: req.user.name },
-      });
-    } else {
-      await prisma.meetingRoomParticipant.create({
-        data: {
-          roomId: room.id,
-          userId: req.user.id,
-          displayName: req.user.name,
-          joinedVia: 'INTERNAL',
-        },
-      });
-    }
+    if (req.user.id !== room.hostId) notifyMeetingJoin(req.app.get('io'), room, participant);
     res.json({ ...token, mode: room.mode, room: serializeRoom({ id: room.id, slug: room.slug, name: room.name, mode: room.mode }) });
   })
 );

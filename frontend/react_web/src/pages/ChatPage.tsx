@@ -32,11 +32,13 @@ type Channel = {
   kind: string;
   isClientChannel: boolean;
   pinned: boolean;
+  unreadCount?: number;
   members: ChannelMember[];
 };
 
 type Message = {
   id: string;
+  channelId: string;
   body: string | null;
   authorId: string;
   author: { id: string; name: string; avatarUrl?: string | null; isClient: boolean; role: string };
@@ -148,6 +150,7 @@ export default function ChatPage() {
     if (!s) return;
     s.emit('channel.join', active.id);
     const onNew = (m: Message) => {
+      if (m.channelId !== active.id) return;
       if (m.author?.id) {
         qc.setQueryData<{ items: Message[]; nextCursor: string | null }>(['chat.messages', active.id], (prev) =>
           prev ? { ...prev, items: [...prev.items, m] } : { items: [m], nextCursor: null }
@@ -159,6 +162,13 @@ export default function ChatPage() {
       s.off('chat.message.created', onNew);
     };
   }, [active, qc]);
+
+  useEffect(() => {
+    if (!active?.id) return;
+    api.post(`/chat/channels/${active.id}/read`)
+      .then(() => qc.invalidateQueries({ queryKey: ['channels.mine'] }))
+      .catch(() => {});
+  }, [active?.id, messages.length, qc]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -406,19 +416,27 @@ export default function ChatPage() {
         <header className="ch__list-head"><Hash size={16} /><span>Channels</span></header>
         <ul>
           {channels.map((c) => (
-            <li
-              key={c.id}
-              className={c.id === active?.id ? 'is-active' : ''}
-              onClick={() => navigate(`/chat/${c.id}`)}
-            >
-              <span className="ch__list-name">
-                <Hash size={14} />
-                <span className={c.isClientChannel ? 'client-name' : ''}>
-                  {c.name || c.members.find((m) => m.userId !== me.id)?.user?.name || 'Direct message'}
-                </span>
-              </span>
-              {c.pinned && <Pin size={12} className="ch__pin" />}
-            </li>
+            (() => {
+              const unread = c.id === active?.id ? 0 : c.unreadCount || 0;
+              return (
+                <li
+                  key={c.id}
+                  className={c.id === active?.id ? 'is-active' : ''}
+                  onClick={() => navigate(`/chat/${c.id}`)}
+                >
+                  <span className="ch__list-name">
+                    <Hash size={14} />
+                    <span className={c.isClientChannel ? 'client-name' : ''}>
+                      {c.name || c.members.find((m) => m.userId !== me.id)?.user?.name || 'Direct message'}
+                    </span>
+                  </span>
+                  <span className="ch__list-actions">
+                    {unread > 0 && <span className="ch__unread">{unread > 99 ? '99+' : unread}</span>}
+                    {c.pinned && <Pin size={12} className="ch__pin" />}
+                  </span>
+                </li>
+              );
+            })()
           ))}
           {channels.length === 0 && <li className="ch__empty">No channels yet.</li>}
         </ul>

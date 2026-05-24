@@ -26,7 +26,23 @@
 }
 .ch__list li:hover { background: var(--c-surface-2); color: var(--c-text); }
 .ch__list li.is-active { background: var(--c-brand-soft); color: var(--c-brand-strong); font-weight: 600; }
-.ch__list-name { display: inline-flex; align-items: center; gap: 8px; }
+.ch__list-name { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.ch__list-name > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch__list-actions { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.ch__unread {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-pill);
+  background: var(--c-danger);
+  color: var(--c-text-invert);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  line-height: 1;
+}
 .ch__pin { color: var(--c-text-muted); }
 .ch__empty { color: var(--c-text-muted); padding: 12px; }
 

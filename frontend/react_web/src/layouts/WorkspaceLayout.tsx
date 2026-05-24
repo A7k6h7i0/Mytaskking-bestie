@@ -1,4 +1,5 @@
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   LayoutDashboard, MessageSquare, KanbanSquare, Users, UserCog, Phone, Headphones, Settings, LogOut, Hash,
   Activity, Calendar, Bookmark, Search, BarChart3, ShieldCheck, Zap, Video, Flag, KeyRound, Radio, PhoneIncoming, PhoneCall, Minimize2, type LucideIcon,
@@ -14,6 +15,7 @@ import { NotificationCenter } from '@/components/NotificationCenter';
 import { PresenceMenu } from '@/components/PresenceMenu';
 import { ThemeSwitcher } from '@/components/ThemeSwitcher';
 import { getSocket } from '@/services/socket';
+import { playNotificationSound } from '@/services/notificationSound';
 import { useCallStore } from '@/store/calls';
 import { toast } from '@/components/Toast';
 import { useEffect } from 'react';
@@ -22,6 +24,20 @@ import { Logo } from '@/components/Logo';
 import './workspace-layout.css';
 
 type NavItem = { to: string; label: string; icon: LucideIcon };
+type ChatMessageEvent = {
+  id: string;
+  channelId: string;
+  authorId: string;
+  body?: string | null;
+  attachments?: unknown[];
+  author?: { name?: string | null };
+};
+type ChannelListData = { items: Array<{ id: string; unreadCount?: number }> };
+type MeetingParticipantJoinedEvent = {
+  slug: string;
+  name: string;
+  participant?: { displayName?: string | null; userId?: string | null };
+};
 
 const NAV: NavItem[] = [
   { to: '/chat', label: 'Chat', icon: MessageSquare },
@@ -64,6 +80,7 @@ export default function WorkspaceLayout() {
   const currentCallId = useCallStore((s) => s.currentCallId);
   const setPendingCall = useCallStore((s) => s.setPending);
   const clearPendingCall = useCallStore((s) => s.clearPending);
+  const qc = useQueryClient();
 
   if (!user) return null;
   const allowed = ALLOWED[user.role] || [];
@@ -90,6 +107,59 @@ export default function WorkspaceLayout() {
       s.off('call.declined', onDeclined);
     };
   }, []);
+
+  useEffect(() => {
+    const s = getSocket();
+    if (!s) return;
+
+    const onNotification = () => {
+      qc.invalidateQueries({ queryKey: ['notifications.grouped'] });
+    };
+    const onMeetingParticipantJoined = (payload: MeetingParticipantJoinedEvent) => {
+      if (payload?.participant?.userId === user.id) return;
+      qc.invalidateQueries({ queryKey: ['meetings.mine'] });
+      qc.invalidateQueries({ queryKey: ['meeting.public.lobby', payload.slug] });
+      toast.info(
+        `${payload.participant?.displayName || 'Someone'} joined ${payload.name || 'your meeting'}`,
+        'Open the room to see who is connected.'
+      );
+      playNotificationSound();
+    };
+    const onChatMessage = (message: ChatMessageEvent) => {
+      if (!message?.channelId) return;
+      const isMine = message.authorId === user.id;
+      const isActiveChat = location.pathname === `/chat/${message.channelId}`;
+
+      qc.setQueryData<ChannelListData>(['channels.mine'], (prev) => {
+        if (!prev?.items) return prev;
+        return {
+          ...prev,
+          items: prev.items.map((channel) => {
+            if (channel.id !== message.channelId) return channel;
+            if (isMine || isActiveChat) return { ...channel, unreadCount: channel.unreadCount || 0 };
+            return { ...channel, unreadCount: (channel.unreadCount || 0) + 1 };
+          }),
+        };
+      });
+
+      if (!isMine && !isActiveChat) {
+        toast.info(
+          message.author?.name ? `New message from ${message.author.name}` : 'New message',
+          message.body || (message.attachments?.length ? 'Sent an attachment' : 'Open chat to read it')
+        );
+        playNotificationSound();
+      }
+    };
+
+    s.on('notification.created', onNotification);
+    s.on('meeting.participant.joined', onMeetingParticipantJoined);
+    s.on('chat.message.created', onChatMessage);
+    return () => {
+      s.off('notification.created', onNotification);
+      s.off('meeting.participant.joined', onMeetingParticipantJoined);
+      s.off('chat.message.created', onChatMessage);
+    };
+  }, [location.pathname, qc, user.id]);
 
   function answerPendingCall() {
     if (!pendingCall?.call?.id) return;

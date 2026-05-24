@@ -36,6 +36,7 @@ router.post(
     }),
   }),
   asyncHandler(async (req, res) => {
+    const io = req.app.get('io');
     const message = await service.sendMessage({
       channelId: req.params.channelId,
       user: req.user,
@@ -44,8 +45,8 @@ router.post(
       attachmentIds: req.body.attachmentIds || [],
       replyToId: req.body.replyToId || null,
       threadRootId: req.body.threadRootId || null,
+      io,
     });
-    const io = req.app.get('io');
     io?.to(`channel:${req.params.channelId}`).emit('chat.message.created', message);
     if (message.threadRootId) {
       io?.to(`channel:${req.params.channelId}`).emit('chat.thread.reply', {

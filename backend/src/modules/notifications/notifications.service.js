@@ -15,7 +15,11 @@ async function removeDevice({ token }) {
   await prisma.deviceToken.deleteMany({ where: { token } });
 }
 
-async function notify({ userId, kind, title, body, data }) {
+function emitNotification(io, userId, notification) {
+  io?.to(`user:${userId}`).emit('notification.created', notification);
+}
+
+async function notify({ userId, kind, title, body, data, io }) {
   // Respect the user's preferences before persisting or pushing.
   const pref = await prisma.notificationPreference.findUnique({ where: { userId } }).catch(() => null);
   if (pref) {
@@ -27,6 +31,7 @@ async function notify({ userId, kind, title, body, data }) {
       const notification = await prisma.notification.create({
         data: { userId, kind, title, body, data: data || null },
       });
+      emitNotification(io, userId, notification);
       return notification;
     }
   }
@@ -34,6 +39,7 @@ async function notify({ userId, kind, title, body, data }) {
   const notification = await prisma.notification.create({
     data: { userId, kind, title, body, data: data || null },
   });
+  emitNotification(io, userId, notification);
   const devices = await prisma.deviceToken.findMany({ where: { userId } });
   if (devices.length) {
     await fcm.sendToTokens(

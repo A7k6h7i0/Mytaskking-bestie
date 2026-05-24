@@ -27,7 +27,7 @@ async function listMessages(channelId, user, { cursor, limit = 40 } = {}) {
   return { items: messages.reverse(), nextCursor: messages.length ? messages[0].id : null };
 }
 
-async function sendMessage({ channelId, user, body, kind = 'TEXT', attachmentIds = [], replyToId = null, threadRootId = null }) {
+async function sendMessage({ channelId, user, body, kind = 'TEXT', attachmentIds = [], replyToId = null, threadRootId = null, io = null }) {
   await channelsService.ensureMember(channelId, user.id).catch((e) => {
     if (!['SUPER_ADMIN', 'ADMIN'].includes(user.role)) throw e;
   });
@@ -100,9 +100,31 @@ async function sendMessage({ channelId, user, body, kind = 'TEXT', attachmentIds
         title: `${user.name} mentioned you`,
         body: channel.name ? `In #${channel.name}: ${body || 'New message'}` : body || 'You were mentioned in a client channel',
         data: { channelId, messageId: message.id, authorId: user.id },
+        io,
       }).catch(() => {})
     )
   );
+
+  if (channel.kind === 'DM') {
+    const mentionedIds = new Set(mentionTargets.map((target) => target.id));
+    const recipients = channel.members
+      .map((member) => member.user)
+      .filter((member) => member && member.id !== user.id && !mentionedIds.has(member.id));
+    const preview = body || (attachmentIds.length ? 'Sent an attachment' : 'New message');
+
+    await Promise.all(
+      recipients.map((recipient) =>
+        notifications.notify({
+          userId: recipient.id,
+          kind: 'CHAT',
+          title: `New message from ${user.name}`,
+          body: preview,
+          data: { channelId, messageId: message.id, authorId: user.id },
+          io,
+        }).catch(() => {})
+      )
+    );
+  }
 
   return message;
 }

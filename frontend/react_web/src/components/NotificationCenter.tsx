@@ -45,9 +45,11 @@ export function NotificationCenter() {
     const onActivity = () => qc.invalidateQueries({ queryKey: ['notifications.grouped'] });
     s.on('activity.recorded', onActivity);
     s.on('announcement.published', onActivity);
+    s.on('notification.created', onActivity);
     return () => {
       s.off('activity.recorded', onActivity);
       s.off('announcement.published', onActivity);
+      s.off('notification.created', onActivity);
     };
   }, [qc]);
 

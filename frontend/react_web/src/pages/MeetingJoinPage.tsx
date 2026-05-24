@@ -2,9 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import axios from 'axios';
-import AgoraRTC, { IAgoraRTCClient, ICameraVideoTrack, IAgoraRTCRemoteUser, IMicrophoneAudioTrack } from 'agora-rtc-sdk-ng';
-import { Camera, CameraOff, Clock3, Copy, Link2, Mic, MicOff, PhoneOff, ShieldCheck, Users, Video } from 'lucide-react';
-import { apiUrl } from '@/services/api';
+import AgoraRTC, {
+  IAgoraRTCClient,
+  IAgoraRTCRemoteUser,
+  ICameraVideoTrack,
+  IMicrophoneAudioTrack,
+} from 'agora-rtc-sdk-ng';
+import { Camera, CameraOff, Copy, Link2, Mic, MicOff, PhoneOff, Users, Video } from 'lucide-react';
+import { api, apiUrl } from '@/services/api';
 import { useAuthStore } from '@/store/auth';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -22,21 +27,14 @@ type MeetingRoom = {
 };
 
 type MeetingToken = {
-  token: string;
+  token: string | null;
   channelName: string;
-  uid: string;
-  expiresAt: number;
-  appId: string;
+  uid: string | number;
+  expiresAt: number | null;
+  appId?: string;
+  disabled?: boolean;
   room: MeetingRoom;
   guestName?: string;
-};
-
-type GuestRequest = {
-  requestId: string;
-  status: 'PENDING' | 'APPROVED' | 'REJECTED';
-  guestName: string;
-  requestedAt: string;
-  reviewedAt?: string | null;
 };
 
 type LobbyData = {
@@ -53,11 +51,10 @@ export default function MeetingJoinPage() {
   const me = useAuthStore((s) => s.user);
   const [guestName, setGuestName] = useState(me?.name || '');
   const [joined, setJoined] = useState(false);
+  const [joining, setJoining] = useState(false);
   const [muted, setMuted] = useState(false);
   const [cameraOn, setCameraOn] = useState(false);
   const [remoteUsers, setRemoteUsers] = useState<IAgoraRTCRemoteUser[]>([]);
-  const [guestRequest, setGuestRequest] = useState<GuestRequest | null>(null);
-  const joiningApprovedRef = useRef(false);
   const clientRef = useRef<IAgoraRTCClient | null>(null);
   const micTrackRef = useRef<IMicrophoneAudioTrack | null>(null);
   const cameraTrackRef = useRef<ICameraVideoTrack | null>(null);
@@ -73,27 +70,7 @@ export default function MeetingJoinPage() {
     queryKey: ['meeting.public.lobby', slug],
     queryFn: async () => (await axios.get(`${apiUrl}/api/v1/meetings/public/${slug}/lobby`)).data,
     enabled: !!slug,
-    refetchInterval: 10_000,
-  });
-  const requestStatusQuery = useQuery<GuestRequest>({
-    queryKey: ['meeting.public.request', slug, guestRequest?.requestId],
-    queryFn: async () => (await axios.get(`${apiUrl}/api/v1/meetings/public/${slug}/request-access/${guestRequest!.requestId}`)).data,
-    enabled: !!slug && !!guestRequest?.requestId && !joined && guestRequest?.status === 'PENDING',
-    refetchInterval: 5_000,
-  });
-
-  const requestMut = useMutation({
-    mutationFn: async () => (await axios.post(`${apiUrl}/api/v1/meetings/public/${slug}/request-access`, { guestName: guestName.trim() })).data as GuestRequest,
-    onSuccess: (data) => {
-      setGuestRequest(data);
-      toast.success('Join request sent to the host');
-      lobbyQuery.refetch();
-    },
-    onError: (err: any) => toast.error(err?.response?.data?.error?.message || 'Could not send join request'),
-  });
-  const tokenMut = useMutation({
-    mutationFn: async () => (await axios.post(`${apiUrl}/api/v1/meetings/public/${slug}/token`, { requestId: guestRequest!.requestId })).data as MeetingToken,
-    onError: (err: any) => toast.error(err?.response?.data?.error?.message || 'Could not join meeting'),
+    refetchInterval: joined ? 5_000 : 10_000,
   });
   const shareMut = useMutation({
     mutationFn: async () =>
@@ -102,13 +79,12 @@ export default function MeetingJoinPage() {
   });
 
   useEffect(() => {
-    if (requestStatusQuery.data) {
-      setGuestRequest(requestStatusQuery.data);
-    }
-  }, [requestStatusQuery.data]);
+    if (me?.name) setGuestName(me.name);
+  }, [me?.name]);
 
   const meetingTitle = roomQuery.data?.name || 'Meeting room';
   const isVideoMode = useMemo(() => ['VIDEO', 'WEBINAR', 'LIVESTREAM'].includes(roomQuery.data?.mode || 'VIDEO'), [roomQuery.data?.mode]);
+  const displayName = (me?.name || guestName || 'Guest').trim();
 
   async function copyShareLink() {
     const url = roomQuery.data?.shareUrl;
@@ -118,20 +94,34 @@ export default function MeetingJoinPage() {
     toast.success('Meeting link copied');
   }
 
-  async function joinApprovedMeeting() {
-    if (!guestRequest?.requestId) return;
-    const token = await tokenMut.mutateAsync();
+  async function getMeetingToken() {
+    if (me) {
+      return (await api.post(`/meetings/${slug}/token`)).data as MeetingToken;
+    }
+    return (await axios.post(`${apiUrl}/api/v1/meetings/public/${slug}/token`, { guestName: displayName })).data as MeetingToken;
+  }
+
+  async function joinMeeting() {
+    if (joined || joining) return;
+    if (!me && !displayName) {
+      toast.warn('Enter your name first');
+      return;
+    }
+
+    setJoining(true);
     try {
+      const token = await getMeetingToken();
+      if (token.disabled || !token.appId) {
+        toast.error('Agora is not configured', 'Set AGORA_APP_ID and AGORA_APP_CERTIFICATE in backend .env.');
+        return;
+      }
+
       const client = rtcClient;
       clientRef.current = client;
       client.removeAllListeners();
       client.on('user-published', async (user, mediaType) => {
         await client.subscribe(user, mediaType);
         if (mediaType === 'audio') user.audioTrack?.play();
-        if (mediaType === 'video') {
-          const el = remoteVideoRefs.current[String(user.uid)];
-          if (el) user.videoTrack?.play(el);
-        }
         setRemoteUsers([...client.remoteUsers]);
       });
       client.on('user-unpublished', (user) => {
@@ -155,22 +145,17 @@ export default function MeetingJoinPage() {
       }
 
       setJoined(true);
+      setMuted(false);
       setRemoteUsers([...client.remoteUsers]);
-      toast.success(`Host approved you · joined ${meetingTitle}`);
+      lobbyQuery.refetch();
+      toast.success(`Joined ${meetingTitle}`);
     } catch (err: any) {
-      toast.error('Could not start the meeting room', err?.message || 'Please try again.');
+      toast.error('Could not join meeting', err?.response?.data?.error?.message || err?.message || 'Please try again.');
       await leaveMeeting(true);
+    } finally {
+      setJoining(false);
     }
   }
-
-  useEffect(() => {
-    if (guestRequest?.status === 'APPROVED' && !joined && !joiningApprovedRef.current) {
-      joiningApprovedRef.current = true;
-      joinApprovedMeeting().finally(() => {
-        joiningApprovedRef.current = false;
-      });
-    }
-  }, [guestRequest?.status, joined]);
 
   async function leaveMeeting(silent = false) {
     try {
@@ -214,20 +199,30 @@ export default function MeetingJoinPage() {
       setCameraOn(false);
       return;
     }
-    const cam = await AgoraRTC.createCameraVideoTrack();
-    cameraTrackRef.current = cam;
-    await clientRef.current.publish([cam]);
-    if (localVideoRef.current) cam.play(localVideoRef.current);
-    setCameraOn(true);
+
+    try {
+      const cam = await AgoraRTC.createCameraVideoTrack();
+      cameraTrackRef.current = cam;
+      await clientRef.current.publish([cam]);
+      if (localVideoRef.current) cam.play(localVideoRef.current);
+      setCameraOn(true);
+    } catch (err: any) {
+      toast.error('Could not start camera', err?.message || 'Check camera permission.');
+    }
   }
 
-  function requestJoin() {
-    if (!guestName.trim()) {
-      toast.warn('Enter your name first');
-      return;
+  useEffect(() => {
+    if (cameraOn && cameraTrackRef.current && localVideoRef.current) {
+      cameraTrackRef.current.play(localVideoRef.current);
     }
-    requestMut.mutate();
-  }
+  }, [cameraOn]);
+
+  useEffect(() => {
+    remoteUsers.forEach((user) => {
+      const el = remoteVideoRefs.current[String(user.uid)];
+      if (el && user.videoTrack) user.videoTrack.play(el);
+    });
+  }, [remoteUsers]);
 
   useEffect(() => () => { leaveMeeting(true); }, []);
 
@@ -236,7 +231,7 @@ export default function MeetingJoinPage() {
       <header className="mt__head">
         <div>
           <h1>{meetingTitle}</h1>
-          <p>Share the meeting URL with anyone. Guests now wait in a host-reviewed lobby before joining the live room.</p>
+          <p>Anyone with this link can join directly. Audio and video controls are available inside the room.</p>
         </div>
         {roomQuery.data?.shareUrl && (
           <Button variant="ghost" onClick={copyShareLink}>
@@ -252,65 +247,44 @@ export default function MeetingJoinPage() {
             <span>{roomQuery.data.shareUrl}</span>
           </div>
         )}
+
         {!joined ? (
-          <div className="mt__join-form">
-            <Input label="Your name" value={guestName} onChange={(e) => setGuestName(e.target.value)} />
-            {!guestRequest && (
-              <div className="mt__create-actions">
-                <Button onClick={requestJoin} loading={requestMut.isPending} disabled={!guestName.trim()}>
-                  <ShieldCheck size={16} /> Ask to join
-                </Button>
-              </div>
+          <div className="mt__prejoin">
+            <div className="mt__prejoin-copy">
+              <span className="mt__prejoin-badge"><Video size={14} /> {roomQuery.data?.mode || 'VIDEO'} room</span>
+              <h2>Ready to join?</h2>
+              <p>{me ? `Joining as ${me.name}` : 'Enter your name and jump straight into the meeting.'}</p>
+            </div>
+            {!me && (
+              <Input label="Your name" value={guestName} onChange={(e) => setGuestName(e.target.value)} />
             )}
-            {guestRequest && guestRequest.status === 'PENDING' && (
-              <div className="mt__approval-state mt__approval-state--pending">
-                <Clock3 size={18} />
-                <div>
-                  <strong>Waiting for host approval</strong>
-                  <span>We’ll join you automatically as soon as someone inside approves this request.</span>
-                </div>
-              </div>
-            )}
-            {guestRequest && guestRequest.status === 'APPROVED' && (
-              <div className="mt__approval-state mt__approval-state--approved">
-                <ShieldCheck size={18} />
-                <div>
-                  <strong>Approved</strong>
-                  <span>Your request was approved. Joining the room now.</span>
-                </div>
-              </div>
-            )}
-            {guestRequest && guestRequest.status === 'REJECTED' && (
-              <div className="mt__approval-state mt__approval-state--rejected">
-                <PhoneOff size={18} />
-                <div>
-                  <strong>Request declined</strong>
-                  <span>The host declined this request. You can update your name and try again.</span>
-                </div>
-                <Button variant="ghost" onClick={() => setGuestRequest(null)}>Try again</Button>
-              </div>
-            )}
+            <div className="mt__create-actions">
+              <Button onClick={joinMeeting} loading={joining} disabled={roomQuery.isLoading || (!me && !displayName)}>
+                <Video size={16} /> Join now
+              </Button>
+            </div>
           </div>
         ) : (
           <>
             <div className="mt__live-summary">
-              <span><Users size={14} /> {remoteUsers.length + 1} people in room</span>
-              <span>{roomQuery.data?.mode || 'VIDEO'} mode</span>
+              <span><Users size={14} /> {remoteUsers.length + 1} connected</span>
+              <span>{muted ? 'Microphone off' : 'Microphone on'}</span>
+              <span>{isVideoMode ? (cameraOn ? 'Camera on' : 'Camera off') : 'Voice room'}</span>
             </div>
             <div className="cr__video-grid">
               <div className="cr__video-card cr__video-card--local">
-                <div className="cr__video-label">You</div>
+                <div className="cr__video-label">You {muted ? '· muted' : '· mic on'}{cameraOn ? ' · camera on' : ''}</div>
                 <div ref={localVideoRef} className={`cr__video-surface ${cameraOn ? 'has-video' : ''}`}>
-                  {!cameraOn && <div className="cr__video-placeholder"><Avatar name={guestName} size={56} /></div>}
+                  {!cameraOn && <div className="cr__video-placeholder"><Avatar name={displayName} size={56} /></div>}
                 </div>
               </div>
               {remoteUsers.map((user) => {
                 const hasVideo = !!user.videoTrack;
                 return (
                   <div key={String(user.uid)} className="cr__video-card">
-                    <div className="cr__video-label">Participant</div>
+                    <div className="cr__video-label">{String(user.uid).startsWith('guest_') ? 'Guest' : 'Participant'} {hasVideo ? '· video live' : '· audio only'}</div>
                     <div ref={(el) => { remoteVideoRefs.current[String(user.uid)] = el; }} className={`cr__video-surface ${hasVideo ? 'has-video' : ''}`}>
-                      {!hasVideo && <div className="cr__video-placeholder"><Avatar name="Guest" size={56} /></div>}
+                      {!hasVideo && <div className="cr__video-placeholder"><Avatar name="Participant" size={56} /></div>}
                     </div>
                   </div>
                 );
@@ -326,7 +300,7 @@ export default function MeetingJoinPage() {
                 </Button>
               )}
               <Button variant="danger" onClick={() => leaveMeeting()}>
-                <PhoneOff size={16} /> Leave meeting
+                <PhoneOff size={16} /> Leave
               </Button>
             </div>
           </>
@@ -335,9 +309,8 @@ export default function MeetingJoinPage() {
 
       <section className="mt__join-card">
         <div className="mt__live-summary">
-          <span><Users size={14} /> {lobbyQuery.data?.participants.length || 0} people seen in this room</span>
+          <span><Users size={14} /> {lobbyQuery.data?.participants.length || 0} people have joined</span>
           <span><Copy size={14} /> {lobbyQuery.data?.shareHistory.length || 0} link copy events</span>
-          <span><Clock3 size={14} /> {lobbyQuery.data?.pendingRequests.length || 0} pending guest requests</span>
         </div>
         <div className="mt__lobby-grid">
           <div>
@@ -352,7 +325,7 @@ export default function MeetingJoinPage() {
                   </div>
                 </div>
               ))}
-              {!lobbyQuery.data?.participants?.length && <div className="cn__directory-empty">No participants have joined yet.</div>}
+              {!lobbyQuery.data?.participants?.length && <div className="cn__directory-empty">No one has joined yet.</div>}
             </div>
           </div>
           <div>
