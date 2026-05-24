@@ -213,8 +213,17 @@ router.use(requireAuth);
 router.get(
   '/',
   asyncHandler(async (req, res) => {
+    // Show meetings the user is hosting OR has been explicitly invited to
+    // (via participantIds at create time). Random members of the tenant no
+    // longer see other people's rooms.
     const items = await prisma.meetingRoom.findMany({
-      where: { OR: [{ hostId: req.user.id }, { tenantId: req.user.tenantId || 'default' }], endedAt: null },
+      where: {
+        endedAt: null,
+        OR: [
+          { hostId: req.user.id },
+          { participants: { some: { userId: req.user.id } } },
+        ],
+      },
       orderBy: { createdAt: 'desc' },
       include: {
         _count: { select: { participants: true } },
@@ -347,6 +356,23 @@ router.post(
     const inviteeIds = Array.isArray(req.body.participantIds)
       ? req.body.participantIds.filter((uid) => uid && uid !== req.user.id)
       : [];
+    if (inviteeIds.length) {
+      // Persist invitations so `/meetings` only surfaces the room to the
+      // people who were actually invited (plus the host). joinedVia tags
+      // them as not-yet-joined; recordParticipant flips it on real join.
+      const lookup = await prisma.user.findMany({
+        where: { id: { in: inviteeIds } },
+        select: { id: true, name: true },
+      });
+      await prisma.meetingRoomParticipant.createMany({
+        data: lookup.map((u) => ({
+          roomId: room.id,
+          userId: u.id,
+          displayName: u.name || 'Invited',
+          joinedVia: 'INVITED',
+        })),
+      });
+    }
     if (inviteeIds.length) {
       const io = req.app.get('io');
       const payload = {

@@ -36,18 +36,52 @@ class CallScreen extends ConsumerStatefulWidget {
   ConsumerState<CallScreen> createState() => _CallScreenState();
 }
 
+/// Static, app-wide call session. Living outside the widget lets the audio
+/// keep playing when the user navigates away from /call/:id — only an
+/// explicit Hang Up tears the engine down.
+class _CallSession {
+  static RtcEngine? engine;
+  static String? channelName;
+  static String? activeCallId;
+  static String? activeMeetingSlug;
+  static bool joined = false;
+  static final Set<int> remoteUids = {};
+  static final Map<int, String> remoteNames = {};
+  static bool matches(String? callId, String? meetingSlug) {
+    if (engine == null) return false;
+    if (callId != null) return activeCallId == callId;
+    if (meetingSlug != null) return activeMeetingSlug == meetingSlug;
+    return false;
+  }
+  static Future<void> teardown() async {
+    try { await engine?.leaveChannel(); } catch (_) {}
+    try { await engine?.release(); } catch (_) {}
+    engine = null;
+    channelName = null;
+    activeCallId = null;
+    activeMeetingSlug = null;
+    joined = false;
+    remoteUids.clear();
+    remoteNames.clear();
+  }
+}
+
 class _CallScreenState extends ConsumerState<CallScreen> {
-  RtcEngine? _engine;
+  RtcEngine? get _engine => _CallSession.engine;
+  set _engine(RtcEngine? v) => _CallSession.engine = v;
+  String? get _channelName => _CallSession.channelName;
+  set _channelName(String? v) => _CallSession.channelName = v;
+  bool get _joined => _CallSession.joined;
+  set _joined(bool v) => _CallSession.joined = v;
+  Set<int> get _remoteUids => _CallSession.remoteUids;
+  Map<int, String> get _remoteNames => _CallSession.remoteNames;
+
   String _status = 'Preparing…';
-  String? _channelName;
   bool _muted = false;
   bool _cameraOff = false;
   bool _speakerOn = true;
-  bool _joined = false;
   bool _sharing = false;
   bool _recording = false;
-  final Set<int> _remoteUids = {};
-  final Map<int, String> _remoteNames = {};
   String? _error;
   Map<String, dynamic>? _callMeta;
 
@@ -61,21 +95,58 @@ class _CallScreenState extends ConsumerState<CallScreen> {
 
   @override
   void dispose() {
-    _teardown();
+    // Do NOT tear down on dispose — the user closing the call window
+    // should keep the call running in the background. Only explicit
+    // Hang Up (`_hangup`) ends the session.
     super.dispose();
   }
 
   Future<void> _teardown() async {
-    try {
-      await _engine?.leaveChannel();
-      await _engine?.release();
-    } catch (_) { /* engine may already be torn down */ }
     if (widget.callId != null) {
       try { await ref.read(apiProvider).post('/calls/${widget.callId}/leave'); } catch (_) {}
     }
+    await _CallSession.teardown();
   }
 
   bool _booting = false;
+
+  /// (Re)wires Agora event handlers to *this* widget's setState. We call it
+  /// fresh on every mount so the live engine drives the current instance's
+  /// UI — the user may have backgrounded the call and returned later.
+  void _registerHandlers(RtcEngine engine) {
+    engine.registerEventHandler(RtcEngineEventHandler(
+      onJoinChannelSuccess: (conn, elapsed) {
+        if (!mounted) return;
+        setState(() { _joined = true; _status = 'Connected'; });
+      },
+      onUserJoined: (conn, remoteUid, elapsed) {
+        if (!mounted) return;
+        setState(() => _remoteUids.add(remoteUid));
+      },
+      onUserOffline: (conn, remoteUid, reason) {
+        if (!mounted) return;
+        setState(() { _remoteUids.remove(remoteUid); _remoteNames.remove(remoteUid); });
+        // No auto-hangup here — only an explicit tap on Hang Up ends the
+        // call. Lets the user keep the channel open if a remote drops and
+        // comes right back, or wait for the next participant in a group.
+      },
+      onTokenPrivilegeWillExpire: (conn, t) async {
+        try {
+          final fresh = await _fetchToken();
+          final newToken = fresh['token']?.toString();
+          if (newToken != null) await engine.renewToken(newToken);
+        } catch (_) {/* user can rejoin */}
+      },
+      onError: (err, msg) {
+        if (!mounted) return;
+        setState(() { _error = 'Agora native error ${err.value()}${msg.isNotEmpty ? ' — $msg' : ''}'; });
+      },
+      onLeaveChannel: (conn, stats) {
+        if (!mounted) return;
+        setState(() { _joined = false; _status = 'Ended'; });
+      },
+    ));
+  }
 
   Future<void> _bootstrap() async {
     // Re-entrant guard — Riverpod rebuilds during permission prompts can
@@ -83,6 +154,26 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     // is mid-init is one of the documented causes of Agora ERR_NOT_READY (-3).
     if (_booting) return;
     _booting = true;
+
+    // Re-entering an already-running call (user navigated back into /call/:id
+    // after minimizing it): just rebind the UI to the live engine. Skip the
+    // permission, token, and join dance entirely.
+    if (_CallSession.matches(widget.callId, widget.meetingSlug)) {
+      try {
+        _registerHandlers(_CallSession.engine!);
+        setState(() {
+          _status = _joined ? 'Connected' : 'Connecting…';
+        });
+      } finally {
+        _booting = false;
+      }
+      return;
+    }
+    // Different call already running — leave it cleanly before joining a new
+    // one. Without this Agora throws -17 (already in channel).
+    if (_CallSession.engine != null) {
+      await _CallSession.teardown();
+    }
 
     // Track which step is in flight so the error message can identify the
     // exact failing call (-3 with a null message is otherwise opaque).
@@ -136,7 +227,10 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       // the documented causes of -3 on certain Agora 6.5.x devices.
       step = 'create-engine';
       final engine = createAgoraRtcEngine();
-      _engine = engine; // assign early so dispose can release on hot reload
+      _CallSession.engine = engine;
+      _CallSession.activeCallId = widget.callId;
+      _CallSession.activeMeetingSlug = widget.meetingSlug;
+      _CallSession.channelName = channel;
 
       step = 'initialize';
       await engine.initialize(RtcEngineContext(
@@ -146,42 +240,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
 
       // 4. Wire event handlers BEFORE joining so we don't miss state.
       step = 'register-handlers';
-      engine.registerEventHandler(RtcEngineEventHandler(
-        onJoinChannelSuccess: (conn, elapsed) {
-          if (!mounted) return;
-          setState(() { _joined = true; _status = 'Connected'; });
-        },
-        onUserJoined: (conn, remoteUid, elapsed) {
-          if (!mounted) return;
-          setState(() => _remoteUids.add(remoteUid));
-        },
-        onUserOffline: (conn, remoteUid, reason) {
-          if (!mounted) return;
-          setState(() { _remoteUids.remove(remoteUid); _remoteNames.remove(remoteUid); });
-          // If we're the last one in the room (1:1 calls always, group calls
-          // when everyone else has dropped), hang up automatically so the
-          // caller isn't left staring at a "Waiting for others…" screen
-          // after the other party ends.
-          if (_remoteUids.isEmpty && _joined) {
-            _hangup();
-          }
-        },
-        onTokenPrivilegeWillExpire: (conn, t) async {
-          try {
-            final fresh = await _fetchToken();
-            final newToken = fresh['token']?.toString();
-            if (newToken != null) await engine.renewToken(newToken);
-          } catch (_) {/* user can rejoin */}
-        },
-        onError: (err, msg) {
-          if (!mounted) return;
-          setState(() { _error = 'Agora native error ${err.value()}${msg.isNotEmpty ? ' — $msg' : ''}'; });
-        },
-        onLeaveChannel: (conn, stats) {
-          if (!mounted) return;
-          setState(() { _joined = false; _status = 'Ended'; });
-        },
-      ));
+      _registerHandlers(engine);
 
       // 5. Media setup — sequential awaits, audio always, video only on demand.
       step = 'enable-audio';
