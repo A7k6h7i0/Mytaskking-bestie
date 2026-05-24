@@ -17,6 +17,13 @@ class TasksScreen extends ConsumerStatefulWidget {
 class _TasksScreenState extends ConsumerState<TasksScreen> {
   void Function()? _offAssigned;
   _TaskFilter _filter = _TaskFilter.all;
+  final _searchCtl = TextEditingController();
+  String _query = '';
+  // Selection mode: when the user long-presses a task we flip into a
+  // multi-select state with a contextual app bar and "Mark all done" /
+  // "Cancel" actions. Stored as ids so toggling is O(1).
+  final Set<String> _selectedIds = {};
+  bool get _selecting => _selectedIds.isNotEmpty;
 
   @override
   void initState() {
@@ -49,6 +56,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
   @override
   void dispose() {
     _offAssigned?.call();
+    _searchCtl.dispose();
     super.dispose();
   }
 
@@ -59,7 +67,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
 
     return Scaffold(
       backgroundColor: c.bg,
-      appBar: AppBar(
+      appBar: _selecting ? _selectionAppBar(c) : AppBar(
         elevation: 0,
         backgroundColor: c.surface,
         foregroundColor: c.text,
@@ -89,7 +97,14 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
 
             final me = ref.read(authStoreProvider).user;
             final counts = _countsFor(all, me?.id);
-            final filtered = _applyFilter(all, _filter, me?.id);
+            var filtered = _applyFilter(all, _filter, me?.id);
+            if (_query.isNotEmpty) {
+              final q = _query.toLowerCase();
+              filtered = filtered.where((t) =>
+                ('${t['title'] ?? ''}').toLowerCase().contains(q) ||
+                ('${t['description'] ?? ''}').toLowerCase().contains(q)
+              ).toList();
+            }
 
             if (all.isEmpty) {
               return BestieEmptyState(
@@ -106,13 +121,14 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
 
             return Column(
               children: [
+                _searchBar(c),
                 _filterRow(c, counts),
                 Expanded(
                   child: filtered.isEmpty
                       ? BestieEmptyState(
                           icon: Icons.filter_alt_off_outlined,
                           title: 'No tasks match',
-                          description: 'Try a different filter or pull to refresh.',
+                          description: 'Try a different filter or search term.',
                         )
                       : ListView.separated(
                           padding: const EdgeInsets.fromLTRB(12, 4, 12, 96),
@@ -187,6 +203,92 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
     }).toList();
   }
 
+  Widget _searchBar(BestieColors c) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: TextField(
+        controller: _searchCtl,
+        textInputAction: TextInputAction.search,
+        onChanged: (v) => setState(() => _query = v.trim()),
+        decoration: InputDecoration(
+          isDense: true,
+          hintText: 'Search tasks…',
+          prefixIcon: Icon(Icons.search_rounded, size: 18, color: c.textSoft),
+          suffixIcon: _query.isEmpty
+              ? null
+              : IconButton(
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                  onPressed: () {
+                    _searchCtl.clear();
+                    setState(() => _query = '');
+                  },
+                ),
+          filled: true,
+          fillColor: c.surface,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(BestieTokens.rPill),
+            borderSide: BorderSide(color: c.border),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(BestieTokens.rPill),
+            borderSide: BorderSide(color: c.border),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(BestieTokens.rPill),
+            borderSide: BorderSide(color: BestieTokens.cBrand),
+          ),
+        ),
+      ),
+    );
+  }
+
+  PreferredSizeWidget _selectionAppBar(BestieColors c) {
+    return AppBar(
+      elevation: 0,
+      backgroundColor: c.brandSoft,
+      foregroundColor: c.brandStrong,
+      leading: IconButton(
+        icon: const Icon(Icons.close_rounded),
+        onPressed: () => setState(_selectedIds.clear),
+      ),
+      title: Text('${_selectedIds.length} selected',
+          style: TextStyle(color: c.brandStrong, fontWeight: BestieTokens.fwBold)),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.check_circle_outline_rounded),
+          tooltip: 'Mark as done',
+          onPressed: _bulkMarkDone,
+        ),
+        const SizedBox(width: 4),
+      ],
+    );
+  }
+
+  Future<void> _bulkMarkDone() async {
+    final ids = _selectedIds.toList();
+    setState(_selectedIds.clear);
+    final api = ref.read(apiProvider);
+    int ok = 0;
+    int fail = 0;
+    for (final id in ids) {
+      try {
+        // Sequential — bulk endpoints don't exist on the backend yet and
+        // hitting them in parallel trips the per-route rate limiter.
+        await api.updateTask(id, {'status': 'DONE'});
+        ok += 1;
+      } catch (_) { fail += 1; }
+    }
+    ref.invalidate(tasksKanbanProvider);
+    if (mounted) {
+      bestieToast(
+        context,
+        fail == 0 ? 'Marked $ok done' : 'Marked $ok · $fail failed',
+        kind: fail == 0 ? BestieToastKind.success : BestieToastKind.warning,
+      );
+    }
+  }
+
   Widget _filterRow(BestieColors c, Map<_TaskFilter, int> counts) {
     return Container(
       height: 48,
@@ -240,18 +342,37 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
       _        => c.borderStrong,
     };
 
+    final id = t['id'] as String;
+    final selected = _selectedIds.contains(id);
     return Material(
       color: c.surface,
       borderRadius: BorderRadius.circular(BestieTokens.rMd),
       child: InkWell(
         borderRadius: BorderRadius.circular(BestieTokens.rMd),
-        onTap: () => _openTask(t['id'] as String),
+        onTap: () {
+          if (_selecting) {
+            setState(() {
+              selected ? _selectedIds.remove(id) : _selectedIds.add(id);
+            });
+          } else {
+            _openTask(id);
+          }
+        },
+        onLongPress: () {
+          // Long-press anywhere on a card flips into selection mode. Already-
+          // selected cards become a no-op so a chain of long-presses doesn't
+          // accidentally deselect.
+          setState(() => _selectedIds.add(id));
+        },
         child: Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: c.surface,
+            color: selected ? c.brandSoft : c.surface,
             borderRadius: BorderRadius.circular(BestieTokens.rMd),
-            border: Border.all(color: c.border),
+            border: Border.all(
+              color: selected ? BestieTokens.cBrand : c.border,
+              width: selected ? 1.5 : 1,
+            ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,

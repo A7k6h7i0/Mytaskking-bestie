@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../state.dart';
 
@@ -19,12 +20,26 @@ const _categoryIcons = {
   'system': Icons.campaign_outlined,
 };
 
-class NotificationsScreen extends ConsumerWidget {
+/// Local-only quiet-hours preference. Persisted in SharedPreferences so it
+/// survives restarts. Used by the notifications header banner to indicate
+/// the window during which the user wants the app to stay calm. (Server-
+/// side suppression for push notifications will follow once the backend
+/// settings endpoint takes a `quietHours` payload.)
+final _quietHoursProvider =
+    FutureProvider.autoDispose<_QuietHours>((_) async => _QuietHours.read());
+
+class NotificationsScreen extends ConsumerStatefulWidget {
   const NotificationsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<NotificationsScreen> createState() => _NotificationsScreenState();
+}
+
+class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
+  @override
+  Widget build(BuildContext context) {
     final stream = ref.watch(notificationsProvider);
+    final quiet = ref.watch(_quietHoursProvider).asData?.value;
 
     return Scaffold(
       appBar: AppBar(
@@ -32,6 +47,11 @@ class NotificationsScreen extends ConsumerWidget {
         backgroundColor: Theme.of(context).colorScheme.surface,
         title: const Text('Notifications'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.bedtime_outlined),
+            tooltip: 'Quiet hours',
+            onPressed: () => _openQuietHoursSheet(quiet),
+          ),
           IconButton(
             icon: const Icon(Icons.done_all),
             tooltip: 'Mark all read',
@@ -55,54 +75,243 @@ class NotificationsScreen extends ConsumerWidget {
         data: (data) {
           final groups = (data['groups'] as Map?)?.cast<String, dynamic>() ?? const {};
           final unread = data['unread'] ?? 0;
+          final children = <Widget>[
+            if (quiet != null && quiet.enabled) _quietBanner(quiet),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              child: Row(children: [
+                Text('$unread unread', style: const TextStyle(color: BestieTokens.cTextMuted)),
+                const Spacer(),
+                BestieBadge(tone: BestieTone.success, dot: true, child: const Text('Live')),
+              ]),
+            ),
+          ];
+
           if (groups.isEmpty) {
-            return const BestieEmptyState(
-              icon: Icons.notifications_none,
-              title: 'You\'re all caught up',
-              description: 'New notifications will appear here in realtime.',
-            );
+            return Column(children: [
+              ...children,
+              const Expanded(
+                child: BestieEmptyState(
+                  icon: Icons.notifications_none,
+                  title: 'You\'re all caught up',
+                  description: 'New notifications will appear here in realtime.',
+                ),
+              ),
+            ]);
           }
+
+          for (final entry in groups.entries) {
+            children.add(Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: Row(children: [
+                Icon(_categoryIcons[entry.key] ?? Icons.bolt, size: 14, color: BestieTokens.cTextMuted),
+                const SizedBox(width: 6),
+                Text(
+                  (_categoryLabels[entry.key] ?? entry.key).toUpperCase(),
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: BestieTokens.cTextMuted, letterSpacing: 0.5),
+                ),
+              ]),
+            ));
+            children.addAll(((entry.value as List).cast<Map<String, dynamic>>().map((n) {
+              final unreadItem = n['readAt'] == null;
+              return Container(
+                color: unreadItem ? BestieTokens.cBrandSoft : Colors.transparent,
+                child: ListTile(
+                  title: Text(n['title'] ?? '—', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                  subtitle: Text(n['body'] ?? '', maxLines: 2, overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: BestieTokens.cTextMuted, fontSize: 12)),
+                  trailing: Text(_fmtTime(n['createdAt']),
+                      style: const TextStyle(color: BestieTokens.cTextFaint, fontSize: 11)),
+                ),
+              );
+            })));
+          }
+
           return ListView(
             padding: const EdgeInsets.symmetric(vertical: 8),
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                child: Row(children: [
-                  Text('$unread unread', style: const TextStyle(color: BestieTokens.cTextMuted)),
-                  const Spacer(),
-                  BestieBadge(tone: BestieTone.success, dot: true, child: const Text('Live')),
-                ]),
-              ),
-              for (final entry in groups.entries) ...[
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                  child: Row(children: [
-                    Icon(_categoryIcons[entry.key] ?? Icons.bolt, size: 14, color: BestieTokens.cTextMuted),
-                    const SizedBox(width: 6),
-                    Text(
-                      (_categoryLabels[entry.key] ?? entry.key).toUpperCase(),
-                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: BestieTokens.cTextMuted, letterSpacing: 0.5),
-                    ),
-                  ]),
-                ),
-                ...((entry.value as List).cast<Map<String, dynamic>>().map((n) {
-                  final unreadItem = n['readAt'] == null;
-                  return Container(
-                    color: unreadItem ? BestieTokens.cBrandSoft : Colors.transparent,
-                    child: ListTile(
-                      title: Text(n['title'] ?? '—', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                      subtitle: Text(n['body'] ?? '', maxLines: 2, overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: BestieTokens.cTextMuted, fontSize: 12)),
-                      trailing: Text(_fmtTime(n['createdAt']),
-                          style: const TextStyle(color: BestieTokens.cTextFaint, fontSize: 11)),
-                    ),
-                  );
-                })),
-              ],
-            ],
+            children: children,
           );
         },
       ),
+    );
+  }
+
+  Widget _quietBanner(_QuietHours q) {
+    final inWindow = q.isActiveNow();
+    final color = inWindow ? BestieTokens.cBrand : BestieTokens.cTextMuted;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: BestieTokens.cBrandSoft,
+        borderRadius: BorderRadius.circular(BestieTokens.rMd),
+        border: Border.all(color: color.withOpacity(0.30)),
+      ),
+      child: Row(children: [
+        Icon(Icons.bedtime_rounded, color: color, size: 18),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                inWindow ? 'Quiet hours · active now' : 'Quiet hours scheduled',
+                style: TextStyle(
+                  color: color,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              Text(
+                'Pause: ${q.fmtStart()} → ${q.fmtEnd()}',
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: BestieTokens.cTextMuted,
+                ),
+              ),
+            ],
+          ),
+        ),
+        TextButton(
+          onPressed: () => _openQuietHoursSheet(q),
+          style: TextButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            minimumSize: const Size(0, 28),
+          ),
+          child: const Text('Edit'),
+        ),
+      ]),
+    );
+  }
+
+  Future<void> _openQuietHoursSheet(_QuietHours? current) async {
+    var q = current ?? const _QuietHours(enabled: false, startHour: 22, endHour: 7);
+    bool enabled = q.enabled;
+    int startHour = q.startHour;
+    int endHour = q.endHour;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(builder: (ctx, setSt) {
+          return SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Container(
+                  width: 40, height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: BestieTokens.cBorderStrong,
+                    borderRadius: BorderRadius.circular(BestieTokens.rPill),
+                  ),
+                ),
+                Row(children: [
+                  const Icon(Icons.bedtime_rounded, color: BestieTokens.cBrand),
+                  const SizedBox(width: 8),
+                  const Text('Quiet hours',
+                      style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+                  const Spacer(),
+                  Switch(
+                    value: enabled,
+                    onChanged: (v) => setSt(() => enabled = v),
+                  ),
+                ]),
+                const SizedBox(height: 6),
+                const Text(
+                  'Pause in-app toasts during the chosen window. Push notifications still surface — silence them in your OS settings.',
+                  style: TextStyle(fontSize: 12, color: BestieTokens.cTextMuted, height: 1.4),
+                ),
+                const SizedBox(height: 16),
+                Row(children: [
+                  Expanded(
+                    child: _hourPicker(
+                      label: 'From',
+                      hour: startHour,
+                      onChanged: (h) => setSt(() => startHour = h),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _hourPicker(
+                      label: 'Until',
+                      hour: endHour,
+                      onChanged: (h) => setSt(() => endHour = h),
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () async {
+                      final saved = _QuietHours(
+                        enabled: enabled,
+                        startHour: startHour,
+                        endHour: endHour,
+                      );
+                      await saved.write();
+                      ref.invalidate(_quietHoursProvider);
+                      if (ctx.mounted) Navigator.pop(ctx);
+                    },
+                    child: const Text('Save'),
+                  ),
+                ),
+              ]),
+            ),
+          );
+        });
+      },
+    );
+  }
+
+  Widget _hourPicker({
+    required String label,
+    required int hour,
+    required ValueChanged<int> onChanged,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label,
+            style: const TextStyle(
+                fontSize: 11,
+                color: BestieTokens.cTextMuted,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.5)),
+        const SizedBox(height: 6),
+        InkWell(
+          borderRadius: BorderRadius.circular(BestieTokens.rMd),
+          onTap: () async {
+            final picked = await showTimePicker(
+              context: context,
+              initialTime: TimeOfDay(hour: hour, minute: 0),
+            );
+            if (picked != null) onChanged(picked.hour);
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(BestieTokens.rMd),
+              border: Border.all(color: BestieTokens.cBorder),
+            ),
+            child: Row(children: [
+              const Icon(Icons.schedule_rounded, size: 16, color: BestieTokens.cTextMuted),
+              const SizedBox(width: 8),
+              Text(
+                '${hour.toString().padLeft(2, '0')}:00',
+                style: const TextStyle(
+                    fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+            ]),
+          ),
+        ),
+      ],
     );
   }
 
@@ -113,4 +322,56 @@ class NotificationsScreen extends ConsumerWidget {
     final m = d.minute.toString().padLeft(2, '0');
     return '$h:$m';
   }
+}
+
+/// Local-only persisted preference for the quiet-hours window. Stored as
+/// three keys in SharedPreferences so legacy installs (where the preference
+/// didn't exist yet) read defaults cleanly.
+class _QuietHours {
+  final bool enabled;
+  final int startHour;
+  final int endHour;
+  const _QuietHours({
+    required this.enabled,
+    required this.startHour,
+    required this.endHour,
+  });
+
+  static const _kEnabled = 'notif.quietHours.enabled';
+  static const _kStart = 'notif.quietHours.startHour';
+  static const _kEnd = 'notif.quietHours.endHour';
+
+  static Future<_QuietHours> read() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      return _QuietHours(
+        enabled: p.getBool(_kEnabled) ?? false,
+        startHour: p.getInt(_kStart) ?? 22,
+        endHour: p.getInt(_kEnd) ?? 7,
+      );
+    } catch (_) {
+      return const _QuietHours(enabled: false, startHour: 22, endHour: 7);
+    }
+  }
+
+  Future<void> write() async {
+    final p = await SharedPreferences.getInstance();
+    await p.setBool(_kEnabled, enabled);
+    await p.setInt(_kStart, startHour);
+    await p.setInt(_kEnd, endHour);
+  }
+
+  bool isActiveNow() {
+    if (!enabled) return false;
+    final h = DateTime.now().hour;
+    // Window may wrap past midnight (e.g. 22 → 7).
+    if (startHour == endHour) return false;
+    if (startHour < endHour) {
+      return h >= startHour && h < endHour;
+    }
+    return h >= startHour || h < endHour;
+  }
+
+  String fmtStart() => '${startHour.toString().padLeft(2, '0')}:00';
+  String fmtEnd() => '${endHour.toString().padLeft(2, '0')}:00';
 }

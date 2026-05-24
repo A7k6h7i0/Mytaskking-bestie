@@ -229,6 +229,10 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
                         const SizedBox(height: 12),
                         _streakCard(c),
                       ],
+                      if (_isCheckedOut()) ...[
+                        const SizedBox(height: 12),
+                        _digestCard(c),
+                      ],
                       const SizedBox(height: 16),
                       _checkInSection(c),
                       const SizedBox(height: 16),
@@ -238,6 +242,83 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
                     ],
                   ),
                 ),
+    );
+  }
+
+  bool _isCheckedOut() {
+    final entry = (_today?['entry'] as Map?)?.cast<String, dynamic>();
+    return entry?['checkOutAt'] != null;
+  }
+
+  /// "Day at a glance" recap shown once the user has clocked out — lists
+  /// hours worked, lunch duration (if recorded), and a gentle prompt to
+  /// celebrate before signing off. Lives below the streak card so the
+  /// page tells a clean morning → working → wrap-up story.
+  Widget _digestCard(BestieColors c) {
+    final entry = (_today?['entry'] as Map?)?.cast<String, dynamic>();
+    final inAt = DateTime.tryParse('${entry?['checkInAt']}')?.toLocal();
+    final outAt = DateTime.tryParse('${entry?['checkOutAt']}')?.toLocal();
+    final lunchStart = DateTime.tryParse('${entry?['lunchStartedAt']}')?.toLocal();
+    final lunchEnd = DateTime.tryParse('${entry?['lunchEndedAt']}')?.toLocal();
+    if (inAt == null || outAt == null) return const SizedBox.shrink();
+    var worked = outAt.difference(inAt);
+    if (lunchStart != null && lunchEnd != null) {
+      worked -= lunchEnd.difference(lunchStart);
+    }
+    if (worked.isNegative) worked = Duration.zero;
+    String fmtDur(Duration d) =>
+        '${d.inHours}h ${d.inMinutes.remainder(60)}m';
+    String fmtTime(DateTime d) =>
+        '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            c.success.withOpacity(0.14),
+            c.brand.withOpacity(0.08),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(BestieTokens.rMd),
+        border: Border.all(color: c.success.withOpacity(0.30)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Icon(Icons.check_circle_rounded, color: c.success, size: 18),
+            const SizedBox(width: 6),
+            Text("Today's wrap-up",
+                style: TextStyle(
+                  color: c.text, fontSize: 14,
+                  fontWeight: BestieTokens.fwBold,
+                )),
+          ]),
+          const SizedBox(height: 8),
+          _digestRow(c, '⏰', '${fmtTime(inAt)} → ${fmtTime(outAt)}'),
+          _digestRow(c, '🛠', 'Worked ${fmtDur(worked)}'),
+          if (lunchStart != null && lunchEnd != null)
+            _digestRow(c, '🍽', 'Lunch ${fmtDur(lunchEnd.difference(lunchStart))}'),
+          if (_streak > 0)
+            _digestRow(c, '🔥', '$_streak-day streak — see you tomorrow.'),
+          const SizedBox(height: 4),
+        ],
+      ),
+    );
+  }
+
+  Widget _digestRow(BestieColors c, String emoji, String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(children: [
+        SizedBox(width: 20, child: Text(emoji, style: const TextStyle(fontSize: 14))),
+        const SizedBox(width: 8),
+        Expanded(child: Text(text,
+            style: TextStyle(color: c.textSoft, fontSize: 13))),
+      ]),
     );
   }
 

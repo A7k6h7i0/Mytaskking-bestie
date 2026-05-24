@@ -260,11 +260,117 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
     });
   }
 
+  /// Parses a slash command from the composer and runs its side effect.
+  /// Returns `true` when the command was recognized and handled (whether
+  /// it succeeded or failed) — the caller skips the regular message post
+  /// in that case. Returns `false` for unknown slashes so they're sent as
+  /// plain text (Slack-style fallback).
+  Future<bool> _handleSlashCommand(String raw) async {
+    final parts = raw.split(' ');
+    final cmd = parts.first.toLowerCase();
+    final args = parts.skip(1).join(' ').trim();
+    switch (cmd) {
+      case '/task':
+        if (args.isEmpty) {
+          bestieToast(context, 'Usage: /task <title>',
+              kind: BestieToastKind.warning);
+          _composer.clear();
+          return true;
+        }
+        try {
+          final due = DateTime.now()
+              .add(const Duration(days: 1))
+              .copyWith(hour: 17, minute: 0);
+          await ref.read(apiProvider).post('/tasks', body: {
+            'title': args,
+            'priority': 'MEDIUM',
+            'status': 'TODO',
+            'dueAt': due.toUtc().toIso8601String(),
+          });
+          ref.invalidate(tasksKanbanProvider);
+          _composer.clear();
+          if (mounted) bestieToast(context, 'Task created', body: args,
+              kind: BestieToastKind.success);
+        } catch (e) {
+          if (mounted) bestieToast(context, 'Could not create task',
+              body: formatApiError(e), kind: BestieToastKind.error);
+        }
+        return true;
+
+      case '/me':
+        // Rewrites the composer to read "*Name* did X" so it lands in chat
+        // as an action message, à la IRC. We fall through and let the
+        // normal _send pipeline post it.
+        final me = ref.read(authStoreProvider).user;
+        if (args.isEmpty || me == null) {
+          bestieToast(context, 'Usage: /me <action>',
+              kind: BestieToastKind.warning);
+          _composer.clear();
+          return true;
+        }
+        _composer.text = '_${me.name} ${args}_';
+        return false;
+
+      case '/meet':
+        final name = args.isEmpty ? 'Quick huddle' : args;
+        try {
+          final m = await ref.read(apiProvider).createMeeting(name: name);
+          final slug = m['slug']?.toString();
+          if (slug != null) {
+            _composer.text = 'Join: https://mytaskking.com/meetings/join/$slug';
+            return false; // let normal send post the link
+          }
+        } catch (e) {
+          if (mounted) bestieToast(context, 'Could not start meeting',
+              body: formatApiError(e), kind: BestieToastKind.error);
+        }
+        return true;
+
+      case '/help':
+        _composer.clear();
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Chat shortcuts'),
+              content: const Text(
+                '/task <title> — create a task\n'
+                '/me <action> — post an action ("*you* did X")\n'
+                '/meet [name] — start a meeting + share the link\n'
+                '/help — show this list',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+        }
+        return true;
+
+      default:
+        return false;
+    }
+  }
+
   Future<void> _send({List<String>? attachmentIds, String? overrideBody}) async {
     final body = overrideBody ?? _composer.text.trim();
     if (body.isEmpty && (attachmentIds == null || attachmentIds.isEmpty)) return;
     final me = ref.read(authStoreProvider).user;
     if (me == null) return;
+
+    // Slash commands intercept the send — they handle their own side
+    // effects (create task, /me action, etc) and skip the regular message
+    // post entirely. /me is the one exception: it still posts a chat
+    // message but in the "third person" format.
+    if (overrideBody == null &&
+        attachmentIds == null &&
+        body.startsWith('/')) {
+      final handled = await _handleSlashCommand(body);
+      if (handled) return;
+    }
 
     // Optimistic stub — render the bubble immediately with a clock icon, then
     // replace it when the server's row lands in the messages provider.
@@ -581,6 +687,115 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
       case 'CLIENT': return '${members.length} members · client';
       default:       return '${members.length} members';
     }
+  }
+
+  /// Parses the composer text up to the cursor and extracts an in-progress
+  /// @handle (e.g. "Hey @pri" → "pri"). Returns `null` when the user isn't
+  /// currently typing a mention — most keystrokes early-return this way.
+  String? _activeMentionQuery() {
+    final selection = _composer.selection;
+    if (!selection.isValid || !selection.isCollapsed) return null;
+    final cursor = selection.start;
+    if (cursor <= 0 || cursor > _composer.text.length) return null;
+    final upToCursor = _composer.text.substring(0, cursor);
+    final atIndex = upToCursor.lastIndexOf('@');
+    if (atIndex < 0) return null;
+    // Bail when '@' is in the middle of a word (e.g. an email address).
+    if (atIndex > 0) {
+      final prev = upToCursor[atIndex - 1];
+      if (prev != ' ' && prev != '\n') return null;
+    }
+    final fragment = upToCursor.substring(atIndex + 1);
+    if (fragment.contains(' ') || fragment.contains('\n')) return null;
+    return fragment;
+  }
+
+  Widget _mentionSuggestions(BestieColors c) {
+    final query = _activeMentionQuery();
+    if (query == null) return const SizedBox.shrink();
+    final members = (_channel?['members'] as List?)
+            ?.cast<Map<String, dynamic>>() ??
+        const [];
+    final me = ref.read(authStoreProvider).user;
+    final q = query.toLowerCase();
+    final matches = members
+        .map((m) => (m['user'] as Map?)?.cast<String, dynamic>())
+        .whereType<Map<String, dynamic>>()
+        .where((u) {
+          if (me?.id != null && u['id'] == me!.id) return false;
+          final name = (u['name'] ?? '').toString().toLowerCase();
+          return q.isEmpty || name.contains(q);
+        })
+        .take(5)
+        .toList();
+    if (matches.isEmpty) return const SizedBox.shrink();
+    return Container(
+      constraints: const BoxConstraints(maxHeight: 200),
+      decoration: BoxDecoration(
+        color: c.surface,
+        border: Border(top: BorderSide(color: c.border)),
+      ),
+      child: ListView.builder(
+        shrinkWrap: true,
+        itemCount: matches.length,
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        itemBuilder: (_, i) {
+          final u = matches[i];
+          return InkWell(
+            onTap: () => _applyMention(u),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              child: Row(children: [
+                BestieAvatar(
+                  name: u['name']?.toString() ?? '?',
+                  imageUrl: u['avatarUrl']?.toString(),
+                  isClient: u['isClient'] ?? false,
+                  size: 28,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: BestieUserName(
+                    name: u['name']?.toString() ?? '',
+                    isClient: u['isClient'] ?? false,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: c.text,
+                      fontWeight: BestieTokens.fwSemibold,
+                    ),
+                  ),
+                ),
+                Text(
+                  (u['role'] ?? '').toString().replaceAll('_', ' '),
+                  style: TextStyle(fontSize: 10, color: c.textMuted),
+                ),
+              ]),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  /// Tap-handler for the suggestion list. Substitutes the `@fragment` at the
+  /// cursor with `@Name ` (trailing space) and bumps the cursor past it so
+  /// the user can continue typing immediately.
+  void _applyMention(Map<String, dynamic> user) {
+    final selection = _composer.selection;
+    if (!selection.isValid) return;
+    final cursor = selection.start;
+    final text = _composer.text;
+    final atIndex = text.substring(0, cursor).lastIndexOf('@');
+    if (atIndex < 0) return;
+    final name = (user['name'] ?? '').toString();
+    final replacement = '@$name ';
+    final newText = text.replaceRange(atIndex, cursor, replacement);
+    _composer.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(
+        offset: atIndex + replacement.length,
+      ),
+    );
+    setState(() {});
   }
 
   /// Thin banner above the messages list that surfaces messages someone has
@@ -1014,6 +1229,9 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
         // Typing indicator sits just above the composer so it doesn't shift
         // the messages list when it appears/disappears.
         if (_typing.isNotEmpty) _TypingIndicator(typing: _typing.values.toList(), colors: colors),
+        // @mention autocomplete — pops above the composer when the user is
+        // mid-typing an @handle. Replaces the @-fragment with @Name on tap.
+        _mentionSuggestions(colors),
         // Smart reply chips — surface 3 quick canned replies when the last
         // message is from someone else and the user hasn't started typing.
         if (_replyingTo == null) _smartReplies(colors, me),

@@ -207,47 +207,113 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
   Widget _actionsFor(String? state) {
     switch (state) {
       case 'PENDING':
-        return Row(children: [
-          Expanded(
-            child: OutlinedButton.icon(
-              icon: const Icon(Icons.close),
-              label: const Text('Decline'),
-              style: OutlinedButton.styleFrom(foregroundColor: BestieTokens.cDanger),
-              onPressed: _busy ? null : () => _act(
-                () => ref.read(apiProvider).declineTask(widget.taskId),
-                'Declined',
+        return Column(children: [
+          Row(children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.close),
+                label: const Text('Decline'),
+                style: OutlinedButton.styleFrom(foregroundColor: BestieTokens.cDanger),
+                onPressed: _busy ? null : () => _act(
+                  () => ref.read(apiProvider).declineTask(widget.taskId),
+                  'Declined',
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: BestiePrimaryButton(
-              label: 'Accept',
-              icon: Icons.check,
-              loading: _busy,
-              onPressed: () => _act(
-                () => ref.read(apiProvider).acceptTask(widget.taskId),
-                'Accepted',
+            const SizedBox(width: 8),
+            Expanded(
+              child: BestiePrimaryButton(
+                label: 'Accept',
+                icon: Icons.check,
+                loading: _busy,
+                onPressed: () => _act(
+                  () => ref.read(apiProvider).acceptTask(widget.taskId),
+                  'Accepted',
+                ),
               ),
             ),
-          ),
+          ]),
+          const SizedBox(height: 8),
+          _snoozeRow(),
         ]);
       case 'ACCEPTED':
-        return BestiePrimaryButton(
-          label: 'Mark complete',
-          icon: Icons.check_circle,
-          loading: _busy,
-          color: BestieTokens.cSuccess,
-          onPressed: () => _act(
-            () => ref.read(apiProvider).completeTask(widget.taskId),
-            'Marked complete',
+        return Column(children: [
+          BestiePrimaryButton(
+            label: 'Mark complete',
+            icon: Icons.check_circle,
+            loading: _busy,
+            color: BestieTokens.cSuccess,
+            onPressed: () => _act(
+              () => ref.read(apiProvider).completeTask(widget.taskId),
+              'Marked complete',
+            ),
           ),
-        );
+          const SizedBox(height: 8),
+          _snoozeRow(),
+        ]);
       case 'COMPLETED':
       case 'DECLINED':
       default:
         // Either we're not an assignee or the lifecycle is over.
         return const SizedBox.shrink();
+    }
+  }
+
+  /// Quick "kick the can" row — pushes the task's due date forward without
+  /// reopening the create sheet. Designed for the common "I'll get to it
+  /// after lunch / tomorrow / next sprint" pattern.
+  Widget _snoozeRow() {
+    final options = <(String, Duration)>[
+      ('1h', const Duration(hours: 1)),
+      ('Tomorrow', const Duration(days: 1)),
+      ('Next week', const Duration(days: 7)),
+    ];
+    return Row(children: [
+      const Icon(Icons.snooze_rounded, size: 14, color: BestieTokens.cTextMuted),
+      const SizedBox(width: 6),
+      const Text('Snooze:',
+          style: TextStyle(fontSize: 12, color: BestieTokens.cTextMuted,
+              fontWeight: FontWeight.w600)),
+      const SizedBox(width: 8),
+      for (final opt in options) ...[
+        OutlinedButton(
+          onPressed: _busy ? null : () => _snooze(opt.$2, opt.$1),
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+            minimumSize: const Size(0, 30),
+            visualDensity: VisualDensity.compact,
+            textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+          ),
+          child: Text(opt.$1),
+        ),
+        const SizedBox(width: 6),
+      ],
+    ]);
+  }
+
+  Future<void> _snooze(Duration delta, String label) async {
+    setState(() => _busy = true);
+    try {
+      final newDue = DateTime.now().add(delta);
+      await ref.read(apiProvider).updateTask(widget.taskId, {
+        'dueAt': newDue.toUtc().toIso8601String(),
+      });
+      widget.parentRef.invalidate(tasksKanbanProvider);
+      if (mounted) {
+        bestieToast(context, 'Snoozed · $label',
+            body: 'New due ${newDue.toLocal()}'.split('.').first,
+            kind: BestieToastKind.success);
+        // Close the detail screen so the user lands back where they came
+        // from — matches the existing accept/decline/complete flow.
+        if (Navigator.canPop(context)) Navigator.pop(context);
+      }
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not snooze',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 

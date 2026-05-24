@@ -23,6 +23,7 @@ class DashboardScreen extends ConsumerWidget {
     final overview = ref.watch(dashboardProvider);
     final attendance = ref.watch(_dashboardAttendanceProvider);
     final tasks = ref.watch(tasksKanbanProvider);
+    final meetings = ref.watch(meetingsProvider);
 
     return Scaffold(
       appBar: _appBar(context),
@@ -69,7 +70,16 @@ class DashboardScreen extends ConsumerWidget {
                   const SizedBox(height: BestieTokens.s4),
                   _todayTasksCard(context, todayTasks),
                 ],
-                const SizedBox(height: BestieTokens.s4),
+                if (!isClient) ...[
+                  const SizedBox(height: BestieTokens.s3),
+                  _liveMeetingsCard(context, meetings.asData?.value ?? const []),
+                ],
+                if (!isClient) ...[
+                  const SizedBox(height: BestieTokens.s3),
+                  _weeklyStatsCard(context, counts, isAdmin: isAdmin),
+                ],
+                const SizedBox(height: BestieTokens.s3),
+                _dailyQuoteCard(),
                 const SizedBox(height: BestieTokens.s3),
                 // Performance leaderboard — visible to everyone; useful for both
                 // self-comparison and "who shipped this week".
@@ -413,6 +423,239 @@ class DashboardScreen extends ConsumerWidget {
       tile(Icons.chat_bubble_outline,      'Channels',           c['activeChannels'],     BestieTokens.cBrand),
       tile(Icons.notifications_none,       'Unread',             c['unreadNotifs'],       BestieTokens.cInfo),
     ];
+  }
+
+  /// Compact "Your week in numbers" card — tasks shipped, still open, and a
+  /// completion bar. Reuses the counts the dashboard endpoint already
+  /// returns so it costs us no extra round trip.
+  Widget _weeklyStatsCard(BuildContext context, Map<String, dynamic> counts, {required bool isAdmin}) {
+    final done = ((isAdmin ? counts['tasksDoneThisWeek'] : counts['myDoneThisWeek']) as num?)?.toInt() ?? 0;
+    final open = ((isAdmin ? counts['tasksOpen'] : counts['myOpenTasks']) as num?)?.toInt() ?? 0;
+    final total = done + open;
+    final pct = total == 0 ? 0.0 : (done / total).clamp(0.0, 1.0);
+    return Container(
+      padding: const EdgeInsets.all(BestieTokens.s3),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(BestieTokens.rMd),
+        border: Border.all(color: BestieTokens.cBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Icon(Icons.show_chart_rounded, size: 18, color: BestieTokens.cBrand),
+            const SizedBox(width: 6),
+            const Text('Your week',
+                style: TextStyle(fontWeight: FontWeight.w700)),
+            const Spacer(),
+            Text('${(pct * 100).round()}%',
+                style: const TextStyle(
+                    color: BestieTokens.cBrand,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800)),
+          ]),
+          const SizedBox(height: 10),
+          Row(children: [
+            _statSpark('Shipped', '$done', BestieTokens.cSuccess),
+            const SizedBox(width: 24),
+            _statSpark('Open', '$open', BestieTokens.cWarning),
+            const SizedBox(width: 24),
+            _statSpark('Total', '$total', BestieTokens.cBrand),
+          ]),
+          const SizedBox(height: 12),
+          // Brand-tinted progress bar showing this-week completion ratio.
+          ClipRRect(
+            borderRadius: BorderRadius.circular(BestieTokens.rPill),
+            child: LinearProgressIndicator(
+              value: pct,
+              minHeight: 6,
+              backgroundColor: BestieTokens.cBorder,
+              valueColor: const AlwaysStoppedAnimation(BestieTokens.cBrand),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _statSpark(String label, String value, Color color) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(value,
+            style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: color)),
+        Text(label,
+            style: const TextStyle(
+                fontSize: 11,
+                color: BestieTokens.cTextMuted,
+                fontWeight: FontWeight.w600)),
+      ],
+    );
+  }
+
+  /// Lists rooms that are currently live in the workspace, with a one-tap
+  /// join button. Hidden entirely when nothing's active so the dashboard
+  /// stays calm during quiet hours. Rendered above the daily quote so
+  /// "your team is meeting right now" is the most visible affordance.
+  Widget _liveMeetingsCard(BuildContext context, List<Map<String, dynamic>> all) {
+    if (all.isEmpty) return const SizedBox.shrink();
+    final live = all.where((m) => m['endedAt'] == null).toList();
+    if (live.isEmpty) return const SizedBox.shrink();
+    return Container(
+      padding: const EdgeInsets.all(BestieTokens.s3),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(BestieTokens.rMd),
+        border: Border.all(color: BestieTokens.cBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Icon(Icons.videocam_rounded, size: 18, color: BestieTokens.cSuccess),
+            const SizedBox(width: 6),
+            const Expanded(
+              child: Text('Live meetings',
+                  style: TextStyle(fontWeight: FontWeight.w700)),
+            ),
+            const PulseDot(color: BestieTokens.cSuccess, size: 8),
+            const SizedBox(width: 6),
+            Text('${live.length}',
+                style: const TextStyle(
+                    color: BestieTokens.cTextMuted, fontSize: 12,
+                    fontWeight: FontWeight.w600)),
+          ]),
+          const SizedBox(height: 4),
+          for (final m in live.take(3))
+            InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () => context.go('/meetings'),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(children: [
+                  Container(
+                    width: 32, height: 32,
+                    decoration: BoxDecoration(
+                      color: BestieTokens.cSuccess.withOpacity(0.14),
+                      borderRadius: BorderRadius.circular(BestieTokens.rMd),
+                    ),
+                    child: Icon(
+                      (m['mode'] ?? 'VIDEO').toString().toUpperCase() == 'VOICE'
+                          ? Icons.call_rounded
+                          : Icons.videocam_rounded,
+                      size: 18, color: BestieTokens.cSuccess,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${m['name'] ?? 'Untitled meeting'}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 13),
+                        ),
+                        Text(
+                          '${(m['_count']?['participants'] ?? 0)} participants',
+                          style: const TextStyle(
+                              color: BestieTokens.cTextMuted, fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  TextButton(
+                    onPressed: () => context.go('/meetings'),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                      minimumSize: const Size(0, 30),
+                      backgroundColor: BestieTokens.cBrand,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('Join',
+                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+                  ),
+                ]),
+              ),
+            ),
+          if (live.length > 3)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text('+${live.length - 3} more',
+                  style: const TextStyle(
+                      fontSize: 11,
+                      color: BestieTokens.cTextMuted,
+                      fontWeight: FontWeight.w600)),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Rotating productivity / focus quote, indexed by day-of-year so the
+  /// quote stays stable across screens within a day but changes every
+  /// morning. Pure decoration — never blocks the dashboard from loading.
+  Widget _dailyQuoteCard() {
+    const quotes = <(String, String)>[
+      ('The shorter way to do many things is to do only one thing at a time.', 'Mozart'),
+      ('It is not enough to be busy; so are the ants. The question is: what are we busy about?', 'Thoreau'),
+      ('You do not rise to the level of your goals. You fall to the level of your systems.', 'James Clear'),
+      ('Focus is a matter of deciding what things you are not going to do.', 'John Carmack'),
+      ('Action expresses priorities.', 'Gandhi'),
+      ('Done is better than perfect.', 'Sheryl Sandberg'),
+      ('Discipline equals freedom.', 'Jocko Willink'),
+      ('Slow is smooth. Smooth is fast.', 'Navy SEALs'),
+      ('Make each day your masterpiece.', 'John Wooden'),
+      ('Amateurs sit and wait for inspiration. The rest of us just get up and go to work.', 'Stephen King'),
+      ('The way to get started is to quit talking and begin doing.', 'Walt Disney'),
+      ('Either you run the day or the day runs you.', 'Jim Rohn'),
+    ];
+    final now = DateTime.now();
+    final dayOfYear = now.difference(DateTime(now.year, 1, 1)).inDays;
+    final q = quotes[dayOfYear % quotes.length];
+    return Container(
+      padding: const EdgeInsets.all(BestieTokens.s3),
+      decoration: BoxDecoration(
+        color: BestieTokens.cBrand.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(BestieTokens.rMd),
+        border: Border.all(color: BestieTokens.cBrand.withOpacity(0.18)),
+      ),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Container(
+          width: 32, height: 32,
+          decoration: BoxDecoration(
+            color: BestieTokens.cBrand.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(BestieTokens.rMd),
+          ),
+          child: const Icon(Icons.format_quote_rounded,
+              color: BestieTokens.cBrand, size: 18),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(q.$1,
+                  style: const TextStyle(fontSize: 14, height: 1.4,
+                      fontWeight: FontWeight.w500)),
+              const SizedBox(height: 4),
+              Text('— ${q.$2}',
+                  style: const TextStyle(
+                      fontSize: 11,
+                      color: BestieTokens.cTextMuted,
+                      fontWeight: FontWeight.w600)),
+            ],
+          ),
+        ),
+      ]),
+    );
   }
 
   Widget _activityCard(BuildContext context, List items) {
