@@ -23,6 +23,7 @@ import 'screens/sessions_screen.dart';
 import 'screens/telecaller_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/attendance_screen.dart';
+import 'screens/task_detail_screen.dart';
 import 'state.dart' hide ThemeMode;
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -86,6 +87,13 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/chat/:channelId',
         builder: (_, s) => ChatDetailScreen(channelId: s.pathParameters['channelId']!),
+      ),
+
+      // Task detail full-screen — out of the shell so the user can focus on
+      // the task without bottom-nav distraction. Reachable via context.push.
+      GoRoute(
+        path: '/tasks/:id',
+        builder: (_, s) => TaskDetailScreen(taskId: s.pathParameters['id']!),
       ),
 
       // Shell with bottom navigation; nested routes swap the body, sidebar

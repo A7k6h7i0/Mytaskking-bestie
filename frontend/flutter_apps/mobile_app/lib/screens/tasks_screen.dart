@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../state.dart';
-import 'task_actions_sheet.dart';
 
+/// Tasks home — single list view of every task the user can see, ordered by
+/// most-recently-touched. Tapping a card pushes `/tasks/:id` for the
+/// full-screen detail (no more bottom-sheet modal).
 class TasksScreen extends ConsumerStatefulWidget {
   const TasksScreen({super.key});
   @override
@@ -12,16 +15,7 @@ class TasksScreen extends ConsumerStatefulWidget {
 }
 
 class _TasksScreenState extends ConsumerState<TasksScreen> {
-  String _view = 'kanban';
   void Function()? _offAssigned;
-
-  static const _columns = [
-    ('BACKLOG',     'Backlog'),
-    ('TODO',        'To do'),
-    ('IN_PROGRESS', 'In progress'),
-    ('REVIEW',      'Review'),
-    ('DONE',        'Done'),
-  ];
 
   @override
   void initState() {
@@ -57,122 +51,71 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
     super.dispose();
   }
 
-  Future<void> _move(String taskId, String targetStatus) async {
-    try {
-      await ref.read(apiProvider).moveTask(taskId, status: targetStatus);
-      ref.invalidate(tasksKanbanProvider);
-    } catch (e) {
-      if (mounted) bestieToast(context, 'Could not move', body: formatApiError(e), kind: BestieToastKind.error);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
     final tasks = ref.watch(tasksKanbanProvider);
 
     return Scaffold(
+      backgroundColor: c.bg,
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: Theme.of(context).colorScheme.surface,
+        backgroundColor: c.surface,
+        foregroundColor: c.text,
         title: const Text('Tasks'),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Center(
-              child: BestieSegmentedControl<String>(
-                value: _view,
-                onChanged: (v) => setState(() => _view = v),
-                options: const [
-                  BestieSegmentOption(value: 'kanban', label: 'Board', icon: Icons.view_kanban_outlined),
-                  BestieSegmentOption(value: 'list',   label: 'List',  icon: Icons.list_alt_outlined),
-                ],
-              ),
-            ),
-          ),
-        ],
       ),
-      body: tasks.when(
-        loading: () => const Center(child: BestieSpinner()),
-        error: (e, _) => BestieEmptyState(
-          icon: Icons.error_outline, iconColor: BestieTokens.cDanger,
-          title: 'Couldn\'t load tasks', description: formatApiError(e),
-        ),
-        data: (data) {
-          final cols = (data['columns'] as Map?)?.cast<String, dynamic>() ?? const {};
-          if (cols.values.every((v) => (v as List).isEmpty)) {
-            return BestieEmptyState(
-              icon: Icons.task_alt,
-              title: 'No tasks yet',
-              description: 'Create one and assign it to anyone in the workspace.',
-              action: FilledButton.icon(onPressed: _newTask, icon: const Icon(Icons.add), label: const Text('New task')),
+      body: RefreshIndicator(
+        onRefresh: () async => ref.refresh(tasksKanbanProvider.future),
+        child: tasks.when(
+          loading: () => const Center(child: BestieSpinner()),
+          error: (e, _) => BestieEmptyState(
+            icon: Icons.error_outline,
+            iconColor: c.danger,
+            title: 'Couldn\'t load tasks',
+            description: formatApiError(e),
+          ),
+          data: (data) {
+            // The provider still returns a kanban shape (columns keyed by
+            // status) — flatten it for the list and sort by most-recent.
+            final cols = (data['columns'] as Map?)?.cast<String, dynamic>() ?? const {};
+            final all = cols.values
+                .expand((v) => (v as List).cast<Map<String, dynamic>>())
+                .toList();
+            all.sort((a, b) => '${b['updatedAt']}'.compareTo('${a['updatedAt']}'));
+
+            if (all.isEmpty) {
+              return BestieEmptyState(
+                icon: Icons.task_alt,
+                title: 'No tasks yet',
+                description: 'Create one and assign it to anyone in the workspace.',
+                action: FilledButton.icon(
+                  onPressed: _newTask,
+                  icon: const Icon(Icons.add),
+                  label: const Text('New task'),
+                ),
+              );
+            }
+
+            return ListView.separated(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
+              itemBuilder: (_, i) => _taskCard(all[i], c),
+              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              itemCount: all.length,
             );
-          }
-          if (_view == 'list') return _buildList(cols);
-          return _buildKanban(cols);
-        },
+          },
+        ),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _newTask,
-        icon: const Icon(Icons.add),
+        backgroundColor: BestieTokens.cBrand,
+        foregroundColor: Colors.white,
+        icon: const Icon(Icons.add_rounded),
         label: const Text('New task'),
       ),
     );
   }
 
-  Widget _buildKanban(Map<String, dynamic> cols) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.all(BestieTokens.s3),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: _columns.map((col) {
-          final items = (cols[col.$1] as List?)?.cast<Map<String, dynamic>>() ?? const [];
-          return Container(
-            width: 280,
-            margin: const EdgeInsets.symmetric(horizontal: 4),
-            child: DragTarget<String>(
-              onAcceptWithDetails: (d) => _move(d.data, col.$1),
-              builder: (ctx, _, __) => Container(
-                decoration: BoxDecoration(
-                  color: BestieTokens.cSurface1,
-                  borderRadius: BorderRadius.circular(BestieTokens.rMd),
-                  border: Border.all(color: BestieTokens.cBorder),
-                ),
-                padding: const EdgeInsets.all(8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                      child: Row(children: [
-                        Expanded(child: Text(col.$2, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13))),
-                        BestieBadge(child: Text('${items.length}')),
-                      ]),
-                    ),
-                    ...items.map((t) => _taskCard(t)),
-                  ],
-                ),
-              ),
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
-
-  Widget _buildList(Map<String, dynamic> cols) {
-    final all = cols.values.expand((v) => (v as List).cast<Map<String, dynamic>>()).toList();
-    all.sort((a, b) => '${b['updatedAt']}'.compareTo('${a['updatedAt']}'));
-    return ListView.separated(
-      padding: const EdgeInsets.all(BestieTokens.s3),
-      itemBuilder: (_, i) => _taskCard(all[i]),
-      separatorBuilder: (_, __) => const SizedBox(height: 6),
-      itemCount: all.length,
-    );
-  }
-
-  Widget _taskCard(Map<String, dynamic> t) {
+  Widget _taskCard(Map<String, dynamic> t, BestieColors c) {
     final priority = (t['priority'] as String? ?? 'MEDIUM').toLowerCase();
     final dueAt = t['dueAt'] as String?;
     final assignees = (t['assignees'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
@@ -183,62 +126,151 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
     );
     final myState = mine['state'] as String?;
     final myScore = mine['score'] is int ? mine['score'] as int : null;
+    final status = (t['status'] ?? 'TODO').toString();
 
-    final color = switch (priority) {
-      'urgent' => BestieTokens.cDanger,
-      'high'   => BestieTokens.cWarning,
-      'medium' => BestieTokens.cInfo,
-      _        => BestieTokens.cBorderStrong,
+    final priorityColor = switch (priority) {
+      'urgent' => c.danger,
+      'high'   => c.warning,
+      'medium' => c.info,
+      _        => c.borderStrong,
     };
 
-    return LongPressDraggable<String>(
-      data: t['id'] as String,
-      feedback: Material(
-        elevation: 8,
-        borderRadius: BorderRadius.circular(BestieTokens.rSm),
-        child: Container(
-          width: 240,
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(color: Theme.of(context).colorScheme.surface, borderRadius: BorderRadius.circular(BestieTokens.rSm)),
-          child: Text(t['title'] ?? '', style: const TextStyle(fontWeight: FontWeight.w600)),
-        ),
-      ),
-      child: GestureDetector(
+    return Material(
+      color: c.surface,
+      borderRadius: BorderRadius.circular(BestieTokens.rMd),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(BestieTokens.rMd),
         onTap: () => _openTask(t['id'] as String),
         child: Container(
-          margin: const EdgeInsets.symmetric(vertical: 3),
-          padding: const EdgeInsets.all(10),
+          padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            borderRadius: BorderRadius.circular(BestieTokens.rSm),
-            border: Border.all(color: BestieTokens.cBorder),
-            boxShadow: const [BoxShadow(color: Color(0x10000000), blurRadius: 2, offset: Offset(0, 1))],
+            color: c.surface,
+            borderRadius: BorderRadius.circular(BestieTokens.rMd),
+            border: Border.all(color: c.border),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(width: 24, height: 3, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(2))),
-              const SizedBox(height: 6),
-              Text(t['title'] ?? '', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+              // priority + status row
+              Row(children: [
+                Container(
+                  width: 30, height: 4,
+                  decoration: BoxDecoration(
+                    color: priorityColor,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: c.surface2,
+                    borderRadius: BorderRadius.circular(BestieTokens.rPill),
+                  ),
+                  child: Text(
+                    status.replaceAll('_', ' '),
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: BestieTokens.fwBold,
+                      color: c.textSoft,
+                      letterSpacing: BestieTokens.lsWide,
+                    ),
+                  ),
+                ),
+                const Spacer(),
+                Icon(Icons.chevron_right_rounded, color: c.textFaint, size: 18),
+              ]),
+              const SizedBox(height: 8),
+              Text(
+                t['title'] ?? '',
+                style: TextStyle(
+                  fontWeight: BestieTokens.fwSemibold,
+                  fontSize: 15,
+                  color: c.text,
+                  height: 1.3,
+                ),
+              ),
+              if ((t['description'] ?? '').toString().isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  t['description'].toString(),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: c.textMuted, fontSize: 13, height: 1.35),
+                ),
+              ],
               if (myState != null) ...[
-                const SizedBox(height: 6),
+                const SizedBox(height: 10),
                 _stateBadge(myState, myScore),
               ],
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               Row(children: [
                 if (assignees.isNotEmpty)
-                  Row(children: assignees.take(3).map((a) {
-                    final u = (a['user'] as Map?)?.cast<String, dynamic>() ?? const {};
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 2),
-                      child: BestieAvatar(name: u['name'] ?? '?', imageUrl: u['avatarUrl'], isClient: u['isClient'] ?? false, size: 22),
-                    );
-                  }).toList()),
+                  SizedBox(
+                    height: 24,
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        for (var i = 0; i < assignees.take(3).length; i++)
+                          Positioned(
+                            left: i * 16.0,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(color: c.surface, width: 2),
+                              ),
+                              child: BestieAvatar(
+                                name: (assignees[i]['user'] as Map?)?['name']?.toString() ?? '?',
+                                imageUrl: (assignees[i]['user'] as Map?)?['avatarUrl']?.toString(),
+                                isClient: (assignees[i]['user'] as Map?)?['isClient'] ?? false,
+                                size: 24,
+                              ),
+                            ),
+                          ),
+                        if (assignees.length > 3)
+                          Positioned(
+                            left: 3 * 16.0,
+                            child: Container(
+                              width: 24, height: 24,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: c.surface2,
+                                shape: BoxShape.circle,
+                                border: Border.all(color: c.surface, width: 2),
+                              ),
+                              child: Text(
+                                '+${assignees.length - 3}',
+                                style: TextStyle(
+                                  fontSize: 9, color: c.textSoft,
+                                  fontWeight: BestieTokens.fwBold,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
                 const Spacer(),
-                if (dueAt != null) BestieBadge(
-                  tone: BestieTone.warning,
-                  child: Text(_fmt(dueAt)),
-                ),
+                if (dueAt != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: c.warningSoft,
+                      borderRadius: BorderRadius.circular(BestieTokens.rPill),
+                    ),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(Icons.schedule_rounded, size: 12, color: c.warning),
+                      const SizedBox(width: 4),
+                      Text(
+                        _fmt(dueAt),
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: BestieTokens.fwSemibold,
+                          color: c.warning,
+                        ),
+                      ),
+                    ]),
+                  ),
               ]),
             ],
           ),
@@ -266,11 +298,8 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
   }
 
   void _openTask(String taskId) {
-    bestieBottomSheet<void>(
-      context,
-      title: 'Task',
-      builder: (ctx) => TaskActionsSheet(taskId: taskId, parentRef: ref),
-    );
+    // Full-screen detail with a real back button instead of a bottom sheet.
+    context.push('/tasks/$taskId');
   }
 
   String _fmt(dynamic iso) {
@@ -452,7 +481,7 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
             const Padding(
               padding: EdgeInsets.only(top: 6),
               child: Text(
-                'Reminder pings 15 minutes before due.',
+                'Pings 15 min, 5 min, and at the deadline — then every 30 min while overdue.',
                 style: TextStyle(color: BestieTokens.cTextMuted, fontSize: 12),
               ),
             ),
