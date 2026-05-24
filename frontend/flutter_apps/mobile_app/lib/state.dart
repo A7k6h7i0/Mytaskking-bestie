@@ -12,13 +12,14 @@ export 'package:mytaskking_core/mytaskking_core.dart';
 
 /// Default base URL for the backend.
 ///
-/// Android emulators map the host machine to `10.0.2.2`, not `localhost`
-/// (which would resolve to the emulator itself). iOS simulators and desktop
-/// builds reach the host directly via `localhost`. CI/production builds set
-/// `--dart-define=API_URL=https://api.example.com` to bypass this entirely.
-String _defaultHost() {
-  const overridden = bool.hasEnvironment('API_URL');
-  if (overridden) return 'http://localhost:4000'; // unused when override set
+/// Release builds ship with the production hosted API so users get a working
+/// app out of the box. Local dev overrides the value via
+/// `--dart-define=API_URL=http://10.0.2.2:4000` (Android emulator → host) or
+/// `http://localhost:4000` (iOS sim / desktop).
+const String _kDefaultApiUrl = 'https://mytaskking.com/api/v1';
+const String _kDefaultSocketUrl = 'https://mytaskking.com';
+
+String _devFallback() {
   try {
     if (Platform.isAndroid) return 'http://10.0.2.2:4000';
   } catch (_) {
@@ -27,10 +28,19 @@ String _defaultHost() {
   return 'http://localhost:4000';
 }
 
+/// In debug mode prefer the dev fallback (local backend at port 4000) so
+/// `flutter run` Just Works without a dart-define; release builds use the
+/// production URL. Either can be overridden via `--dart-define=API_URL=…`.
+bool get _kIsDebug {
+  bool isDebug = false;
+  assert(isDebug = true);
+  return isDebug;
+}
+
 final String kApiBaseUrl = const bool.hasEnvironment('API_URL')
     ? const String.fromEnvironment('API_URL')
-    : _defaultHost();
+    : (_kIsDebug ? _devFallback() : _kDefaultApiUrl);
 
 final String kSocketUrl = const bool.hasEnvironment('SOCKET_URL')
     ? const String.fromEnvironment('SOCKET_URL')
-    : _defaultHost();
+    : (_kIsDebug ? _devFallback() : _kDefaultSocketUrl);
