@@ -4,6 +4,7 @@ import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:mytaskking_core/mytaskking_core.dart' as core;
 
 import 'router.dart';
+import 'screens/incoming_call_overlay.dart';
 import 'state.dart' hide ThemeMode;
 
 void main() async {
@@ -41,6 +42,9 @@ class BestieApp extends ConsumerWidget {
         core.ThemeMode.system => ThemeMode.system,
       },
       routerConfig: ref.watch(routerProvider),
+      // The overlay listens for incoming-call socket events globally and
+      // covers whatever screen you're on with an Accept/Decline ringer.
+      builder: (ctx, child) => IncomingCallOverlay(child: child ?? const SizedBox.shrink()),
     );
   }
 }

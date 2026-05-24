@@ -14,24 +14,37 @@ class ChatDetailScreen extends ConsumerStatefulWidget {
   ConsumerState<ChatDetailScreen> createState() => _ChatDetailScreenState();
 }
 
-class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
+class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with WidgetsBindingObserver {
   final _composer = TextEditingController();
   final _scroll = ScrollController();
   bool _sending = false;
   bool _attaching = false;
   Map<String, dynamic>? _channel;
+  // Tracks which incoming messages we've already receipted in this session so
+  // we don't spam the backend on every rebuild / scroll.
+  final Set<String> _ackedDelivered = {};
+  final Set<String> _ackedSeen = {};
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadChannel();
+    _listenForReceiptEvents();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _composer.dispose();
     _scroll.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // When the user backgrounds + returns, mark the visible thread seen again.
+    if (state == AppLifecycleState.resumed) _markSeenSoon();
   }
 
   Future<void> _loadChannel() async {
@@ -39,6 +52,66 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
       final c = await ref.read(apiProvider).getChannel(widget.channelId);
       if (mounted) setState(() => _channel = c);
     } catch (_) { /* header falls back to generic title */ }
+  }
+
+  /// Listens to socket receipt events and patches the locally-cached message
+  /// list, so the sender's tick marks update live without re-fetching.
+  void _listenForReceiptEvents() {
+    final rt = ref.read(realtimeProvider);
+    rt.onAny('chat.message.receipt', ([data]) {
+      if (data is! Map) return;
+      final mid = data['messageId']?.toString();
+      final state = data['state']?.toString();
+      if (mid == null || state == null) return;
+      // Cheapest path: invalidate the messages provider so the rebuild pulls
+      // the new aggregate status. The bulk endpoint is fast and idempotent.
+      if (mounted) ref.invalidate(messagesProvider(widget.channelId));
+    });
+  }
+
+  /// Sends DELIVERED for every incoming message we haven't acked yet, then
+  /// (separately) SEEN for the same set if the screen is currently mounted.
+  /// Posting both is what gives WhatsApp's "✓✓ grey → ✓✓ blue" transition.
+  Future<void> _ackReceipts(List<dynamic> items, {required bool seen}) async {
+    final me = ref.read(authStoreProvider).user;
+    if (me == null) return;
+    final incomingIds = items
+        .whereType<Map>()
+        .where((m) => (m['author'] as Map?)?['id'] != me.id)
+        .map((m) => m['id']?.toString())
+        .whereType<String>()
+        .toList();
+    if (incomingIds.isEmpty) return;
+
+    final toDeliver = incomingIds.where((id) => !_ackedDelivered.contains(id)).toList();
+    if (toDeliver.isNotEmpty) {
+      _ackedDelivered.addAll(toDeliver);
+      ref.read(apiProvider).sendReceipts(widget.channelId, toDeliver, 'DELIVERED').catchError((_) {
+        // On failure, allow a retry on the next batch.
+        _ackedDelivered.removeAll(toDeliver);
+        return null;
+      });
+    }
+    if (seen) {
+      final toSee = incomingIds.where((id) => !_ackedSeen.contains(id)).toList();
+      if (toSee.isNotEmpty) {
+        _ackedSeen.addAll(toSee);
+        ref.read(apiProvider).sendReceipts(widget.channelId, toSee, 'SEEN').catchError((_) {
+          _ackedSeen.removeAll(toSee);
+          return null;
+        });
+      }
+    }
+  }
+
+  /// Schedules a SEEN ack for the next frame, useful from lifecycle callbacks
+  /// where the messages list might still be loading.
+  void _markSeenSoon() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final state = ref.read(messagesProvider(widget.channelId));
+      final items = state.asData?.value ?? const [];
+      if (items.isNotEmpty) _ackReceipts(items, seen: true);
+    });
   }
 
   Future<void> _send({List<String>? attachmentIds, String? overrideBody}) async {
@@ -314,6 +387,11 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> {
               description: formatApiError(e),
             ),
             data: (items) {
+              // Mark inbound messages as DELIVERED + SEEN now that they're on screen.
+              // postFrameCallback avoids the "setState during build" warning.
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) _ackReceipts(items, seen: true);
+              });
               if (items.isEmpty) {
                 return const BestieEmptyState(
                   icon: Icons.chat_bubble_outline,
@@ -637,6 +715,8 @@ class _MessageBubble extends StatelessWidget {
     final align = mine ? Alignment.centerRight : Alignment.centerLeft;
     final bg = mine ? c.brand : c.surface;
     final fg = mine ? Colors.white : c.text;
+    final timeStr = _formatTime(message['createdAt']?.toString());
+    final status = (message['status'] ?? 'SENT').toString();
 
     return Align(
       alignment: align,
@@ -677,12 +757,95 @@ class _MessageBubble extends StatelessWidget {
             ],
             if (body.isNotEmpty)
               Padding(
-                padding: const EdgeInsets.fromLTRB(6, 2, 6, 4),
+                padding: const EdgeInsets.fromLTRB(6, 2, 6, 2),
                 child: Text(body, style: TextStyle(color: fg, fontSize: 14, height: 1.35)),
               ),
+            // WhatsApp-style footer: time + (only on my messages) tick marks.
+            Padding(
+              padding: const EdgeInsets.fromLTRB(6, 2, 4, 0),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Text(
+                  timeStr,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: BestieTokens.fwMedium,
+                    color: mine ? Colors.white.withOpacity(0.78) : c.textMuted,
+                  ),
+                ),
+                if (mine) ...[
+                  const SizedBox(width: 4),
+                  _StatusTicks(status: status),
+                ],
+              ]),
+            ),
           ],
         ),
       ),
+    );
+  }
+
+  String _formatTime(String? iso) {
+    final dt = DateTime.tryParse(iso ?? '');
+    if (dt == null) return '';
+    final local = dt.toLocal();
+    final h = local.hour > 12 ? local.hour - 12 : (local.hour == 0 ? 12 : local.hour);
+    final m = local.minute.toString().padLeft(2, '0');
+    final ampm = local.hour >= 12 ? 'PM' : 'AM';
+    return '$h:$m $ampm';
+  }
+}
+
+/// WhatsApp-style status indicator:
+///   SENT       → single grey ✓
+///   DELIVERED  → double grey ✓✓
+///   SEEN       → double blue ✓✓
+///   SENDING    → small clock
+///   FAILED     → red exclamation
+class _StatusTicks extends StatelessWidget {
+  final String status;
+  const _StatusTicks({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    const seenBlue = Color(0xFF53BDEB); // matches WhatsApp's read-receipt blue
+    final greyOnBrand = Colors.white.withOpacity(0.86);
+
+    switch (status) {
+      case 'SENDING':
+        return Icon(Icons.access_time_rounded, size: 12, color: greyOnBrand);
+      case 'FAILED':
+        return const Icon(Icons.error_outline_rounded, size: 12, color: Color(0xFFFFB4B4));
+      case 'SEEN':
+        return const _DoubleTick(color: seenBlue);
+      case 'DELIVERED':
+        return _DoubleTick(color: greyOnBrand);
+      case 'SENT':
+      default:
+        return _SingleTick(color: greyOnBrand);
+    }
+  }
+}
+
+class _SingleTick extends StatelessWidget {
+  final Color color;
+  const _SingleTick({required this.color});
+  @override
+  Widget build(BuildContext context) => Icon(Icons.check_rounded, size: 14, color: color);
+}
+
+class _DoubleTick extends StatelessWidget {
+  final Color color;
+  const _DoubleTick({required this.color});
+  @override
+  Widget build(BuildContext context) {
+    // Two overlapping checks — leans on Stack instead of `done_all` so the
+    // colors render crisply against the bubble background.
+    return SizedBox(
+      width: 18, height: 14,
+      child: Stack(clipBehavior: Clip.none, children: [
+        Positioned(left: 0, child: Icon(Icons.check_rounded, size: 14, color: color)),
+        Positioned(left: 5, child: Icon(Icons.check_rounded, size: 14, color: color)),
+      ]),
     );
   }
 }

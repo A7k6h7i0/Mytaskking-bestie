@@ -189,6 +189,12 @@ extension BestieApiExt on BestieApi {
       get('/clients', query: {if (q != null) 'q': q})
           .then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
 
+  // ---- call participant management ----
+  /// Adds one or more existing users to an in-flight call.
+  /// Mirrors `POST /calls/:id/participants` on the backend.
+  Future<Map<String, dynamic>> addCallParticipants(String callId, List<String> userIds) =>
+      post('/calls/$callId/participants', body: {'userIds': userIds});
+
   // ---- file upload (multipart) ----
   /// Uploads [bytes] to `POST /files/upload` and returns the created file
   /// asset (`{ id, url, mimeType, size, ... }`). The chat composer then sends

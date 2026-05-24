@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
@@ -480,6 +481,11 @@ class _CallScreenState extends ConsumerState<CallScreen> {
         ]),
       ),
       IconButton(
+        icon: const Icon(Icons.person_add_alt_1_rounded, color: Colors.white),
+        tooltip: 'Invite',
+        onPressed: _showInvite,
+      ),
+      IconButton(
         icon: const Icon(Icons.people_alt_rounded, color: Colors.white),
         tooltip: 'Participants',
         onPressed: _showParticipants,
@@ -491,6 +497,239 @@ class _CallScreenState extends ConsumerState<CallScreen> {
           tooltip: 'Flip camera',
         ),
     ]);
+  }
+
+  /// In-call invite — search teammates + add them to the live call.
+  /// For meetings (no callId), we surface a shareable link instead so users
+  /// can invite teammates or external participants by URL.
+  Future<void> _showInvite() async {
+    if (widget.meetingSlug != null) {
+      _showMeetingShare();
+      return;
+    }
+    final callId = widget.callId;
+    if (callId == null) return;
+
+    final selected = <String>{};
+    final api = ref.read(apiProvider);
+    final controller = TextEditingController();
+    List<Map<String, dynamic>> employees = [];
+    String? error;
+    bool loading = true;
+
+    Future<void> fetchPeople(StateSetter set, String q) async {
+      try {
+        final res = await api.listEmployees(q: q.isEmpty ? null : q);
+        if (mounted) set(() { employees = res; loading = false; error = null; });
+      } catch (e) {
+        if (mounted) set(() { error = e.toString(); loading = false; });
+      }
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StatefulBuilder(builder: (ctx, set) {
+          if (employees.isEmpty && loading && error == null) {
+            fetchPeople(set, '');
+          }
+          final c = BestieColors.of(ctx);
+          return DraggableScrollableSheet(
+            initialChildSize: 0.7, minChildSize: 0.4, maxChildSize: 0.95, expand: false,
+            builder: (ctx, sc) => Container(
+              decoration: BoxDecoration(
+                color: c.surface,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
+              ),
+              child: Column(children: [
+                Container(
+                  width: 40, height: 4,
+                  margin: const EdgeInsets.only(top: 10, bottom: 10),
+                  decoration: BoxDecoration(
+                    color: c.borderStrong,
+                    borderRadius: BorderRadius.circular(BestieTokens.rPill),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 16, 4),
+                  child: Row(children: [
+                    Expanded(child: Text('Invite to call',
+                        style: TextStyle(
+                          fontSize: 18, fontWeight: BestieTokens.fwBold,
+                          color: c.text, letterSpacing: BestieTokens.lsTight,
+                        ))),
+                    IconButton(icon: Icon(Icons.close_rounded, color: c.textMuted),
+                        onPressed: () => Navigator.pop(ctx)),
+                  ]),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                  child: TextField(
+                    controller: controller,
+                    onChanged: (v) { set(() => loading = true); fetchPeople(set, v.trim()); },
+                    decoration: InputDecoration(
+                      isDense: true,
+                      prefixIcon: Icon(Icons.search_rounded, color: c.textMuted, size: 18),
+                      hintText: 'Search teammates',
+                      filled: true, fillColor: c.surface2,
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(BestieTokens.rSm),
+                        borderSide: BorderSide(color: c.border),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(BestieTokens.rSm),
+                        borderSide: const BorderSide(color: BestieTokens.cBrand, width: 1.6),
+                      ),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: loading
+                      ? const Center(child: BestieSpinner())
+                      : error != null
+                          ? BestieEmptyState(icon: Icons.error_outline_rounded,
+                              iconColor: c.danger, title: 'Could not load', description: error)
+                          : ListView.builder(
+                              controller: sc,
+                              itemCount: employees.length,
+                              itemBuilder: (ctx, i) {
+                                final u = employees[i];
+                                final id = u['id'] as String;
+                                final picked = selected.contains(id);
+                                return CheckboxListTile(
+                                  value: picked,
+                                  onChanged: (_) => set(() {
+                                    picked ? selected.remove(id) : selected.add(id);
+                                  }),
+                                  controlAffinity: ListTileControlAffinity.trailing,
+                                  secondary: BestieAvatar(
+                                    name: (u['name'] ?? '—').toString(),
+                                    imageUrl: u['avatarUrl']?.toString(),
+                                    isClient: u['isClient'] == true, size: 36,
+                                  ),
+                                  title: Text((u['name'] ?? '—').toString(),
+                                      style: TextStyle(color: c.text, fontWeight: BestieTokens.fwSemibold)),
+                                  subtitle: Text((u['customTitle'] ?? u['role'] ?? '').toString()
+                                      .replaceAll('_', ' ').toLowerCase(),
+                                      style: TextStyle(color: c.textMuted, fontSize: 12)),
+                                  activeColor: BestieTokens.cBrand,
+                                );
+                              },
+                            ),
+                ),
+                SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: selected.isEmpty ? null : () async {
+                          try {
+                            await api.addCallParticipants(callId, selected.toList());
+                            if (ctx.mounted) Navigator.pop(ctx);
+                            if (mounted) bestieToast(context, 'Invited ${selected.length}',
+                                kind: BestieToastKind.success);
+                          } catch (e) {
+                            if (ctx.mounted) bestieToast(ctx, 'Invite failed',
+                                body: formatApiError(e), kind: BestieToastKind.error);
+                          }
+                        },
+                        style: FilledButton.styleFrom(
+                          backgroundColor: BestieTokens.cBrand,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
+                        label: Text(selected.isEmpty
+                            ? 'Pick teammates to invite'
+                            : 'Invite ${selected.length}'),
+                      ),
+                    ),
+                  ),
+                ),
+              ]),
+            ),
+          );
+        });
+      },
+    );
+  }
+
+  /// For meetings, surface a copy-able room link teammates (or external
+  /// guests) can paste into a browser / desktop client.
+  void _showMeetingShare() {
+    final slug = widget.meetingSlug;
+    if (slug == null) return;
+    final link = 'https://mytaskking.com/meet/$slug';
+    final c = BestieColors.of(context);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: c.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
+      ),
+      builder: (ctx) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Invite to meeting',
+                style: TextStyle(
+                  fontSize: 18, fontWeight: BestieTokens.fwBold,
+                  color: c.text, letterSpacing: BestieTokens.lsTight,
+                )),
+            const SizedBox(height: 4),
+            Text('Share this link — teammates or external guests can join.',
+                style: TextStyle(color: c.textMuted, fontSize: 13)),
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              decoration: BoxDecoration(
+                color: c.surface2, borderRadius: BorderRadius.circular(BestieTokens.rMd),
+                border: Border.all(color: c.border),
+              ),
+              child: Row(children: [
+                Expanded(child: Text(link, style: TextStyle(
+                  fontFamily: 'monospace', fontSize: 12,
+                  color: c.text, fontWeight: BestieTokens.fwSemibold,
+                ))),
+                IconButton(
+                  icon: const Icon(Icons.copy_rounded, size: 18),
+                  tooltip: 'Copy',
+                  onPressed: () async {
+                    await Clipboard.setData(ClipboardData(text: link));
+                    if (ctx.mounted) bestieToast(ctx, 'Copied to clipboard',
+                        kind: BestieToastKind.success);
+                  },
+                ),
+              ]),
+            ),
+            const SizedBox(height: 14),
+            Row(children: [
+              Expanded(child: OutlinedButton.icon(
+                onPressed: () { Navigator.pop(ctx); },
+                icon: const Icon(Icons.close_rounded, size: 16),
+                label: const Text('Close'),
+              )),
+              const SizedBox(width: 10),
+              Expanded(child: FilledButton.icon(
+                onPressed: () async {
+                  await Clipboard.setData(ClipboardData(text: link));
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  if (mounted) bestieToast(context, 'Link copied — share away',
+                      kind: BestieToastKind.success);
+                },
+                style: FilledButton.styleFrom(backgroundColor: BestieTokens.cBrand),
+                icon: const Icon(Icons.share_rounded, size: 16),
+                label: const Text('Copy & share'),
+              )),
+            ]),
+          ]),
+        ),
+      ),
+    );
   }
 
   Widget _remoteSurface() {

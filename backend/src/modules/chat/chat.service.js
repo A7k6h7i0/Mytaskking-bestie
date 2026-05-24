@@ -22,9 +22,27 @@ async function listMessages(channelId, user, { cursor, limit = 40 } = {}) {
       attachments: true,
       reactions: true,
       replyTo: { select: { id: true, body: true, authorId: true } },
+      // Per-recipient receipts power WhatsApp-style tick marks on the
+      // sender's side (✓ sent, ✓✓ delivered, ✓✓ blue = seen).
+      receipts: { select: { userId: true, state: true, at: true } },
     },
   });
   return { items: messages.reverse(), nextCursor: messages.length ? messages[0].id : null };
+}
+
+const _RECEIPT_ORDER = { SENT: 0, DELIVERED: 1, SEEN: 2 };
+
+/**
+ * Promote a Message's aggregate `status` to the highest state implied by an
+ * incoming receipt. SENT < DELIVERED < SEEN. Idempotent — re-receiving the
+ * same state never lowers the field.
+ */
+async function _promoteStatus(messageId, state) {
+  const target = state === 'SEEN' ? 'SEEN' : state === 'DELIVERED' ? 'DELIVERED' : 'SENT';
+  const current = await prisma.message.findUnique({ where: { id: messageId }, select: { status: true } });
+  if (!current) return;
+  if ((_RECEIPT_ORDER[current.status] ?? 0) >= _RECEIPT_ORDER[target]) return;
+  await prisma.message.update({ where: { id: messageId }, data: { status: target } });
 }
 
 async function sendMessage({ channelId, user, body, kind = 'TEXT', attachmentIds = [], replyToId = null, threadRootId = null, io = null }) {
@@ -224,6 +242,9 @@ async function recordReceipt({ messageId, userId, state }) {
     update: { at: new Date() },
     create: { messageId, userId, state },
   });
+  // Promote the aggregate so the sender's ticks turn double-grey / blue
+  // without needing to re-fetch.
+  await _promoteStatus(messageId, state);
   return { ...receipt, message };
 }
 
@@ -237,6 +258,8 @@ async function recordReceiptsBulk({ messageIds, userId, state }) {
   const rows = messages.map((m) => ({ messageId: m.id, userId, state }));
   if (rows.length === 0) return { count: 0 };
   await prisma.messageReceipt.createMany({ data: rows, skipDuplicates: true });
+  // Promote each message's aggregate status in parallel.
+  await Promise.all(rows.map((r) => _promoteStatus(r.messageId, state)));
   return { count: rows.length };
 }
 
