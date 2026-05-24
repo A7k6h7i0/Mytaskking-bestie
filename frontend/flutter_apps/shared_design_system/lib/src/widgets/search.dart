@@ -37,12 +37,19 @@ class BestieSearchScreen extends StatefulWidget {
   /// Optional initial kind filter (`messages`, `files`, etc).
   final String? initialKind;
 
+  /// Optional back-button handler. Defaults to `Navigator.maybePop` which
+  /// doesn't always work when the search route was opened via go_router's
+  /// top-level navigation — host apps should pass a go_router-aware
+  /// closure so the back arrow always returns the user somewhere sane.
+  final VoidCallback? onBack;
+
   const BestieSearchScreen({
     super.key,
     required this.fetcher,
     required this.onOpen,
     this.initialQuery,
     this.initialKind,
+    this.onBack,
   });
 
   @override
@@ -175,7 +182,6 @@ class _BestieSearchScreenState extends State<BestieSearchScreen> {
       }
     }
     final showRecents = _term.trim().isEmpty && _recents.isNotEmpty;
-    final showHint    = _term.trim().isEmpty;
 
     return Scaffold(
       backgroundColor: BestieTokens.cBg,
@@ -183,7 +189,7 @@ class _BestieSearchScreenState extends State<BestieSearchScreen> {
         controller: _ctrl,
         focusNode: _focus,
         onClear: () { _ctrl.clear(); _focus.requestFocus(); },
-        onClose: () => Navigator.of(context).maybePop(),
+        onClose: widget.onBack ?? () => Navigator.of(context).maybePop(),
       ),
       body: Column(
         children: [
@@ -194,7 +200,6 @@ class _BestieSearchScreenState extends State<BestieSearchScreen> {
               child: _buildBody(
                 key: ValueKey('${_term.isEmpty}-${_loading && flat.isEmpty}-${flat.length}'),
                 flat: flat,
-                showHint: showHint,
                 showRecents: showRecents,
               ),
             ),
@@ -207,7 +212,6 @@ class _BestieSearchScreenState extends State<BestieSearchScreen> {
   Widget _buildBody({
     required Key key,
     required List<_FlatHit> flat,
-    required bool showHint,
     required bool showRecents,
   }) {
     if (_loading && flat.isEmpty) return _LoadingDots(key: key);
@@ -222,7 +226,6 @@ class _BestieSearchScreenState extends State<BestieSearchScreen> {
           _ctrl.selection = TextSelection.collapsed(offset: q.length);
           _focus.requestFocus();
         }, onClear: _clearRecents),
-        if (showHint) const _SyntaxHint(),
         ..._buildGroups(flat),
       ],
     );
@@ -307,8 +310,9 @@ class _SearchBar extends StatelessWidget implements PreferredSizeWidget {
                   enabledBorder: InputBorder.none,
                   focusedBorder: InputBorder.none,
                   filled: false,
-                  prefixIcon: const Icon(Icons.search_rounded, size: 20, color: BestieTokens.cTextMuted),
-                  prefixIconConstraints: const BoxConstraints(minWidth: 32),
+                  // Search glyph lives on the right now — either as a passive
+                  // affordance when the field is empty or as the active
+                  // "clear" button when there's text to wipe.
                   suffixIcon: v.text.isNotEmpty
                       ? IconButton(
                           icon: const Icon(Icons.close_rounded, size: 18),
@@ -316,13 +320,17 @@ class _SearchBar extends StatelessWidget implements PreferredSizeWidget {
                           tooltip: 'Clear',
                           onPressed: onClear,
                         )
-                      : null,
+                      : const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12),
+                          child: Icon(Icons.search_rounded,
+                              size: 20, color: BestieTokens.cTextMuted),
+                        ),
                   hintText: 'Search people, messages, files…',
                   hintStyle: const TextStyle(
                     color: BestieTokens.cTextMuted,
                     fontWeight: BestieTokens.fwRegular,
                   ),
-                  contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                  contentPadding: const EdgeInsets.fromLTRB(8, 12, 0, 12),
                 ),
               ),
             ),
@@ -457,73 +465,6 @@ class _Chips extends StatelessWidget {
 // ---------------------------------------------------------------------------
 // Hint, recents, empty, loading
 // ---------------------------------------------------------------------------
-
-class _SyntaxHint extends StatelessWidget {
-  const _SyntaxHint();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 16, 12, 8),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: BestieTokens.cSurface,
-          borderRadius: BorderRadius.circular(BestieTokens.rLg),
-          border: Border.all(color: BestieTokens.cBorder),
-          boxShadow: BestieTokens.shadowSoft,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Search across everyone, every message, every file.',
-              style: TextStyle(
-                fontSize: 13.5,
-                fontWeight: BestieTokens.fwSemibold,
-                letterSpacing: BestieTokens.lsNormal,
-              ),
-            ),
-            const SizedBox(height: 10),
-            _hintRow('from:priya',  'messages from a person'),
-            _hintRow('in:#design',  'messages in a channel'),
-            _hintRow('type:pdf',    'files by type'),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _hintRow(String kbd, String label) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-          decoration: BoxDecoration(
-            color: BestieTokens.cSurface2,
-            border: Border.all(color: BestieTokens.cBorder),
-            borderRadius: BorderRadius.circular(5),
-          ),
-          child: Text(
-            kbd,
-            style: const TextStyle(
-              fontFamily: 'monospace',
-              fontSize: 11,
-              fontWeight: BestieTokens.fwSemibold,
-              color: BestieTokens.cTextSoft,
-            ),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(label,
-              style: const TextStyle(color: BestieTokens.cTextMuted, fontSize: 12.5)),
-        ),
-      ]),
-    );
-  }
-}
 
 class _RecentSection extends StatelessWidget {
   final List<String> recents;

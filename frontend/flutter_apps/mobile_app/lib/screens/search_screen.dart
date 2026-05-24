@@ -20,6 +20,17 @@ class SearchScreen extends ConsumerWidget {
       initialKind: initialKind,
       fetcher: (q, kind) => ref.read(apiProvider).search(q, kinds: kind),
       onOpen: (kind, item) => _openHit(context, ref, kind, item),
+      // /search is a top-level go_router route, so the default
+      // Navigator.maybePop() inside the design system widget is a no-op.
+      // Use go_router's pop with a /dashboard fallback so the back arrow
+      // always takes the user somewhere coherent.
+      onBack: () {
+        if (context.canPop()) {
+          context.pop();
+        } else {
+          context.go('/dashboard');
+        }
+      },
     );
   }
 
