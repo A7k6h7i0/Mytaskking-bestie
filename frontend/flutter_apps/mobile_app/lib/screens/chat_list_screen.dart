@@ -43,7 +43,7 @@ class ChatListScreen extends ConsumerWidget {
       body: RefreshIndicator(
         onRefresh: () async => ref.refresh(channelsProvider.future),
         child: channels.when(
-          loading: () => const Center(child: BestieSpinner()),
+          loading: () => const BestieSkeletonList(itemCount: 6),
           error: (e, _) => BestieEmptyState(
             icon: Icons.cloud_off_outlined,
             title: 'Couldn\'t load chats',

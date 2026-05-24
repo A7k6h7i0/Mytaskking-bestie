@@ -223,7 +223,7 @@ class _MoreTile extends StatelessWidget {
   }
 }
 
-class _PremiumBottomNav extends StatelessWidget {
+class _PremiumBottomNav extends ConsumerWidget {
   final List<_Tab> tabs;
   final int currentIndex;
   final ValueChanged<int> onTap;
@@ -234,11 +234,32 @@ class _PremiumBottomNav extends StatelessWidget {
     required this.onTap,
   });
 
+  /// Total unread channels — DMs + groups that haven't been read by the
+  /// current user. Drives the red dot on the Chat tab. Cheap: derived
+  /// from the existing channelsProvider so no extra API call.
+  int _unreadCount(WidgetRef ref) {
+    final me = ref.read(authStoreProvider).user;
+    final channels = ref.watch(channelsProvider).asData?.value ?? const [];
+    if (me == null) return 0;
+    int n = 0;
+    for (final c in channels) {
+      final members = (c['members'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+      final mine = members.firstWhere(
+        (m) => m['userId'] == me.id,
+        orElse: () => const {},
+      );
+      if (mine.isEmpty) continue;
+      if (mine['lastReadAt'] == null) n++;
+    }
+    return n;
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final colors = BestieColors.of(context);
     final media = MediaQuery.of(context);
     final isDark = colors.isDark;
+    final unread = _unreadCount(ref);
 
     return SafeArea(
       top: false,
@@ -270,6 +291,9 @@ class _PremiumBottomNav extends StatelessWidget {
               children: List.generate(tabs.length, (i) {
                 final tab = tabs[i];
                 final selected = i == currentIndex;
+                // Surface the unread count on the Chat tab specifically —
+                // every other tab gets a null badge for now.
+                final badge = tab.path == '/chat' && unread > 0 ? unread : null;
                 return Expanded(
                   child: _NavItem(
                     icon: tab.icon,
@@ -277,6 +301,7 @@ class _PremiumBottomNav extends StatelessWidget {
                     label: tab.label,
                     selected: selected,
                     colors: colors,
+                    badge: badge,
                     onTap: () => onTap(i),
                   ),
                 );
@@ -295,6 +320,7 @@ class _NavItem extends StatefulWidget {
   final String label;
   final bool selected;
   final BestieColors colors;
+  final int? badge;
   final VoidCallback onTap;
 
   const _NavItem({
@@ -304,6 +330,7 @@ class _NavItem extends StatefulWidget {
     required this.selected,
     required this.colors,
     required this.onTap,
+    this.badge,
   });
 
   @override
@@ -380,13 +407,44 @@ class _NavItemState extends State<_NavItem> with SingleTickerProviderStateMixin 
                 mainAxisSize: MainAxisSize.min,
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Transform.scale(
-                    scale: 1.0 + 0.06 * t,
-                    child: Icon(
-                      widget.selected ? widget.activeIcon : widget.icon,
-                      size: 22,
-                      color: iconColor,
-                    ),
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Transform.scale(
+                        scale: 1.0 + 0.06 * t,
+                        child: Icon(
+                          widget.selected ? widget.activeIcon : widget.icon,
+                          size: 22,
+                          color: iconColor,
+                        ),
+                      ),
+                      // Unread badge — capped at 99+. Pinned with negative
+                      // offsets so it overlaps the icon corner crisply.
+                      if (widget.badge != null && widget.badge! > 0)
+                        Positioned(
+                          top: -4,
+                          right: -8,
+                          child: Container(
+                            constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            decoration: BoxDecoration(
+                              color: BestieTokens.cDanger,
+                              borderRadius: BorderRadius.circular(BestieTokens.rPill),
+                              border: Border.all(color: widget.colors.surface, width: 2),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              widget.badge! > 99 ? '99+' : '${widget.badge}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                   const SizedBox(height: 2),
                   Text(

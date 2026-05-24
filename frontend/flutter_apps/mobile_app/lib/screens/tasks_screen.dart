@@ -67,7 +67,10 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
       body: RefreshIndicator(
         onRefresh: () async => ref.refresh(tasksKanbanProvider.future),
         child: tasks.when(
-          loading: () => const Center(child: BestieSpinner()),
+          loading: () => const BestieSkeletonList(
+            itemCount: 5,
+            shape: BestieSkeletonShape.card,
+          ),
           error: (e, _) => BestieEmptyState(
             icon: Icons.error_outline,
             iconColor: c.danger,

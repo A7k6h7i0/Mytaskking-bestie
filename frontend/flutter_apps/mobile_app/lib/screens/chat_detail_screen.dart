@@ -62,21 +62,103 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
   final AudioRecorder _recorder = AudioRecorder();
   String? _recordPath;
 
+  // Show a "Jump to latest" FAB whenever the user has scrolled away from
+  // the most recent message. With `reverse: true` the latest sits at offset
+  // 0 — so anything >40px means we're a fair bit up the conversation.
+  bool _showJumpToBottom = false;
+
+  // Typing-indicator state. We track which remote users are mid-typing
+  // (keyed by userId) and bump a per-user timer on every `chat.typing`
+  // event; if no follow-up arrives within 4 s we drop the indicator.
+  final Map<String, ({String name, Timer timeout})> _typing = {};
+  Timer? _myTypingThrottle;
+  DateTime? _lastTypingEmit;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadChannel();
     _listenForReceiptEvents();
+    _listenForTyping();
+    _scroll.addListener(_onScroll);
+    _composer.addListener(_onComposerChanged);
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _scroll.removeListener(_onScroll);
+    _composer.removeListener(_onComposerChanged);
+    _myTypingThrottle?.cancel();
+    for (final t in _typing.values) { t.timeout.cancel(); }
     _composer.dispose();
     _scroll.dispose();
     _recorder.dispose();
     super.dispose();
+  }
+
+  /// Reveal the "jump to latest" FAB whenever the user has scrolled away
+  /// from the most recent message. Cheap — reads offset only, no rebuild
+  /// unless the boolean flips.
+  void _onScroll() {
+    if (!_scroll.hasClients) return;
+    final shouldShow = _scroll.offset > 80;
+    if (shouldShow != _showJumpToBottom) {
+      setState(() => _showJumpToBottom = shouldShow);
+    }
+  }
+
+  /// Throttle outgoing typing events so we don't spam the socket on every
+  /// keystroke. We emit at most one event every 2 s while the user is still
+  /// typing, then a final emit with `typing: false` once they pause.
+  void _onComposerChanged() {
+    if (_composer.text.isEmpty) {
+      _emitTyping(false);
+      return;
+    }
+    final now = DateTime.now();
+    if (_lastTypingEmit == null ||
+        now.difference(_lastTypingEmit!).inMilliseconds > 2000) {
+      _emitTyping(true);
+      _lastTypingEmit = now;
+    }
+    _myTypingThrottle?.cancel();
+    _myTypingThrottle = Timer(const Duration(seconds: 3), () => _emitTyping(false));
+  }
+
+  void _emitTyping(bool typing) {
+    try {
+      ref.read(realtimeProvider).emit('chat.typing', {
+        'channelId': widget.channelId,
+        'typing': typing,
+      });
+    } catch (_) { /* socket may be reconnecting */ }
+  }
+
+  /// Subscribe to incoming typing events. Each event refreshes a per-user
+  /// timeout so the indicator naturally fades after the sender stops.
+  void _listenForTyping() {
+    final rt = ref.read(realtimeProvider);
+    rt.onAny('chat.typing', ([data]) {
+      if (data is! Map) return;
+      if (data['channelId'] != widget.channelId) return;
+      final me = ref.read(authStoreProvider).user;
+      final uid = data['userId']?.toString();
+      if (uid == null || uid == me?.id) return;
+      final typing = data['typing'] == true;
+      final existing = _typing[uid];
+      existing?.timeout.cancel();
+      if (!typing) {
+        if (mounted && existing != null) setState(() => _typing.remove(uid));
+        return;
+      }
+      final name = data['name']?.toString() ?? existing?.name ?? 'Someone';
+      final timer = Timer(const Duration(seconds: 4), () {
+        if (mounted) setState(() => _typing.remove(uid));
+      });
+      if (mounted) setState(() => _typing[uid] = (name: name, timeout: timer));
+    });
   }
 
   @override
@@ -271,6 +353,18 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
     } finally {
       if (mounted) setState(() => _attaching = false);
     }
+  }
+
+  /// True when `current` and `previous` are on different local calendar
+  /// days — used to inject a "Today / Yesterday / Mar 18" divider chip
+  /// between them. `previous` is null at the conversation's first message.
+  bool _shouldShowDateDivider(Map<String, dynamic> current, Map<String, dynamic>? previous) {
+    final ts = DateTime.tryParse(current['createdAt']?.toString() ?? '')?.toLocal();
+    if (ts == null) return false;
+    if (previous == null) return true;
+    final prev = DateTime.tryParse(previous['createdAt']?.toString() ?? '')?.toLocal();
+    if (prev == null) return true;
+    return ts.year != prev.year || ts.month != prev.month || ts.day != prev.day;
   }
 
   /// After a frame, animate to the latest message. With `reverse: true` the
@@ -606,17 +700,37 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
                 itemBuilder: (_, i) {
                   final m = reversed[i];
                   final kindStr = (m['kind'] ?? 'TEXT').toString();
-                  if (kindStr == 'SYSTEM' || kindStr == 'CALL_EVENT') {
-                    return _SystemBubble(message: m);
-                  }
                   final author = (m['author'] as Map?)?.cast<String, dynamic>() ?? const {};
                   final mine = me?.id != null && author['id'] == me!.id;
-                  return _MessageBubble(message: m, author: author, mine: mine);
+
+                  // Date divider: when the message *below* this one (visually
+                  // earlier in time) is from a different day, prepend a
+                  // "Today / Yesterday / Mar 18" chip above the current
+                  // message. With reverse:true that means rendering it AFTER
+                  // the bubble (it appears above when reversed).
+                  final next = i + 1 < reversed.length ? reversed[i + 1] : null;
+                  final showDivider = _shouldShowDateDivider(m, next);
+                  final divider = showDivider
+                      ? _DateDivider(timestamp: m['createdAt']?.toString())
+                      : null;
+
+                  final bubble = kindStr == 'SYSTEM' || kindStr == 'CALL_EVENT'
+                      ? _SystemBubble(message: m) as Widget
+                      : _MessageBubble(message: m, author: author, mine: mine);
+
+                  if (divider == null) return bubble;
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [bubble, divider],
+                  );
                 },
               );
             },
           ),
         ),
+        // Typing indicator sits just above the composer so it doesn't shift
+        // the messages list when it appears/disappears.
+        if (_typing.isNotEmpty) _TypingIndicator(typing: _typing.values.toList(), colors: colors),
         _Composer(
           colors: colors,
           controller: _composer,
@@ -629,6 +743,31 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
           onSendVoice: _sendVoiceNote,
         ),
       ]),
+      // Quick way back to the latest message after scrolling up. Mini-sized
+      // so it doesn't compete with the composer for thumb space.
+      floatingActionButton: _showJumpToBottom
+          ? Padding(
+              padding: const EdgeInsets.only(bottom: 72),
+              child: FloatingActionButton.small(
+                heroTag: 'chat_jump_to_bottom',
+                onPressed: () {
+                  if (_scroll.hasClients) {
+                    _scroll.animateTo(
+                      0,
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeOutCubic,
+                    );
+                  }
+                  setState(() => _showJumpToBottom = false);
+                },
+                backgroundColor: colors.surface,
+                foregroundColor: colors.text,
+                elevation: 4,
+                child: const Icon(Icons.keyboard_arrow_down_rounded),
+              ),
+            )
+          : null,
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     );
   }
 
@@ -1576,6 +1715,136 @@ class _ReactionPill extends StatelessWidget {
           ),
         ]),
       ),
+    );
+  }
+}
+
+/// Date divider chip — "Today / Yesterday / Mar 18, 2024" pill inserted
+/// between messages from different calendar days.
+class _DateDivider extends StatelessWidget {
+  final String? timestamp;
+  const _DateDivider({required this.timestamp});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
+    final label = _labelFor(timestamp);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: BoxDecoration(
+            color: c.surface2,
+            borderRadius: BorderRadius.circular(BestieTokens.rPill),
+            border: Border.all(color: c.border),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: BestieTokens.fwSemibold,
+              letterSpacing: BestieTokens.lsWide,
+              color: c.textMuted,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _labelFor(String? iso) {
+    final dt = DateTime.tryParse(iso ?? '')?.toLocal();
+    if (dt == null) return '';
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final theirDay = DateTime(dt.year, dt.month, dt.day);
+    final diff = today.difference(theirDay).inDays;
+    if (diff == 0) return 'TODAY';
+    if (diff == 1) return 'YESTERDAY';
+    if (diff < 7) {
+      const days = ['MON','TUE','WED','THU','FRI','SAT','SUN'];
+      return days[(dt.weekday - 1) % 7];
+    }
+    const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+    if (dt.year == now.year) return '${months[dt.month - 1]} ${dt.day}';
+    return '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
+  }
+}
+
+/// "Priya is typing…" row above the composer. Animated dots gently bounce
+/// to signal the indicator is live (not stuck).
+class _TypingIndicator extends StatefulWidget {
+  final List<({String name, Timer timeout})> typing;
+  final BestieColors colors;
+  const _TypingIndicator({required this.typing, required this.colors});
+
+  @override
+  State<_TypingIndicator> createState() => _TypingIndicatorState();
+}
+
+class _TypingIndicatorState extends State<_TypingIndicator>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1200),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  String _label() {
+    final names = widget.typing.map((t) => t.name).toList();
+    if (names.length == 1) return '${names.first} is typing';
+    if (names.length == 2) return '${names[0]} and ${names[1]} are typing';
+    return '${names[0]} and ${names.length - 1} others are typing';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 6, 16, 6),
+      color: widget.colors.surface,
+      child: Row(children: [
+        AnimatedBuilder(
+          animation: _ctrl,
+          builder: (ctx, _) {
+            return Row(mainAxisSize: MainAxisSize.min, children: List.generate(3, (i) {
+              final phase = ((_ctrl.value + i * 0.18) % 1.0);
+              final scale = 0.65 + 0.35 * (1 - (phase - 0.5).abs() * 2).clamp(0.0, 1.0);
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: Transform.scale(
+                  scale: scale,
+                  child: Container(
+                    width: 6, height: 6,
+                    decoration: BoxDecoration(
+                      color: widget.colors.brand,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+              );
+            }));
+          },
+        ),
+        const SizedBox(width: 10),
+        Flexible(
+          child: Text(
+            _label(),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12,
+              color: widget.colors.textMuted,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ),
+      ]),
     );
   }
 }
