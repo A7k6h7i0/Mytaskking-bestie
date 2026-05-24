@@ -31,6 +31,9 @@ dependencies:
   audioplayers: ^6.1.0
   path_provider: ^2.1.5
   emoji_picker_flutter: ^4.0.0
+  # Plays the device's default ringtone for the incoming-call overlay so
+  # the call rings the way users expect (vs a generic synth tone).
+  flutter_ringtone_player: ^4.0.0+3
 
 dependency_overrides:
   # record 5.x's federated linux implementation has a platform-interface

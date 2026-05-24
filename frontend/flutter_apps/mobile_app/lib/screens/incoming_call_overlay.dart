@@ -1,10 +1,8 @@
 import 'dart:async';
-import 'dart:math' as math;
-import 'dart:typed_data';
 
-import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
@@ -29,17 +27,13 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
   Timer? _autoMiss;
   final List<void Function()> _unsubs = [];
   String? _lastUserId;
-  // Looping audio + lazily-built ringtone bytes. Generated on first call so
-  // we don't pay the synthesis cost at app boot.
-  final AudioPlayer _ringer = AudioPlayer(playerId: 'incoming_ringer');
-  Uint8List? _ringtoneBytes;
+  final _ringtone = FlutterRingtonePlayer();
 
   @override
   void dispose() {
     _autoMiss?.cancel();
     _hapticTimer?.cancel();
-    _ringer.stop();
-    _ringer.dispose();
+    _ringtone.stop();
     for (final u in _unsubs) { u(); }
     super.dispose();
   }
@@ -105,17 +99,24 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
 
   Future<void> _playRingtone() async {
     try {
-      _ringtoneBytes ??= _buildRingtoneBytes();
-      await _ringer.setReleaseMode(ReleaseMode.loop);
-      await _ringer.setVolume(1.0);
-      await _ringer.play(BytesSource(_ringtoneBytes!, mimeType: 'audio/wav'));
+      // Loop the *device's* default ringtone — what the user expects, vs
+      // a generic synth tone. flutter_ringtone_player wraps RingtoneManager
+      // on Android and AudioServicesPlay on iOS so it respects volume +
+      // silent mode automatically.
+      await _ringtone.play(
+        android: AndroidSounds.ringtone,
+        ios: IosSounds.electronic,
+        looping: true,
+        volume: 1.0,
+        asAlarm: false,
+      );
     } catch (_) { /* best-effort — silent fall back to haptics */ }
   }
 
   void _dismiss() {
     _autoMiss?.cancel();
     _hapticTimer?.cancel();
-    _ringer.stop();
+    _ringtone.stop();
     if (mounted) setState(() => _pending = null);
   }
 
@@ -129,9 +130,25 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
   Future<void> _accept() async {
     final id = _pending?['call']?['id']?.toString();
     final mode = _modeFor(_pending);
-    _dismiss();
-    if (id == null) return;
-    if (context.mounted) context.go('/call/$id?mode=$mode');
+    if (id == null) {
+      _dismiss();
+      return;
+    }
+    // Stop the ringtone + haptic immediately so the user gets instant
+    // feedback the tap landed, but leave _pending alone so the overlay
+    // stays painted until GoRouter has actually mounted the call screen.
+    // Tearing the overlay down *before* navigation has occasionally left
+    // the user back on /chat — this ordering is the bullet-proof version.
+    _autoMiss?.cancel();
+    _hapticTimer?.cancel();
+    _ringtone.stop();
+    if (!context.mounted) return;
+    context.go('/call/$id?mode=$mode');
+    // One frame after navigation has taken effect, wipe the ringer state
+    // so a stale _pending doesn't leak into the next incoming call.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _pending = null);
+    });
   }
 
   String _modeFor(Map<String, dynamic>? p) {
@@ -139,49 +156,6 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
     return m == 'VOICE' ? 'voice' : 'video';
   }
 
-  /// Synthesizes a simple two-beat ringtone WAV in-memory so we don't have
-  /// to ship a binary audio asset. 8 kHz mono 16-bit, 880 Hz tone for
-  /// 0.35 s + 0.65 s silence — looped indefinitely by the player. ~16 kB.
-  Uint8List _buildRingtoneBytes() {
-    const sampleRate = 8000;
-    const beepHz = 880;
-    const beepSec = 0.35;
-    const silenceSec = 0.65;
-    final beepSamples = (sampleRate * beepSec).round();
-    final silenceSamples = (sampleRate * silenceSec).round();
-    final dataSize = (beepSamples + silenceSamples) * 2;
-    final buf = BytesBuilder();
-    void le16(int v) { buf.add([v & 0xFF, (v >> 8) & 0xFF]); }
-    void le32(int v) {
-      buf.add([v & 0xFF, (v >> 8) & 0xFF, (v >> 16) & 0xFF, (v >> 24) & 0xFF]);
-    }
-    // RIFF/WAVE header.
-    buf.add('RIFF'.codeUnits);
-    le32(36 + dataSize);
-    buf.add('WAVE'.codeUnits);
-    buf.add('fmt '.codeUnits);
-    le32(16);          // PCM chunk size
-    le16(1);           // PCM format
-    le16(1);           // mono
-    le32(sampleRate);
-    le32(sampleRate * 2);
-    le16(2);
-    le16(16);
-    buf.add('data'.codeUnits);
-    le32(dataSize);
-    // Tone — gentle envelope so the start/stop doesn't pop.
-    for (int i = 0; i < beepSamples; i++) {
-      final t = i / sampleRate;
-      // Linear attack/release on the first/last 10 ms.
-      final envelope = t < 0.01
-          ? t / 0.01
-          : (t > beepSec - 0.01 ? (beepSec - t) / 0.01 : 1.0);
-      final v = (math.sin(2 * math.pi * beepHz * t) * 0x6000 * envelope).round();
-      le16(v & 0xFFFF);
-    }
-    for (int i = 0; i < silenceSamples; i++) { le16(0); }
-    return buf.toBytes();
-  }
 
   @override
   Widget build(BuildContext context) {
