@@ -1,7 +1,9 @@
 package com.mytaskking.mytaskking_mobile
 
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -14,6 +16,7 @@ class MainActivity : FlutterActivity() {
         super.onCreate(savedInstanceState)
         BestieFirebaseMessagingService.createCallNotificationChannel(this)
         latestLaunchPayload = payloadFrom(intent)
+        applyCallWindowFlags(latestLaunchPayload)
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -33,6 +36,7 @@ class MainActivity : FlutterActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         latestLaunchPayload = payloadFrom(intent)
+        applyCallWindowFlags(latestLaunchPayload)
     }
 
     private fun payloadFrom(intent: Intent?): Map<String, String?>? {
@@ -45,5 +49,19 @@ class MainActivity : FlutterActivity() {
             "mode" to intent.getStringExtra("mode"),
             "fromName" to intent.getStringExtra("fromName")
         )
+    }
+
+    private fun applyCallWindowFlags(payload: Map<String, String?>?) {
+        if (payload == null) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        } else {
+            @Suppress("DEPRECATION")
+            window.addFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            )
+        }
     }
 }

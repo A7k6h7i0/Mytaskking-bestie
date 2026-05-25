@@ -9,6 +9,7 @@ import android.content.Intent
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.os.Build
+import android.os.PowerManager
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 
@@ -26,7 +27,7 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
             ?: data["fromName"]?.let { "$it is calling" }
             ?: "Tap to join"
 
-        val launchIntent = Intent(this, MainActivity::class.java).apply {
+        val previewIntent = Intent(this, IncomingCallActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra("type", type)
             putExtra("callId", data["callId"])
@@ -38,7 +39,7 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
         val pendingIntent = PendingIntent.getActivity(
             this,
             requestCode,
-            launchIntent,
+            previewIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
@@ -65,6 +66,28 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
 
         getSystemService(NotificationManager::class.java)
             .notify(requestCode, notification)
+        wakeBriefly()
+        try {
+            startActivity(previewIntent)
+        } catch (_: Exception) {
+            // Android may block background activity starts on some devices.
+            // The full-screen notification above remains the reliable path.
+        }
+    }
+
+    private fun wakeBriefly() {
+        try {
+            val power = getSystemService(PowerManager::class.java)
+            @Suppress("DEPRECATION")
+            val wakeLock = power.newWakeLock(
+                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                    PowerManager.ACQUIRE_CAUSES_WAKEUP or
+                    PowerManager.ON_AFTER_RELEASE,
+                "mytaskking:incoming_call"
+            )
+            wakeLock.acquire(5_000)
+        } catch (_: Exception) {
+        }
     }
 
     companion object {

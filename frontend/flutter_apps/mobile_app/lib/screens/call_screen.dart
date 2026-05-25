@@ -156,6 +156,26 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     context.go('/chat');
   }
 
+  void _applyJoinedParticipants(Map<String, dynamic>? payload) {
+    final call = (payload?['call'] as Map?)?.cast<String, dynamic>();
+    final participants = (call?['participants'] as List?) ?? const [];
+    final me = ref.read(authStoreProvider).user;
+    var changed = false;
+    for (final raw in participants) {
+      if (raw is! Map) continue;
+      if (raw['userId'] == me?.id) continue;
+      if (raw['joinedAt'] == null) continue;
+      final uidRaw = raw['agoraUid'];
+      final uid = uidRaw is int ? uidRaw : int.tryParse('$uidRaw');
+      if (uid == null || uid <= 0) continue;
+      changed = _remoteUids.add(uid) || changed;
+      final user = (raw['user'] as Map?)?.cast<String, dynamic>();
+      final name = user?['name']?.toString();
+      if (name != null && name.isNotEmpty) _remoteNames[uid] = name;
+    }
+    if (changed && mounted) setState(() {});
+  }
+
   Future<void> _teardown({bool notifyServer = true}) async {
     if (notifyServer && widget.callId != null) {
       try {
@@ -270,6 +290,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       setState(() => _status = 'Connecting…');
       final tokenResp = await _fetchToken();
       _callMeta = tokenResp;
+      _applyJoinedParticipants(tokenResp);
       final appId = tokenResp['appId']?.toString();
       final token = tokenResp['token']?.toString();
       final channel = tokenResp['channelName']?.toString();
@@ -353,7 +374,9 @@ class _CallScreenState extends ConsumerState<CallScreen> {
 
       if (widget.callId != null) {
         try {
-          await ref.read(apiProvider).post('/calls/${widget.callId}/join');
+          final joinedCall =
+              await ref.read(apiProvider).post('/calls/${widget.callId}/join');
+          _applyJoinedParticipants({'call': joinedCall});
         } catch (_) {}
       }
     } on AgoraRtcException catch (e) {
@@ -606,6 +629,10 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     if (mounted) context.go('/chat');
   }
 
+  void _minimize() {
+    context.go('/chat');
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -646,7 +673,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       IconButton(
         icon: const Icon(Icons.expand_more_rounded,
             color: Colors.white, size: 28),
-        onPressed: _hangup,
+        onPressed: _minimize,
         tooltip: 'Minimize',
       ),
       Expanded(
@@ -1228,11 +1255,25 @@ class _CallScreenState extends ConsumerState<CallScreen> {
         ),
       );
     }
-    if (_remoteUids.isEmpty || !_isVideo) {
+    if (!_isVideo) {
+      final connected = _remoteUids.isNotEmpty;
       return Center(
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(_isVideo ? Icons.videocam_outlined : Icons.call_outlined,
-              color: Colors.white24, size: 76),
+          Icon(Icons.call_outlined, color: Colors.white24, size: 76),
+          const SizedBox(height: 16),
+          Text(
+            connected
+                ? 'Connected'
+                : (_joined ? 'Waiting for others…' : _status),
+            style: const TextStyle(color: Colors.white70, fontSize: 14),
+          ),
+        ]),
+      );
+    }
+    if (_remoteUids.isEmpty) {
+      return Center(
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(Icons.videocam_outlined, color: Colors.white24, size: 76),
           const SizedBox(height: 16),
           Text(_joined ? 'Waiting for others…' : _status,
               style: const TextStyle(color: Colors.white70, fontSize: 14)),

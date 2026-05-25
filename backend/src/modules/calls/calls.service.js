@@ -86,7 +86,21 @@ async function tokenFor({ callId, user }) {
   if (!call) throw NotFound('Call not found');
   const isParticipant = call.participants.some((p) => p.userId === user.id);
   if (!isParticipant) throw Forbidden('Not a participant of this call');
-  return agora.generateRtcToken({ channelName: call.channelName, uid: user.id });
+  return {
+    ...agora.generateRtcToken({ channelName: call.channelName, uid: user.id }),
+    call: withAgoraParticipantUids(call),
+  };
+}
+
+function withAgoraParticipantUids(call) {
+  if (!call) return call;
+  return {
+    ...call,
+    participants: (call.participants || []).map((p) => ({
+      ...p,
+      agoraUid: agora.toAgoraUid(p.userId),
+    })),
+  };
 }
 
 async function join({ callId, user }) {
@@ -102,7 +116,9 @@ async function join({ callId, user }) {
   if (call.status === 'RINGING') {
     await prisma.call.update({ where: { id: callId }, data: { status: 'ACTIVE', startedAt: new Date() } });
   }
-  return prisma.call.findUnique({ where: { id: callId }, include: callInclude });
+  return prisma.call
+    .findUnique({ where: { id: callId }, include: callInclude })
+    .then(withAgoraParticipantUids);
 }
 
 async function leave({ callId, user }) {
