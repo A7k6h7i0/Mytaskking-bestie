@@ -11,6 +11,7 @@ import 'package:mytaskking_core/mytaskking_core.dart' as core;
 
 import 'router.dart';
 import 'screens/incoming_call_overlay.dart';
+import 'screens/ongoing_call_bar.dart';
 import 'state.dart' hide ThemeMode;
 
 @pragma('vm:entry-point')
@@ -172,8 +173,11 @@ class _BestieAppState extends ConsumerState<BestieApp> {
       routerConfig: ref.watch(routerProvider),
       // The overlay listens for incoming-call socket events globally and
       // covers whatever screen you're on with an Accept/Decline ringer.
-      builder: (ctx, child) =>
-          IncomingCallOverlay(child: child ?? const SizedBox.shrink()),
+      // OngoingCallBar sits above it and surfaces a "tap to return"
+      // pill when the user has minimized a live call.
+      builder: (ctx, child) => IncomingCallOverlay(
+        child: OngoingCallBar(child: child ?? const SizedBox.shrink()),
+      ),
     );
   }
 }

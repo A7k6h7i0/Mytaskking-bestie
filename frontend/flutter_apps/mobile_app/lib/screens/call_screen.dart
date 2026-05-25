@@ -42,7 +42,7 @@ class CallScreen extends ConsumerStatefulWidget {
 /// Static, app-wide call session. Living outside the widget lets the audio
 /// keep playing when the user navigates away from /call/:id — only an
 /// explicit Hang Up tears the engine down.
-class _CallSession {
+class CallSession {
   static RtcEngine? engine;
   static String? channelName;
   static String? activeCallId;
@@ -51,6 +51,13 @@ class _CallSession {
   static bool videoEnabled = false;
   static final Set<int> remoteUids = {};
   static final Map<int, String> remoteNames = {};
+  /// Bumps whenever the session activates or deactivates so widgets
+  /// outside the call screen (e.g. the "ongoing call" return pill) can
+  /// rebuild without polling.
+  static final ValueNotifier<int> revision = ValueNotifier<int>(0);
+  static void _ping() { revision.value = revision.value + 1; }
+
+  static bool get isActive => engine != null;
   static bool matches(String? callId, String? meetingSlug) {
     if (engine == null) return false;
     if (callId != null) return activeCallId == callId;
@@ -73,8 +80,12 @@ class _CallSession {
     videoEnabled = false;
     remoteUids.clear();
     remoteNames.clear();
+    _ping();
   }
 }
+
+// Backwards-compat alias for existing private references in this file.
+typedef _CallSession = CallSession;
 
 class _CallScreenState extends ConsumerState<CallScreen> {
   RtcEngine? get _engine => _CallSession.engine;
@@ -428,6 +439,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       _CallSession.activeCallId = widget.callId;
       _CallSession.activeMeetingSlug = widget.meetingSlug;
       _CallSession.channelName = channel;
+      _CallSession._ping();
 
       step = 'initialize';
       await engine.initialize(RtcEngineContext(
