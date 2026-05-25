@@ -8,7 +8,10 @@ import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../active_call_state.dart';
 import '../state.dart';
+
+const _callNotificationChannel = MethodChannel('mytaskking/call_notification');
 
 /// Live audio/video call view powered by Agora RTC.
 ///
@@ -45,6 +48,7 @@ class _CallSession {
   static String? activeCallId;
   static String? activeMeetingSlug;
   static bool joined = false;
+  static bool videoEnabled = false;
   static final Set<int> remoteUids = {};
   static final Map<int, String> remoteNames = {};
   static bool matches(String? callId, String? meetingSlug) {
@@ -66,6 +70,7 @@ class _CallSession {
     activeCallId = null;
     activeMeetingSlug = null;
     joined = false;
+    videoEnabled = false;
     remoteUids.clear();
     remoteNames.clear();
   }
@@ -77,6 +82,8 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   set _channelName(String? v) => _CallSession.channelName = v;
   bool get _joined => _CallSession.joined;
   set _joined(bool v) => _CallSession.joined = v;
+  bool get _videoEnabled => _CallSession.videoEnabled;
+  set _videoEnabled(bool v) => _CallSession.videoEnabled = v;
   Set<int> get _remoteUids => _CallSession.remoteUids;
   Map<int, String> get _remoteNames => _CallSession.remoteNames;
 
@@ -90,12 +97,17 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   Map<String, dynamic>? _callMeta;
   final List<void Function()> _callUnsubs = [];
   bool _remoteClosed = false;
+  Timer? _timer;
+  Duration _elapsed = Duration.zero;
 
-  bool get _isVideo => widget.mode == 'video';
+  bool get _isVideo => _videoEnabled;
 
   @override
   void initState() {
     super.initState();
+    if (!_CallSession.matches(widget.callId, widget.meetingSlug)) {
+      _videoEnabled = widget.mode == 'video';
+    }
     _subscribeCallLifecycle();
     _bootstrap();
   }
@@ -106,6 +118,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       u();
     }
     _callUnsubs.clear();
+    _timer?.cancel();
     // Do NOT tear down on dispose — the user closing the call window
     // should keep the call running in the background. Only explicit
     // Hang Up (`_hangup`) ends the session.
@@ -139,6 +152,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
         final name = data['userName']?.toString();
         if (name != null && name.isNotEmpty) _remoteNames[uid] = name;
       });
+      _publishActiveCallState();
     }));
   }
 
@@ -154,6 +168,54 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       kind: BestieToastKind.info,
     );
     context.go('/chat');
+  }
+
+  void _startTimer() {
+    _timer?.cancel();
+    _elapsed = Duration.zero;
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() => _elapsed = _elapsed + const Duration(seconds: 1));
+    });
+  }
+
+  String _formatElapsed(Duration d) {
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return h > 0 ? '$h:$m:$s' : '$m:$s';
+  }
+
+  void _publishActiveCallState() {
+    final title = widget.meetingSlug != null
+        ? 'Meeting'
+        : (_remoteNames.values.isNotEmpty ? _remoteNames.values.first : 'Call');
+    ActiveCallState.update(
+      title: title,
+      participants: _remoteNames.values.toList(growable: false),
+    );
+  }
+
+  Future<void> _showOngoingCallNotification() async {
+    try {
+      await _callNotificationChannel.invokeMethod('show', {
+        'title': widget.meetingSlug != null
+            ? 'Meeting in progress'
+            : 'Call in progress',
+        'body': _remoteNames.values.isNotEmpty
+            ? _remoteNames.values.join(', ')
+            : 'Tap to return',
+        'callId': widget.callId,
+        'meetingSlug': widget.meetingSlug,
+        'mode': widget.mode,
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _hideOngoingCallNotification() async {
+    try {
+      await _callNotificationChannel.invokeMethod('hide');
+    } catch (_) {}
   }
 
   void _applyJoinedParticipants(Map<String, dynamic>? payload) {
@@ -173,7 +235,11 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       final name = user?['name']?.toString();
       if (name != null && name.isNotEmpty) _remoteNames[uid] = name;
     }
-    if (changed && mounted) setState(() {});
+    if (changed && mounted) {
+      setState(() {});
+      _publishActiveCallState();
+      _showOngoingCallNotification();
+    }
   }
 
   Future<void> _teardown({bool notifyServer = true}) async {
@@ -183,6 +249,8 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       } catch (_) {}
     }
     await _CallSession.teardown();
+    ActiveCallState.clear();
+    await _hideOngoingCallNotification();
   }
 
   bool _booting = false;
@@ -198,20 +266,40 @@ class _CallScreenState extends ConsumerState<CallScreen> {
           _joined = true;
           _status = 'Connected';
         });
+        _startTimer();
+        _publishActiveCallState();
+        _showOngoingCallNotification();
       },
       onUserJoined: (conn, remoteUid, elapsed) {
         if (!mounted) return;
         setState(() => _remoteUids.add(remoteUid));
+        _publishActiveCallState();
+        _showOngoingCallNotification();
       },
       onUserOffline: (conn, remoteUid, reason) {
         if (!mounted) return;
-        setState(() {
-          _remoteUids.remove(remoteUid);
-          _remoteNames.remove(remoteUid);
-        });
-        // No auto-hangup here — only an explicit tap on Hang Up ends the
-        // call. Lets the user keep the channel open if a remote drops and
-        // comes right back, or wait for the next participant in a group.
+        setState(() => _status = 'Participant reconnecting…');
+        // Do not remove the participant immediately. Agora also fires this
+        // for temporary network drops; the backend call.ended event is the
+        // source of truth for a real hang-up.
+      },
+      onConnectionLost: (conn) {
+        if (!mounted) return;
+        setState(() => _status = 'Network lost · reconnecting…');
+      },
+      onRejoinChannelSuccess: (conn, elapsed) {
+        if (!mounted) return;
+        setState(() => _status = 'Connected');
+      },
+      onConnectionStateChanged: (conn, state, reason) {
+        if (!mounted) return;
+        if (state == ConnectionStateType.connectionStateReconnecting) {
+          setState(() => _status = 'Network issue · reconnecting…');
+        } else if (state == ConnectionStateType.connectionStateConnected) {
+          setState(() => _status = 'Connected');
+        } else if (state == ConnectionStateType.connectionStateFailed) {
+          setState(() => _status = 'Network failed · tap Retry');
+        }
       },
       onTokenPrivilegeWillExpire: (conn, t) async {
         try {
@@ -233,6 +321,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
           _joined = false;
           _status = 'Ended';
         });
+        _timer?.cancel();
       },
     ));
   }
@@ -312,6 +401,12 @@ class _CallScreenState extends ConsumerState<CallScreen> {
         throw 'Server returned an invalid Agora App ID ("$appId"). Replace it with a real Agora project ID.';
       }
       setState(() => _channelName = channel);
+      ActiveCallState.start(
+        callId: widget.callId,
+        meetingSlug: widget.meetingSlug,
+        mode: widget.mode,
+        title: widget.meetingSlug != null ? 'Meeting' : 'Call',
+      );
 
       // 3. Create + initialize the engine. `channelProfile` belongs on the
       // engine context — supplying it only via joinChannel options is one of
@@ -368,7 +463,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
           publishMicrophoneTrack: true,
           publishCameraTrack: _isVideo,
           autoSubscribeAudio: true,
-          autoSubscribeVideo: _isVideo,
+          autoSubscribeVideo: true,
         ),
       );
 
@@ -439,9 +534,51 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   }
 
   Future<void> _toggleCamera() async {
-    if (!_isVideo) return;
+    final engine = _engine;
+    if (engine == null) return;
+    if (!_videoEnabled) {
+      final status = await Permission.camera.request();
+      if (status != PermissionStatus.granted &&
+          status != PermissionStatus.limited) {
+        if (mounted) {
+          bestieToast(
+            context,
+            'Camera permission needed',
+            body: 'Enable camera permission to turn on video.',
+            kind: BestieToastKind.warning,
+          );
+        }
+        return;
+      }
+      try {
+        await engine.enableVideo();
+        await engine.startPreview();
+        await engine.updateChannelMediaOptions(const ChannelMediaOptions(
+          publishCameraTrack: true,
+          autoSubscribeVideo: true,
+        ));
+        setState(() {
+          _videoEnabled = true;
+          _cameraOff = false;
+        });
+      } catch (e) {
+        if (mounted) {
+          bestieToast(
+            context,
+            'Could not start video',
+            body: e.toString(),
+            kind: BestieToastKind.error,
+          );
+        }
+      }
+      return;
+    }
     setState(() => _cameraOff = !_cameraOff);
-    await _engine?.muteLocalVideoStream(_cameraOff);
+    await engine.muteLocalVideoStream(_cameraOff);
+    await engine.updateChannelMediaOptions(ChannelMediaOptions(
+      publishCameraTrack: !_cameraOff,
+      autoSubscribeVideo: true,
+    ));
   }
 
   Future<void> _flipCamera() async {
@@ -696,7 +833,10 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                 decoration: const BoxDecoration(
                     color: Color(0xFFEF4444), shape: BoxShape.circle),
               ),
-            Text(_recording ? 'Recording · $_status' : _status,
+            Text(
+                _recording
+                    ? 'Recording · ${_formatElapsed(_elapsed)}'
+                    : (_joined ? _formatElapsed(_elapsed) : _status),
                 style: const TextStyle(color: Colors.white70, fontSize: 12)),
           ]),
         ]),
@@ -1256,16 +1396,19 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       );
     }
     if (!_isVideo) {
-      final connected = _remoteUids.isNotEmpty;
       return Center(
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(Icons.call_outlined, color: Colors.white24, size: 76),
-          const SizedBox(height: 16),
+          _participantsStrip(),
+          const SizedBox(height: 28),
+          _voiceParticipantsGrid(),
+          const SizedBox(height: 22),
+          Text(_joined ? _formatElapsed(_elapsed) : _status,
+              style: const TextStyle(color: Colors.white70, fontSize: 14)),
+          const SizedBox(height: 8),
           Text(
-            connected
-                ? 'Connected'
-                : (_joined ? 'Waiting for others…' : _status),
-            style: const TextStyle(color: Colors.white70, fontSize: 14),
+            'Tap Video to switch on your camera',
+            style:
+                TextStyle(color: Colors.white.withOpacity(0.46), fontSize: 12),
           ),
         ]),
       );
@@ -1273,6 +1416,8 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     if (_remoteUids.isEmpty) {
       return Center(
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          _participantsStrip(),
+          const SizedBox(height: 18),
           Icon(Icons.videocam_outlined, color: Colors.white24, size: 76),
           const SizedBox(height: 16),
           Text(_joined ? 'Waiting for others…' : _status,
@@ -1281,12 +1426,111 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       );
     }
     final firstRemote = _remoteUids.first;
-    return AgoraVideoView(
-        controller: VideoViewController.remote(
-      rtcEngine: _engine!,
-      canvas: VideoCanvas(uid: firstRemote),
-      connection: RtcConnection(channelId: _channelName ?? ''),
-    ));
+    return Stack(children: [
+      Positioned.fill(
+        child: AgoraVideoView(
+            controller: VideoViewController.remote(
+          rtcEngine: _engine!,
+          canvas: VideoCanvas(uid: firstRemote),
+          connection: RtcConnection(channelId: _channelName ?? ''),
+        )),
+      ),
+      Positioned(left: 16, right: 16, bottom: 118, child: _participantsStrip()),
+    ]);
+  }
+
+  Widget _participantsStrip() {
+    final names = <String>[
+      if (_remoteNames.isEmpty && _remoteUids.isNotEmpty) 'Participant',
+      ..._remoteNames.values,
+    ];
+    final label = names.isEmpty ? 'Waiting for others' : names.join(', ');
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 320),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.42),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        const Icon(Icons.people_alt_rounded, color: Colors.white70, size: 18),
+        const SizedBox(width: 8),
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        if (_joined) ...[
+          const SizedBox(width: 10),
+          Text(
+            _formatElapsed(_elapsed),
+            style: const TextStyle(color: Colors.white70, fontSize: 12),
+          ),
+        ],
+      ]),
+    );
+  }
+
+  Widget _voiceParticipantsGrid() {
+    final me = ref.read(authStoreProvider).user;
+    final names = <String>[
+      me?.name ?? 'You',
+      if (_remoteNames.isNotEmpty) ..._remoteNames.values,
+      if (_remoteNames.isEmpty && _remoteUids.isNotEmpty) 'Participant',
+    ];
+    return Wrap(
+      alignment: WrapAlignment.center,
+      spacing: 18,
+      runSpacing: 18,
+      children: [
+        for (var i = 0; i < names.length; i++)
+          Column(mainAxisSize: MainAxisSize.min, children: [
+            Container(
+              width: 92,
+              height: 92,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: i == 0
+                    ? BestieTokens.cBrand.withOpacity(0.22)
+                    : BestieTokens.cSuccess.withOpacity(0.18),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white24),
+              ),
+              child: Text(
+                names[i].isEmpty ? '?' : names[i][0].toUpperCase(),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 34,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: 110,
+              child: Text(
+                i == 0 ? 'You' : names[i],
+                maxLines: 1,
+                textAlign: TextAlign.center,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ]),
+      ],
+    );
   }
 
   Widget _controls() {
@@ -1332,15 +1576,14 @@ class _CallScreenState extends ConsumerState<CallScreen> {
             active: _muted,
             label: 'Mute',
           ),
-          if (_isVideo)
-            pill(
-              icon: _cameraOff
-                  ? Icons.videocam_off_rounded
-                  : Icons.videocam_rounded,
-              onTap: _toggleCamera,
-              active: _cameraOff,
-              label: 'Camera',
-            ),
+          pill(
+            icon: (!_videoEnabled || _cameraOff)
+                ? Icons.videocam_off_rounded
+                : Icons.videocam_rounded,
+            onTap: _toggleCamera,
+            active: !_videoEnabled || _cameraOff,
+            label: _videoEnabled ? 'Camera' : 'Video',
+          ),
           pill(
             icon: _speakerOn
                 ? Icons.volume_up_rounded

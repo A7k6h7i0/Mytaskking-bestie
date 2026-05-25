@@ -26,10 +26,12 @@ final _prefsProvider = FutureProvider<SharedPreferences>(
 /// Per-channel set of message ids the local user has hidden via "delete for
 /// me". The chat detail filters these out of the rendered list. Other
 /// members still see the original message — this is a client-side mask only.
-final _hiddenMessageIdsProvider = FutureProvider.family.autoDispose<Set<String>, String>(
+final _hiddenMessageIdsProvider =
+    FutureProvider.family.autoDispose<Set<String>, String>(
   (ref, channelId) async {
     final prefs = await ref.watch(_prefsProvider.future);
-    final list = prefs.getStringList('chat.hidden.$channelId') ?? const <String>[];
+    final list =
+        prefs.getStringList('chat.hidden.$channelId') ?? const <String>[];
     return list.toSet();
   },
 );
@@ -41,7 +43,8 @@ class ChatDetailScreen extends ConsumerStatefulWidget {
   ConsumerState<ChatDetailScreen> createState() => _ChatDetailScreenState();
 }
 
-class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with WidgetsBindingObserver {
+class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
+    with WidgetsBindingObserver {
   final _composer = TextEditingController();
   final _scroll = ScrollController();
   bool _sending = false;
@@ -101,7 +104,9 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
     _composer.removeListener(_onComposerChanged);
     _myTypingThrottle?.cancel();
     _receiptInvalidate?.cancel();
-    for (final t in _typing.values) { t.timeout.cancel(); }
+    for (final t in _typing.values) {
+      t.timeout.cancel();
+    }
     _composer.dispose();
     _scroll.dispose();
     _recorder.dispose();
@@ -134,7 +139,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
       _lastTypingEmit = now;
     }
     _myTypingThrottle?.cancel();
-    _myTypingThrottle = Timer(const Duration(seconds: 3), () => _emitTyping(false));
+    _myTypingThrottle =
+        Timer(const Duration(seconds: 3), () => _emitTyping(false));
   }
 
   void _emitTyping(bool typing) {
@@ -143,7 +149,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
         'channelId': widget.channelId,
         'typing': typing,
       });
-    } catch (_) { /* socket may be reconnecting */ }
+    } catch (_) {/* socket may be reconnecting */}
   }
 
   /// Subscribe to incoming typing events. Each event refreshes a per-user
@@ -181,7 +187,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
     try {
       final c = await ref.read(apiProvider).getChannel(widget.channelId);
       if (mounted) setState(() => _channel = c);
-    } catch (_) { /* header falls back to generic title */ }
+    } catch (_) {/* header falls back to generic title */}
   }
 
   /// Debounce timer for refreshing the messages list when receipts trickle
@@ -230,20 +236,24 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
         .toList();
     if (incomingIds.isEmpty) return;
 
-    final toDeliver = incomingIds.where((id) => !_ackedDelivered.contains(id)).toList();
+    final toDeliver =
+        incomingIds.where((id) => !_ackedDelivered.contains(id)).toList();
     if (toDeliver.isNotEmpty) {
       _ackedDelivered.addAll(toDeliver);
       // Fire-and-forget; failures stay quiet (no UI toast, no rollback of
       // the dedup set). Worst case the recipient ticks update on next open.
-      ref.read(apiProvider)
+      ref
+          .read(apiProvider)
           .sendReceipts(widget.channelId, toDeliver, 'DELIVERED')
           .catchError((_) => <String, dynamic>{});
     }
     if (seen) {
-      final toSee = incomingIds.where((id) => !_ackedSeen.contains(id)).toList();
+      final toSee =
+          incomingIds.where((id) => !_ackedSeen.contains(id)).toList();
       if (toSee.isNotEmpty) {
         _ackedSeen.addAll(toSee);
-        ref.read(apiProvider)
+        ref
+            .read(apiProvider)
             .sendReceipts(widget.channelId, toSee, 'SEEN')
             .catchError((_) => <String, dynamic>{});
       }
@@ -289,11 +299,13 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
           });
           ref.invalidate(tasksKanbanProvider);
           _composer.clear();
-          if (mounted) bestieToast(context, 'Task created', body: args,
-              kind: BestieToastKind.success);
+          if (mounted)
+            bestieToast(context, 'Task created',
+                body: args, kind: BestieToastKind.success);
         } catch (e) {
-          if (mounted) bestieToast(context, 'Could not create task',
-              body: formatApiError(e), kind: BestieToastKind.error);
+          if (mounted)
+            bestieToast(context, 'Could not create task',
+                body: formatApiError(e), kind: BestieToastKind.error);
         }
         return true;
 
@@ -321,8 +333,9 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
             return false; // let normal send post the link
           }
         } catch (e) {
-          if (mounted) bestieToast(context, 'Could not start meeting',
-              body: formatApiError(e), kind: BestieToastKind.error);
+          if (mounted)
+            bestieToast(context, 'Could not start meeting',
+                body: formatApiError(e), kind: BestieToastKind.error);
         }
         return true;
 
@@ -355,9 +368,11 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
     }
   }
 
-  Future<void> _send({List<String>? attachmentIds, String? overrideBody}) async {
+  Future<void> _send(
+      {List<String>? attachmentIds, String? overrideBody}) async {
     final body = overrideBody ?? _composer.text.trim();
-    if (body.isEmpty && (attachmentIds == null || attachmentIds.isEmpty)) return;
+    if (body.isEmpty && (attachmentIds == null || attachmentIds.isEmpty))
+      return;
     final me = ref.read(authStoreProvider).user;
     if (me == null) return;
 
@@ -365,9 +380,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
     // effects (create task, /me action, etc) and skip the regular message
     // post entirely. /me is the one exception: it still posts a chat
     // message but in the "third person" format.
-    if (overrideBody == null &&
-        attachmentIds == null &&
-        body.startsWith('/')) {
+    if (overrideBody == null && attachmentIds == null && body.startsWith('/')) {
       final handled = await _handleSlashCommand(body);
       if (handled) return;
     }
@@ -377,7 +390,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
     final tempId = 'pending_${DateTime.now().microsecondsSinceEpoch}';
     final optimistic = <String, dynamic>{
       'id': tempId,
-      'kind': attachmentIds != null && attachmentIds.isNotEmpty ? 'FILE' : 'TEXT',
+      'kind':
+          attachmentIds != null && attachmentIds.isNotEmpty ? 'FILE' : 'TEXT',
       'body': body.isEmpty ? null : body,
       'status': 'SENDING',
       'createdAt': DateTime.now().toIso8601String(),
@@ -407,12 +421,14 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
 
     try {
       await ref.read(apiProvider).sendMessage(
-        widget.channelId,
-        body: body.isEmpty ? null : body,
-        attachmentIds: attachmentIds,
-        kind: attachmentIds != null && attachmentIds.isNotEmpty ? 'FILE' : 'TEXT',
-        replyToId: replyId,
-      );
+            widget.channelId,
+            body: body.isEmpty ? null : body,
+            attachmentIds: attachmentIds,
+            kind: attachmentIds != null && attachmentIds.isNotEmpty
+                ? 'FILE'
+                : 'TEXT',
+            replyToId: replyId,
+          );
       // Server-side message now exists; drop the optimistic stub on next
       // refresh. The realtime socket also pushes a chat.message.created that
       // invalidates the provider — this is a belt-and-suspenders.
@@ -423,8 +439,9 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
         final i = _pendingOutgoing.indexWhere((m) => m['id'] == tempId);
         if (i >= 0) _pendingOutgoing[i]['status'] = 'FAILED';
       });
-      if (mounted) bestieToast(context, 'Could not send',
-          body: formatApiError(e), kind: BestieToastKind.error);
+      if (mounted)
+        bestieToast(context, 'Could not send',
+            body: formatApiError(e), kind: BestieToastKind.error);
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -436,20 +453,25 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
   Future<void> _startVoiceRecording() async {
     try {
       if (!await _recorder.hasPermission()) {
-        if (mounted) bestieToast(context, 'Mic permission needed',
-            body: 'Enable microphone access in Settings.', kind: BestieToastKind.warning);
+        if (mounted)
+          bestieToast(context, 'Mic permission needed',
+              body: 'Enable microphone access in Settings.',
+              kind: BestieToastKind.warning);
         return;
       }
       final dir = await getTemporaryDirectory();
-      final path = '${dir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      final path =
+          '${dir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
       await _recorder.start(
-        const RecordConfig(encoder: AudioEncoder.aacLc, bitRate: 96000, sampleRate: 32000),
+        const RecordConfig(
+            encoder: AudioEncoder.aacLc, bitRate: 96000, sampleRate: 32000),
         path: path,
       );
       _recordPath = path;
     } catch (e) {
-      if (mounted) bestieToast(context, 'Couldn\'t start recording',
-          body: e.toString(), kind: BestieToastKind.error);
+      if (mounted)
+        bestieToast(context, 'Couldn\'t start recording',
+            body: e.toString(), kind: BestieToastKind.error);
     }
   }
 
@@ -472,23 +494,26 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
       final file = File(path);
       final bytes = await file.readAsBytes();
       final asset = await ref.read(apiProvider).uploadFile(
-        bytes: bytes,
-        filename: 'voice-note-${DateTime.now().millisecondsSinceEpoch}.m4a',
-        mimeType: 'audio/mp4',
-      );
+            bytes: bytes,
+            filename: 'voice-note-${DateTime.now().millisecondsSinceEpoch}.m4a',
+            mimeType: 'audio/mp4',
+          );
       final id = asset['id']?.toString();
       if (id == null) throw 'Upload returned no asset id';
       await ref.read(apiProvider).sendMessage(
-        widget.channelId,
-        attachmentIds: [id],
-        kind: 'VOICE_NOTE',
-      );
+            widget.channelId,
+            attachmentIds: [id],
+            kind: 'VOICE_NOTE',
+          );
       ref.invalidate(messagesProvider(widget.channelId));
       // Best-effort cleanup of the temp file.
-      try { await file.delete(); } catch (_) {}
+      try {
+        await file.delete();
+      } catch (_) {}
     } catch (e) {
-      if (mounted) bestieToast(context, 'Could not send voice note',
-          body: formatApiError(e), kind: BestieToastKind.error);
+      if (mounted)
+        bestieToast(context, 'Could not send voice note',
+            body: formatApiError(e), kind: BestieToastKind.error);
     } finally {
       if (mounted) setState(() => _attaching = false);
     }
@@ -509,11 +534,14 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
   /// True when `current` and `previous` are on different local calendar
   /// days — used to inject a "Today / Yesterday / Mar 18" divider chip
   /// between them. `previous` is null at the conversation's first message.
-  bool _shouldShowDateDivider(Map<String, dynamic> current, Map<String, dynamic>? previous) {
-    final ts = DateTime.tryParse(current['createdAt']?.toString() ?? '')?.toLocal();
+  bool _shouldShowDateDivider(
+      Map<String, dynamic> current, Map<String, dynamic>? previous) {
+    final ts =
+        DateTime.tryParse(current['createdAt']?.toString() ?? '')?.toLocal();
     if (ts == null) return false;
     if (previous == null) return true;
-    final prev = DateTime.tryParse(previous['createdAt']?.toString() ?? '')?.toLocal();
+    final prev =
+        DateTime.tryParse(previous['createdAt']?.toString() ?? '')?.toLocal();
     if (prev == null) return true;
     return ts.year != prev.year || ts.month != prev.month || ts.day != prev.day;
   }
@@ -539,7 +567,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
       context: context,
       backgroundColor: c.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
+        borderRadius:
+            BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
       ),
       builder: (ctx) => SafeArea(
         top: false,
@@ -547,19 +576,32 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
           padding: const EdgeInsets.symmetric(vertical: 16),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Container(
-              width: 40, height: 4,
+              width: 40,
+              height: 4,
               margin: const EdgeInsets.only(bottom: 12),
               decoration: BoxDecoration(
                 color: c.borderStrong,
                 borderRadius: BorderRadius.circular(BestieTokens.rPill),
               ),
             ),
-            _ChooserTile(icon: Icons.photo_camera_rounded, label: 'Camera',
-                colors: c, accent: c.brand, onTap: () => Navigator.pop(ctx, 'camera')),
-            _ChooserTile(icon: Icons.image_rounded, label: 'Photo / video',
-                colors: c, accent: c.accent, onTap: () => Navigator.pop(ctx, 'gallery')),
-            _ChooserTile(icon: Icons.description_rounded, label: 'Document',
-                colors: c, accent: c.info, onTap: () => Navigator.pop(ctx, 'document')),
+            _ChooserTile(
+                icon: Icons.photo_camera_rounded,
+                label: 'Camera',
+                colors: c,
+                accent: c.brand,
+                onTap: () => Navigator.pop(ctx, 'camera')),
+            _ChooserTile(
+                icon: Icons.image_rounded,
+                label: 'Photo / video',
+                colors: c,
+                accent: c.accent,
+                onTap: () => Navigator.pop(ctx, 'gallery')),
+            _ChooserTile(
+                icon: Icons.description_rounded,
+                label: 'Document',
+                colors: c,
+                accent: c.info,
+                onTap: () => Navigator.pop(ctx, 'document')),
           ]),
         ),
       ),
@@ -577,7 +619,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
 
       if (kind == 'camera' || kind == 'gallery') {
         final picker = ImagePicker();
-        final source = kind == 'camera' ? ImageSource.camera : ImageSource.gallery;
+        final source =
+            kind == 'camera' ? ImageSource.camera : ImageSource.gallery;
         final x = await picker.pickImage(source: source, imageQuality: 85);
         if (x == null) return;
         bytes = await x.readAsBytes();
@@ -594,16 +637,18 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
       }
 
       final asset = await ref.read(apiProvider).uploadFile(
-        bytes: bytes,
-        filename: filename!,
-        mimeType: mimeType,
-      );
+            bytes: bytes,
+            filename: filename!,
+            mimeType: mimeType,
+          );
       final assetId = asset['id']?.toString();
-      if (assetId == null) throw 'Upload succeeded but no asset id was returned';
+      if (assetId == null)
+        throw 'Upload succeeded but no asset id was returned';
       await _send(attachmentIds: [assetId]);
     } catch (e) {
-      if (mounted) bestieToast(context, 'Attachment failed',
-          body: formatApiError(e), kind: BestieToastKind.error);
+      if (mounted)
+        bestieToast(context, 'Attachment failed',
+            body: formatApiError(e), kind: BestieToastKind.error);
     } finally {
       if (mounted) setState(() => _attaching = false);
     }
@@ -612,57 +657,72 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
   String? _mimeFromExt(String? ext) {
     switch ((ext ?? '').toLowerCase()) {
       case 'jpg':
-      case 'jpeg': return 'image/jpeg';
-      case 'png':  return 'image/png';
-      case 'gif':  return 'image/gif';
-      case 'pdf':  return 'application/pdf';
-      case 'mp4':  return 'video/mp4';
-      case 'mp3':  return 'audio/mpeg';
-      case 'wav':  return 'audio/wav';
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'png':
+        return 'image/png';
+      case 'gif':
+        return 'image/gif';
+      case 'pdf':
+        return 'application/pdf';
+      case 'mp4':
+        return 'video/mp4';
+      case 'mp3':
+        return 'audio/mpeg';
+      case 'wav':
+        return 'audio/wav';
       case 'doc':
-      case 'docx': return 'application/msword';
+      case 'docx':
+        return 'application/msword';
       case 'xls':
-      case 'xlsx': return 'application/vnd.ms-excel';
-      default: return null;
+      case 'xlsx':
+        return 'application/vnd.ms-excel';
+      default:
+        return null;
     }
   }
 
   Future<void> _startCall({required String kind}) async {
     if (_channel == null) {
-      bestieToast(context, 'Hold on', body: 'Loading channel info…', kind: BestieToastKind.info);
+      bestieToast(context, 'Hold on',
+          body: 'Loading channel info…', kind: BestieToastKind.info);
       return;
     }
     final me = ref.read(authStoreProvider).user;
-    final members = (_channel!['members'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+    final members =
+        (_channel!['members'] as List?)?.cast<Map<String, dynamic>>() ??
+            const [];
     final participantIds = members
         .map((m) => m['userId'] as String?)
         .whereType<String>()
         .where((id) => id != me?.id)
         .toList();
     if (participantIds.isEmpty) {
-      bestieToast(context, 'No one to call', body: 'Add a teammate to this channel first.',
+      bestieToast(context, 'No one to call',
+          body: 'Add a teammate to this channel first.',
           kind: BestieToastKind.warning);
       return;
     }
     try {
       final ch = _channel!['kind'] == 'DM' ? 'ONE_TO_ONE' : 'GROUP';
       final res = await ref.read(apiProvider).initiateCall(
-        participantIds: participantIds,
-        kind: ch,
-        channelId: widget.channelId,
-        // 'voice' / 'video' in the chat UI maps directly onto the backend's
-        // VOICE / VIDEO mode — surfaced to the recipient's ringer so they
-        // see the right Accept icon and join Agora with the right tracks.
-        mode: kind == 'voice' ? 'VOICE' : 'VIDEO',
-      );
+            participantIds: participantIds,
+            kind: ch,
+            channelId: widget.channelId,
+            // 'voice' / 'video' in the chat UI maps directly onto the backend's
+            // VOICE / VIDEO mode — surfaced to the recipient's ringer so they
+            // see the right Accept icon and join Agora with the right tracks.
+            mode: kind == 'voice' ? 'VOICE' : 'VIDEO',
+          );
       final call = (res['call'] as Map?)?.cast<String, dynamic>() ?? res;
       final callId = call['id']?.toString();
       if (callId != null && mounted) {
         context.go('/call/$callId?mode=$kind');
       }
     } catch (e) {
-      if (mounted) bestieToast(context, 'Could not start call',
-          body: formatApiError(e), kind: BestieToastKind.error);
+      if (mounted)
+        bestieToast(context, 'Could not start call',
+            body: formatApiError(e), kind: BestieToastKind.error);
     }
   }
 
@@ -671,7 +731,9 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
     final kind = (_channel!['kind'] ?? '').toString();
     if (kind == 'DM') {
       final me = ref.read(authStoreProvider).user;
-      final members = (_channel!['members'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+      final members =
+          (_channel!['members'] as List?)?.cast<Map<String, dynamic>>() ??
+              const [];
       final other = members.firstWhere(
         (m) => m['userId'] != me?.id,
         orElse: () => const {},
@@ -685,11 +747,16 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
   String _headerSubtitle() {
     if (_channel == null) return '';
     final kind = (_channel!['kind'] ?? '').toString();
-    final members = (_channel!['members'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+    final members =
+        (_channel!['members'] as List?)?.cast<Map<String, dynamic>>() ??
+            const [];
     switch (kind) {
-      case 'DM':     return 'Direct message';
-      case 'CLIENT': return '${members.length} members · client';
-      default:       return '${members.length} members';
+      case 'DM':
+        return 'Direct message';
+      case 'CLIENT':
+        return '${members.length} members · client';
+      default:
+        return '${members.length} members';
     }
   }
 
@@ -717,9 +784,9 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
   Widget _mentionSuggestions(BestieColors c) {
     final query = _activeMentionQuery();
     if (query == null) return const SizedBox.shrink();
-    final members = (_channel?['members'] as List?)
-            ?.cast<Map<String, dynamic>>() ??
-        const [];
+    final members =
+        (_channel?['members'] as List?)?.cast<Map<String, dynamic>>() ??
+            const [];
     final me = ref.read(authStoreProvider).user;
     final q = query.toLowerCase();
     final matches = members
@@ -826,7 +893,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
           ),
           child: Row(children: [
             Container(
-              width: 4, height: 32,
+              width: 4,
+              height: 32,
               decoration: BoxDecoration(
                 color: c.warning,
                 borderRadius: BorderRadius.circular(2),
@@ -874,7 +942,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
       context: context,
       backgroundColor: c.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
+        borderRadius:
+            BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
       ),
       builder: (ctx) => SafeArea(
         top: false,
@@ -890,7 +959,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
                 const SizedBox(width: 8),
                 Text('Pinned messages',
                     style: TextStyle(
-                      color: c.text, fontSize: 16,
+                      color: c.text,
+                      fontSize: 16,
                       fontWeight: BestieTokens.fwBold,
                     )),
                 const Spacer(),
@@ -904,11 +974,13 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
                 shrinkWrap: true,
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 itemCount: pinned.length,
-                separatorBuilder: (_, __) => Divider(height: 1, color: c.border),
+                separatorBuilder: (_, __) =>
+                    Divider(height: 1, color: c.border),
                 itemBuilder: (_, i) {
                   final m = pinned[i];
                   final author =
-                      (m['author'] as Map?)?.cast<String, dynamic>() ?? const {};
+                      (m['author'] as Map?)?.cast<String, dynamic>() ??
+                          const {};
                   final body = (m['body'] ?? '').toString();
                   return ListTile(
                     leading: BestieAvatar(
@@ -938,7 +1010,9 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
                       onPressed: () async {
                         Navigator.pop(ctx);
                         try {
-                          await ref.read(apiProvider).unpinMessage(m['id'] as String);
+                          await ref
+                              .read(apiProvider)
+                              .unpinMessage(m['id'] as String);
                           ref.invalidate(messagesProvider(widget.channelId));
                           if (mounted) {
                             bestieToast(context, 'Unpinned',
@@ -971,20 +1045,31 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
     final b = (lastBody ?? '').toLowerCase().trim();
     if (b.isEmpty) return const [];
     // Question → confirmation-style replies.
-    if (b.endsWith('?') || b.startsWith('can ') || b.startsWith('could ') ||
-        b.startsWith('would ') || b.startsWith('shall ') || b.startsWith('any ')) {
+    if (b.endsWith('?') ||
+        b.startsWith('can ') ||
+        b.startsWith('could ') ||
+        b.startsWith('would ') ||
+        b.startsWith('shall ') ||
+        b.startsWith('any ')) {
       return const ['Yes 👍', 'Working on it', "Let me check"];
     }
     // Thanks → graceful acks.
-    if (b.contains('thank')) return const ['Anytime 🙌', 'My pleasure', 'Happy to help'];
+    if (b.contains('thank'))
+      return const ['Anytime 🙌', 'My pleasure', 'Happy to help'];
     // Greetings.
-    if (b.contains('good morning') || b.contains('hi ') || b.startsWith('hi') ||
-        b.contains('hello') || b.contains('hey')) {
+    if (b.contains('good morning') ||
+        b.contains('hi ') ||
+        b.startsWith('hi') ||
+        b.contains('hello') ||
+        b.contains('hey')) {
       return const ['Hey 👋', 'Morning!', 'How can I help?'];
     }
     // Done / shipped / merged → praise.
-    if (b.contains('done') || b.contains('shipped') || b.contains('merged') ||
-        b.contains('deployed') || b.contains('finished')) {
+    if (b.contains('done') ||
+        b.contains('shipped') ||
+        b.contains('merged') ||
+        b.contains('deployed') ||
+        b.contains('finished')) {
       return const ['🎉 Nice!', 'Great work', 'Awesome'];
     }
     // Default — short, generic, useful.
@@ -997,7 +1082,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
     if (items.isEmpty || me == null) return const SizedBox.shrink();
     // The latest message (most recent createdAt) — the list is in chrono order.
     final last = items.last;
-    final author = (last['author'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final author =
+        (last['author'] as Map?)?.cast<String, dynamic>() ?? const {};
     if (author['id'] == me.id) return const SizedBox.shrink();
     final kind = (last['kind'] ?? 'TEXT').toString();
     if (kind != 'TEXT') return const SizedBox.shrink();
@@ -1017,7 +1103,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
               borderRadius: BorderRadius.circular(BestieTokens.rPill),
               onTap: () => _send(overrideBody: text),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
                   color: c.brandSoft,
                   borderRadius: BorderRadius.circular(BestieTokens.rPill),
@@ -1046,8 +1133,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
     // Subscribe to the auth store *stream* so a login or token refresh
     // re-renders the message list — otherwise own messages can appear on
     // the wrong side until the screen is rebuilt.
-    final me = ref.watch(currentUserProvider).asData?.value
-        ?? ref.read(authStoreProvider).user;
+    final me = ref.watch(currentUserProvider).asData?.value ??
+        ref.read(authStoreProvider).user;
     final isClient = _channel?['isClientChannel'] == true;
     final kind = (_channel?['kind'] ?? '').toString();
     final isDm = kind == 'DM';
@@ -1069,21 +1156,25 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
                 ? BestieAvatar(
                     name: _headerTitle(),
                     imageUrl: ((_channel!['members'] as List?)
-                            ?.cast<Map<String, dynamic>>()
-                            .firstWhere((m) => m['userId'] != me?.id, orElse: () => const {})['user']
-                          as Map?)?['avatarUrl']
+                                ?.cast<Map<String, dynamic>>()
+                                .firstWhere((m) => m['userId'] != me?.id,
+                                    orElse: () => const {})['user']
+                            as Map?)?['avatarUrl']
                         ?.toString(),
                     isClient: isClient,
                     size: 32,
                   )
                 : Container(
-                    width: 32, height: 32,
+                    width: 32,
+                    height: 32,
                     decoration: BoxDecoration(
                       color: isClient ? colors.clientSoft : colors.brandSoft,
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Icon(
-                      kind == 'CLIENT' ? Icons.business_center_outlined : Icons.groups_outlined,
+                      kind == 'CLIENT'
+                          ? Icons.business_center_outlined
+                          : Icons.groups_outlined,
                       color: isClient ? colors.client : colors.brandStrong,
                       size: 18,
                     ),
@@ -1140,11 +1231,16 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
             ),
             data: (serverItemsRaw) {
               // "Delete for me" — drop locally-hidden ids before any further work.
-              final hidden = ref.watch(_hiddenMessageIdsProvider(widget.channelId)).asData?.value
-                  ?? const <String>{};
+              final hidden = ref
+                      .watch(_hiddenMessageIdsProvider(widget.channelId))
+                      .asData
+                      ?.value ??
+                  const <String>{};
               final serverItems = hidden.isEmpty
                   ? serverItemsRaw
-                  : serverItemsRaw.where((m) => !hidden.contains(m['id']?.toString())).toList();
+                  : serverItemsRaw
+                      .where((m) => !hidden.contains(m['id']?.toString()))
+                      .toList();
               // Mark inbound messages as DELIVERED + SEEN now that they're on screen.
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 if (mounted) _ackReceipts(serverItems, seen: true);
@@ -1202,7 +1298,9 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
                 itemBuilder: (_, i) {
                   final m = reversed[i];
                   final kindStr = (m['kind'] ?? 'TEXT').toString();
-                  final author = (m['author'] as Map?)?.cast<String, dynamic>() ?? const {};
+                  final author =
+                      (m['author'] as Map?)?.cast<String, dynamic>() ??
+                          const {};
                   final mine = me?.id != null && author['id'] == me!.id;
 
                   // Date divider: when the message *below* this one (visually
@@ -1232,7 +1330,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
         ),
         // Typing indicator sits just above the composer so it doesn't shift
         // the messages list when it appears/disappears.
-        if (_typing.isNotEmpty) _TypingIndicator(typing: _typing.values.toList(), colors: colors),
+        if (_typing.isNotEmpty)
+          _TypingIndicator(typing: _typing.values.toList(), colors: colors),
         // @mention autocomplete — pops above the composer when the user is
         // mid-typing an @handle. Replaces the @-fragment with @Name on tap.
         _mentionSuggestions(colors),
@@ -1240,11 +1339,12 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
         // message is from someone else and the user hasn't started typing.
         if (_replyingTo == null) _smartReplies(colors, me),
         // Quoted-message preview when replying.
-        if (_replyingTo != null) _ReplyComposerChip(
-          message: _replyingTo!,
-          colors: colors,
-          onCancel: () => setState(() => _replyingTo = null),
-        ),
+        if (_replyingTo != null)
+          _ReplyComposerChip(
+            message: _replyingTo!,
+            colors: colors,
+            onCancel: () => setState(() => _replyingTo = null),
+          ),
         _Composer(
           colors: colors,
           controller: _composer,
@@ -1288,12 +1388,15 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
   void _showInfo(BuildContext context) {
     if (_channel == null) return;
     final colors = BestieColors.of(context);
-    final members = (_channel!['members'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+    final members =
+        (_channel!['members'] as List?)?.cast<Map<String, dynamic>>() ??
+            const [];
     showModalBottomSheet(
       context: context,
       backgroundColor: colors.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
+        borderRadius:
+            BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
       ),
       builder: (ctx) => SafeArea(
         top: false,
@@ -1305,7 +1408,9 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
             children: [
               Text(_headerTitle(),
                   style: TextStyle(
-                    fontSize: 18, fontWeight: BestieTokens.fwBold, color: colors.text,
+                    fontSize: 18,
+                    fontWeight: BestieTokens.fwBold,
+                    color: colors.text,
                     letterSpacing: BestieTokens.lsTight,
                   )),
               const SizedBox(height: 4),
@@ -1314,8 +1419,10 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen> with Widget
               const Divider(height: 24),
               Text('MEMBERS',
                   style: TextStyle(
-                    fontSize: 11, fontWeight: BestieTokens.fwBold,
-                    color: colors.textMuted, letterSpacing: BestieTokens.lsEyebrow,
+                    fontSize: 11,
+                    fontWeight: BestieTokens.fwBold,
+                    color: colors.textMuted,
+                    letterSpacing: BestieTokens.lsEyebrow,
                   )),
               const SizedBox(height: 8),
               ConstrainedBox(
@@ -1343,15 +1450,19 @@ class _ChooserTile extends StatelessWidget {
   final Color accent;
   final VoidCallback onTap;
   const _ChooserTile({
-    required this.icon, required this.label, required this.colors,
-    required this.accent, required this.onTap,
+    required this.icon,
+    required this.label,
+    required this.colors,
+    required this.accent,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     return ListTile(
       leading: Container(
-        width: 40, height: 40,
+        width: 40,
+        height: 40,
         decoration: BoxDecoration(
           color: accent.withOpacity(0.12),
           borderRadius: BorderRadius.circular(BestieTokens.rSm),
@@ -1359,7 +1470,8 @@ class _ChooserTile extends StatelessWidget {
         child: Icon(icon, color: accent, size: 22),
       ),
       title: Text(label,
-          style: TextStyle(color: colors.text, fontWeight: BestieTokens.fwSemibold)),
+          style: TextStyle(
+              color: colors.text, fontWeight: BestieTokens.fwSemibold)),
       onTap: onTap,
     );
   }
@@ -1370,7 +1482,8 @@ class _Composer extends StatefulWidget {
   final TextEditingController controller;
   final bool sending;
   final bool attaching;
-  final Future<void> Function({List<String>? attachmentIds, String? overrideBody}) onSend;
+  final Future<void> Function(
+      {List<String>? attachmentIds, String? overrideBody}) onSend;
   final VoidCallback onAttach;
   final Future<void> Function() onStartRecording;
   final Future<String?> Function() onStopRecording;
@@ -1435,7 +1548,8 @@ class _ComposerState extends State<_Composer> {
             final newText = ctl.text.replaceRange(start, end, emoji.emoji);
             ctl.value = TextEditingValue(
               text: newText,
-              selection: TextSelection.collapsed(offset: start + emoji.emoji.length),
+              selection:
+                  TextSelection.collapsed(offset: start + emoji.emoji.length),
             );
           },
           config: Config(
@@ -1468,7 +1582,10 @@ class _ComposerState extends State<_Composer> {
   }
 
   Future<void> _startRecording() async {
-    setState(() { _recording = true; _seconds = 0; });
+    setState(() {
+      _recording = true;
+      _seconds = 0;
+    });
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() => _seconds++);
     });
@@ -1478,7 +1595,10 @@ class _ComposerState extends State<_Composer> {
   Future<void> _stopAndSend({bool cancelled = false}) async {
     _ticker?.cancel();
     final path = await widget.onStopRecording();
-    setState(() { _recording = false; _seconds = 0; });
+    setState(() {
+      _recording = false;
+      _seconds = 0;
+    });
     if (!cancelled && path != null) {
       await widget.onSendVoice(path);
     }
@@ -1495,9 +1615,7 @@ class _ComposerState extends State<_Composer> {
           border: Border(top: BorderSide(color: colors.border)),
         ),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        child: _recording
-            ? _recordingBar(colors)
-            : _normalBar(colors),
+        child: _recording ? _recordingBar(colors) : _normalBar(colors),
       ),
     );
   }
@@ -1505,9 +1623,11 @@ class _ComposerState extends State<_Composer> {
   Widget _normalBar(BestieColors colors) {
     return Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
       widget.attaching
-          ? const Padding(padding: EdgeInsets.all(12), child: BestieSpinner(size: 18))
+          ? const Padding(
+              padding: EdgeInsets.all(12), child: BestieSpinner(size: 18))
           : IconButton(
-              icon: Icon(Icons.add_circle_outline_rounded, color: colors.textSoft),
+              icon: Icon(Icons.add_circle_outline_rounded,
+                  color: colors.textSoft),
               onPressed: widget.onAttach,
               tooltip: 'Attach',
             ),
@@ -1519,14 +1639,17 @@ class _ComposerState extends State<_Composer> {
       Expanded(
         child: TextField(
           controller: widget.controller,
-          minLines: 1, maxLines: 5,
+          minLines: 1,
+          maxLines: 5,
           textCapitalization: TextCapitalization.sentences,
           style: TextStyle(color: colors.text),
           decoration: InputDecoration(
             isCollapsed: true,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             hintText: 'Write a message…',
-            hintStyle: TextStyle(color: colors.textMuted, fontWeight: BestieTokens.fwRegular),
+            hintStyle: TextStyle(
+                color: colors.textMuted, fontWeight: BestieTokens.fwRegular),
             filled: true,
             fillColor: colors.surface2,
             border: OutlineInputBorder(
@@ -1539,7 +1662,8 @@ class _ComposerState extends State<_Composer> {
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(BestieTokens.rPill),
-              borderSide: const BorderSide(color: BestieTokens.cBrand, width: 1.4),
+              borderSide:
+                  const BorderSide(color: BestieTokens.cBrand, width: 1.4),
             ),
           ),
           onSubmitted: (_) => widget.onSend(),
@@ -1547,7 +1671,8 @@ class _ComposerState extends State<_Composer> {
       ),
       const SizedBox(width: 6),
       widget.sending
-          ? const Padding(padding: EdgeInsets.all(10), child: BestieSpinner(size: 18))
+          ? const Padding(
+              padding: EdgeInsets.all(10), child: BestieSpinner(size: 18))
           : (_hasText
               ? IconButton.filled(
                   style: IconButton.styleFrom(
@@ -1585,14 +1710,16 @@ class _ComposerState extends State<_Composer> {
       Expanded(
         child: Row(children: [
           Container(
-            width: 10, height: 10,
+            width: 10,
+            height: 10,
             decoration: BoxDecoration(
               color: colors.danger,
               shape: BoxShape.circle,
             ),
           ),
           const SizedBox(width: 10),
-          Text('Recording  ', style: TextStyle(color: colors.textSoft, fontSize: 13)),
+          Text('Recording  ',
+              style: TextStyle(color: colors.textSoft, fontSize: 13)),
           Text('$mm:$ss',
               style: TextStyle(
                 color: colors.text,
@@ -1628,16 +1755,29 @@ class _MemberTile extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(children: [
-        BestieAvatar(name: name, imageUrl: u['avatarUrl']?.toString(), isClient: isClient, size: 32),
+        BestieAvatar(
+            name: name,
+            imageUrl: u['avatarUrl']?.toString(),
+            isClient: isClient,
+            size: 32),
         const SizedBox(width: 10),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              BestieUserName(name: name, isClient: isClient,
-                style: TextStyle(fontSize: 13.5, fontWeight: BestieTokens.fwSemibold, color: colors.text)),
-              Text((u['role'] ?? '').toString().replaceAll('_', ' ').toLowerCase(),
+              BestieUserName(
+                  name: name,
+                  isClient: isClient,
+                  style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: BestieTokens.fwSemibold,
+                      color: colors.text)),
+              Text(
+                  (u['role'] ?? '')
+                      .toString()
+                      .replaceAll('_', ' ')
+                      .toLowerCase(),
                   style: TextStyle(fontSize: 11, color: colors.textMuted)),
             ],
           ),
@@ -1648,10 +1788,13 @@ class _MemberTile extends StatelessWidget {
             color: colors.surface2,
             borderRadius: BorderRadius.circular(BestieTokens.rPill),
           ),
-          child: Text(role, style: TextStyle(
-            fontSize: 10, fontWeight: BestieTokens.fwSemibold,
-            color: colors.textSoft, letterSpacing: BestieTokens.lsWide,
-          )),
+          child: Text(role,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: BestieTokens.fwSemibold,
+                color: colors.textSoft,
+                letterSpacing: BestieTokens.lsWide,
+              )),
         ),
       ]),
     );
@@ -1674,7 +1817,13 @@ class _SystemBubble extends StatelessWidget {
     final tail = raw.substring(marker + 6); // skip "|call:"
     final colon = tail.indexOf(':');
     if (colon < 0) return (display: display, callId: tail, status: null);
-    return (display: display, callId: tail.substring(0, colon), status: tail.substring(colon + 1));
+    final rest = tail.substring(colon + 1);
+    final statusEnd = rest.indexOf(':');
+    return (
+      display: display,
+      callId: tail.substring(0, colon),
+      status: statusEnd < 0 ? rest : rest.substring(0, statusEnd),
+    );
   }
 
   @override
@@ -1685,10 +1834,13 @@ class _SystemBubble extends StatelessWidget {
     final body = parsed.display;
     final status = parsed.status;
     final eventType = (message['kind'] ?? '').toString().toLowerCase();
-    final isMissed = status == 'MISSED' || body.toLowerCase().contains('missed');
-    final isDeclined = status == 'DECLINED' || body.toLowerCase().contains('declined');
+    final isMissed =
+        status == 'MISSED' || body.toLowerCase().contains('missed');
+    final isDeclined =
+        status == 'DECLINED' || body.toLowerCase().contains('declined');
     final isActive = status == 'ACTIVE';
-    final isCall = eventType.contains('call') || body.toLowerCase().contains('call');
+    final isCall =
+        eventType.contains('call') || body.toLowerCase().contains('call');
 
     Color accent;
     IconData icon;
@@ -1716,10 +1868,13 @@ class _SystemBubble extends StatelessWidget {
         child: Material(
           color: Colors.transparent,
           child: InkWell(
-            onTap: canJoin ? () => context.go('/call/${parsed.callId}?mode=video') : null,
+            onTap: canJoin
+                ? () => context.go('/call/${parsed.callId}?mode=video')
+                : null,
             borderRadius: BorderRadius.circular(BestieTokens.rPill),
             child: Container(
-              constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.85),
+              constraints: BoxConstraints(
+                  maxWidth: MediaQuery.of(context).size.width * 0.85),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               decoration: BoxDecoration(
                 color: accent.withOpacity(0.10),
@@ -1744,7 +1899,8 @@ class _SystemBubble extends StatelessWidget {
                 if (canJoin) ...[
                   const SizedBox(width: 8),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(
                       color: accent,
                       borderRadius: BorderRadius.circular(BestieTokens.rPill),
@@ -1773,13 +1929,16 @@ class _MessageBubble extends ConsumerWidget {
   final Map<String, dynamic> message;
   final Map<String, dynamic> author;
   final bool mine;
-  const _MessageBubble({required this.message, required this.author, required this.mine});
+  const _MessageBubble(
+      {required this.message, required this.author, required this.mine});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = BestieColors.of(context);
     final body = message['body'] as String? ?? '';
-    final attachments = (message['attachments'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+    final attachments =
+        (message['attachments'] as List?)?.cast<Map<String, dynamic>>() ??
+            const [];
     final isClient = author['isClient'] == true;
     final align = mine ? Alignment.centerRight : Alignment.centerLeft;
     final bg = mine ? c.brand : c.surface;
@@ -1790,99 +1949,111 @@ class _MessageBubble extends ConsumerWidget {
     final isEdited = message['editedAt'] != null;
 
     return GestureDetector(
-      onLongPress: isDeleted ? null : () => _showActions(context, ref),
-      child: Align(
-      alignment: align,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.all(8),
-        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.78),
-        decoration: BoxDecoration(
-          color: isDeleted ? c.surface2 : bg,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(16),
-            topRight: const Radius.circular(16),
-            bottomLeft: Radius.circular(mine ? 16 : 4),
-            bottomRight: Radius.circular(mine ? 4 : 16),
-          ),
-          border: (mine && !isDeleted) ? null : Border.all(color: c.border),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (!mine)
-              Padding(
-                padding: const EdgeInsets.only(left: 4, bottom: 2),
-                child: BestieUserName(
-                  name: author['name'] ?? '',
-                  isClient: isClient,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: BestieTokens.fwBold,
-                    color: isClient ? c.client : c.brand,
-                  ),
-                ),
+        onLongPress: isDeleted ? null : () => _showActions(context, ref),
+        child: Align(
+          alignment: align,
+          child: Container(
+            margin: const EdgeInsets.symmetric(vertical: 4),
+            padding: const EdgeInsets.all(8),
+            constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width * 0.78),
+            decoration: BoxDecoration(
+              color: isDeleted ? c.surface2 : bg,
+              borderRadius: BorderRadius.only(
+                topLeft: const Radius.circular(16),
+                topRight: const Radius.circular(16),
+                bottomLeft: Radius.circular(mine ? 16 : 4),
+                bottomRight: Radius.circular(mine ? 4 : 16),
               ),
-            // Quoted "replying to X" preview inline at the top of the bubble.
-            if (!isDeleted && message['replyTo'] is Map)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(4, 2, 4, 6),
-                child: _ReplyQuote(replyTo: message['replyTo'] as Map, mine: mine, colors: c),
-              ),
-            if (!isDeleted) for (final a in attachments) ...[
-              _Attachment(asset: a, mine: mine, colors: c),
-              const SizedBox(height: 4),
-            ],
-            if (isDeleted)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(6, 2, 6, 2),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(Icons.block_rounded, size: 13, color: c.textMuted),
-                  const SizedBox(width: 6),
-                  Text('Message deleted',
+              border: (mine && !isDeleted) ? null : Border.all(color: c.border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (!mine)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4, bottom: 2),
+                    child: BestieUserName(
+                      name: author['name'] ?? '',
+                      isClient: isClient,
                       style: TextStyle(
-                        color: c.textMuted, fontSize: 13,
-                        fontStyle: FontStyle.italic,
-                      )),
-                ]),
-              )
-            else if (body.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(6, 2, 6, 2),
-                child: Text(body, style: TextStyle(color: fg, fontSize: 14, height: 1.35)),
-              ),
-            if (!isDeleted) _ReactionsBar(message: message),
-            // WhatsApp-style footer: time + (only on my messages) tick marks.
-            Padding(
-              padding: const EdgeInsets.fromLTRB(6, 2, 4, 0),
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                if (isEdited && !isDeleted) ...[
-                  Text('edited · ',
+                        fontSize: 11,
+                        fontWeight: BestieTokens.fwBold,
+                        color: isClient ? c.client : c.brand,
+                      ),
+                    ),
+                  ),
+                // Quoted "replying to X" preview inline at the top of the bubble.
+                if (!isDeleted && message['replyTo'] is Map)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(4, 2, 4, 6),
+                    child: _ReplyQuote(
+                        replyTo: message['replyTo'] as Map,
+                        mine: mine,
+                        colors: c),
+                  ),
+                if (!isDeleted)
+                  for (final a in attachments) ...[
+                    _Attachment(asset: a, mine: mine, colors: c),
+                    const SizedBox(height: 4),
+                  ],
+                if (isDeleted)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(6, 2, 6, 2),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(Icons.block_rounded, size: 13, color: c.textMuted),
+                      const SizedBox(width: 6),
+                      Text('Message deleted',
+                          style: TextStyle(
+                            color: c.textMuted,
+                            fontSize: 13,
+                            fontStyle: FontStyle.italic,
+                          )),
+                    ]),
+                  )
+                else if (body.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(6, 2, 6, 2),
+                    child: Text(body,
+                        style:
+                            TextStyle(color: fg, fontSize: 14, height: 1.35)),
+                  ),
+                if (!isDeleted) _ReactionsBar(message: message),
+                // WhatsApp-style footer: time + (only on my messages) tick marks.
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(6, 2, 4, 0),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    if (isEdited && !isDeleted) ...[
+                      Text('edited · ',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontStyle: FontStyle.italic,
+                            color: mine
+                                ? Colors.white.withOpacity(0.70)
+                                : c.textFaint,
+                          )),
+                    ],
+                    Text(
+                      timeStr,
                       style: TextStyle(
                         fontSize: 10,
-                        fontStyle: FontStyle.italic,
-                        color: mine ? Colors.white.withOpacity(0.70) : c.textFaint,
-                      )),
-                ],
-                Text(
-                  timeStr,
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: BestieTokens.fwMedium,
-                    color: mine && !isDeleted ? Colors.white.withOpacity(0.78) : c.textMuted,
-                  ),
+                        fontWeight: BestieTokens.fwMedium,
+                        color: mine && !isDeleted
+                            ? Colors.white.withOpacity(0.78)
+                            : c.textMuted,
+                      ),
+                    ),
+                    if (mine && !isDeleted) ...[
+                      const SizedBox(width: 4),
+                      _StatusTicks(status: status),
+                    ],
+                  ]),
                 ),
-                if (mine && !isDeleted) ...[
-                  const SizedBox(width: 4),
-                  _StatusTicks(status: status),
-                ],
-              ]),
+              ],
             ),
-          ],
-        ),
-      ),
-    ));
+          ),
+        ));
   }
 
   Future<void> _showActions(BuildContext context, WidgetRef ref) async {
@@ -1893,7 +2064,7 @@ class _MessageBubble extends ConsumerWidget {
     // immediately rather than flashing the default set first.
     final recents = await _RecentEmojis.read();
     // Merged set: recents first, then defaults that aren't already in recents.
-    final defaults = const ['👍','❤️','😂','😮','😢','🙏'];
+    final defaults = const ['👍', '❤️', '😂', '😮', '😢', '🙏'];
     final merged = <String>[
       ...recents,
       ...defaults.where((e) => !recents.contains(e)),
@@ -1903,30 +2074,37 @@ class _MessageBubble extends ConsumerWidget {
       context: context,
       backgroundColor: c.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
+        borderRadius:
+            BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
       ),
       builder: (ctx) => SafeArea(
         top: false,
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Container(
-            width: 40, height: 4,
+            width: 40,
+            height: 4,
             margin: const EdgeInsets.symmetric(vertical: 10),
             decoration: BoxDecoration(
-              color: c.borderStrong, borderRadius: BorderRadius.circular(BestieTokens.rPill),
+              color: c.borderStrong,
+              borderRadius: BorderRadius.circular(BestieTokens.rPill),
             ),
           ),
           // Quick-react row: recently-used first (so the user's habits stay
           // one tap away), then the iMessage / WhatsApp defaults.
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
-              for (final e in merged)
-                _ReactionChip(emoji: e, onTap: () {
-                  Navigator.pop(ctx);
-                  _RecentEmojis.push(e);
-                  _reactWith(context, ref, e);
-                }),
-            ]),
+            child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  for (final e in merged)
+                    _ReactionChip(
+                        emoji: e,
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _RecentEmojis.push(e);
+                          _reactWith(context, ref, e);
+                        }),
+                ]),
           ),
           Divider(height: 1, color: c.border),
           ListTile(
@@ -1934,18 +2112,26 @@ class _MessageBubble extends ConsumerWidget {
             title: Text('Copy', style: TextStyle(color: c.text)),
             onTap: () async {
               Navigator.pop(ctx);
-              await Clipboard.setData(ClipboardData(text: (message['body'] ?? '').toString()));
-              if (context.mounted) bestieToast(context, 'Copied', kind: BestieToastKind.success);
+              await Clipboard.setData(
+                  ClipboardData(text: (message['body'] ?? '').toString()));
+              if (context.mounted)
+                bestieToast(context, 'Copied', kind: BestieToastKind.success);
             },
           ),
           ListTile(
             leading: Icon(
-              message['pinned'] == true ? Icons.push_pin : Icons.push_pin_outlined,
+              message['pinned'] == true
+                  ? Icons.push_pin
+                  : Icons.push_pin_outlined,
               color: c.textSoft,
             ),
-            title: Text(message['pinned'] == true ? 'Unpin message' : 'Pin message',
+            title: Text(
+                message['pinned'] == true ? 'Unpin message' : 'Pin message',
                 style: TextStyle(color: c.text)),
-            onTap: () { Navigator.pop(ctx); _togglePin(context, ref); },
+            onTap: () {
+              Navigator.pop(ctx);
+              _togglePin(context, ref);
+            },
           ),
           ListTile(
             leading: Icon(Icons.reply_rounded, color: c.textSoft),
@@ -1954,37 +2140,55 @@ class _MessageBubble extends ConsumerWidget {
               Navigator.pop(ctx);
               // Look up the parent state in the widget tree so we can set
               // its `_replyingTo` and focus the composer.
-              context.findAncestorStateOfType<_ChatDetailScreenState>()
+              context
+                  .findAncestorStateOfType<_ChatDetailScreenState>()
                   ?._startReply(message);
             },
           ),
           ListTile(
             leading: Icon(Icons.bookmark_border_rounded, color: c.textSoft),
             title: Text('Save message', style: TextStyle(color: c.text)),
-            onTap: () { Navigator.pop(ctx); _saveMessage(context, ref); },
+            onTap: () {
+              Navigator.pop(ctx);
+              _saveMessage(context, ref);
+            },
           ),
           ListTile(
             leading: Icon(Icons.task_alt_rounded, color: c.textSoft),
-            title: Text('Create task from message', style: TextStyle(color: c.text)),
-            onTap: () { Navigator.pop(ctx); _createTaskFromMessage(context, ref); },
+            title: Text('Create task from message',
+                style: TextStyle(color: c.text)),
+            onTap: () {
+              Navigator.pop(ctx);
+              _createTaskFromMessage(context, ref);
+            },
           ),
           if (canEdit)
             ListTile(
               leading: Icon(Icons.edit_outlined, color: c.textSoft),
               title: Text('Edit', style: TextStyle(color: c.text)),
-              onTap: () { Navigator.pop(ctx); _editMessage(context, ref); },
+              onTap: () {
+                Navigator.pop(ctx);
+                _editMessage(context, ref);
+              },
             ),
           if (canDeleteForEveryone)
             ListTile(
               leading: Icon(Icons.delete_outline_rounded, color: c.danger),
               title: Text('Delete for everyone',
-                  style: TextStyle(color: c.danger, fontWeight: BestieTokens.fwSemibold)),
-              onTap: () { Navigator.pop(ctx); _deleteForEveryone(context, ref); },
+                  style: TextStyle(
+                      color: c.danger, fontWeight: BestieTokens.fwSemibold)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _deleteForEveryone(context, ref);
+              },
             ),
           ListTile(
             leading: Icon(Icons.visibility_off_outlined, color: c.textSoft),
             title: Text('Delete for me', style: TextStyle(color: c.text)),
-            onTap: () { Navigator.pop(ctx); _deleteForMe(context, ref); },
+            onTap: () {
+              Navigator.pop(ctx);
+              _deleteForMe(context, ref);
+            },
           ),
         ]),
       ),
@@ -1994,15 +2198,17 @@ class _MessageBubble extends ConsumerWidget {
   Future<void> _saveMessage(BuildContext context, WidgetRef ref) async {
     try {
       await ref.read(apiProvider).saveItem(
-        kind: 'MESSAGE',
-        refId: message['id'] as String,
-      );
+            kind: 'MESSAGE',
+            refId: message['id'] as String,
+          );
       ref.invalidate(savedProvider);
-      if (context.mounted) bestieToast(context, 'Saved to bookmarks',
-          kind: BestieToastKind.success);
+      if (context.mounted)
+        bestieToast(context, 'Saved to bookmarks',
+            kind: BestieToastKind.success);
     } catch (e) {
-      if (context.mounted) bestieToast(context, 'Could not save',
-          body: formatApiError(e), kind: BestieToastKind.error);
+      if (context.mounted)
+        bestieToast(context, 'Could not save',
+            body: formatApiError(e), kind: BestieToastKind.error);
     }
   }
 
@@ -2010,7 +2216,8 @@ class _MessageBubble extends ConsumerWidget {
   /// the (possibly truncated) message body, prefills the description with
   /// the full body + author handle so context isn't lost, and assigns the
   /// task to the message's author unless that's the current user.
-  Future<void> _createTaskFromMessage(BuildContext context, WidgetRef ref) async {
+  Future<void> _createTaskFromMessage(
+      BuildContext context, WidgetRef ref) async {
     final c = BestieColors.of(context);
     final body = (message['body'] ?? '').toString().trim();
     if (body.isEmpty) {
@@ -2019,24 +2226,30 @@ class _MessageBubble extends ConsumerWidget {
       return;
     }
     final me = ref.read(authStoreProvider).user;
-    final author = (message['author'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final author =
+        (message['author'] as Map?)?.cast<String, dynamic>() ?? const {};
     final authorId = author['id']?.toString();
     final authorName = author['name']?.toString() ?? 'Someone';
     final title = body.length > 80 ? '${body.substring(0, 77)}…' : body;
     final ctl = TextEditingController(text: title);
-    final dueDefault =
-        DateTime.now().add(const Duration(days: 1)).copyWith(hour: 17, minute: 0);
+    final dueDefault = DateTime.now()
+        .add(const Duration(days: 1))
+        .copyWith(hour: 17, minute: 0);
 
     final ok = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       backgroundColor: c.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
+        borderRadius:
+            BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
       ),
       builder: (ctx) => Padding(
         padding: EdgeInsets.fromLTRB(
-          20, 20, 20, MediaQuery.of(ctx).viewInsets.bottom + 20,
+          20,
+          20,
+          20,
+          MediaQuery.of(ctx).viewInsets.bottom + 20,
         ),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Row(children: [
@@ -2071,7 +2284,8 @@ class _MessageBubble extends ConsumerWidget {
                   child: Text(
                     'Will be assigned to $authorName',
                     style: TextStyle(
-                      fontSize: 12, color: c.brandStrong,
+                      fontSize: 12,
+                      color: c.brandStrong,
                       fontWeight: BestieTokens.fwSemibold,
                     ),
                   ),
@@ -2113,8 +2327,7 @@ class _MessageBubble extends ConsumerWidget {
         'priority': 'MEDIUM',
         'status': 'TODO',
         'dueAt': dueDefault.toUtc().toIso8601String(),
-        if (authorId != null && authorId != me?.id)
-          'assigneeIds': [authorId],
+        if (authorId != null && authorId != me?.id) 'assigneeIds': [authorId],
       });
       ref.invalidate(tasksKanbanProvider);
       if (context.mounted) {
@@ -2129,13 +2342,15 @@ class _MessageBubble extends ConsumerWidget {
     }
   }
 
-  Future<void> _reactWith(BuildContext context, WidgetRef ref, String emoji) async {
+  Future<void> _reactWith(
+      BuildContext context, WidgetRef ref, String emoji) async {
     try {
       await ref.read(apiProvider).reactMessage(message['id'] as String, emoji);
       ref.invalidate(messagesProvider(message['channelId'] as String));
     } catch (e) {
-      if (context.mounted) bestieToast(context, 'Reaction failed',
-          body: formatApiError(e), kind: BestieToastKind.error);
+      if (context.mounted)
+        bestieToast(context, 'Reaction failed',
+            body: formatApiError(e), kind: BestieToastKind.error);
     }
   }
 
@@ -2149,13 +2364,15 @@ class _MessageBubble extends ConsumerWidget {
       }
       ref.invalidate(messagesProvider(message['channelId'] as String));
     } catch (e) {
-      if (context.mounted) bestieToast(context, 'Pin failed',
-          body: formatApiError(e), kind: BestieToastKind.error);
+      if (context.mounted)
+        bestieToast(context, 'Pin failed',
+            body: formatApiError(e), kind: BestieToastKind.error);
     }
   }
 
   Future<void> _editMessage(BuildContext context, WidgetRef ref) async {
-    final controller = TextEditingController(text: (message['body'] ?? '').toString());
+    final controller =
+        TextEditingController(text: (message['body'] ?? '').toString());
     final c = BestieColors.of(context);
     final newBody = await showDialog<String>(
       context: context,
@@ -2163,13 +2380,16 @@ class _MessageBubble extends ConsumerWidget {
         backgroundColor: c.surface,
         title: Text('Edit message', style: TextStyle(color: c.text)),
         content: TextField(
-          controller: controller, autofocus: true,
-          minLines: 1, maxLines: 6,
+          controller: controller,
+          autofocus: true,
+          minLines: 1,
+          maxLines: 6,
           style: TextStyle(color: c.text),
           decoration: const InputDecoration(border: OutlineInputBorder()),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, controller.text.trim()),
             style: FilledButton.styleFrom(backgroundColor: BestieTokens.cBrand),
@@ -2183,23 +2403,28 @@ class _MessageBubble extends ConsumerWidget {
       await ref.read(apiProvider).editMessage(message['id'] as String, newBody);
       ref.invalidate(messagesProvider(message['channelId'] as String));
     } catch (e) {
-      if (context.mounted) bestieToast(context, 'Edit failed',
-          body: formatApiError(e), kind: BestieToastKind.error);
+      if (context.mounted)
+        bestieToast(context, 'Edit failed',
+            body: formatApiError(e), kind: BestieToastKind.error);
     }
   }
 
   Future<void> _deleteForEveryone(BuildContext context, WidgetRef ref) async {
     final ok = await bestieConfirm(context,
         title: 'Delete for everyone?',
-        description: 'This will replace the message with "Message deleted" for all members.',
+        description:
+            'This will replace the message with "Message deleted" for all members.',
         confirmLabel: 'Delete');
     if (!ok) return;
     try {
-      await ref.read(apiProvider).deleteMessageForEveryone(message['id'] as String);
+      await ref
+          .read(apiProvider)
+          .deleteMessageForEveryone(message['id'] as String);
       ref.invalidate(messagesProvider(message['channelId'] as String));
     } catch (e) {
-      if (context.mounted) bestieToast(context, 'Delete failed',
-          body: formatApiError(e), kind: BestieToastKind.error);
+      if (context.mounted)
+        bestieToast(context, 'Delete failed',
+            body: formatApiError(e), kind: BestieToastKind.error);
     }
   }
 
@@ -2210,7 +2435,8 @@ class _MessageBubble extends ConsumerWidget {
   Future<void> _deleteForMe(BuildContext context, WidgetRef ref) async {
     final ok = await bestieConfirm(context,
         title: 'Delete for me?',
-        description: 'The message stays visible to others, but it will disappear from your chat.',
+        description:
+            'The message stays visible to others, but it will disappear from your chat.',
         confirmLabel: 'Delete');
     if (!ok) return;
     try {
@@ -2220,14 +2446,15 @@ class _MessageBubble extends ConsumerWidget {
       hidden.add(message['id'] as String);
       await prefs.setStringList(key, hidden.toList());
       ref.invalidate(_hiddenMessageIdsProvider(message['channelId'] as String));
-    } catch (_) { /* silent — local-only */ }
+    } catch (_) {/* silent — local-only */}
   }
 
   String _formatTime(String? iso) {
     final dt = DateTime.tryParse(iso ?? '');
     if (dt == null) return '';
     final local = dt.toLocal();
-    final h = local.hour > 12 ? local.hour - 12 : (local.hour == 0 ? 12 : local.hour);
+    final h =
+        local.hour > 12 ? local.hour - 12 : (local.hour == 0 ? 12 : local.hour);
     final m = local.minute.toString().padLeft(2, '0');
     final ampm = local.hour >= 12 ? 'PM' : 'AM';
     return '$h:$m $ampm';
@@ -2253,7 +2480,8 @@ class _StatusTicks extends StatelessWidget {
       case 'SENDING':
         return Icon(Icons.access_time_rounded, size: 12, color: greyOnBrand);
       case 'FAILED':
-        return const Icon(Icons.error_outline_rounded, size: 12, color: Color(0xFFFFB4B4));
+        return const Icon(Icons.error_outline_rounded,
+            size: 12, color: Color(0xFFFFB4B4));
       case 'SEEN':
         return const _DoubleTick(color: seenBlue);
       case 'DELIVERED':
@@ -2269,7 +2497,8 @@ class _SingleTick extends StatelessWidget {
   final Color color;
   const _SingleTick({required this.color});
   @override
-  Widget build(BuildContext context) => Icon(Icons.check_rounded, size: 14, color: color);
+  Widget build(BuildContext context) =>
+      Icon(Icons.check_rounded, size: 14, color: color);
 }
 
 class _DoubleTick extends StatelessWidget {
@@ -2280,10 +2509,13 @@ class _DoubleTick extends StatelessWidget {
     // Two overlapping checks — leans on Stack instead of `done_all` so the
     // colors render crisply against the bubble background.
     return SizedBox(
-      width: 18, height: 14,
+      width: 18,
+      height: 14,
       child: Stack(clipBehavior: Clip.none, children: [
-        Positioned(left: 0, child: Icon(Icons.check_rounded, size: 14, color: color)),
-        Positioned(left: 5, child: Icon(Icons.check_rounded, size: 14, color: color)),
+        Positioned(
+            left: 0, child: Icon(Icons.check_rounded, size: 14, color: color)),
+        Positioned(
+            left: 5, child: Icon(Icons.check_rounded, size: 14, color: color)),
       ]),
     );
   }
@@ -2293,7 +2525,8 @@ class _Attachment extends StatelessWidget {
   final Map<String, dynamic> asset;
   final bool mine;
   final BestieColors colors;
-  const _Attachment({required this.asset, required this.mine, required this.colors});
+  const _Attachment(
+      {required this.asset, required this.mine, required this.colors});
 
   @override
   Widget build(BuildContext context) {
@@ -2308,7 +2541,8 @@ class _Attachment extends StatelessWidget {
         borderRadius: BorderRadius.circular(BestieTokens.rSm),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxHeight: 220, maxWidth: 240),
-          child: Image.network(url, fit: BoxFit.cover,
+          child: Image.network(url,
+              fit: BoxFit.cover,
               errorBuilder: (_, __, ___) => _fileChip(mime, name, size)),
         ),
       );
@@ -2323,20 +2557,25 @@ class _Attachment extends StatelessWidget {
     final accent = mine ? Colors.white : BestieTokens.cBrand;
     final fg = mine ? Colors.white : colors.text;
     final sizeStr = size is int ? _formatBytes(size) : '';
-    final icon = mime.contains('pdf') ? Icons.picture_as_pdf_rounded :
-                 mime.startsWith('video/') ? Icons.movie_rounded :
-                 mime.startsWith('audio/') ? Icons.audiotrack_rounded :
-                 Icons.description_rounded;
+    final icon = mime.contains('pdf')
+        ? Icons.picture_as_pdf_rounded
+        : mime.startsWith('video/')
+            ? Icons.movie_rounded
+            : mime.startsWith('audio/')
+                ? Icons.audiotrack_rounded
+                : Icons.description_rounded;
     return Container(
       padding: const EdgeInsets.all(8),
       constraints: const BoxConstraints(minWidth: 180, maxWidth: 240),
       decoration: BoxDecoration(
-        color: (mine ? Colors.white : colors.surface2).withOpacity(mine ? 0.16 : 1),
+        color: (mine ? Colors.white : colors.surface2)
+            .withOpacity(mine ? 0.16 : 1),
         borderRadius: BorderRadius.circular(BestieTokens.rSm),
       ),
       child: Row(children: [
         Container(
-          width: 34, height: 34,
+          width: 34,
+          height: 34,
           decoration: BoxDecoration(
             color: accent.withOpacity(mine ? 0.25 : 0.12),
             borderRadius: BorderRadius.circular(BestieTokens.rXs),
@@ -2345,12 +2584,22 @@ class _Attachment extends StatelessWidget {
         ),
         const SizedBox(width: 10),
         Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-            Text(name, maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: fg, fontSize: 13, fontWeight: BestieTokens.fwSemibold)),
-            if (sizeStr.isNotEmpty)
-              Text(sizeStr, style: TextStyle(color: fg.withOpacity(0.7), fontSize: 11)),
-          ]),
+          child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        color: fg,
+                        fontSize: 13,
+                        fontWeight: BestieTokens.fwSemibold)),
+                if (sizeStr.isNotEmpty)
+                  Text(sizeStr,
+                      style:
+                          TextStyle(color: fg.withOpacity(0.7), fontSize: 11)),
+              ]),
         ),
       ]),
     );
@@ -2373,11 +2622,13 @@ class _ReactionsBar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = BestieColors.of(context);
-    final reactions = (message['reactions'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+    final reactions =
+        (message['reactions'] as List?)?.cast<Map<String, dynamic>>() ??
+            const [];
     if (reactions.isEmpty) return const SizedBox.shrink();
 
-    final me = ref.watch(currentUserProvider).asData?.value
-        ?? ref.read(authStoreProvider).user;
+    final me = ref.watch(currentUserProvider).asData?.value ??
+        ref.read(authStoreProvider).user;
     // Aggregate emoji → users[].
     final byEmoji = <String, List<String>>{};
     for (final r in reactions) {
@@ -2404,7 +2655,8 @@ class _ReactionsBar extends ConsumerWidget {
                 } else {
                   await api.reactMessage(message['id'] as String, entry.key);
                 }
-                ref.invalidate(messagesProvider(message['channelId'] as String));
+                ref.invalidate(
+                    messagesProvider(message['channelId'] as String));
               } catch (_) {/* ignore — refresh will show truth */}
             },
           ),
@@ -2420,8 +2672,11 @@ class _ReactionPill extends StatelessWidget {
   final BestieColors colors;
   final VoidCallback onTap;
   const _ReactionPill({
-    required this.emoji, required this.count, required this.mine,
-    required this.colors, required this.onTap,
+    required this.emoji,
+    required this.count,
+    required this.mine,
+    required this.colors,
+    required this.onTap,
   });
 
   @override
@@ -2444,7 +2699,8 @@ class _ReactionPill extends StatelessWidget {
           Text(
             '$count',
             style: TextStyle(
-              fontSize: 11, fontWeight: BestieTokens.fwSemibold,
+              fontSize: 11,
+              fontWeight: BestieTokens.fwSemibold,
               color: mine ? BestieTokens.cBrand : colors.textSoft,
             ),
           ),
@@ -2460,18 +2716,24 @@ class _ReplyComposerChip extends StatelessWidget {
   final Map<String, dynamic> message;
   final BestieColors colors;
   final VoidCallback onCancel;
-  const _ReplyComposerChip({required this.message, required this.colors, required this.onCancel});
+  const _ReplyComposerChip(
+      {required this.message, required this.colors, required this.onCancel});
 
   @override
   Widget build(BuildContext context) {
-    final author = (message['author'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final author =
+        (message['author'] as Map?)?.cast<String, dynamic>() ?? const {};
     final body = (message['body'] ?? '').toString();
     final kind = (message['kind'] ?? 'TEXT').toString();
     final preview = body.isNotEmpty
         ? body
-        : (kind == 'IMAGE' ? '📷 Photo' :
-           kind == 'VOICE_NOTE' ? '🎙️ Voice note' :
-           kind == 'FILE' ? '📎 File' : '');
+        : (kind == 'IMAGE'
+            ? '📷 Photo'
+            : kind == 'VOICE_NOTE'
+                ? '🎙️ Voice note'
+                : kind == 'FILE'
+                    ? '📎 File'
+                    : '');
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
       decoration: BoxDecoration(
@@ -2482,21 +2744,26 @@ class _ReplyComposerChip extends StatelessWidget {
         Container(width: 3, height: 36, color: colors.brand),
         const SizedBox(width: 10),
         Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-            Text(
-              'Replying to ${author['name'] ?? 'message'}',
-              style: TextStyle(
-                fontSize: 11, fontWeight: BestieTokens.fwSemibold, color: colors.brand,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              preview,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 13, color: colors.textMuted),
-            ),
-          ]),
+          child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Replying to ${author['name'] ?? 'message'}',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: BestieTokens.fwSemibold,
+                    color: colors.brand,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  preview,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 13, color: colors.textMuted),
+                ),
+              ]),
         ),
         IconButton(
           icon: Icon(Icons.close_rounded, color: colors.textMuted, size: 20),
@@ -2515,15 +2782,14 @@ class _ReplyQuote extends StatelessWidget {
   final Map replyTo;
   final bool mine;
   final BestieColors colors;
-  const _ReplyQuote({required this.replyTo, required this.mine, required this.colors});
+  const _ReplyQuote(
+      {required this.replyTo, required this.mine, required this.colors});
 
   @override
   Widget build(BuildContext context) {
     final body = (replyTo['body'] ?? '').toString();
     final author = replyTo['authorId']?.toString() ?? 'message';
-    final bg = mine
-        ? Colors.white.withOpacity(0.16)
-        : colors.surface2;
+    final bg = mine ? Colors.white.withOpacity(0.16) : colors.surface2;
     final accent = mine ? Colors.white.withOpacity(0.6) : colors.brand;
     final fg = mine ? Colors.white : colors.text;
     return Container(
@@ -2533,21 +2799,25 @@ class _ReplyQuote extends StatelessWidget {
         borderRadius: BorderRadius.circular(BestieTokens.rXs),
         border: Border(left: BorderSide(color: accent, width: 3)),
       ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-        Text(
-          author,
-          style: TextStyle(fontSize: 10, fontWeight: BestieTokens.fwBold, color: accent),
-        ),
-        if (body.isNotEmpty) ...[
-          const SizedBox(height: 2),
-          Text(
-            body,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 12, color: fg.withOpacity(0.85)),
-          ),
-        ],
-      ]),
+      child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              author,
+              style: TextStyle(
+                  fontSize: 10, fontWeight: BestieTokens.fwBold, color: accent),
+            ),
+            if (body.isNotEmpty) ...[
+              const SizedBox(height: 2),
+              Text(
+                body,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 12, color: fg.withOpacity(0.85)),
+              ),
+            ],
+          ]),
     );
   }
 }
@@ -2596,10 +2866,23 @@ class _DateDivider extends StatelessWidget {
     if (diff == 0) return 'TODAY';
     if (diff == 1) return 'YESTERDAY';
     if (diff < 7) {
-      const days = ['MON','TUE','WED','THU','FRI','SAT','SUN'];
+      const days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
       return days[(dt.weekday - 1) % 7];
     }
-    const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+    const months = [
+      'JAN',
+      'FEB',
+      'MAR',
+      'APR',
+      'MAY',
+      'JUN',
+      'JUL',
+      'AUG',
+      'SEP',
+      'OCT',
+      'NOV',
+      'DEC'
+    ];
     if (dt.year == now.year) return '${months[dt.month - 1]} ${dt.day}';
     return '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
   }
@@ -2645,23 +2928,27 @@ class _TypingIndicatorState extends State<_TypingIndicator>
         AnimatedBuilder(
           animation: _ctrl,
           builder: (ctx, _) {
-            return Row(mainAxisSize: MainAxisSize.min, children: List.generate(3, (i) {
-              final phase = ((_ctrl.value + i * 0.18) % 1.0);
-              final scale = 0.65 + 0.35 * (1 - (phase - 0.5).abs() * 2).clamp(0.0, 1.0);
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 2),
-                child: Transform.scale(
-                  scale: scale,
-                  child: Container(
-                    width: 6, height: 6,
-                    decoration: BoxDecoration(
-                      color: widget.colors.brand,
-                      shape: BoxShape.circle,
+            return Row(
+                mainAxisSize: MainAxisSize.min,
+                children: List.generate(3, (i) {
+                  final phase = ((_ctrl.value + i * 0.18) % 1.0);
+                  final scale = 0.65 +
+                      0.35 * (1 - (phase - 0.5).abs() * 2).clamp(0.0, 1.0);
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 2),
+                    child: Transform.scale(
+                      scale: scale,
+                      child: Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          color: widget.colors.brand,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-              );
-            }));
+                  );
+                }));
           },
         ),
         const SizedBox(width: 10),
@@ -2695,7 +2982,8 @@ class _ReactionChip extends StatelessWidget {
       onTap: onTap,
       radius: 28,
       child: Container(
-        width: 44, height: 44,
+        width: 44,
+        height: 44,
         alignment: Alignment.center,
         child: Text(emoji, style: const TextStyle(fontSize: 26)),
       ),
@@ -2709,7 +2997,8 @@ class _VoiceNote extends StatefulWidget {
   final String url;
   final bool mine;
   final BestieColors colors;
-  const _VoiceNote({required this.url, required this.mine, required this.colors});
+  const _VoiceNote(
+      {required this.url, required this.mine, required this.colors});
 
   @override
   State<_VoiceNote> createState() => _VoiceNoteState();
@@ -2730,17 +3019,25 @@ class _VoiceNoteState extends State<_VoiceNote> {
       _player.onPlayerStateChanged.listen((s) {
         if (mounted) setState(() => _playing = s == PlayerState.playing);
       }),
-      _player.onDurationChanged.listen((d) => mounted ? setState(() => _duration = d) : null),
-      _player.onPositionChanged.listen((p) => mounted ? setState(() => _position = p) : null),
+      _player.onDurationChanged
+          .listen((d) => mounted ? setState(() => _duration = d) : null),
+      _player.onPositionChanged
+          .listen((p) => mounted ? setState(() => _position = p) : null),
       _player.onPlayerComplete.listen((_) {
-        if (mounted) setState(() { _playing = false; _position = Duration.zero; });
+        if (mounted)
+          setState(() {
+            _playing = false;
+            _position = Duration.zero;
+          });
       }),
     ];
   }
 
   @override
   void dispose() {
-    for (final s in _subs) { s.cancel(); }
+    for (final s in _subs) {
+      s.cancel();
+    }
     _player.dispose();
     super.dispose();
   }
@@ -2758,7 +3055,11 @@ class _VoiceNoteState extends State<_VoiceNote> {
 
   Future<void> _cycleSpeed() async {
     setState(() {
-      _speed = switch (_speed) { 1.0 => 1.5, 1.5 => 2.0, _ => 1.0, };
+      _speed = switch (_speed) {
+        1.0 => 1.5,
+        1.5 => 2.0,
+        _ => 1.0,
+      };
     });
     if (_playing) await _player.setPlaybackRate(_speed);
   }
@@ -2769,8 +3070,10 @@ class _VoiceNoteState extends State<_VoiceNote> {
     final c = widget.colors;
     final accent = mine ? Colors.white : BestieTokens.cBrand;
     final fg = mine ? Colors.white : c.text;
-    final dur = _duration.inMilliseconds > 0 ? _duration : const Duration(seconds: 1);
-    final progress = (_position.inMilliseconds / dur.inMilliseconds).clamp(0.0, 1.0);
+    final dur =
+        _duration.inMilliseconds > 0 ? _duration : const Duration(seconds: 1);
+    final progress =
+        (_position.inMilliseconds / dur.inMilliseconds).clamp(0.0, 1.0);
     final remaining = _playing ? (_duration - _position) : _duration;
     final mm = (remaining.inSeconds ~/ 60).toString().padLeft(2, '0');
     final ss = (remaining.inSeconds % 60).toString().padLeft(2, '0');
@@ -2786,7 +3089,8 @@ class _VoiceNoteState extends State<_VoiceNote> {
         GestureDetector(
           onTap: _toggle,
           child: Container(
-            width: 34, height: 34,
+            width: 34,
+            height: 34,
             decoration: BoxDecoration(
               color: accent,
               shape: BoxShape.circle,
@@ -2800,29 +3104,35 @@ class _VoiceNoteState extends State<_VoiceNote> {
         ),
         const SizedBox(width: 10),
         Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-            SizedBox(
-              height: 22,
-              child: Row(children: List.generate(28, (i) {
-                final filled = (i / 28) < progress;
-                final h = 4 + ((i * 3 + 7) % 14).toDouble();
-                return Expanded(
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 1),
-                    height: h,
-                    decoration: BoxDecoration(
-                      color: filled ? accent : accent.withOpacity(0.35),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                );
-              })),
-            ),
-            const SizedBox(height: 2),
-            Text('$mm:$ss',
-              style: TextStyle(color: fg.withOpacity(0.85), fontSize: 11,
-                fontFeatures: const [FontFeature.tabularFigures()])),
-          ]),
+          child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  height: 22,
+                  child: Row(
+                      children: List.generate(28, (i) {
+                    final filled = (i / 28) < progress;
+                    final h = 4 + ((i * 3 + 7) % 14).toDouble();
+                    return Expanded(
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 1),
+                        height: h,
+                        decoration: BoxDecoration(
+                          color: filled ? accent : accent.withOpacity(0.35),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    );
+                  })),
+                ),
+                const SizedBox(height: 2),
+                Text('$mm:$ss',
+                    style: TextStyle(
+                        color: fg.withOpacity(0.85),
+                        fontSize: 11,
+                        fontFeatures: const [FontFeature.tabularFigures()])),
+              ]),
         ),
         const SizedBox(width: 6),
         // Compact speed cycle — taps 1× → 1.5× → 2× → 1×. Mirrors WhatsApp.
@@ -2831,7 +3141,8 @@ class _VoiceNoteState extends State<_VoiceNote> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
             decoration: BoxDecoration(
-              color: (mine ? Colors.white : accent).withOpacity(mine ? 0.18 : 0.12),
+              color: (mine ? Colors.white : accent)
+                  .withOpacity(mine ? 0.18 : 0.12),
               borderRadius: BorderRadius.circular(BestieTokens.rXs),
             ),
             child: Text(

@@ -1,5 +1,9 @@
 package com.mytaskking.mytaskking_mobile
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
@@ -10,6 +14,7 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private val launchChannel = "mytaskking/launch_intent"
+    private val callNotificationChannel = "mytaskking/call_notification"
     private var latestLaunchPayload: Map<String, String?>? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -28,6 +33,21 @@ class MainActivity : FlutterActivity() {
                     latestLaunchPayload = null
                 } else {
                     result.notImplemented()
+                }
+            }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, callNotificationChannel)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "show" -> {
+                        @Suppress("UNCHECKED_CAST")
+                        showOngoingCallNotification(call.arguments as? Map<String, Any?>)
+                        result.success(null)
+                    }
+                    "hide" -> {
+                        getSystemService(NotificationManager::class.java).cancel(4701)
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
                 }
             }
     }
@@ -63,5 +83,47 @@ class MainActivity : FlutterActivity() {
                     WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
             )
         }
+    }
+
+    private fun showOngoingCallNotification(args: Map<String, Any?>?) {
+        val title = args?.get("title")?.toString() ?: "Call in progress"
+        val body = args?.get("body")?.toString() ?: "Tap to return"
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("type", if (args?.get("meetingSlug") != null) "meeting.invited" else "call.incoming")
+            putExtra("callId", args?.get("callId")?.toString())
+            putExtra("meetingSlug", args?.get("meetingSlug")?.toString())
+            putExtra("mode", args?.get("mode")?.toString())
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            4701,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                "active_calls",
+                "Active calls",
+                NotificationManager.IMPORTANCE_LOW
+            )
+            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        }
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, "active_calls")
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(this)
+        }
+        val notification = builder
+            .setSmallIcon(applicationInfo.icon)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setCategory(Notification.CATEGORY_CALL)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .setContentIntent(pendingIntent)
+            .build()
+        getSystemService(NotificationManager::class.java).notify(4701, notification)
     }
 }

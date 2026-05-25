@@ -42,7 +42,8 @@ class DashboardScreen extends ConsumerWidget {
             description: formatApiError(e),
           ),
           data: (data) {
-            final counts = (data['counts'] as Map?)?.cast<String, dynamic>() ?? const {};
+            final counts =
+                (data['counts'] as Map?)?.cast<String, dynamic>() ?? const {};
             final isAdmin = ['SUPER_ADMIN', 'ADMIN'].contains(user?.role);
             final isClient = user?.isClient ?? false;
             final attendanceData = attendance.asData?.value;
@@ -53,15 +54,17 @@ class DashboardScreen extends ConsumerWidget {
             // instead of pairing every card with its own SizedBox — that
             // way an empty meetings/today-tasks card doesn't leave a ghost
             // gap behind in the layout.
-            final liveMeetings = (meetings.asData?.value ?? const <Map<String, dynamic>>[])
-                .where((m) => m['endedAt'] == null)
-                .toList();
+            final liveMeetings =
+                (meetings.asData?.value ?? const <Map<String, dynamic>>[])
+                    .where((m) => m['endedAt'] == null)
+                    .toList();
             final sections = <Widget>[
               if (!isClient && _shouldShowCheckInBanner(attendanceData))
                 _checkInBanner(context, attendanceData),
               _statsGrid(
                 context,
-                _statsFor(context, counts, isAdmin: isAdmin, isClient: isClient),
+                _statsFor(context, counts,
+                    isAdmin: isAdmin, isClient: isClient),
               ),
               if (!isClient && todayTasks.isNotEmpty)
                 _todayTasksCard(context, todayTasks),
@@ -71,10 +74,16 @@ class DashboardScreen extends ConsumerWidget {
                 _weeklyStatsCard(context, counts, isAdmin: isAdmin),
               const LeaderboardCard(topN: 5),
               if (isAdmin)
-                _activityCard(context, data['recentActivity'] as List? ?? const []),
+                _activityCard(
+                    context, data['recentActivity'] as List? ?? const []),
             ];
             return ListView(
-              padding: const EdgeInsets.all(BestieTokens.s4),
+              padding: EdgeInsets.fromLTRB(
+                BestieTokens.s4,
+                BestieTokens.s4,
+                BestieTokens.s4,
+                112 + MediaQuery.of(context).padding.bottom,
+              ),
               children: [
                 _greeting(user, attendanceData),
                 for (final s in sections) ...[
@@ -108,20 +117,28 @@ class DashboardScreen extends ConsumerWidget {
 
   Widget _greeting(dynamic user, Map<String, dynamic>? attendance) {
     return Row(children: [
-      BestieAvatar(name: user?.name ?? '—', imageUrl: user?.avatarUrl, isClient: user?.isClient ?? false, size: 44),
+      BestieAvatar(
+          name: user?.name ?? '—',
+          imageUrl: user?.avatarUrl,
+          isClient: user?.isClient ?? false,
+          size: 44),
       const SizedBox(width: 12),
       Expanded(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(children: [
-              Text(_greetingPrefix(), style: const TextStyle(color: BestieTokens.cTextMuted, fontSize: 12)),
+              Text(_greetingPrefix(),
+                  style: const TextStyle(
+                      color: BestieTokens.cTextMuted, fontSize: 12)),
               const SizedBox(width: 6),
               _workingHoursPill(attendance),
             ]),
-            BestieUserName(name: user?.name ?? 'Friend',
+            BestieUserName(
+                name: user?.name ?? 'Friend',
                 isClient: user?.isClient ?? false,
-                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+                style:
+                    const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
           ],
         ),
       ),
@@ -170,7 +187,8 @@ class DashboardScreen extends ConsumerWidget {
       ),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         Container(
-          width: 6, height: 6,
+          width: 6,
+          height: 6,
           decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
         const SizedBox(width: 5),
@@ -196,7 +214,8 @@ class DashboardScreen extends ConsumerWidget {
     return true;
   }
 
-  Widget _checkInBanner(BuildContext context, Map<String, dynamic>? attendance) {
+  Widget _checkInBanner(
+      BuildContext context, Map<String, dynamic>? attendance) {
     final minWords = (attendance?['minRequiredWords'] as num?)?.toInt() ?? 100;
     return Material(
       color: Colors.transparent,
@@ -215,12 +234,14 @@ class DashboardScreen extends ConsumerWidget {
           ),
           child: Row(children: [
             Container(
-              width: 40, height: 40,
+              width: 40,
+              height: 40,
               decoration: BoxDecoration(
                 color: Colors.white.withOpacity(0.18),
                 borderRadius: BorderRadius.circular(BestieTokens.rMd),
               ),
-              child: const Icon(Icons.flag_rounded, color: Colors.white, size: 22),
+              child:
+                  const Icon(Icons.flag_rounded, color: Colors.white, size: 22),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -260,21 +281,24 @@ class DashboardScreen extends ConsumerWidget {
       final dDay = DateTime(d.year, d.month, d.day);
       return !dDay.isAfter(today);
     }
+
     final mine = all.where((t) {
-      final assignees = (t['assignees'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
-      if (!assignees.any((a) => (a['user'] as Map?)?['id'] == meId)) return false;
+      final assignees =
+          (t['assignees'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+      if (!assignees.any((a) => (a['user'] as Map?)?['id'] == meId))
+        return false;
       final status = (t['status'] ?? 'TODO').toString();
       if (status == 'DONE' || status == 'CANCELLED') return false;
       final due = DateTime.tryParse('${t['dueAt']}')?.toLocal();
       if (due == null) return false;
       return isTodayOrOverdue(due);
     }).toList();
-    mine.sort((a, b) =>
-        '${a['dueAt']}'.compareTo('${b['dueAt']}'));
+    mine.sort((a, b) => '${a['dueAt']}'.compareTo('${b['dueAt']}'));
     return mine;
   }
 
-  Widget _todayTasksCard(BuildContext context, List<Map<String, dynamic>> tasks) {
+  Widget _todayTasksCard(
+      BuildContext context, List<Map<String, dynamic>> tasks) {
     final now = DateTime.now();
     return Container(
       padding: const EdgeInsets.all(BestieTokens.s3),
@@ -287,7 +311,8 @@ class DashboardScreen extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            const Icon(Icons.today_rounded, size: 18, color: BestieTokens.cWarning),
+            const Icon(Icons.today_rounded,
+                size: 18, color: BestieTokens.cWarning),
             const SizedBox(width: 6),
             const Expanded(
               child: Text('Due today & overdue',
@@ -318,9 +343,12 @@ class DashboardScreen extends ConsumerWidget {
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   child: Row(children: [
                     Container(
-                      width: 8, height: 8,
+                      width: 8,
+                      height: 8,
                       decoration: BoxDecoration(
-                        color: overdue ? BestieTokens.cDanger : BestieTokens.cWarning,
+                        color: overdue
+                            ? BestieTokens.cDanger
+                            : BestieTokens.cWarning,
                         shape: BoxShape.circle,
                       ),
                     ),
@@ -330,7 +358,8 @@ class DashboardScreen extends ConsumerWidget {
                         '${t['title'] ?? ''}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w600, fontSize: 13),
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -339,7 +368,9 @@ class DashboardScreen extends ConsumerWidget {
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
-                        color: overdue ? BestieTokens.cDanger : BestieTokens.cTextMuted,
+                        color: overdue
+                            ? BestieTokens.cDanger
+                            : BestieTokens.cTextMuted,
                       ),
                     ),
                   ]),
@@ -360,7 +391,8 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  List<Widget> _statsFor(BuildContext context, Map<String, dynamic> c, {required bool isAdmin, required bool isClient}) {
+  List<Widget> _statsFor(BuildContext context, Map<String, dynamic> c,
+      {required bool isAdmin, required bool isClient}) {
     Widget tile(IconData icon, String label, dynamic v, Color color) {
       final n = v is num ? v : num.tryParse('$v');
       return Container(
@@ -375,18 +407,28 @@ class DashboardScreen extends ConsumerWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Container(
-              width: 32, height: 32,
-              decoration: BoxDecoration(color: color.withOpacity(0.12), borderRadius: BorderRadius.circular(8)),
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                  color: color.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(8)),
               child: Icon(icon, size: 18, color: color),
             ),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label, style: const TextStyle(color: BestieTokens.cTextMuted, fontSize: 11)),
+                Text(label,
+                    style: const TextStyle(
+                        color: BestieTokens.cTextMuted, fontSize: 11)),
                 if (n != null)
-                  AnimatedCounter(value: n, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700))
+                  AnimatedCounter(
+                      value: n,
+                      style: const TextStyle(
+                          fontSize: 22, fontWeight: FontWeight.w700))
                 else
-                  Text('${v ?? '—'}', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
+                  Text('${v ?? '—'}',
+                      style: const TextStyle(
+                          fontSize: 22, fontWeight: FontWeight.w700)),
               ],
             ),
           ],
@@ -396,25 +438,37 @@ class DashboardScreen extends ConsumerWidget {
 
     if (isAdmin) {
       return [
-        tile(Icons.people_outline,         'Employees',          c['employees'],          BestieTokens.cBrand),
-        tile(Icons.manage_accounts_outlined,'Clients',            c['clients'],            BestieTokens.cClient),
-        tile(Icons.task_alt_outlined,      'Tasks open',         c['tasksOpen'],          BestieTokens.cWarning),
-        tile(Icons.bolt,                   'Done · 7d',          c['tasksDoneThisWeek'],  BestieTokens.cSuccess),
-        tile(Icons.call_outlined,          'Calls today',        c['callsToday'],         BestieTokens.cInfo),
-        tile(Icons.podcasts,               'Active calls',       c['activeCalls'],        BestieTokens.cAccent),
+        tile(Icons.people_outline, 'Employees', c['employees'],
+            BestieTokens.cBrand),
+        tile(Icons.manage_accounts_outlined, 'Clients', c['clients'],
+            BestieTokens.cClient),
+        tile(Icons.task_alt_outlined, 'Tasks open', c['tasksOpen'],
+            BestieTokens.cWarning),
+        tile(Icons.bolt, 'Done · 7d', c['tasksDoneThisWeek'],
+            BestieTokens.cSuccess),
+        tile(Icons.call_outlined, 'Calls today', c['callsToday'],
+            BestieTokens.cInfo),
+        tile(Icons.podcasts, 'Active calls', c['activeCalls'],
+            BestieTokens.cAccent),
       ];
     }
     if (isClient) {
       return [
-        tile(Icons.chat_bubble_outline,    'Channels',           c['channels'],           BestieTokens.cBrand),
-        tile(Icons.notifications_none,     'Unread',             c['unreadNotifs'],       BestieTokens.cWarning),
+        tile(Icons.chat_bubble_outline, 'Channels', c['channels'],
+            BestieTokens.cBrand),
+        tile(Icons.notifications_none, 'Unread', c['unreadNotifs'],
+            BestieTokens.cWarning),
       ];
     }
     return [
-      tile(Icons.task_alt_outlined,        'Open tasks',         c['myOpenTasks'],        BestieTokens.cWarning),
-      tile(Icons.check_circle_outline,     'Done · 7d',          c['myDoneThisWeek'],     BestieTokens.cSuccess),
-      tile(Icons.chat_bubble_outline,      'Channels',           c['activeChannels'],     BestieTokens.cBrand),
-      tile(Icons.notifications_none,       'Unread',             c['unreadNotifs'],       BestieTokens.cInfo),
+      tile(Icons.task_alt_outlined, 'Open tasks', c['myOpenTasks'],
+          BestieTokens.cWarning),
+      tile(Icons.check_circle_outline, 'Done · 7d', c['myDoneThisWeek'],
+          BestieTokens.cSuccess),
+      tile(Icons.chat_bubble_outline, 'Channels', c['activeChannels'],
+          BestieTokens.cBrand),
+      tile(Icons.notifications_none, 'Unread', c['unreadNotifs'],
+          BestieTokens.cInfo),
     ];
   }
 
@@ -440,9 +494,17 @@ class DashboardScreen extends ConsumerWidget {
   /// Compact "Your week in numbers" card — tasks shipped, still open, and a
   /// completion bar. Reuses the counts the dashboard endpoint already
   /// returns so it costs us no extra round trip.
-  Widget _weeklyStatsCard(BuildContext context, Map<String, dynamic> counts, {required bool isAdmin}) {
-    final done = ((isAdmin ? counts['tasksDoneThisWeek'] : counts['myDoneThisWeek']) as num?)?.toInt() ?? 0;
-    final open = ((isAdmin ? counts['tasksOpen'] : counts['myOpenTasks']) as num?)?.toInt() ?? 0;
+  Widget _weeklyStatsCard(BuildContext context, Map<String, dynamic> counts,
+      {required bool isAdmin}) {
+    final done = ((isAdmin
+                ? counts['tasksDoneThisWeek']
+                : counts['myDoneThisWeek']) as num?)
+            ?.toInt() ??
+        0;
+    final open =
+        ((isAdmin ? counts['tasksOpen'] : counts['myOpenTasks']) as num?)
+                ?.toInt() ??
+            0;
     final total = done + open;
     final pct = total == 0 ? 0.0 : (done / total).clamp(0.0, 1.0);
     return Container(
@@ -456,7 +518,8 @@ class DashboardScreen extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            const Icon(Icons.show_chart_rounded, size: 18, color: BestieTokens.cBrand),
+            const Icon(Icons.show_chart_rounded,
+                size: 18, color: BestieTokens.cBrand),
             const SizedBox(width: 6),
             const Text('Your week',
                 style: TextStyle(fontWeight: FontWeight.w700)),
@@ -497,9 +560,7 @@ class DashboardScreen extends ConsumerWidget {
       children: [
         Text(value,
             style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-                color: color)),
+                fontSize: 20, fontWeight: FontWeight.w800, color: color)),
         Text(label,
             style: const TextStyle(
                 fontSize: 11,
@@ -513,7 +574,8 @@ class DashboardScreen extends ConsumerWidget {
   /// join button. Hidden entirely when nothing's active so the dashboard
   /// stays calm during quiet hours. Rendered above the daily quote so
   /// "your team is meeting right now" is the most visible affordance.
-  Widget _liveMeetingsCard(BuildContext context, List<Map<String, dynamic>> all) {
+  Widget _liveMeetingsCard(
+      BuildContext context, List<Map<String, dynamic>> all) {
     if (all.isEmpty) return const SizedBox.shrink();
     final live = all.where((m) => m['endedAt'] == null).toList();
     if (live.isEmpty) return const SizedBox.shrink();
@@ -528,7 +590,8 @@ class DashboardScreen extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            const Icon(Icons.videocam_rounded, size: 18, color: BestieTokens.cSuccess),
+            const Icon(Icons.videocam_rounded,
+                size: 18, color: BestieTokens.cSuccess),
             const SizedBox(width: 6),
             const Expanded(
               child: Text('Live meetings',
@@ -538,7 +601,8 @@ class DashboardScreen extends ConsumerWidget {
             const SizedBox(width: 6),
             Text('${live.length}',
                 style: const TextStyle(
-                    color: BestieTokens.cTextMuted, fontSize: 12,
+                    color: BestieTokens.cTextMuted,
+                    fontSize: 12,
                     fontWeight: FontWeight.w600)),
           ]),
           const SizedBox(height: 4),
@@ -550,7 +614,8 @@ class DashboardScreen extends ConsumerWidget {
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 child: Row(children: [
                   Container(
-                    width: 32, height: 32,
+                    width: 32,
+                    height: 32,
                     decoration: BoxDecoration(
                       color: BestieTokens.cSuccess.withOpacity(0.14),
                       borderRadius: BorderRadius.circular(BestieTokens.rMd),
@@ -559,7 +624,8 @@ class DashboardScreen extends ConsumerWidget {
                       (m['mode'] ?? 'VIDEO').toString().toUpperCase() == 'VOICE'
                           ? Icons.call_rounded
                           : Icons.videocam_rounded,
-                      size: 18, color: BestieTokens.cSuccess,
+                      size: 18,
+                      color: BestieTokens.cSuccess,
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -586,13 +652,15 @@ class DashboardScreen extends ConsumerWidget {
                   TextButton(
                     onPressed: () => context.go('/meetings'),
                     style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 0),
                       minimumSize: const Size(0, 30),
                       backgroundColor: BestieTokens.cBrand,
                       foregroundColor: Colors.white,
                     ),
                     child: const Text('Join',
-                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+                        style: TextStyle(
+                            fontWeight: FontWeight.w700, fontSize: 12)),
                   ),
                 ]),
               ),
@@ -623,8 +691,11 @@ class DashboardScreen extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            const Expanded(child: Text('Recent activity', style: TextStyle(fontWeight: FontWeight.w700))),
-            BestieBadge(tone: BestieTone.success, dot: true, child: const Text('Live')),
+            const Expanded(
+                child: Text('Recent activity',
+                    style: TextStyle(fontWeight: FontWeight.w700))),
+            BestieBadge(
+                tone: BestieTone.success, dot: true, child: const Text('Live')),
           ]),
           const Divider(),
           if (items.isEmpty)
@@ -639,16 +710,23 @@ class DashboardScreen extends ConsumerWidget {
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 6),
                 child: Row(children: [
-                  Container(width: 6, height: 6, decoration: const BoxDecoration(color: BestieTokens.cBrand, shape: BoxShape.circle)),
+                  Container(
+                      width: 6,
+                      height: 6,
+                      decoration: const BoxDecoration(
+                          color: BestieTokens.cBrand, shape: BoxShape.circle)),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Wrap(spacing: 6, runSpacing: 2, children: [
                       BestieUserName(
                         name: actor?['name'] ?? 'System',
                         isClient: actor?['isClient'] ?? false,
-                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                        style: const TextStyle(
+                            fontSize: 13, fontWeight: FontWeight.w600),
                       ),
-                      Text('${a['kind']}', style: const TextStyle(color: BestieTokens.cTextMuted, fontSize: 12)),
+                      Text('${a['kind']}',
+                          style: const TextStyle(
+                              color: BestieTokens.cTextMuted, fontSize: 12)),
                     ]),
                   ),
                 ]),

@@ -14,6 +14,20 @@ function makeChannelName() {
   return `call_${nanoid(10)}`;
 }
 
+function fmtTime(date = new Date()) {
+  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+function fmtDuration(ms) {
+  if (!ms || ms < 0) return null;
+  const totalMinutes = Math.max(1, Math.round(ms / 60000));
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if (h && m) return `${h}h ${m}m`;
+  if (h) return `${h}h`;
+  return `${m}m`;
+}
+
 /**
  * Posts a CALL_EVENT message in the chat channel a call belongs to (if any),
  * so the timeline shows "📞 Missed call from Priya · 2:14 PM" instead of the
@@ -22,11 +36,14 @@ function makeChannelName() {
 async function postCallEventMessage({ call, kind, actor }) {
   if (!call?.channelId) return;
   const initiatorName = call.initiator?.name || 'Someone';
+  const now = new Date();
+  const started = call.startedAt || call.createdAt || now;
+  const duration = fmtDuration(now.getTime() - new Date(started).getTime());
   const text =
-    kind === 'MISSED'   ? `📞 Missed call from ${initiatorName}` :
-    kind === 'DECLINED' ? `📞 ${actor?.name || 'A teammate'} declined the call` :
-    kind === 'STARTED'  ? `📞 ${initiatorName} started a ${call.kind === 'GROUP' ? 'group call' : 'call'}` :
-    kind === 'ENDED'    ? `📞 Call ended` :
+    kind === 'MISSED'   ? `📞 Missed call from ${initiatorName} · ${fmtTime(now)}` :
+    kind === 'DECLINED' ? `📞 ${actor?.name || 'A teammate'} declined the call · ${fmtTime(now)}` :
+    kind === 'STARTED'  ? `📞 ${initiatorName} started a ${call.kind === 'GROUP' ? 'group call' : 'call'} · ${fmtTime(now)}` :
+    kind === 'ENDED'    ? `📞 Call ended · ${fmtTime(now)}${duration ? ` · ${duration}` : ''}` :
                           `📞 Call event`;
   // Append a pipe-delimited trailer with the call id + status so the
   // Flutter chat bubble can offer a tap-to-join affordance (like WhatsApp).
@@ -122,10 +139,25 @@ async function join({ callId, user }) {
 }
 
 async function leave({ callId, user }) {
+  const before = await prisma.call.findUnique({ where: { id: callId }, include: callInclude });
+  if (!before) throw NotFound('Call not found');
   await prisma.callParticipant.updateMany({
     where: { callId, userId: user.id, leftAt: null },
     data: { leftAt: new Date() },
   });
+  if (before.kind === 'ONE_TO_ONE') {
+    await prisma.callParticipant.updateMany({
+      where: { callId, leftAt: null },
+      data: { leftAt: new Date() },
+    });
+    const ended = await prisma.call.update({
+      where: { id: callId },
+      data: { status: 'ENDED', endedAt: new Date() },
+      include: callInclude,
+    });
+    await postCallEventMessage({ call: ended, kind: 'ENDED', actor: user });
+    return ended;
+  }
   const remaining = await prisma.callParticipant.count({ where: { callId, leftAt: null } });
   if (remaining === 0) {
     const ended = await prisma.call.update({

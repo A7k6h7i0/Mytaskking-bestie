@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
+import '../active_call_state.dart';
 import '../state.dart';
 
 /// Mobile shell with role-aware bottom navigation.
@@ -17,26 +20,34 @@ class ShellScreen extends ConsumerWidget {
   const ShellScreen({super.key, required this.child});
 
   static const _employeeTabs = [
-    _Tab('/chat',       Icons.chat_bubble_outline_rounded,    Icons.chat_bubble_rounded,    'Chat'),
-    _Tab('/tasks',      Icons.task_alt_outlined,              Icons.task_alt_rounded,       'Tasks'),
-    _Tab('/attendance', Icons.access_time_rounded,            Icons.access_time_filled_rounded, 'Workday'),
-    _Tab('/meetings',   Icons.videocam_outlined,              Icons.videocam_rounded,       'Meet'),
-    _Tab('/more',       Icons.apps_rounded,                   Icons.apps_rounded,           'More'),
+    _Tab('/chat', Icons.chat_bubble_outline_rounded, Icons.chat_bubble_rounded,
+        'Chat'),
+    _Tab('/tasks', Icons.task_alt_outlined, Icons.task_alt_rounded, 'Tasks'),
+    _Tab('/attendance', Icons.access_time_rounded,
+        Icons.access_time_filled_rounded, 'Workday'),
+    _Tab('/meetings', Icons.videocam_outlined, Icons.videocam_rounded, 'Meet'),
+    _Tab('/more', Icons.apps_rounded, Icons.apps_rounded, 'More'),
   ];
 
   static const _telecallerTabs = [
-    _Tab('/chat',       Icons.chat_bubble_outline_rounded, Icons.chat_bubble_rounded,   'Chat'),
-    _Tab('/telecaller', Icons.headset_mic_outlined,        Icons.headset_mic_rounded,   'Leads'),
-    _Tab('/dashboard',  Icons.dashboard_outlined,          Icons.dashboard_rounded,     'Home'),
-    _Tab('/calls',      Icons.call_outlined,               Icons.call_rounded,          'Calls'),
-    _Tab('/more',       Icons.apps_rounded,                Icons.apps_rounded,          'More'),
+    _Tab('/chat', Icons.chat_bubble_outline_rounded, Icons.chat_bubble_rounded,
+        'Chat'),
+    _Tab('/telecaller', Icons.headset_mic_outlined, Icons.headset_mic_rounded,
+        'Leads'),
+    _Tab('/dashboard', Icons.dashboard_outlined, Icons.dashboard_rounded,
+        'Home'),
+    _Tab('/calls', Icons.call_outlined, Icons.call_rounded, 'Calls'),
+    _Tab('/more', Icons.apps_rounded, Icons.apps_rounded, 'More'),
   ];
 
   static const _clientTabs = [
-    _Tab('/chat',      Icons.chat_bubble_outline_rounded, Icons.chat_bubble_rounded,   'Chat'),
-    _Tab('/saved',     Icons.bookmark_outline_rounded,    Icons.bookmark_rounded,      'Saved'),
-    _Tab('/dashboard', Icons.dashboard_outlined,          Icons.dashboard_rounded,     'Home'),
-    _Tab('/more',      Icons.apps_rounded,                Icons.apps_rounded,          'More'),
+    _Tab('/chat', Icons.chat_bubble_outline_rounded, Icons.chat_bubble_rounded,
+        'Chat'),
+    _Tab('/saved', Icons.bookmark_outline_rounded, Icons.bookmark_rounded,
+        'Saved'),
+    _Tab('/dashboard', Icons.dashboard_outlined, Icons.dashboard_rounded,
+        'Home'),
+    _Tab('/more', Icons.apps_rounded, Icons.apps_rounded, 'More'),
   ];
 
   List<_Tab> _tabsFor(BestieUser? user) {
@@ -58,7 +69,17 @@ class ShellScreen extends ConsumerWidget {
     return Scaffold(
       extendBody: true,
       backgroundColor: colors.bg,
-      body: child,
+      body: Stack(
+        children: [
+          Positioned.fill(child: child),
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 98 + MediaQuery.of(context).padding.bottom,
+            child: _MiniCallBar(colors: colors),
+          ),
+        ],
+      ),
       bottomNavigationBar: _PremiumBottomNav(
         tabs: tabs,
         currentIndex: index,
@@ -80,7 +101,8 @@ class ShellScreen extends ConsumerWidget {
       context: context,
       backgroundColor: c.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
+        borderRadius:
+            BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
       ),
       builder: (ctx) {
         return SafeArea(
@@ -95,7 +117,8 @@ class ShellScreen extends ConsumerWidget {
                   margin: const EdgeInsets.only(bottom: 12),
                   alignment: Alignment.center,
                   child: Container(
-                    width: 40, height: 4,
+                    width: 40,
+                    height: 4,
                     decoration: BoxDecoration(
                       color: c.borderStrong,
                       borderRadius: BorderRadius.circular(BestieTokens.rPill),
@@ -121,10 +144,14 @@ class ShellScreen extends ConsumerWidget {
                   childAspectRatio: 0.95,
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   children: [
-                    for (final e in entries) _MoreTile(entry: e, colors: c, onTap: () {
-                      Navigator.of(ctx).pop();
-                      context.go(e.route);
-                    }),
+                    for (final e in entries)
+                      _MoreTile(
+                          entry: e,
+                          colors: c,
+                          onTap: () {
+                            Navigator.of(ctx).pop();
+                            context.go(e.route);
+                          }),
                   ],
                 ),
               ],
@@ -146,20 +173,144 @@ class ShellScreen extends ConsumerWidget {
     return [
       // Dashboard moved from bottom nav → More since Workday now lives in
       // the bottom-nav slot.
-      _MoreEntry(Icons.dashboard_outlined,       'Dashboard',     '/dashboard',     c.brand,        true),
-      _MoreEntry(Icons.notifications_outlined,   'Notifications', '/notifications', c.warning,      true),
-      _MoreEntry(Icons.event_outlined,           'Calendar',      '/calendar',      c.info,         !isClient),
-      _MoreEntry(Icons.videocam_outlined,        'Meetings',      '/meetings',      c.brand,        !isClient),
-      _MoreEntry(Icons.history_rounded,          'Call history',  '/calls',         c.success,      !isClient),
-      _MoreEntry(Icons.campaign_outlined,        'Announcements', '/announcements', c.accent,       true),
-      _MoreEntry(Icons.bookmark_outline_rounded, 'Saved',         '/saved',         c.brand,        true),
-      _MoreEntry(Icons.people_outline_rounded,   'Employees',     '/employees',     c.brand,        !isClient),
-      _MoreEntry(Icons.business_center_outlined, 'Clients',       '/clients',       c.client,       isAdmin || role == 'MANAGER'),
-      _MoreEntry(Icons.headset_mic_outlined,     'Telecaller',    '/telecaller',    c.warning,      isTelecaller || isAdmin),
-      _MoreEntry(Icons.devices_outlined,         'Sessions',      '/sessions',      c.textMuted,    true),
-      _MoreEntry(Icons.person_outline_rounded,   'Profile',       '/profile',       c.brandStrong,  true),
-      _MoreEntry(Icons.settings_outlined,        'Settings',      '/settings',      c.textSoft,     true),
+      _MoreEntry(
+          Icons.dashboard_outlined, 'Dashboard', '/dashboard', c.brand, true),
+      _MoreEntry(Icons.notifications_outlined, 'Notifications',
+          '/notifications', c.warning, true),
+      _MoreEntry(
+          Icons.event_outlined, 'Calendar', '/calendar', c.info, !isClient),
+      _MoreEntry(
+          Icons.videocam_outlined, 'Meetings', '/meetings', c.brand, !isClient),
+      _MoreEntry(Icons.history_rounded, 'Call history', '/calls', c.success,
+          !isClient),
+      _MoreEntry(Icons.campaign_outlined, 'Announcements', '/announcements',
+          c.accent, true),
+      _MoreEntry(
+          Icons.bookmark_outline_rounded, 'Saved', '/saved', c.brand, true),
+      _MoreEntry(Icons.people_outline_rounded, 'Employees', '/employees',
+          c.brand, !isClient),
+      _MoreEntry(Icons.business_center_outlined, 'Clients', '/clients',
+          c.client, isAdmin || role == 'MANAGER'),
+      _MoreEntry(Icons.headset_mic_outlined, 'Telecaller', '/telecaller',
+          c.warning, isTelecaller || isAdmin),
+      _MoreEntry(
+          Icons.devices_outlined, 'Sessions', '/sessions', c.textMuted, true),
+      _MoreEntry(Icons.person_outline_rounded, 'Profile', '/profile',
+          c.brandStrong, true),
+      _MoreEntry(
+          Icons.settings_outlined, 'Settings', '/settings', c.textSoft, true),
     ].where((e) => e.visible).toList();
+  }
+}
+
+class _MiniCallBar extends StatefulWidget {
+  final BestieColors colors;
+  const _MiniCallBar({required this.colors});
+
+  @override
+  State<_MiniCallBar> createState() => _MiniCallBarState();
+}
+
+class _MiniCallBarState extends State<_MiniCallBar> {
+  late final Timer _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    super.dispose();
+  }
+
+  String _elapsed(DateTime startedAt) {
+    final d = DateTime.now().difference(startedAt);
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return h > 0 ? '$h:$m:$s' : '$m:$s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<ActiveCallInfo?>(
+      valueListenable: ActiveCallState.current,
+      builder: (context, call, _) {
+        if (call == null) return const SizedBox.shrink();
+        return Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(18),
+            onTap: () => context.go(call.route),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: widget.colors.surface.withOpacity(0.96),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: widget.colors.border),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.18),
+                    blurRadius: 18,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Row(children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: BestieTokens.cSuccess.withOpacity(0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    call.mode == 'voice'
+                        ? Icons.call_rounded
+                        : Icons.videocam_rounded,
+                    color: BestieTokens.cSuccess,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        call.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: widget.colors.text,
+                          fontWeight: BestieTokens.fwBold,
+                          fontSize: 13,
+                        ),
+                      ),
+                      Text(
+                        'In call · ${_elapsed(call.startedAt)}',
+                        style: TextStyle(
+                          color: widget.colors.textMuted,
+                          fontSize: 11,
+                          fontWeight: BestieTokens.fwSemibold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.open_in_full_rounded, size: 18),
+              ]),
+            ),
+          ),
+        );
+      },
+    );
   }
 }
 
@@ -177,14 +328,16 @@ class _MoreEntry {
   final String route;
   final Color accent;
   final bool visible;
-  const _MoreEntry(this.icon, this.label, this.route, this.accent, this.visible);
+  const _MoreEntry(
+      this.icon, this.label, this.route, this.accent, this.visible);
 }
 
 class _MoreTile extends StatelessWidget {
   final _MoreEntry entry;
   final BestieColors colors;
   final VoidCallback onTap;
-  const _MoreTile({required this.entry, required this.colors, required this.onTap});
+  const _MoreTile(
+      {required this.entry, required this.colors, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -197,7 +350,8 @@ class _MoreTile extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 10),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Container(
-              width: 46, height: 46,
+              width: 46,
+              height: 46,
               decoration: BoxDecoration(
                 color: entry.accent.withOpacity(0.12),
                 borderRadius: BorderRadius.circular(BestieTokens.rMd),
@@ -243,7 +397,8 @@ class _PremiumBottomNav extends ConsumerWidget {
     if (me == null) return 0;
     int n = 0;
     for (final c in channels) {
-      final members = (c['members'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+      final members =
+          (c['members'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
       final mine = members.firstWhere(
         (m) => m['userId'] == me.id,
         orElse: () => const {},
@@ -261,11 +416,13 @@ class _PremiumBottomNav extends ConsumerWidget {
     final me = ref.read(authStoreProvider).user;
     final kanban = ref.watch(tasksKanbanProvider).asData?.value;
     if (me == null || kanban == null) return 0;
-    final cols = (kanban['columns'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final cols =
+        (kanban['columns'] as Map?)?.cast<String, dynamic>() ?? const {};
     int n = 0;
     for (final v in cols.values) {
       for (final t in (v as List).cast<Map<String, dynamic>>()) {
-        final assignees = (t['assignees'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+        final assignees =
+            (t['assignees'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
         final mine = assignees.firstWhere(
           (a) => (a['user'] as Map?)?['id'] == me.id,
           orElse: () => const {},
@@ -288,7 +445,9 @@ class _PremiumBottomNav extends ConsumerWidget {
       top: false,
       child: Padding(
         padding: EdgeInsets.fromLTRB(
-          12, 0, 12,
+          12,
+          0,
+          12,
           12 + (media.padding.bottom > 0 ? 0 : 4),
         ),
         child: Container(
@@ -319,7 +478,8 @@ class _PremiumBottomNav extends ConsumerWidget {
                 //   Tasks  → tasks awaiting my accept (warning-colored, see _NavItem)
                 int? badge;
                 if (tab.path == '/chat' && unread > 0) badge = unread;
-                if (tab.path == '/tasks' && pendingTasks > 0) badge = pendingTasks;
+                if (tab.path == '/tasks' && pendingTasks > 0)
+                  badge = pendingTasks;
                 return Expanded(
                   child: _NavItem(
                     icon: tab.icon,
@@ -363,7 +523,8 @@ class _NavItem extends StatefulWidget {
   State<_NavItem> createState() => _NavItemState();
 }
 
-class _NavItemState extends State<_NavItem> with SingleTickerProviderStateMixin {
+class _NavItemState extends State<_NavItem>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 320),
@@ -405,8 +566,10 @@ class _NavItemState extends State<_NavItem> with SingleTickerProviderStateMixin 
             widget.colors.brandSoft,
             t,
           )!;
-          final iconColor = Color.lerp(widget.colors.textMuted, widget.colors.brandStrong, t)!;
-          final labelColor = Color.lerp(widget.colors.textMuted, widget.colors.brandStrong, t)!;
+          final iconColor = Color.lerp(
+              widget.colors.textMuted, widget.colors.brandStrong, t)!;
+          final labelColor = Color.lerp(
+              widget.colors.textMuted, widget.colors.brandStrong, t)!;
 
           return Center(
             child: Container(
@@ -451,12 +614,15 @@ class _NavItemState extends State<_NavItem> with SingleTickerProviderStateMixin 
                           top: -4,
                           right: -8,
                           child: Container(
-                            constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                            constraints: const BoxConstraints(
+                                minWidth: 16, minHeight: 16),
                             padding: const EdgeInsets.symmetric(horizontal: 4),
                             decoration: BoxDecoration(
                               color: BestieTokens.cDanger,
-                              borderRadius: BorderRadius.circular(BestieTokens.rPill),
-                              border: Border.all(color: widget.colors.surface, width: 2),
+                              borderRadius:
+                                  BorderRadius.circular(BestieTokens.rPill),
+                              border: Border.all(
+                                  color: widget.colors.surface, width: 2),
                             ),
                             alignment: Alignment.center,
                             child: Text(
@@ -480,7 +646,8 @@ class _NavItemState extends State<_NavItem> with SingleTickerProviderStateMixin 
                     overflow: TextOverflow.fade,
                     style: TextStyle(
                       fontSize: 10.5,
-                      fontWeight: widget.selected ? FontWeight.w700 : FontWeight.w500,
+                      fontWeight:
+                          widget.selected ? FontWeight.w700 : FontWeight.w500,
                       letterSpacing: -0.1,
                       color: labelColor,
                       height: 1.0,
