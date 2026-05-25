@@ -99,6 +99,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   bool _remoteClosed = false;
   Timer? _timer;
   Duration _elapsed = Duration.zero;
+  DateTime? _connectedAt;
 
   bool get _isVideo => _videoEnabled;
 
@@ -152,6 +153,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
         final name = data['userName']?.toString();
         if (name != null && name.isNotEmpty) _remoteNames[uid] = name;
       });
+      _markRemoteConnected();
       _publishActiveCallState();
     }));
   }
@@ -171,7 +173,9 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   }
 
   void _startTimer() {
+    if (_connectedAt != null) return;
     _timer?.cancel();
+    _connectedAt = DateTime.now();
     _elapsed = Duration.zero;
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
@@ -194,6 +198,11 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       title: title,
       participants: _remoteNames.values.toList(growable: false),
     );
+  }
+
+  void _markRemoteConnected() {
+    _startTimer();
+    if (mounted) setState(() => _status = 'Connected');
   }
 
   Future<void> _showOngoingCallNotification() async {
@@ -237,6 +246,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     }
     if (changed && mounted) {
       setState(() {});
+      _markRemoteConnected();
       _publishActiveCallState();
       _showOngoingCallNotification();
     }
@@ -249,6 +259,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       } catch (_) {}
     }
     await _CallSession.teardown();
+    _connectedAt = null;
     ActiveCallState.clear();
     await _hideOngoingCallNotification();
   }
@@ -264,15 +275,15 @@ class _CallScreenState extends ConsumerState<CallScreen> {
         if (!mounted) return;
         setState(() {
           _joined = true;
-          _status = 'Connected';
+          _status = _remoteUids.isEmpty ? 'Waiting for others…' : 'Connected';
         });
-        _startTimer();
         _publishActiveCallState();
         _showOngoingCallNotification();
       },
       onUserJoined: (conn, remoteUid, elapsed) {
         if (!mounted) return;
         setState(() => _remoteUids.add(remoteUid));
+        _markRemoteConnected();
         _publishActiveCallState();
         _showOngoingCallNotification();
       },
@@ -772,6 +783,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).padding.bottom;
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
@@ -799,7 +811,8 @@ class _CallScreenState extends ConsumerState<CallScreen> {
               ),
             ),
           Positioned(top: 8, left: 8, right: 8, child: _header()),
-          Positioned(bottom: 24, left: 0, right: 0, child: _controls()),
+          Positioned(
+              bottom: 22 + bottomInset, left: 0, right: 0, child: _controls()),
         ]),
       ),
     );
@@ -833,10 +846,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                 decoration: const BoxDecoration(
                     color: Color(0xFFEF4444), shape: BoxShape.circle),
               ),
-            Text(
-                _recording
-                    ? 'Recording · ${_formatElapsed(_elapsed)}'
-                    : (_joined ? _formatElapsed(_elapsed) : _status),
+            Text(_connectedAt == null ? _status : _formatElapsed(_elapsed),
                 style: const TextStyle(color: Colors.white70, fontSize: 12)),
           ]),
         ]),
@@ -1397,26 +1407,29 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     }
     if (!_isVideo) {
       return Center(
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          _participantsStrip(),
-          const SizedBox(height: 28),
-          _voiceParticipantsGrid(),
-          const SizedBox(height: 22),
-          Text(_joined ? _formatElapsed(_elapsed) : _status,
-              style: const TextStyle(color: Colors.white70, fontSize: 14)),
-          const SizedBox(height: 8),
-          Text(
-            'Tap Video to switch on your camera',
-            style:
-                TextStyle(color: Colors.white.withOpacity(0.46), fontSize: 12),
-          ),
-        ]),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 112, 20, 220),
+          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+            _voiceParticipantsGrid(),
+            const SizedBox(height: 24),
+            _participantsStrip(showTimer: false),
+            const SizedBox(height: 14),
+            Text(_connectedAt == null ? _status : _formatElapsed(_elapsed),
+                style: const TextStyle(color: Colors.white70, fontSize: 14)),
+            const SizedBox(height: 8),
+            Text(
+              'Tap Video to switch on your camera',
+              style: TextStyle(
+                  color: Colors.white.withOpacity(0.46), fontSize: 12),
+            ),
+          ]),
+        ),
       );
     }
     if (_remoteUids.isEmpty) {
       return Center(
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          _participantsStrip(),
+          _participantsStrip(showTimer: false),
           const SizedBox(height: 18),
           Icon(Icons.videocam_outlined, color: Colors.white24, size: 76),
           const SizedBox(height: 16),
@@ -1435,11 +1448,15 @@ class _CallScreenState extends ConsumerState<CallScreen> {
           connection: RtcConnection(channelId: _channelName ?? ''),
         )),
       ),
-      Positioned(left: 16, right: 16, bottom: 118, child: _participantsStrip()),
+      Positioned(
+          left: 16,
+          right: 16,
+          top: 96,
+          child: Center(child: _participantsStrip())),
     ]);
   }
 
-  Widget _participantsStrip() {
+  Widget _participantsStrip({bool showTimer = true}) {
     final names = <String>[
       if (_remoteNames.isEmpty && _remoteUids.isNotEmpty) 'Participant',
       ..._remoteNames.values,
@@ -1468,7 +1485,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
             ),
           ),
         ),
-        if (_joined) ...[
+        if (showTimer && _connectedAt != null) ...[
           const SizedBox(width: 10),
           Text(
             _formatElapsed(_elapsed),
@@ -1544,8 +1561,8 @@ class _CallScreenState extends ConsumerState<CallScreen> {
         GestureDetector(
           onTap: onTap,
           child: Container(
-            width: 52,
-            height: 52,
+            width: 58,
+            height: 58,
             decoration: BoxDecoration(
               color: active ? Colors.white : Colors.white.withOpacity(0.14),
               shape: BoxShape.circle,
@@ -1609,12 +1626,12 @@ class _CallScreenState extends ConsumerState<CallScreen> {
             label: _recording ? 'Stop' : 'Record',
           ),
         ]),
-        const SizedBox(height: 18),
+        const SizedBox(height: 22),
         GestureDetector(
           onTap: _hangup,
           child: Container(
-            width: 64,
-            height: 64,
+            width: 76,
+            height: 76,
             decoration: const BoxDecoration(
                 color: BestieTokens.cDanger, shape: BoxShape.circle),
             child: const Icon(Icons.call_end_rounded,
