@@ -183,11 +183,63 @@ function overdueReminderJob() {
   });
 }
 
+// Promotes any SCHEDULED tasks whose `scheduledAt` has just passed into
+// TODO and notifies every assignee — the heart of the "schedule a task for
+// someone, they get it at delivery time" feature.
+function scheduledTasksJob() {
+  cron.schedule('* * * * *', async () => {
+    const now = new Date();
+    const due = await prisma.task.findMany({
+      where: { status: 'SCHEDULED', scheduledAt: { lte: now } },
+      include: {
+        assignees: { include: { user: { select: { id: true, name: true } } } },
+        createdBy: { select: { id: true, name: true } },
+      },
+    });
+    if (!due.length) return;
+    for (const t of due) {
+      try {
+        await prisma.task.update({
+          where: { id: t.id },
+          data: { status: 'TODO' },
+        });
+        const io = global.io || null;
+        for (const a of t.assignees) {
+          io?.to(`user:${a.userId}`).emit('task.assigned', {
+            task: t,
+            assignerName: t.createdBy?.name || 'Someone',
+          });
+        }
+        await _notifyAll(
+          t,
+          t.assignees.map((a) => ({ userId: a.userId })),
+          {
+            title: `Scheduled task — ${t.title}`,
+            body: t.description
+              ? t.description.slice(0, 140)
+              : `From ${t.createdBy?.name || 'a teammate'}`,
+            data: {
+              taskId: t.id,
+              kind: 'TASK',
+              from: t.createdBy?.name || '',
+            },
+          },
+        );
+      } catch (err) {
+        logger.warn({ err: err.message, taskId: t.id },
+            'jobs.scheduled_tasks.promote_failed');
+      }
+    }
+    logger.info({ count: due.length }, 'jobs.scheduled_tasks.released');
+  });
+}
+
 module.exports = function startJobs() {
   expireClientsJob();
   followupRemindersJob();
   taskRemindersJob();
   overdueReminderJob();
+  scheduledTasksJob();
   automations.startOverdueSweep();
   automations.registerSchedules().catch((err) => logger.warn({ err: err.message }, 'jobs.automations.register_failed'));
   logger.info('jobs.started');

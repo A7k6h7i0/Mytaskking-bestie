@@ -20,6 +20,7 @@ async function ensureVisible(task, user) {
 }
 
 async function list({ user, status, assigneeId, q, page = 1, pageSize = 50, view = 'list' }) {
+  const isAdmin = ['SUPER_ADMIN', 'ADMIN'].includes(user.role);
   const where = {
     ...(status ? { status } : {}),
     ...(assigneeId ? { assignees: { some: { userId: assigneeId } } } : {}),
@@ -32,9 +33,23 @@ async function list({ user, status, assigneeId, q, page = 1, pageSize = 50, view
         }
       : {}),
     // Non-admins see only their tasks
-    ...(!['SUPER_ADMIN', 'ADMIN'].includes(user.role)
+    ...(!isAdmin
       ? { OR: [{ createdById: user.id }, { assignees: { some: { userId: user.id } } }] }
       : {}),
+    // SCHEDULED tasks are hidden from assignees until the scheduler flips
+    // them. The creator still sees them so they can edit or cancel before
+    // delivery. An explicit `?status=SCHEDULED` filter overrides this so
+    // admins can still drill into the queue.
+    ...(status
+      ? {}
+      : {
+          NOT: {
+            AND: [
+              { status: 'SCHEDULED' },
+              { createdById: { not: user.id } },
+            ],
+          },
+        }),
   };
 
   if (view === 'kanban') {
@@ -43,8 +58,11 @@ async function list({ user, status, assigneeId, q, page = 1, pageSize = 50, view
       orderBy: [{ status: 'asc' }, { order: 'asc' }, { createdAt: 'desc' }],
       include: taskInclude,
     });
-    const columns = { BACKLOG: [], TODO: [], IN_PROGRESS: [], REVIEW: [], DONE: [], CANCELLED: [] };
-    for (const t of items) columns[t.status].push(t);
+    const columns = { BACKLOG: [], TODO: [], IN_PROGRESS: [], REVIEW: [], DONE: [], CANCELLED: [], SCHEDULED: [] };
+    for (const t of items) {
+      if (!columns[t.status]) columns[t.status] = [];
+      columns[t.status].push(t);
+    }
     return { view, columns };
   }
 
@@ -69,13 +87,23 @@ async function getById(id, user) {
 }
 
 async function create(input, creator) {
+  // Scheduled delivery: when scheduledAt is in the future, the task is
+  // created as SCHEDULED so the assignee doesn't see it yet. A cron job
+  // (jobs/index.js → scheduledTasksJob) promotes it to TODO + notifies
+  // the assignee at the right moment.
+  const scheduledAt = input.scheduledAt ? new Date(input.scheduledAt) : null;
+  const isScheduledForLater = scheduledAt && scheduledAt > new Date();
+  const status = isScheduledForLater
+    ? 'SCHEDULED'
+    : (input.status || 'TODO');
   const task = await prisma.task.create({
     data: {
       title: input.title,
       description: input.description || null,
-      status: input.status || 'TODO',
+      status,
       priority: input.priority || 'MEDIUM',
       dueAt: input.dueAt ? new Date(input.dueAt) : null,
+      scheduledAt,
       createdById: creator.id,
       channelId: input.channelId || null,
       boardId: input.boardId || null,

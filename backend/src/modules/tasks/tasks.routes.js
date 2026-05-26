@@ -156,6 +156,7 @@ router.post(
       status: Status,
       priority: Priority,
       dueAt: Joi.date().iso(),
+      scheduledAt: Joi.date().iso().allow(null),
       assigneeIds: Joi.array().items(Joi.string()),
       channelId: Joi.string().allow(null, ''),
       boardId: Joi.string().allow(null, ''),
@@ -171,13 +172,18 @@ router.post(
       .catch(() => {});
     req.app.get('io')?.emit('task.created', task);
 
-    // Fan out two-sided notifications + realtime toast.
-    fanOutAssignment({
-      task,
-      assigneeIds: req.body.assigneeIds || [],
-      assigner: req.user,
-      io: req.app.get('io'),
-    }).catch(() => {});
+    // For SCHEDULED tasks we *don't* fan out the assignment now — the
+    // cron job (scheduledTasksJob) will fire `task.assigned` + push the
+    // moment scheduledAt passes. The creator still gets confirmation via
+    // the 201 response.
+    if (task.status !== 'SCHEDULED') {
+      fanOutAssignment({
+        task,
+        assigneeIds: req.body.assigneeIds || [],
+        assigner: req.user,
+        io: req.app.get('io'),
+      }).catch(() => {});
+    }
 
     res.status(201).json(task);
   })

@@ -2100,7 +2100,12 @@ class _MessageBubble extends ConsumerWidget {
     final isDeleted = message['deletedAt'] != null;
     final isEdited = message['editedAt'] != null;
 
-    return GestureDetector(
+    return _SwipeToReply(
+      enabled: !isDeleted,
+      onReply: () => context
+          .findAncestorStateOfType<_ChatDetailScreenState>()
+          ?._startReply(message),
+      child: GestureDetector(
         onLongPress: isDeleted ? null : () => _showActions(context, ref),
         child: Align(
           alignment: align,
@@ -2205,7 +2210,9 @@ class _MessageBubble extends ConsumerWidget {
               ],
             ),
           ),
-        ));
+        ),
+      ),
+    );
   }
 
   Future<void> _showActions(BuildContext context, WidgetRef ref) async {
@@ -2976,13 +2983,27 @@ class _Attachment extends StatelessWidget {
     final isImage = mime.startsWith('image/');
     final isAudio = mime.startsWith('audio/');
     if (isImage && url.isNotEmpty) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(BestieTokens.rSm),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 220, maxWidth: 240),
-          child: Image.network(url,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => _fileChip(mime, name, size)),
+      final tag = 'img-${asset['id'] ?? url}';
+      return GestureDetector(
+        onTap: () => Navigator.of(context).push(PageRouteBuilder(
+          opaque: false,
+          barrierColor: Colors.black87,
+          pageBuilder: (_, __, ___) =>
+              _FullscreenImage(url: url, heroTag: tag, name: name),
+          transitionsBuilder: (_, anim, __, child) =>
+              FadeTransition(opacity: anim, child: child),
+        )),
+        child: Hero(
+          tag: tag,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(BestieTokens.rSm),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 220, maxWidth: 240),
+              child: Image.network(url,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => _fileChip(mime, name, size)),
+            ),
+          ),
         ),
       );
     }
@@ -3625,5 +3646,201 @@ class _RecentEmojis {
       if (cur.length > _max) cur.removeRange(_max, cur.length);
       await prefs.setStringList(_key, cur);
     } catch (_) {/* best-effort */}
+  }
+}
+
+
+/// Fullscreen image viewer with pinch-to-zoom + pan, double-tap to reset,
+/// hero animation from the inline thumbnail, and a translucent close
+/// button. Wraps an InteractiveViewer so pinch / pan / fling all work
+/// natively without an extra package dependency.
+class _FullscreenImage extends StatelessWidget {
+  final String url;
+  final String heroTag;
+  final String name;
+  const _FullscreenImage({
+    required this.url,
+    required this.heroTag,
+    required this.name,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final transform = TransformationController();
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: Stack(children: [
+        Positioned.fill(
+          child: GestureDetector(
+            onTap: () => Navigator.of(context).pop(),
+            onDoubleTap: () {
+              transform.value = transform.value.isIdentity()
+                  ? (Matrix4.identity()..scale(2.0))
+                  : Matrix4.identity();
+            },
+            child: Hero(
+              tag: heroTag,
+              child: InteractiveViewer(
+                transformationController: transform,
+                minScale: 1.0,
+                maxScale: 5.0,
+                child: Center(
+                  child: Image.network(
+                    url,
+                    fit: BoxFit.contain,
+                    loadingBuilder: (_, child, progress) {
+                      if (progress == null) return child;
+                      return const SizedBox(
+                        width: 56, height: 56,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      );
+                    },
+                    errorBuilder: (_, __, ___) => const Icon(
+                      Icons.broken_image_outlined,
+                      color: Colors.white60, size: 64,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          top: MediaQuery.of(context).padding.top + 8,
+          right: 8,
+          child: Material(
+            color: Colors.black54,
+            shape: const CircleBorder(),
+            child: IconButton(
+              icon: const Icon(Icons.close_rounded, color: Colors.white),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+          ),
+        ),
+        if (name.isNotEmpty)
+          Positioned(
+            bottom: MediaQuery.of(context).padding.bottom + 16,
+            left: 16, right: 16,
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white, fontSize: 12),
+                ),
+              ),
+            ),
+          ),
+      ]),
+    );
+  }
+}
+
+/// Pull a message bubble to the right with a horizontal drag — releases past
+/// the reply threshold and invokes [onReply]. Mirrors the WhatsApp /
+/// Telegram gesture so users get the expected affordance for free.
+class _SwipeToReply extends StatefulWidget {
+  final Widget child;
+  final VoidCallback onReply;
+  final bool enabled;
+  const _SwipeToReply({
+    required this.child,
+    required this.onReply,
+    this.enabled = true,
+  });
+
+  @override
+  State<_SwipeToReply> createState() => _SwipeToReplyState();
+}
+
+class _SwipeToReplyState extends State<_SwipeToReply>
+    with SingleTickerProviderStateMixin {
+  static const _threshold = 56.0;
+  static const _maxDrag = 96.0;
+
+  double _dx = 0;
+  bool _triggered = false;
+  late final AnimationController _release = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 220),
+  )..addListener(() {
+      if (mounted) setState(() => _dx = _release.value);
+    });
+
+  @override
+  void dispose() {
+    _release.dispose();
+    super.dispose();
+  }
+
+  void _onDragStart(DragStartDetails _) {
+    _triggered = false;
+    _release.stop();
+  }
+
+  void _onDragUpdate(DragUpdateDetails d) {
+    if (!widget.enabled) return;
+    final next = (_dx + d.delta.dx).clamp(0.0, _maxDrag);
+    if (next >= _threshold && !_triggered) {
+      _triggered = true;
+      HapticFeedback.selectionClick();
+    }
+    setState(() => _dx = next);
+  }
+
+  void _onDragEnd(DragEndDetails _) {
+    if (!widget.enabled) return;
+    if (_dx >= _threshold) widget.onReply();
+    _release
+      ..value = _dx
+      ..animateTo(0, curve: Curves.easeOutCubic);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
+    final progress = (_dx / _threshold).clamp(0.0, 1.0);
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onHorizontalDragStart: _onDragStart,
+      onHorizontalDragUpdate: _onDragUpdate,
+      onHorizontalDragEnd: _onDragEnd,
+      child: Stack(children: [
+        // Reply glyph that fades + scales in behind the bubble as the user
+        // drags. Sits flush against the left edge so the bubble appears to
+        // peel away from it.
+        Positioned(
+          left: 4,
+          top: 0, bottom: 0,
+          child: Center(
+            child: Opacity(
+              opacity: progress,
+              child: Transform.scale(
+                scale: 0.6 + 0.4 * progress,
+                child: Container(
+                  width: 30, height: 30,
+                  decoration: BoxDecoration(
+                    color: c.brand.withOpacity(0.16),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.reply_rounded,
+                      color: c.brandStrong, size: 18),
+                ),
+              ),
+            ),
+          ),
+        ),
+        Transform.translate(
+          offset: Offset(_dx, 0),
+          child: widget.child,
+        ),
+      ]),
+    );
   }
 }

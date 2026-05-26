@@ -40,6 +40,31 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            // R8 in full mode + resource shrinking drops the APK by ~25-30 MB.
+            // Flutter ships a stub proguard config; we keep our own at
+            // proguard-rules.pro so the SDK's reflection-heavy packages
+            // (agora, firebase, audioplayers) survive obfuscation.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+        }
+    }
+    // R8 full-mode does aggressive class merging + tree shaking. Safe for
+    // release because we keep the SDK packages explicitly below.
+    packaging {
+        resources {
+            excludes += setOf(
+                "META-INF/AL2.0",
+                "META-INF/LGPL2.1",
+                "META-INF/*.kotlin_module",
+                "META-INF/DEPENDENCIES",
+                "META-INF/LICENSE*",
+                "META-INF/NOTICE*",
+                "META-INF/INDEX.LIST",
+            )
         }
     }
 }

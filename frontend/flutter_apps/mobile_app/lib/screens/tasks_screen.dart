@@ -583,6 +583,7 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
 
   String _priority = 'MEDIUM';
   DateTime? _due;
+  DateTime? _scheduledAt;
   final List<Map<String, dynamic>> _picked = [];
   bool _submitting = false;
   List<Map<String, dynamic>> _people = [];
@@ -625,12 +626,32 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
     setState(() => _due = DateTime(base.year, base.month, base.day, picked.hour, picked.minute));
   }
 
+  /// Two-step date + time picker for "deliver to assignee at" — when set,
+  /// the task is hidden from the assignee until that moment and the
+  /// backend cron triggers the assignment notification at exactly that
+  /// time. Default to 1 hour in the future.
+  Future<void> _pickScheduledAt() async {
+    final initial = _scheduledAt ?? DateTime.now().add(const Duration(hours: 1));
+    final date = await showDatePicker(
+      context: context,
+      firstDate: DateTime.now().subtract(const Duration(days: 1)),
+      lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
+      initialDate: initial,
+    );
+    if (date == null || !mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(hour: initial.hour, minute: initial.minute),
+    );
+    if (time == null) return;
+    setState(() => _scheduledAt =
+        DateTime(date.year, date.month, date.day, time.hour, time.minute));
+  }
+
   Future<void> _submit() async {
     if (_title.text.trim().isEmpty) return;
     setState(() => _submitting = true);
     try {
-      // We hit the raw API here instead of the helper because the helper's
-      // signature doesn't take `dueAt`; the backend honors it directly.
       await widget.ref.read(apiProvider).post('/tasks', body: {
         'title': _title.text.trim(),
         if (_desc.text.trim().isNotEmpty) 'description': _desc.text.trim(),
@@ -638,14 +659,23 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
         'status': 'TODO',
         'assigneeIds': _picked.map((p) => p['id'] as String).toList(),
         if (_due != null) 'dueAt': _due!.toUtc().toIso8601String(),
+        if (_scheduledAt != null)
+          'scheduledAt': _scheduledAt!.toUtc().toIso8601String(),
       });
       widget.ref.invalidate(tasksKanbanProvider);
       if (mounted) {
         final count = _picked.length;
+        final subtitle = _scheduledAt != null
+            ? 'Delivers ${_fmt(_scheduledAt!)}'
+            : (_due != null ? 'Due ${_fmt(_due!)}' : null);
         bestieToast(
           context,
-          count == 0 ? 'Task created' : 'Assigned to $count ${count == 1 ? 'person' : 'people'}',
-          body: _due != null ? 'Due ${_fmt(_due!)}' : null,
+          _scheduledAt != null
+              ? 'Scheduled for delivery'
+              : (count == 0
+                  ? 'Task created'
+                  : 'Assigned to $count ${count == 1 ? 'person' : 'people'}'),
+          body: subtitle,
           kind: BestieToastKind.success,
         );
         Navigator.pop(context);
@@ -730,6 +760,39 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
                 style: TextStyle(color: BestieTokens.cTextMuted, fontSize: 12),
               ),
             ),
+          const SizedBox(height: BestieTokens.s3),
+
+          // ----- deliver-at (scheduled task) -----
+          const Text('Deliver to assignee at (optional)',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: BestieTokens.cTextSoft)),
+          const SizedBox(height: 6),
+          OutlinedButton.icon(
+            icon: Icon(
+              _scheduledAt == null
+                  ? Icons.schedule_send_outlined
+                  : Icons.schedule_send_rounded,
+              size: 16,
+            ),
+            label: Text(_scheduledAt == null
+                ? 'Send immediately (tap to schedule)'
+                : 'Delivers ${_fmt(_scheduledAt!)}'),
+            onPressed: _pickScheduledAt,
+          ),
+          if (_scheduledAt != null) ...[
+            const SizedBox(height: 4),
+            Row(children: [
+              const Expanded(
+                child: Text(
+                  'Assignee won\'t see this task or get notified until then.',
+                  style: TextStyle(color: BestieTokens.cTextMuted, fontSize: 12),
+                ),
+              ),
+              TextButton(
+                onPressed: () => setState(() => _scheduledAt = null),
+                child: const Text('Clear'),
+              ),
+            ]),
+          ],
           const SizedBox(height: BestieTokens.s3),
 
           // ----- assignees -----

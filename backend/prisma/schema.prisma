@@ -291,6 +291,10 @@ enum TaskStatus {
   REVIEW
   DONE
   CANCELLED
+  // Created but deliberately hidden from the assignee until `scheduledAt`.
+  // A 1-minute cron flips SCHEDULED → TODO at the right time and sends the
+  // assignee a fresh task.assigned notification + FCM push.
+  SCHEDULED
 }
 
 enum TaskPriority {
@@ -317,6 +321,10 @@ model Task {
   status      TaskStatus    @default(TODO)
   priority    TaskPriority  @default(MEDIUM)
   dueAt       DateTime?
+  // When set, the task is hidden from the assignee until this moment. A
+  // cron job promotes status SCHEDULED → TODO at scheduledAt and emits a
+  // `task.assigned` event + push so the assignee is alerted on time.
+  scheduledAt DateTime?
   order       Int           @default(0)               // for kanban ordering
   createdBy   User          @relation("TaskCreatedBy", fields: [createdById], references: [id])
   createdById String

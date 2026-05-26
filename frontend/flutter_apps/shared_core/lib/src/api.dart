@@ -90,6 +90,8 @@ extension BestieApiExt on BestieApi {
     String? status,
     String? priority,
     List<String>? assigneeIds,
+    DateTime? dueAt,
+    DateTime? scheduledAt,
   }) => post(
     '/tasks',
     body: {
@@ -98,6 +100,8 @@ extension BestieApiExt on BestieApi {
       if (status != null) 'status': status,
       if (priority != null) 'priority': priority,
       if (assigneeIds != null) 'assigneeIds': assigneeIds,
+      if (dueAt != null) 'dueAt': dueAt.toUtc().toIso8601String(),
+      if (scheduledAt != null) 'scheduledAt': scheduledAt.toUtc().toIso8601String(),
     },
   );
   Future<Map<String, dynamic>> moveTask(
