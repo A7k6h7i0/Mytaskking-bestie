@@ -84,6 +84,12 @@ extension BestieApiExt on BestieApi {
     '/tasks',
     query: {'view': view, if (status != null) 'status': status},
   );
+  /// Fetches OG metadata for a URL (title, description, image, host) so
+  /// chat bubbles can render a Slack/Discord-style link preview card.
+  /// The backend caches results for ~1 h so repeated unfurls are cheap.
+  Future<Map<String, dynamic>> unfurl(String url) =>
+      get('/unfurl', query: {'url': url});
+
   Future<Map<String, dynamic>> createTask({
     required String title,
     String? description,

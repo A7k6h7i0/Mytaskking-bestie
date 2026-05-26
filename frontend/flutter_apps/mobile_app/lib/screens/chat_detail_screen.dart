@@ -2169,13 +2169,21 @@ class _MessageBubble extends ConsumerWidget {
                           )),
                     ]),
                   )
-                else if (body.isNotEmpty)
+                else if (body.isNotEmpty) ...[
                   Padding(
                     padding: const EdgeInsets.fromLTRB(6, 2, 6, 2),
                     child: Text(body,
                         style:
                             TextStyle(color: fg, fontSize: 14, height: 1.35)),
                   ),
+                  // OG link preview — silent if the message has no URL or
+                  // the unfurl came back empty.
+                  if (_firstUrl(body) != null && !isDeleted)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      child: _LinkPreview(url: _firstUrl(body)!, mine: mine),
+                    ),
+                ],
                 if (!isDeleted) _ReactionsBar(message: message),
                 // WhatsApp-style footer: time + (only on my messages) tick marks.
                 Padding(
@@ -3841,6 +3849,130 @@ class _SwipeToReplyState extends State<_SwipeToReply>
           child: widget.child,
         ),
       ]),
+    );
+  }
+}
+
+/// First URL pattern Flutter regex understands. Captures plain http(s) links
+/// without requiring trailing punctuation to be part of the match.
+final _urlPattern = RegExp(
+  r'(https?://[^\s<>"\)]+)',
+  caseSensitive: false,
+);
+
+String? _firstUrl(String text) {
+  if (text.isEmpty) return null;
+  return _urlPattern.firstMatch(text)?.group(1);
+}
+
+/// Card that fetches and renders OG metadata for a single URL — Slack /
+/// Discord-style link preview. Uses a Riverpod FutureProvider so retries
+/// share a cache across rebuilds. Renders nothing if the unfurl errored
+/// or came back without a title.
+class _LinkPreview extends ConsumerWidget {
+  final String url;
+  final bool mine;
+  const _LinkPreview({required this.url, required this.mine});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = BestieColors.of(context);
+    return FutureBuilder<Map<String, dynamic>>(
+      future: ref.read(apiProvider).unfurl(url),
+      builder: (ctx, snap) {
+        if (!snap.hasData) return const SizedBox.shrink();
+        final og = snap.data!;
+        final title = (og['title'] ?? '').toString();
+        final desc = (og['description'] ?? '').toString();
+        final image = og['image']?.toString();
+        final host = (og['host'] ?? '').toString();
+        if (title.isEmpty && desc.isEmpty && image == null) {
+          return const SizedBox.shrink();
+        }
+        return Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(BestieTokens.rSm),
+            child: Container(
+              constraints:
+                  const BoxConstraints(maxWidth: 280, minWidth: 200),
+              decoration: BoxDecoration(
+                color: mine ? Colors.white.withOpacity(0.12) : c.surface2,
+                border: Border(
+                  left: BorderSide(
+                    color: mine ? Colors.white.withOpacity(0.5) : c.brand,
+                    width: 3,
+                  ),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (image != null && image.isNotEmpty)
+                    AspectRatio(
+                      aspectRatio: 16 / 9,
+                      child: Image.network(
+                        image,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                      ),
+                    ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (host.isNotEmpty)
+                          Text(
+                            host,
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: BestieTokens.fwBold,
+                              letterSpacing: BestieTokens.lsWide,
+                              color: mine
+                                  ? Colors.white.withOpacity(0.7)
+                                  : c.textMuted,
+                            ),
+                          ),
+                        if (title.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: BestieTokens.fwSemibold,
+                              color: mine ? Colors.white : c.text,
+                            ),
+                          ),
+                        ],
+                        if (desc.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            desc,
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              height: 1.35,
+                              color: mine
+                                  ? Colors.white.withOpacity(0.85)
+                                  : c.textSoft,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

@@ -10,6 +10,12 @@
 -keep class io.flutter.plugin.**  { *; }
 -keep class io.flutter.embedding.** { *; }
 
+# Flutter embedding references Google Play Core for deferred components.
+# We don't use deferred components — just suppress the missing-class
+# warnings so R8 finishes.
+-dontwarn com.google.android.play.core.**
+-keep class com.google.android.play.core.** { *; }
+
 # ----- Agora RTC -----
 -keep class io.agora.**       { *; }
 -keep class com.agora.rtc.**  { *; }
