@@ -57,39 +57,64 @@ class ShellScreen extends ConsumerWidget {
     return _employeeTabs;
   }
 
+  Future<bool> _handleShellBack(BuildContext context, String location) async {
+    final router = GoRouter.of(context);
+    if (router.canPop()) return true;
+    if (location == '/dashboard') return true;
+    context.go('/dashboard');
+    return false;
+  }
+
+  void _openMoreRoute(BuildContext context, String route) {
+    if (route == '/dashboard') {
+      context.go(route);
+      return;
+    }
+    context.push(route);
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = BestieColors.of(context);
     final user = ref.watch(authStoreProvider).user;
     final tabs = _tabsFor(user);
+    final router = GoRouter.of(context);
     final location = GoRouterState.of(context).matchedLocation;
+    final canPop = router.canPop() || location == '/dashboard';
     int index = tabs.indexWhere((t) => location.startsWith(t.path));
     if (index < 0) index = 0;
 
-    return Scaffold(
-      extendBody: true,
-      backgroundColor: colors.bg,
-      body: Stack(
-        children: [
-          Positioned.fill(child: child),
-          Positioned(
-            left: 16,
-            right: 16,
-            bottom: 98 + MediaQuery.of(context).padding.bottom,
-            child: _MiniCallBar(colors: colors),
-          ),
-        ],
-      ),
-      bottomNavigationBar: _PremiumBottomNav(
-        tabs: tabs,
-        currentIndex: index,
-        onTap: (i) {
-          if (tabs[i].path == '/more') {
-            _openMore(context, ref, user);
-          } else {
-            context.go(tabs[i].path);
-          }
-        },
+    return PopScope(
+      canPop: canPop,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        await _handleShellBack(context, location);
+      },
+      child: Scaffold(
+        extendBody: true,
+        backgroundColor: colors.bg,
+        body: Stack(
+          children: [
+            Positioned.fill(child: child),
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 98 + MediaQuery.of(context).padding.bottom,
+              child: _MiniCallBar(colors: colors),
+            ),
+          ],
+        ),
+        bottomNavigationBar: _PremiumBottomNav(
+          tabs: tabs,
+          currentIndex: index,
+          onTap: (i) {
+            if (tabs[i].path == '/more') {
+              _openMore(context, ref, user);
+            } else {
+              context.go(tabs[i].path);
+            }
+          },
+        ),
       ),
     );
   }
@@ -150,7 +175,7 @@ class ShellScreen extends ConsumerWidget {
                           colors: c,
                           onTap: () {
                             Navigator.of(ctx).pop();
-                            context.go(e.route);
+                            _openMoreRoute(context, e.route);
                           }),
                   ],
                 ),

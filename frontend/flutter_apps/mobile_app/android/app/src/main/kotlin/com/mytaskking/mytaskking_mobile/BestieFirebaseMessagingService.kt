@@ -36,6 +36,7 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
             putExtra("fromName", data["fromName"])
         }
         val requestCode = (data["callId"] ?: data["meetingSlug"] ?: System.currentTimeMillis().toString()).hashCode()
+        previewIntent.putExtra("notificationId", requestCode)
         val pendingIntent = PendingIntent.getActivity(
             this,
             requestCode,
@@ -49,15 +50,19 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
         }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            builder.setTimeoutAfter(60_000)
+        }
         val notification = builder
             .setSmallIcon(applicationInfo.icon)
             .setContentTitle(title)
             .setContentText(body)
+            .setStyle(Notification.BigTextStyle().bigText(body))
             .setCategory(Notification.CATEGORY_CALL)
             .setPriority(Notification.PRIORITY_MAX)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
-            .setOngoing(false)
-            .setAutoCancel(true)
+            .setOngoing(true)
+            .setAutoCancel(false)
             .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))
             .setVibrate(longArrayOf(0, 700, 500, 700))
             .setContentIntent(pendingIntent)

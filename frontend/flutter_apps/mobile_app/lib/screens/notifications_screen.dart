@@ -6,17 +6,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../state.dart';
 
 const _categoryLabels = {
-  'chat':   'Messages',
-  'task':   'Tasks',
-  'call':   'Calls',
-  'lead':   'Telecaller',
+  'chat': 'Messages',
+  'task': 'Tasks',
+  'call': 'Calls',
+  'lead': 'Telecaller',
   'system': 'System',
 };
 const _categoryIcons = {
-  'chat':   Icons.chat_bubble_outline,
-  'task':   Icons.task_alt_outlined,
-  'call':   Icons.call_outlined,
-  'lead':   Icons.headset_mic_outlined,
+  'chat': Icons.chat_bubble_outline,
+  'task': Icons.task_alt_outlined,
+  'call': Icons.call_outlined,
+  'lead': Icons.headset_mic_outlined,
   'system': Icons.campaign_outlined,
 };
 
@@ -32,12 +32,14 @@ class NotificationsScreen extends ConsumerStatefulWidget {
   const NotificationsScreen({super.key});
 
   @override
-  ConsumerState<NotificationsScreen> createState() => _NotificationsScreenState();
+  ConsumerState<NotificationsScreen> createState() =>
+      _NotificationsScreenState();
 }
 
 class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
   @override
   Widget build(BuildContext context) {
+    final colors = BestieColors.of(context);
     final stream = ref.watch(notificationsProvider);
     final quiet = ref.watch(_quietHoursProvider).asData?.value;
 
@@ -60,7 +62,10 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
                 await ref.read(apiProvider).markAllNotificationsRead();
                 ref.invalidate(notificationsProvider);
               } catch (e) {
-                if (context.mounted) bestieToast(context, 'Could not update', body: formatApiError(e), kind: BestieToastKind.error);
+                if (context.mounted) {
+                  bestieToast(context, 'Could not update',
+                      body: formatApiError(e), kind: BestieToastKind.error);
+                }
               }
             },
           ),
@@ -69,20 +74,25 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
       body: stream.when(
         loading: () => const Center(child: BestieSpinner()),
         error: (e, _) => BestieEmptyState(
-          icon: Icons.error_outline, iconColor: BestieTokens.cDanger,
-          title: 'Couldn\'t load', description: formatApiError(e),
+          icon: Icons.error_outline,
+          iconColor: BestieTokens.cDanger,
+          title: 'Couldn\'t load',
+          description: formatApiError(e),
         ),
         data: (data) {
-          final groups = (data['groups'] as Map?)?.cast<String, dynamic>() ?? const {};
+          final groups =
+              (data['groups'] as Map?)?.cast<String, dynamic>() ?? const {};
           final unread = data['unread'] ?? 0;
           final children = <Widget>[
             if (quiet != null && quiet.enabled) _quietBanner(quiet),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
               child: Row(children: [
-                Text('$unread unread', style: const TextStyle(color: BestieTokens.cTextMuted)),
+                Text('$unread unread',
+                    style: TextStyle(color: colors.textMuted)),
                 const Spacer(),
-                BestieBadge(tone: BestieTone.success, dot: true, child: const Text('Live')),
+                const BestieBadge(
+                    tone: BestieTone.success, dot: true, child: Text('Live')),
               ]),
             ),
           ];
@@ -94,7 +104,8 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
                 child: BestieEmptyState(
                   icon: Icons.notifications_none,
                   title: 'You\'re all caught up',
-                  description: 'New notifications will appear here in realtime.',
+                  description:
+                      'New notifications will appear here in realtime.',
                 ),
               ),
             ]);
@@ -104,24 +115,38 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
             children.add(Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
               child: Row(children: [
-                Icon(_categoryIcons[entry.key] ?? Icons.bolt, size: 14, color: BestieTokens.cTextMuted),
+                Icon(_categoryIcons[entry.key] ?? Icons.bolt,
+                    size: 14, color: colors.textMuted),
                 const SizedBox(width: 6),
                 Text(
                   (_categoryLabels[entry.key] ?? entry.key).toUpperCase(),
-                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: BestieTokens.cTextMuted, letterSpacing: 0.5),
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: colors.textMuted,
+                    letterSpacing: 0.5,
+                  ),
                 ),
               ]),
             ));
-            children.addAll(((entry.value as List).cast<Map<String, dynamic>>().map((n) {
+            children.addAll(
+                ((entry.value as List).cast<Map<String, dynamic>>().map((n) {
               final unreadItem = n['readAt'] == null;
+              final unreadBg = colors.isDark
+                  ? colors.brand.withValues(alpha: 0.18)
+                  : colors.brandSoft;
               return Container(
-                color: unreadItem ? BestieTokens.cBrandSoft : Colors.transparent,
+                color: unreadItem ? unreadBg : Colors.transparent,
                 child: ListTile(
-                  title: Text(n['title'] ?? '—', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                  subtitle: Text(n['body'] ?? '', maxLines: 2, overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: BestieTokens.cTextMuted, fontSize: 12)),
+                  title: Text(n['title'] ?? '—',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w600, fontSize: 14)),
+                  subtitle: Text(n['body'] ?? '',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: colors.textMuted, fontSize: 12)),
                   trailing: Text(_fmtTime(n['createdAt']),
-                      style: const TextStyle(color: BestieTokens.cTextFaint, fontSize: 11)),
+                      style: TextStyle(color: colors.textFaint, fontSize: 11)),
                 ),
               );
             })));
@@ -145,7 +170,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
       decoration: BoxDecoration(
         color: BestieTokens.cBrandSoft,
         borderRadius: BorderRadius.circular(BestieTokens.rMd),
-        border: Border.all(color: color.withOpacity(0.30)),
+        border: Border.all(color: color.withValues(alpha: 0.30)),
       ),
       child: Row(children: [
         Icon(Icons.bedtime_rounded, color: color, size: 18),
@@ -185,7 +210,8 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
   }
 
   Future<void> _openQuietHoursSheet(_QuietHours? current) async {
-    var q = current ?? const _QuietHours(enabled: false, startHour: 22, endHour: 7);
+    var q =
+        current ?? const _QuietHours(enabled: false, startHour: 22, endHour: 7);
     bool enabled = q.enabled;
     int startHour = q.startHour;
     int endHour = q.endHour;
@@ -194,7 +220,8 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
       isScrollControlled: true,
       backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
+        borderRadius:
+            BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
       ),
       builder: (ctx) {
         return StatefulBuilder(builder: (ctx, setSt) {
@@ -204,7 +231,8 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
                 Container(
-                  width: 40, height: 4,
+                  width: 40,
+                  height: 4,
                   margin: const EdgeInsets.only(bottom: 16),
                   decoration: BoxDecoration(
                     color: BestieTokens.cBorderStrong,
@@ -215,7 +243,8 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
                   const Icon(Icons.bedtime_rounded, color: BestieTokens.cBrand),
                   const SizedBox(width: 8),
                   const Text('Quiet hours',
-                      style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+                      style:
+                          TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
                   const Spacer(),
                   Switch(
                     value: enabled,
@@ -225,7 +254,10 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
                 const SizedBox(height: 6),
                 const Text(
                   'Pause in-app toasts during the chosen window. Push notifications still surface — silence them in your OS settings.',
-                  style: TextStyle(fontSize: 12, color: BestieTokens.cTextMuted, height: 1.4),
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: BestieTokens.cTextMuted,
+                      height: 1.4),
                 ),
                 const SizedBox(height: 16),
                 Row(children: [
@@ -301,12 +333,13 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
               border: Border.all(color: BestieTokens.cBorder),
             ),
             child: Row(children: [
-              const Icon(Icons.schedule_rounded, size: 16, color: BestieTokens.cTextMuted),
+              const Icon(Icons.schedule_rounded,
+                  size: 16, color: BestieTokens.cTextMuted),
               const SizedBox(width: 8),
               Text(
                 '${hour.toString().padLeft(2, '0')}:00',
-                style: const TextStyle(
-                    fontSize: 16, fontWeight: FontWeight.w600),
+                style:
+                    const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
               ),
             ]),
           ),

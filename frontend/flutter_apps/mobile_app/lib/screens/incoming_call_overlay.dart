@@ -9,6 +9,13 @@ import 'package:mytaskking_design/mytaskking_design.dart';
 import '../router.dart';
 import '../state.dart';
 
+final _incomingCallPushEvents =
+    StreamController<Map<String, dynamic>>.broadcast();
+
+void showIncomingCallFromPush(Map<String, dynamic> data) {
+  _incomingCallPushEvents.add(data);
+}
+
 /// Mounted once at the top of the router (inside [MaterialApp.router] via a
 /// global [Overlay]), listens for `call.incoming` / `call.invited` socket
 /// events from the backend and shows a full-screen ringer with Accept /
@@ -26,14 +33,22 @@ class IncomingCallOverlay extends ConsumerStatefulWidget {
 class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
   Map<String, dynamic>? _pending;
   Timer? _autoMiss;
+  StreamSubscription<Map<String, dynamic>>? _pushInviteSub;
   final List<void Function()> _unsubs = [];
   String? _lastUserId;
   final _ringtone = FlutterRingtonePlayer();
 
   @override
+  void initState() {
+    super.initState();
+    _pushInviteSub = _incomingCallPushEvents.stream.listen(_onPushInvite);
+  }
+
+  @override
   void dispose() {
     _autoMiss?.cancel();
     _hapticTimer?.cancel();
+    _pushInviteSub?.cancel();
     _ringtone.stop();
     for (final u in _unsubs) {
       u();
@@ -67,14 +82,6 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
     // notify(), so we ring whenever this fires.
     _unsubs.add(
         rt.onAny('notification.created', ([_]) => _playNotificationTone()));
-    // Chat messages also ding — skipping messages the current user sent
-    // themselves so the chime doesn't fire on every keystroke send.
-    _unsubs.add(rt.onAny('chat.message.created', ([data]) {
-      if (data is! Map) return;
-      final author = (data['author'] as Map?)?.cast<String, dynamic>();
-      if (author != null && author['id'] == userId) return;
-      _playNotificationTone();
-    }));
     _unsubs.add(rt.onAny('call.declined', ([data]) {
       // Caller side: another participant declined. We dismiss our ringer if
       // it was the same call (some race conditions on group calls).
@@ -121,11 +128,66 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
     });
   }
 
+  void _onPushInvite(Map<String, dynamic> data) {
+    final type = data['type']?.toString();
+    final mode = (data['mode'] ?? 'VIDEO').toString().toUpperCase();
+    final fromName =
+        (data['fromName'] ?? data['title'] ?? 'Someone').toString();
+
+    if (type == 'call.incoming') {
+      final callId = data['callId']?.toString();
+      if (callId == null || callId.isEmpty) return;
+      _onIncoming({
+        'call': {
+          'id': callId,
+          'kind': 'ONE_TO_ONE',
+          'mode': mode,
+          'initiator': {'name': fromName},
+        },
+        'mode': mode,
+      });
+      return;
+    }
+
+    if (type == 'meeting.invited') {
+      final slug = data['meetingSlug']?.toString();
+      if (slug == null || slug.isEmpty) return;
+      final meetingName = (data['body'] ?? '').toString();
+      _onIncoming({
+        'call': {
+          'id': null,
+          'kind': 'MEETING',
+          'mode': mode,
+          'initiator': {'name': fromName},
+          'name': meetingName,
+        },
+        'mode': mode,
+        'meetingSlug': slug,
+        'meetingName': meetingName,
+      });
+    }
+  }
+
   void _onIncoming(dynamic data) {
     if (data is! Map) return;
     final me = ref.read(authStoreProvider).user;
     final call = (data['call'] as Map?)?.cast<String, dynamic>();
     if (call == null) return;
+    final nextCallId = call['id']?.toString();
+    final nextSlug = data['meetingSlug']?.toString();
+    final currentCallId = _pending?['call']?['id']?.toString();
+    final currentSlug = _pending?['meetingSlug']?.toString();
+    final isSameCall = nextCallId != null &&
+        nextCallId.isNotEmpty &&
+        nextCallId == currentCallId;
+    final isSameMeeting =
+        nextSlug != null && nextSlug.isNotEmpty && nextSlug == currentSlug;
+    if (isSameCall || isSameMeeting) return;
+    if (_pending != null) {
+      _autoMiss?.cancel();
+      _hapticTimer?.cancel();
+      _ringtone.stop();
+    }
     // Don't ring myself for outbound calls / meetings I'm hosting.
     if (call['initiator']?['id'] == me?.id) return;
     if ((call['host'] as Map?)?['id'] == me?.id) return;
@@ -303,7 +365,7 @@ class _RingerScreen extends ConsumerWidget {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.10),
+                  color: Colors.white.withValues(alpha: 0.10),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -456,7 +518,7 @@ class _RingerButtonState extends State<_RingerButton>
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                              color: widget.color.withOpacity(0.45),
+                              color: widget.color.withValues(alpha: 0.45),
                               blurRadius: 24,
                               spreadRadius: 1),
                         ],
@@ -534,7 +596,7 @@ class _RingingAvatarState extends State<_RingingAvatar>
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         border: Border.all(
-            color: BestieTokens.cBrand.withOpacity(opacity), width: 2),
+            color: BestieTokens.cBrand.withValues(alpha: opacity), width: 2),
       ),
     );
   }
@@ -566,7 +628,8 @@ class _PulseDotState extends State<_PulseDot>
         width: 6,
         height: 6,
         decoration: BoxDecoration(
-          color: BestieTokens.cSuccess.withOpacity(0.6 + 0.4 * _ctrl.value),
+          color:
+              BestieTokens.cSuccess.withValues(alpha: 0.6 + 0.4 * _ctrl.value),
           shape: BoxShape.circle,
         ),
       ),

@@ -17,7 +17,7 @@ import 'screens/incoming_call_overlay.dart';
 import 'screens/ongoing_call_bar.dart';
 import 'state.dart' hide ThemeMode;
 
-const _generalNotificationsChannelId = 'general_notifications';
+const _foregroundNotificationsChannelId = 'foreground_notifications_silent';
 final _localNotifications = FlutterLocalNotificationsPlugin();
 final _pushNavigationEvents =
     StreamController<Map<String, dynamic>>.broadcast();
@@ -89,7 +89,7 @@ Future<void> _wirePushNotifications(
     await messaging.setForegroundNotificationPresentationOptions(
       alert: true,
       badge: true,
-      sound: true,
+      sound: false,
     );
   } catch (_) {
     /* keep going — silent permission denial still allows data msgs */
@@ -122,6 +122,10 @@ Future<void> _wirePushNotifications(
   // listening lets us reconnect the socket if a push lands while we're
   // in the foreground with a dropped connection.
   FirebaseMessaging.onMessage.listen((message) {
+    if (_isIncomingCallPush(message.data)) {
+      showIncomingCallFromPush(message.data);
+      return;
+    }
     unawaited(_showForegroundNotification(message));
   });
 }
@@ -159,12 +163,13 @@ Future<void> _initializeLocalNotifications() async {
   );
 
   const channel = AndroidNotificationChannel(
-    _generalNotificationsChannelId,
-    'Notifications',
-    description: 'Chat, task, mention, and system alerts',
+    _foregroundNotificationsChannelId,
+    'Foreground notifications',
+    description:
+        'Silent in-app banners for chat, task, mention, and system alerts',
     importance: Importance.high,
-    playSound: true,
-    enableVibration: true,
+    playSound: false,
+    enableVibration: false,
   );
   await _localNotifications
       .resolvePlatformSpecificImplementation<
@@ -174,6 +179,10 @@ Future<void> _initializeLocalNotifications() async {
 
 Future<void> _showForegroundNotification(RemoteMessage message) async {
   final data = message.data;
+  if (_isIncomingCallPush(data)) {
+    showIncomingCallFromPush(data);
+    return;
+  }
   final title = message.notification?.title ??
       data['title']?.toString() ??
       _titleForKind(data['kind']?.toString());
@@ -189,22 +198,28 @@ Future<void> _showForegroundNotification(RemoteMessage message) async {
     body,
     const NotificationDetails(
       android: AndroidNotificationDetails(
-        _generalNotificationsChannelId,
-        'Notifications',
-        channelDescription: 'Chat, task, mention, and system alerts',
+        _foregroundNotificationsChannelId,
+        'Foreground notifications',
+        channelDescription:
+            'Silent in-app banners for chat, task, mention, and system alerts',
         importance: Importance.high,
         priority: Priority.high,
-        playSound: true,
-        enableVibration: true,
+        playSound: false,
+        enableVibration: false,
       ),
       iOS: DarwinNotificationDetails(
         presentAlert: true,
         presentBadge: true,
-        presentSound: true,
+        presentSound: false,
       ),
     ),
     payload: jsonEncode(data),
   );
+}
+
+bool _isIncomingCallPush(Map<String, dynamic> data) {
+  final type = data['type']?.toString();
+  return type == 'call.incoming' || type == 'meeting.invited';
 }
 
 String? _titleForKind(String? kind) {
@@ -333,7 +348,8 @@ class _BestieAppState extends ConsumerState<BestieApp> {
       themeMode: switch (mode) {
         core.ThemeMode.light => ThemeMode.light,
         core.ThemeMode.dark => ThemeMode.dark,
-        core.ThemeMode.system => ThemeMode.system,
+        // Mobile defaults to light when no explicit preference is chosen.
+        core.ThemeMode.system => ThemeMode.light,
       },
       routerConfig: ref.watch(routerProvider),
       // The overlay listens for incoming-call socket events globally and

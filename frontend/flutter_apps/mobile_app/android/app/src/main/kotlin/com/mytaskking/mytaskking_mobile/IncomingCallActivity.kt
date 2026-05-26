@@ -1,6 +1,7 @@
 package com.mytaskking.mytaskking_mobile
 
 import android.app.Activity
+import android.app.NotificationManager
 import android.content.Intent
 import android.graphics.Color
 import android.media.Ringtone
@@ -20,6 +21,7 @@ class IncomingCallActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         showOverLockScreen()
+        cancelNotification()
         startRinging()
         setContentView(buildContent())
     }
@@ -67,6 +69,15 @@ class IncomingCallActivity : Activity() {
         }
     }
 
+    private fun cancelNotification() {
+        val id = intent.getIntExtra("notificationId", Int.MIN_VALUE)
+        if (id == Int.MIN_VALUE) return
+        try {
+            getSystemService(NotificationManager::class.java).cancel(id)
+        } catch (_: Exception) {
+        }
+    }
+
     private fun buildContent(): LinearLayout {
         val type = intent.getStringExtra("type") ?: "call.incoming"
         val from = intent.getStringExtra("fromName") ?: "Someone"
@@ -101,6 +112,7 @@ class IncomingCallActivity : Activity() {
                 text = "Accept"
                 textSize = 18f
                 setOnClickListener {
+                    cancelNotification()
                     stopRinging()
                     startActivity(mainIntent())
                     finish()
@@ -113,6 +125,7 @@ class IncomingCallActivity : Activity() {
                 text = "Decline"
                 textSize = 18f
                 setOnClickListener {
+                    cancelNotification()
                     stopRinging()
                     finish()
                 }
