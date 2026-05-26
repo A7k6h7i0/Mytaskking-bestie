@@ -73,6 +73,13 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
   // preview chip above the text field and `_send` includes the `replyToId`.
   Map<String, dynamic>? _replyingTo;
 
+  // Per-chat search-in-conversation state. When _searching is true the
+  // AppBar shows a search field and the message list is filtered by
+  // _searchQuery (case-insensitive match on body).
+  bool _searching = false;
+  String _searchQuery = '';
+  final TextEditingController _searchCtl = TextEditingController();
+
   // Typing-indicator state. We track which remote users are mid-typing
   // (keyed by userId) and bump a per-user timer on every `chat.typing`
   // event; if no follow-up arrives within 4 s we drop the indicator.
@@ -91,6 +98,37 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     _listenForTyping();
     _scroll.addListener(_onScroll);
     _composer.addListener(_onComposerChanged);
+    _restoreDraft();
+    _composer.addListener(_persistDraftDebounced);
+  }
+
+  /// Restores the persisted draft (if any) for this channel so swiping away
+  /// mid-sentence doesn't lose what the user was writing.
+  Future<void> _restoreDraft() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final draft = prefs.getString('chat.draft.${widget.channelId}');
+      if (draft != null && draft.isNotEmpty && _composer.text.isEmpty && mounted) {
+        _composer.text = draft;
+      }
+    } catch (_) {/* draft is best-effort */}
+  }
+
+  Timer? _draftDebounce;
+  void _persistDraftDebounced() {
+    _draftDebounce?.cancel();
+    _draftDebounce = Timer(const Duration(milliseconds: 350), () async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final key = 'chat.draft.${widget.channelId}';
+        final body = _composer.text;
+        if (body.isEmpty) {
+          await prefs.remove(key);
+        } else {
+          await prefs.setString(key, body);
+        }
+      } catch (_) {}
+    });
   }
 
   @override
@@ -98,6 +136,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     WidgetsBinding.instance.removeObserver(this);
     _scroll.removeListener(_onScroll);
     _composer.removeListener(_onComposerChanged);
+    _composer.removeListener(_persistDraftDebounced);
+    _draftDebounce?.cancel();
     _myTypingThrottle?.cancel();
     _receiptInvalidate?.cancel();
     _presenceUnsub?.call();
@@ -107,6 +147,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     _composer.dispose();
     _scroll.dispose();
     _recorder.dispose();
+    _searchCtl.dispose();
     super.dispose();
   }
 
@@ -1263,6 +1304,19 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
         ]),
         actions: [
           IconButton(
+            icon: Icon(_searching ? Icons.close_rounded : Icons.search_rounded),
+            tooltip: _searching ? 'Close search' : 'Search this chat',
+            onPressed: () {
+              setState(() {
+                _searching = !_searching;
+                if (!_searching) {
+                  _searchCtl.clear();
+                  _searchQuery = '';
+                }
+              });
+            },
+          ),
+          IconButton(
             icon: const Icon(Icons.call_outlined),
             tooltip: 'Voice call',
             onPressed: () => _startCall(kind: 'voice'),
@@ -1278,6 +1332,33 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
             onPressed: () => _showInfo(context),
           ),
         ],
+        bottom: _searching
+            ? PreferredSize(
+                preferredSize: const Size.fromHeight(48),
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                  color: colors.surface,
+                  child: TextField(
+                    controller: _searchCtl,
+                    autofocus: true,
+                    onChanged: (v) => setState(() => _searchQuery = v.trim()),
+                    decoration: InputDecoration(
+                      isDense: true,
+                      hintText: 'Search messages in this chat…',
+                      prefixIcon: Icon(Icons.search_rounded,
+                          color: colors.textSoft, size: 18),
+                      filled: true,
+                      fillColor: colors.surface2,
+                      border: OutlineInputBorder(
+                        borderRadius:
+                            BorderRadius.circular(BestieTokens.rPill),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                ),
+              )
+            : null,
       ),
       body: Column(children: [
         _pinnedBar(messages.asData?.value ?? const [], colors),
@@ -1297,11 +1378,21 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                       .asData
                       ?.value ??
                   const <String>{};
-              final serverItems = hidden.isEmpty
+              var serverItems = hidden.isEmpty
                   ? serverItemsRaw
                   : serverItemsRaw
                       .where((m) => !hidden.contains(m['id']?.toString()))
                       .toList();
+              // Per-conversation search filter — case-insensitive substring
+              // match on message body. The list keeps reverse order so
+              // matches still read newest-first like the normal view.
+              if (_searching && _searchQuery.isNotEmpty) {
+                final q = _searchQuery.toLowerCase();
+                serverItems = serverItems
+                    .where((m) =>
+                        ('${m['body'] ?? ''}').toLowerCase().contains(q))
+                    .toList();
+              }
               // Mark inbound messages as DELIVERED + SEEN now that they're on screen.
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 if (mounted) _ackReceipts(serverItems, seen: true);
