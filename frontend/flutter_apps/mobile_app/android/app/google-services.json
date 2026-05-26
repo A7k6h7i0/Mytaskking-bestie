@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "239833916361",
+    "project_id": "mytaskking",
+    "storage_bucket": "mytaskking.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:239833916361:android:919fb1290dfa25c1083e18",
+        "android_client_info": {
+          "package_name": "com.mytaskking.mytaskking_mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCyrrJEMeysItXeGOXlLQUB599u2AEzIPM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

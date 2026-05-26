@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io' show Platform;
 
 import 'package:firebase_core/firebase_core.dart';
@@ -6,18 +7,25 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:mytaskking_core/mytaskking_core.dart' as core;
 
+import 'firebase_options.dart';
 import 'router.dart';
 import 'screens/incoming_call_overlay.dart';
 import 'screens/ongoing_call_bar.dart';
 import 'state.dart' hide ThemeMode;
 
+const _generalNotificationsChannelId = 'general_notifications';
+final _localNotifications = FlutterLocalNotificationsPlugin();
+final _pushNavigationEvents =
+    StreamController<Map<String, dynamic>>.broadcast();
+
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   try {
-    await Firebase.initializeApp();
+    await _initializeFirebase();
   } catch (_) {}
 }
 
@@ -32,11 +40,13 @@ void main() async {
   // Best-effort Firebase init. If the platform config files aren't bundled
   // yet (e.g. someone building locally without google-services.json) we
   // log + carry on rather than crash the app at boot.
-  try {
-    await Firebase.initializeApp();
-    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-    unawaited(_wirePushNotifications(api, auth));
-  } catch (_) {/* push will silently no-op */}
+  if (await _initializeFirebase()) {
+    try {
+      FirebaseMessaging.onBackgroundMessage(
+          _firebaseMessagingBackgroundHandler);
+      unawaited(_wirePushNotifications(api, auth));
+    } catch (_) {/* push will silently no-op */}
+  }
 
   runApp(ProviderScope(
     overrides: [
@@ -48,6 +58,21 @@ void main() async {
   ));
 }
 
+Future<bool> _initializeFirebase() async {
+  if (Firebase.apps.isNotEmpty) return true;
+  try {
+    final options = MobileFirebaseOptions.currentPlatform;
+    if (options != null) {
+      await Firebase.initializeApp(options: options);
+    } else {
+      await Firebase.initializeApp();
+    }
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 /// Asks for push permission, fetches the FCM device token, and registers
 /// it with the backend so the server can wake the device for incoming
 /// calls / mentions when the app is backgrounded or killed. Re-runs on
@@ -57,33 +82,140 @@ Future<void> _wirePushNotifications(
   core.BestieAuthStore auth,
 ) async {
   final messaging = FirebaseMessaging.instance;
+  await _initializeLocalNotifications();
   // iOS requires explicit permission; Android grants by default below 13.
   try {
     await messaging.requestPermission(alert: true, badge: true, sound: true);
+    await messaging.setForegroundNotificationPresentationOptions(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
   } catch (_) {
     /* keep going — silent permission denial still allows data msgs */
   }
 
-  Future<void> registerCurrent() async {
+  Future<void> registerToken(String token) async {
     if (auth.user == null) return;
-    final token = await messaging.getToken();
-    if (token == null) return;
-    final platform = Platform.isIOS ? 'ios' : 'android';
+    final platform = Platform.isIOS ? 'IOS' : 'ANDROID';
     try {
       await api.registerDevice(token: token, platform: platform);
     } catch (_) {}
   }
 
+  Future<void> registerCurrent() async {
+    if (auth.user == null) return;
+    final token = await _currentFcmToken(messaging);
+    if (token == null) return;
+    await registerToken(token);
+  }
+
   // Initial register + refresh on token rotation.
   await registerCurrent();
-  messaging.onTokenRefresh.listen((_) => registerCurrent());
+  messaging.onTokenRefresh.listen(registerToken);
   // Re-register whenever the auth store flips (login / logout / refresh).
-  auth.changes.listen((_) => registerCurrent());
+  auth.changes.listen((user) {
+    if (user != null) unawaited(registerCurrent());
+  });
 
   // Foreground messages — the socket already covers most of these but
   // listening lets us reconnect the socket if a push lands while we're
   // in the foreground with a dropped connection.
-  FirebaseMessaging.onMessage.listen((_) {/* socket handles UI */});
+  FirebaseMessaging.onMessage.listen((message) {
+    unawaited(_showForegroundNotification(message));
+  });
+}
+
+Future<String?> _currentFcmToken(FirebaseMessaging messaging) async {
+  if (Platform.isIOS) {
+    for (var i = 0; i < 5; i++) {
+      final apns = await messaging.getAPNSToken().catchError((_) => null);
+      if (apns != null) break;
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+    }
+  }
+  return messaging.getToken().catchError((_) => null);
+}
+
+Future<void> _initializeLocalNotifications() async {
+  const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+  const ios = DarwinInitializationSettings(
+    requestAlertPermission: false,
+    requestBadgePermission: false,
+    requestSoundPermission: false,
+  );
+  await _localNotifications.initialize(
+    const InitializationSettings(android: android, iOS: ios),
+    onDidReceiveNotificationResponse: (response) {
+      final payload = response.payload;
+      if (payload == null || payload.isEmpty) return;
+      try {
+        final raw = jsonDecode(payload);
+        if (raw is Map) {
+          _pushNavigationEvents.add(Map<String, dynamic>.from(raw));
+        }
+      } catch (_) {}
+    },
+  );
+
+  const channel = AndroidNotificationChannel(
+    _generalNotificationsChannelId,
+    'Notifications',
+    description: 'Chat, task, mention, and system alerts',
+    importance: Importance.high,
+    playSound: true,
+    enableVibration: true,
+  );
+  await _localNotifications
+      .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>()
+      ?.createNotificationChannel(channel);
+}
+
+Future<void> _showForegroundNotification(RemoteMessage message) async {
+  final data = message.data;
+  final title = message.notification?.title ??
+      data['title']?.toString() ??
+      _titleForKind(data['kind']?.toString());
+  final body = message.notification?.body ?? data['body']?.toString() ?? '';
+  if (title == null || title.isEmpty) return;
+
+  final id = (message.messageId ?? DateTime.now().microsecondsSinceEpoch)
+      .hashCode
+      .abs();
+  await _localNotifications.show(
+    id,
+    title,
+    body,
+    const NotificationDetails(
+      android: AndroidNotificationDetails(
+        _generalNotificationsChannelId,
+        'Notifications',
+        channelDescription: 'Chat, task, mention, and system alerts',
+        importance: Importance.high,
+        priority: Priority.high,
+        playSound: true,
+        enableVibration: true,
+      ),
+      iOS: DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      ),
+    ),
+    payload: jsonEncode(data),
+  );
+}
+
+String? _titleForKind(String? kind) {
+  return switch (kind) {
+    'CHAT' => 'New message',
+    'MENTION' => 'New mention',
+    'TASK' => 'Task update',
+    'CALL' => 'Call update',
+    'LEAD_FOLLOWUP' => 'Lead follow-up',
+    _ => 'New notification',
+  };
 }
 
 class BestieApp extends ConsumerStatefulWidget {
@@ -96,6 +228,7 @@ class BestieApp extends ConsumerStatefulWidget {
 class _BestieAppState extends ConsumerState<BestieApp> {
   static const _launchIntentChannel = MethodChannel('mytaskking/launch_intent');
   StreamSubscription<RemoteMessage>? _pushTapSub;
+  StreamSubscription<Map<String, dynamic>>? _localPushTapSub;
 
   @override
   void initState() {
@@ -106,6 +239,7 @@ class _BestieAppState extends ConsumerState<BestieApp> {
   @override
   void dispose() {
     _pushTapSub?.cancel();
+    _localPushTapSub?.cancel();
     super.dispose();
   }
 
@@ -119,6 +253,26 @@ class _BestieAppState extends ConsumerState<BestieApp> {
       _pushTapSub =
           FirebaseMessaging.onMessageOpenedApp.listen(_openPushTarget);
     } catch (_) {/* Firebase is optional in local builds */}
+    _localPushTapSub = _pushNavigationEvents.stream.listen((data) {
+      final route = _routeForPush(data);
+      if (route != null) ref.read(routerProvider).go(route);
+    });
+    try {
+      final launchDetails =
+          await _localNotifications.getNotificationAppLaunchDetails();
+      final payload = launchDetails?.notificationResponse?.payload;
+      if (launchDetails?.didNotificationLaunchApp == true &&
+          payload != null &&
+          payload.isNotEmpty) {
+        final raw = jsonDecode(payload);
+        if (raw is Map) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            final route = _routeForPush(Map<String, dynamic>.from(raw));
+            if (route != null) ref.read(routerProvider).go(route);
+          });
+        }
+      }
+    } catch (_) {/* Local notification launch payload is optional */}
     try {
       final raw = await _launchIntentChannel.invokeMapMethod<String, dynamic>(
         'getInitialPayload',
@@ -154,6 +308,17 @@ class _BestieAppState extends ConsumerState<BestieApp> {
           data['mode']?.toString().toLowerCase() == 'voice' ? 'voice' : 'video';
       return '/meeting/$slug?mode=$mode';
     }
+    final channelId = data['channelId']?.toString();
+    if (channelId != null && channelId.isNotEmpty) {
+      return '/chat/$channelId';
+    }
+    final taskId = data['taskId']?.toString();
+    if (taskId != null && taskId.isNotEmpty) {
+      return '/tasks/$taskId';
+    }
+    final kind = data['kind']?.toString();
+    if (kind == 'LEAD_FOLLOWUP') return '/telecaller';
+    if (kind != null && kind.isNotEmpty) return '/notifications';
     return null;
   }
 
