@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io' show File;
-import 'dart:ui' show FontFeature;
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
@@ -74,23 +73,20 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
   // preview chip above the text field and `_send` includes the `replyToId`.
   Map<String, dynamic>? _replyingTo;
 
-  // When >0 the chat detail is in "search mode": app bar is replaced with
-  // a query field and the list filters to messages containing the term.
-  String _searchQuery = '';
-  bool _searching = false;
-
   // Typing-indicator state. We track which remote users are mid-typing
   // (keyed by userId) and bump a per-user timer on every `chat.typing`
   // event; if no follow-up arrives within 4 s we drop the indicator.
   final Map<String, ({String name, Timer timeout})> _typing = {};
   Timer? _myTypingThrottle;
   DateTime? _lastTypingEmit;
+  void Function()? _presenceUnsub;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadChannel();
+    _listenForPresence();
     _listenForReceiptEvents();
     _listenForTyping();
     _scroll.addListener(_onScroll);
@@ -104,6 +100,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     _composer.removeListener(_onComposerChanged);
     _myTypingThrottle?.cancel();
     _receiptInvalidate?.cancel();
+    _presenceUnsub?.call();
     for (final t in _typing.values) {
       t.timeout.cancel();
     }
@@ -188,6 +185,36 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
       final c = await ref.read(apiProvider).getChannel(widget.channelId);
       if (mounted) setState(() => _channel = c);
     } catch (_) {/* header falls back to generic title */}
+  }
+
+  void _listenForPresence() {
+    final rt = ref.read(realtimeProvider);
+    _presenceUnsub = rt.onAny('presence.update', ([data]) {
+      if (data is! Map || _channel == null) return;
+      final userId = data['userId']?.toString();
+      if (userId == null) return;
+      final rawMembers =
+          (_channel!['members'] as List?)?.cast<Map<String, dynamic>>() ??
+              const [];
+      var changed = false;
+      final members = rawMembers.map((member) {
+        final user = (member['user'] as Map?)?.cast<String, dynamic>();
+        if (user == null || user['id']?.toString() != userId) return member;
+        changed = true;
+        return {
+          ...member,
+          'user': {
+            ...user,
+            'online': data['online'] == true,
+            'lastSeenAt': data['lastSeenAt']?.toString() ??
+                user['lastSeenAt']?.toString(),
+          },
+        };
+      }).toList();
+      if (changed && mounted) {
+        setState(() => _channel = {..._channel!, 'members': members});
+      }
+    });
   }
 
   /// Debounce timer for refreshing the messages list when receipts trickle
@@ -638,7 +665,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
 
       final asset = await ref.read(apiProvider).uploadFile(
             bytes: bytes,
-            filename: filename!,
+            filename: filename,
             mimeType: mimeType,
           );
       final assetId = asset['id']?.toString();
@@ -730,15 +757,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     if (_channel == null) return 'Chat';
     final kind = (_channel!['kind'] ?? '').toString();
     if (kind == 'DM') {
-      final me = ref.read(authStoreProvider).user;
-      final members =
-          (_channel!['members'] as List?)?.cast<Map<String, dynamic>>() ??
-              const [];
-      final other = members.firstWhere(
-        (m) => m['userId'] != me?.id,
-        orElse: () => const {},
-      );
-      final u = other['user'] as Map?;
+      final u = _dmOtherUser();
       if (u != null && u['name'] != null) return u['name'].toString();
     }
     return (_channel!['name'] ?? 'Chat').toString();
@@ -752,12 +771,38 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
             const [];
     switch (kind) {
       case 'DM':
-        return 'Direct message';
+        final other = _dmOtherUser();
+        if (other?['online'] == true) return 'Online';
+        return _lastSeenLabel(other?['lastSeenAt']?.toString());
       case 'CLIENT':
         return '${members.length} members · client';
       default:
         return '${members.length} members';
     }
+  }
+
+  Map<String, dynamic>? _dmOtherUser() {
+    if (_channel == null) return null;
+    final me = ref.read(authStoreProvider).user;
+    final members =
+        (_channel!['members'] as List?)?.cast<Map<String, dynamic>>() ??
+            const [];
+    final other = members.firstWhere(
+      (m) => m['userId'] != me?.id,
+      orElse: () => const {},
+    );
+    return (other['user'] as Map?)?.cast<String, dynamic>();
+  }
+
+  String _lastSeenLabel(String? iso) {
+    final dt = DateTime.tryParse(iso ?? '')?.toLocal();
+    if (dt == null) return 'Offline';
+    final diff = DateTime.now().difference(dt);
+    if (diff.inSeconds < 45) return 'last seen just now';
+    if (diff.inMinutes < 60) return 'last seen ${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return 'last seen ${diff.inHours}h ago';
+    if (diff.inDays == 1) return 'last seen yesterday';
+    return 'last seen ${dt.day}/${dt.month}/${dt.year}';
   }
 
   /// Parses the composer text up to the cursor and extracts an in-progress

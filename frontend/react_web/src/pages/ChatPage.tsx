@@ -1,8 +1,9 @@
 import { ChangeEvent, ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Send, Hash, Pin, Paperclip, X, ClipboardPaste, RotateCcw, GripVertical, Mic, Square, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Send, Hash, Pin, Paperclip, X, ClipboardPaste, RotateCcw, GripVertical, Mic, Square, ChevronLeft, ChevronRight, Check, CheckCheck, Clock3, AlertCircle } from 'lucide-react';
 import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
 import { api } from '@/services/api';
 import { useAuthStore } from '@/store/auth';
 import { getSocket } from '@/services/socket';
@@ -12,6 +13,8 @@ import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { toast } from '@/components/Toast';
 import './chat.css';
+
+dayjs.extend(relativeTime);
 
 type ChannelMember = {
   userId: string;
@@ -23,6 +26,8 @@ type ChannelMember = {
     isClient: boolean;
     role: string;
     customTitle?: string | null;
+    lastSeenAt?: string | null;
+    online?: boolean;
   };
 };
 
@@ -43,7 +48,9 @@ type Message = {
   authorId: string;
   author: { id: string; name: string; avatarUrl?: string | null; isClient: boolean; role: string };
   createdAt: string;
+  status?: 'SENDING' | 'SENT' | 'DELIVERED' | 'SEEN' | 'FAILED';
   pinned: boolean;
+  receipts?: Array<{ userId: string; state: 'DELIVERED' | 'SEEN'; at: string }>;
   attachments?: Array<{ id: string; url: string; mimeType: string; originalName?: string | null }>;
 };
 
@@ -72,6 +79,25 @@ function makeTempId(file: File) {
   return `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+const MESSAGE_STATUS_RANK: Record<string, number> = {
+  SENDING: 0,
+  FAILED: 0,
+  SENT: 1,
+  DELIVERED: 2,
+  SEEN: 3,
+};
+
+function promoteMessageStatus(current: string | undefined, next: 'DELIVERED' | 'SEEN') {
+  return (MESSAGE_STATUS_RANK[next] > MESSAGE_STATUS_RANK[current || 'SENT'] ? next : current || 'SENT') as Message['status'];
+}
+
+function lastSeenLabel(lastSeenAt?: string | null) {
+  if (!lastSeenAt) return 'Offline';
+  const seen = dayjs(lastSeenAt);
+  if (!seen.isValid()) return 'Offline';
+  return `last seen ${seen.fromNow()}`;
+}
+
 export default function ChatPage() {
   const { channelId } = useParams();
   const navigate = useNavigate();
@@ -93,6 +119,8 @@ export default function ChatPage() {
   const [dragAttachmentId, setDragAttachmentId] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<{ items: Array<{ url: string; name: string }>; index: number } | null>(null);
   const [recording, setRecording] = useState(false);
+  const [presenceByUser, setPresenceByUser] = useState<Record<string, { online: boolean; lastSeenAt?: string | null }>>({});
+  const seenAckedRef = useRef<Set<string>>(new Set());
 
   const { data: channelsData } = useQuery<{ items: Channel[] }>({
     queryKey: ['channels.mine'],
@@ -100,10 +128,62 @@ export default function ChatPage() {
   });
   const channels = channelsData?.items || [];
   const active = channels.find((c) => c.id === channelId) || channels[0];
+  const directPeer = useMemo(() => {
+    if (active?.kind !== 'DM') return null;
+    return active.members.find((member) => member.userId !== me.id)?.user || null;
+  }, [active, me.id]);
+  const directPeerPresence = directPeer
+    ? presenceByUser[directPeer.id] || { online: directPeer.online === true, lastSeenAt: directPeer.lastSeenAt }
+    : null;
+  const activeTitle = active?.name || directPeer?.name || 'Direct message';
+  const activeSubtitle = active?.kind === 'DM' && directPeer
+    ? directPeerPresence?.online
+      ? 'Online'
+      : lastSeenLabel(directPeerPresence?.lastSeenAt)
+    : active
+      ? `${active.members.length} members${active.isClientChannel ? ' · client' : ''}`
+      : '';
 
   useEffect(() => {
     if (!channelId && active) navigate(`/chat/${active.id}`, { replace: true });
   }, [channelId, active, navigate]);
+
+  useEffect(() => {
+    if (!channels.length) return;
+    setPresenceByUser((prev) => {
+      const next = { ...prev };
+      for (const channel of channels) {
+        for (const member of channel.members || []) {
+          const user = member.user;
+          if (!user) continue;
+          next[user.id] = {
+            online: prev[user.id]?.online ?? user.online === true,
+            lastSeenAt: prev[user.id]?.lastSeenAt ?? user.lastSeenAt,
+          };
+        }
+      }
+      return next;
+    });
+  }, [channels]);
+
+  useEffect(() => {
+    const s = getSocket();
+    if (!s) return;
+    const onPresence = (payload: { userId?: string; online?: boolean; lastSeenAt?: string | null }) => {
+      if (!payload?.userId) return;
+      setPresenceByUser((prev) => ({
+        ...prev,
+        [payload.userId!]: {
+          online: payload.online === true,
+          lastSeenAt: payload.lastSeenAt || prev[payload.userId!]?.lastSeenAt || null,
+        },
+      }));
+    };
+    s.on('presence.update', onPresence);
+    return () => {
+      s.off('presence.update', onPresence);
+    };
+  }, []);
 
   const { data: messagesData } = useQuery<{ items: Message[]; nextCursor: string | null }>({
     queryKey: ['chat.messages', active?.id],
@@ -145,23 +225,59 @@ export default function ChatPage() {
   }, [draft, active?.id]);
 
   useEffect(() => {
+    seenAckedRef.current.clear();
+  }, [active?.id]);
+
+  useEffect(() => {
     if (!active) return;
     const s = getSocket();
     if (!s) return;
     s.emit('channel.join', active.id);
+    const promoteReceipts = (messageIds: string[], state: 'DELIVERED' | 'SEEN') => {
+      const ids = new Set(messageIds);
+      if (!ids.size) return;
+      qc.setQueryData<{ items: Message[]; nextCursor: string | null }>(['chat.messages', active.id], (prev) =>
+        prev
+          ? {
+              ...prev,
+              items: prev.items.map((message) =>
+                message.authorId === me.id && ids.has(message.id)
+                  ? { ...message, status: promoteMessageStatus(message.status, state) }
+                  : message
+              ),
+            }
+          : prev
+      );
+    };
     const onNew = (m: Message) => {
       if (m.channelId !== active.id) return;
       if (m.author?.id) {
         qc.setQueryData<{ items: Message[]; nextCursor: string | null }>(['chat.messages', active.id], (prev) =>
-          prev ? { ...prev, items: [...prev.items, m] } : { items: [m], nextCursor: null }
+          prev && prev.items.some((item) => item.id === m.id)
+            ? prev
+            : prev
+              ? { ...prev, items: [...prev.items, m] }
+              : { items: [m], nextCursor: null }
         );
       }
     };
+    const onReceipt = (payload: { messageId?: string; state?: 'DELIVERED' | 'SEEN' }) => {
+      if (!payload?.messageId || !payload.state) return;
+      promoteReceipts([payload.messageId], payload.state);
+    };
+    const onBulkReceipt = (payload: { channelId?: string; messageIds?: string[]; state?: 'DELIVERED' | 'SEEN' }) => {
+      if (payload?.channelId !== active.id || !payload.state || !Array.isArray(payload.messageIds)) return;
+      promoteReceipts(payload.messageIds, payload.state);
+    };
     s.on('chat.message.created', onNew);
+    s.on('chat.message.receipt', onReceipt);
+    s.on('chat.message.receipts.bulk', onBulkReceipt);
     return () => {
       s.off('chat.message.created', onNew);
+      s.off('chat.message.receipt', onReceipt);
+      s.off('chat.message.receipts.bulk', onBulkReceipt);
     };
-  }, [active, qc]);
+  }, [active, me.id, qc]);
 
   useEffect(() => {
     if (!active?.id) return;
@@ -169,6 +285,19 @@ export default function ChatPage() {
       .then(() => qc.invalidateQueries({ queryKey: ['channels.mine'] }))
       .catch(() => {});
   }, [active?.id, messages.length, qc]);
+
+  useEffect(() => {
+    if (!active?.id || !messages.length) return;
+    const messageIds = messages
+      .filter((message) => message.authorId !== me.id && !seenAckedRef.current.has(message.id))
+      .map((message) => message.id);
+    if (!messageIds.length) return;
+    messageIds.forEach((id) => seenAckedRef.current.add(id));
+    api.post(`/chat/channels/${active.id}/receipts/bulk`, {
+      messageIds,
+      state: 'SEEN',
+    }).catch(() => {});
+  }, [active?.id, messages, me.id]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -455,10 +584,10 @@ export default function ChatPage() {
             <header className="ch__panel-head">
               <div>
                 <div className="ch__title">
-                  <Hash size={16} /> <span>{active.name || 'Direct message'}</span>
+                  <Hash size={16} /> <span>{activeTitle}</span>
                   {active.isClientChannel && <span className="client-chip" style={{ marginLeft: 8 }}>CLIENT</span>}
                 </div>
-                <div className="ch__sub">{active.members.length} members</div>
+                <div className={`ch__sub ${directPeerPresence?.online ? 'is-online' : ''}`}>{activeSubtitle}</div>
               </div>
             </header>
 
@@ -470,6 +599,7 @@ export default function ChatPage() {
                     <div className="ch__msg-meta">
                       <UserName name={m.author.name} isClient={m.author.isClient} role={m.author.role} />
                       <span className="ch__msg-time">{dayjs(m.createdAt).format('HH:mm')}</span>
+                      {m.authorId === me.id && <MessageTicks status={m.status || 'SENT'} />}
                     </div>
                     {m.body && <div className="ch__msg-text">{m.body}</div>}
                     {!!m.attachments?.length && (
@@ -521,7 +651,7 @@ export default function ChatPage() {
                   onChange={(e) => setDraft(e.target.value)}
                   onKeyDown={onComposerKeyDown}
                   onPaste={onPaste}
-                  placeholder={`Message ${active.name || ''}…`}
+                  placeholder={`Message ${activeTitle}…`}
                 />
                 <input ref={fileInputRef} type="file" multiple hidden onChange={uploadFiles} />
                 <button type="button" className="ch__icon-btn" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
@@ -632,4 +762,12 @@ export default function ChatPage() {
       </Modal>
     </div>
   );
+}
+
+function MessageTicks({ status }: { status: NonNullable<Message['status']> }) {
+  if (status === 'SENDING') return <Clock3 size={13} className="ch__ticks" aria-label="Sending" />;
+  if (status === 'FAILED') return <AlertCircle size={13} className="ch__ticks ch__ticks--failed" aria-label="Failed" />;
+  if (status === 'SEEN') return <CheckCheck size={15} className="ch__ticks ch__ticks--seen" aria-label="Seen" />;
+  if (status === 'DELIVERED') return <CheckCheck size={15} className="ch__ticks" aria-label="Delivered" />;
+  return <Check size={14} className="ch__ticks" aria-label="Sent" />;
 }

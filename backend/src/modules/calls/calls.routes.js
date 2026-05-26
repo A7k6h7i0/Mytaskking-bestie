@@ -10,6 +10,7 @@ const audit = require('../../services/audit');
 const fcm = require('../../services/fcm');
 const prisma = require('../../database/prisma');
 const agora = require('../../services/agora');
+const notificationActions = require('../../services/notificationActions');
 
 const router = Router();
 router.use(requireAuth);
@@ -65,18 +66,34 @@ router.post(
     if (inviteeIds.length) {
       prisma.deviceToken
         .findMany({ where: { userId: { in: inviteeIds } } })
-        .then((devices) => {
+        .then(async (devices) => {
           if (!devices.length) return null;
-          return fcm.sendToTokens(devices.map((d) => d.token), {
-            title: `Incoming ${mode.toLowerCase()} call`,
-            body: `${req.user.name} is calling…`,
-            data: {
-              type: 'call.incoming',
-              callId: result.call.id,
-              mode,
-              fromName: req.user.name,
-            },
-          });
+          const byUser = new Map();
+          for (const device of devices) {
+            const tokens = byUser.get(device.userId) || [];
+            tokens.push(device.token);
+            byUser.set(device.userId, tokens);
+          }
+          await Promise.all(
+            Array.from(byUser.entries()).map(([userId, tokens]) =>
+              fcm.sendToTokens(tokens, {
+                title: `Incoming ${mode.toLowerCase()} call`,
+                body: `${req.user.name} is calling...`,
+                data: {
+                  type: 'call.incoming',
+                  callId: result.call.id,
+                  mode,
+                  fromName: req.user.name,
+                  apiBaseUrl: notificationActions.publicApiBaseUrl(),
+                  actionToken: notificationActions.signAction(
+                    { action: 'call.decline', userId, callId: result.call.id },
+                    '2m'
+                  ),
+                },
+              })
+            )
+          );
+          return null;
         })
         .catch(() => {/* push is best-effort */});
     }

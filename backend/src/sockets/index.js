@@ -7,11 +7,12 @@ const prisma = require('../database/prisma');
 const { verifyAccessToken } = require('../services/tokens');
 const monitoring = require('../services/monitoring');
 const cache = require('../services/cache');
+const chatService = require('../modules/chat/chat.service');
 
 const presence = new Map(); // userId -> Set<socketId>
 
-function broadcastPresence(io, userId, online) {
-  io.emit('presence.update', { userId, online });
+function broadcastPresence(io, userId, online, lastSeenAt = new Date()) {
+  io.emit('presence.update', { userId, online, lastSeenAt });
 }
 
 module.exports = function initSockets(server) {
@@ -57,18 +58,35 @@ module.exports = function initSockets(server) {
     const userId = socket.user.id;
     socket.join(`user:${userId}`);
 
+    const connectedAt = new Date();
     if (!presence.has(userId)) {
       presence.set(userId, new Set());
-      broadcastPresence(io, userId, true);
-      cache.set(`presence:online:${userId}`, true, 120).catch(() => {});
+      broadcastPresence(io, userId, true, connectedAt);
+      cache.set(`presence:online:${userId}`, true).catch(() => {});
     }
     presence.get(userId).add(socket.id);
 
-    await prisma.user.update({ where: { id: userId }, data: { lastSeenAt: new Date() } }).catch(() => {});
+    await prisma.user.update({ where: { id: userId }, data: { lastSeenAt: connectedAt } }).catch(() => {});
 
     // Auto-join all my channel rooms so I receive realtime messages.
     const memberships = await prisma.channelMember.findMany({ where: { userId } });
     for (const m of memberships) socket.join(`channel:${m.channelId}`);
+    chatService
+      .markDeliveredForUser({
+        userId,
+        channelIds: memberships.map((m) => m.channelId),
+      })
+      .then((groups) => {
+        for (const group of groups) {
+          io.to(`channel:${group.channelId}`).emit('chat.message.receipts.bulk', {
+            channelId: group.channelId,
+            userId,
+            state: 'DELIVERED',
+            messageIds: group.messageIds,
+          });
+        }
+      })
+      .catch(() => {});
 
     socket.on('channel.join', (channelId) => socket.join(`channel:${channelId}`));
     socket.on('channel.leave', (channelId) => socket.leave(`channel:${channelId}`));
@@ -139,8 +157,9 @@ module.exports = function initSockets(server) {
         set.delete(socket.id);
         if (set.size === 0) {
           presence.delete(userId);
-          broadcastPresence(io, userId, false);
-          prisma.user.update({ where: { id: userId }, data: { lastSeenAt: new Date() } }).catch(() => {});
+          const lastSeenAt = new Date();
+          broadcastPresence(io, userId, false, lastSeenAt);
+          prisma.user.update({ where: { id: userId }, data: { lastSeenAt } }).catch(() => {});
           cache.del(`presence:online:${userId}`).catch(() => {});
         }
       }

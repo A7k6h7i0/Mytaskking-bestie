@@ -60,6 +60,7 @@
 .ch__panel-head { padding: 14px 18px; border-bottom: 1px solid var(--c-border); flex-shrink: 0; }
 .ch__title { display: flex; align-items: center; gap: 8px; font-weight: 700; }
 .ch__sub { font-size: var(--fs-xs); color: var(--c-text-muted); margin-top: 2px; }
+.ch__sub.is-online { color: var(--c-success); font-weight: 700; }
 
 .ch__messages {
   flex: 1 1 auto;
@@ -100,9 +101,18 @@
 .ch__msg-meta { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); }
 .ch__msg--mine .ch__msg-meta { justify-content: flex-end; }
 .ch__msg-time { color: var(--c-text-faint); font-size: var(--fs-xs); }
+.ch__ticks {
+  color: color-mix(in srgb, currentColor 82%, transparent);
+  flex: 0 0 auto;
+}
+.ch__ticks--seen { color: #53bdeb; }
+.ch__ticks--failed { color: var(--c-danger); }
 .ch__msg--mine .ch__msg-time,
 .ch__msg--mine .ch__msg-meta > span,
 .ch__msg--mine .ch__msg-text { color: var(--c-text-invert); }
+.ch__msg--mine .ch__ticks:not(.ch__ticks--seen):not(.ch__ticks--failed) {
+  color: color-mix(in srgb, var(--c-text-invert) 86%, transparent);
+}
 .ch__msg-text { font-size: var(--fs-base); line-height: var(--lh-normal); color: var(--c-text); white-space: pre-wrap; overflow-wrap: anywhere; }
 .ch__attachments { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
 .ch__attachment {

@@ -89,6 +89,16 @@ final messagesProvider = FutureProvider.autoDispose
       ref.invalidateSelf();
     }
   });
+  rt.onAny('chat.message.receipt', ([data]) {
+    if (data is Map) {
+      ref.invalidateSelf();
+    }
+  });
+  rt.onAny('chat.message.receipts.bulk', ([data]) {
+    if (data is Map && data['channelId'] == channelId) {
+      ref.invalidateSelf();
+    }
+  });
   final data = await api.listMessages(channelId);
   final items =
       (data['items'] as List? ?? const []).cast<Map<String, dynamic>>();

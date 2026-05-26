@@ -5,9 +5,72 @@ const Joi = require('joi');
 const asyncHandler = require('../../utils/asyncHandler');
 const validate = require('../../middleware/validate');
 const { requireAuth } = require('../../middleware/auth');
+const prisma = require('../../database/prisma');
+const notificationActions = require('../../services/notificationActions');
+const chatService = require('../chat/chat.service');
+const callsService = require('../calls/calls.service');
+const { NotFound } = require('../../utils/errors');
 const service = require('./notifications.service');
 
 const router = Router();
+
+function emitToCallParticipants(io, call, event, payload) {
+  for (const p of call?.participants || []) {
+    io?.to(`user:${p.userId}`).emit(event, payload);
+  }
+}
+
+router.post(
+  '/actions/chat-reply',
+  validate({
+    body: Joi.object({
+      token: Joi.string().required(),
+      body: Joi.string().trim().min(1).max(5000).required(),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    const payload = notificationActions.verifyAction(req.body.token, 'chat.reply');
+    const user = await prisma.user.findUnique({ where: { id: payload.userId } });
+    if (!user) throw NotFound('User not found');
+    const message = await chatService.sendMessage({
+      channelId: payload.channelId,
+      user,
+      body: req.body.body,
+      io: req.app.get('io'),
+    });
+    req.app.get('io')?.to(`channel:${payload.channelId}`).emit('chat.message.created', message);
+    res.status(201).json({ ok: true, messageId: message.id });
+  })
+);
+
+router.post(
+  '/actions/call-decline',
+  validate({
+    body: Joi.object({
+      token: Joi.string().required(),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    const payload = notificationActions.verifyAction(req.body.token, 'call.decline');
+    const user = await prisma.user.findUnique({ where: { id: payload.userId } });
+    if (!user) throw NotFound('User not found');
+    const call = await callsService.decline({ callId: payload.callId, user });
+    emitToCallParticipants(req.app.get('io'), call, 'call.declined', {
+      callId: call.id,
+      userId: user.id,
+      status: call.status,
+    });
+    if (call.status === 'ENDED' || call.status === 'MISSED') {
+      emitToCallParticipants(req.app.get('io'), call, 'call.ended', {
+        callId: call.id,
+        userId: user.id,
+        status: call.status,
+      });
+    }
+    res.json({ ok: true, callId: call.id, status: call.status });
+  })
+);
+
 router.use(requireAuth);
 
 router.get(

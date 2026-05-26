@@ -2,6 +2,7 @@
 
 const prisma = require('../../database/prisma');
 const fcm = require('../../services/fcm');
+const notificationActions = require('../../services/notificationActions');
 
 async function registerDevice({ userId, token, platform }) {
   return prisma.deviceToken.upsert({
@@ -42,9 +43,36 @@ async function notify({ userId, kind, title, body, data, io }) {
   emitNotification(io, userId, notification);
   const devices = await prisma.deviceToken.findMany({ where: { userId } });
   if (devices.length) {
+    const basePushData = { kind, notificationId: notification.id, ...(data || {}) };
+    if ((kind === 'CHAT' || kind === 'MENTION') && basePushData.channelId) {
+      const androidTokens = devices.filter((d) => d.platform === 'ANDROID').map((d) => d.token);
+      const otherTokens = devices.filter((d) => d.platform !== 'ANDROID').map((d) => d.token);
+      const commonData = { ...basePushData, type: 'chat.message' };
+      const androidData = {
+        ...commonData,
+        actionToken: notificationActions.signAction(
+          {
+            action: 'chat.reply',
+            userId,
+            channelId: basePushData.channelId,
+          },
+          '12h'
+        ),
+        apiBaseUrl: notificationActions.publicApiBaseUrl(),
+      };
+      await Promise.all([
+        androidTokens.length
+          ? fcm.sendToTokens(androidTokens, { title, body, data: androidData }).catch(() => {})
+          : null,
+        otherTokens.length
+          ? fcm.sendToTokens(otherTokens, { title, body, data: commonData }).catch(() => {})
+          : null,
+      ]);
+      return notification;
+    }
     await fcm.sendToTokens(
       devices.map((d) => d.token),
-      { title, body, data: { kind, notificationId: notification.id, ...(data || {}) } }
+      { title, body, data: basePushData }
     ).catch(() => {});
   }
   return notification;

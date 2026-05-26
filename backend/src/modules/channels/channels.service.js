@@ -2,6 +2,36 @@
 
 const prisma = require('../../database/prisma');
 const { NotFound, Forbidden, BadRequest } = require('../../utils/errors');
+const cache = require('../../services/cache');
+
+const memberUserSelect = {
+  id: true,
+  userId: true,
+  name: true,
+  role: true,
+  customTitle: true,
+  avatarUrl: true,
+  isClient: true,
+  lastSeenAt: true,
+};
+
+async function withOnlineMembers(channel) {
+  if (!channel?.members?.length) return channel;
+  const members = await Promise.all(
+    channel.members.map(async (member) => {
+      if (!member.user) return member;
+      const online = await cache.get(`presence:online:${member.user.id}`).catch(() => null);
+      return {
+        ...member,
+        user: {
+          ...member.user,
+          online: online === true,
+        },
+      };
+    })
+  );
+  return { ...channel, members };
+}
 
 async function ensureMember(channelId, userId) {
   const m = await prisma.channelMember.findUnique({
@@ -20,7 +50,7 @@ async function listForUser(user) {
       ...(user.isClient ? { kind: 'CLIENT' } : {}),
     },
     include: {
-      members: { include: { user: { select: { id: true, userId: true, name: true, role: true, customTitle: true, avatarUrl: true, isClient: true } } } },
+      members: { include: { user: { select: memberUserSelect } } },
       _count: { select: { messages: true } },
       // Most-recent non-deleted message per channel — the Flutter chat list
       // uses this for the WhatsApp-style preview line ("📷 Photo", body
@@ -55,7 +85,7 @@ async function listForUser(user) {
         },
       });
       const { messages, ...rest } = channel;
-      return { ...rest, lastMessage: messages[0] || null, unreadCount };
+      return withOnlineMembers({ ...rest, lastMessage: messages[0] || null, unreadCount });
     })
   );
 }
@@ -191,14 +221,14 @@ async function getById(id, user) {
   const channel = await prisma.channel.findUnique({
     where: { id },
     include: {
-      members: { include: { user: { select: { id: true, userId: true, name: true, role: true, customTitle: true, avatarUrl: true, isClient: true } } } },
+      members: { include: { user: { select: memberUserSelect } } },
     },
   });
   if (!channel) throw NotFound('Channel not found');
   if (!channel.members.some((m) => m.userId === user.id) && !['SUPER_ADMIN', 'ADMIN'].includes(user.role)) {
     throw Forbidden('Not a member of this channel');
   }
-  return channel;
+  return withOnlineMembers(channel);
 }
 
 async function addMembers(channelId, memberIds, actor) {

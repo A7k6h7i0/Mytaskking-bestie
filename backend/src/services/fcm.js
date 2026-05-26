@@ -48,10 +48,15 @@ async function sendToTokens(tokens, { title, body, data }) {
     ? Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)]))
     : undefined;
   const isCallLike = stringData?.type === 'call.incoming' || stringData?.type === 'meeting.invited';
+  const isActionableChat =
+    (stringData?.type === 'chat.message' || stringData?.kind === 'CHAT' || stringData?.kind === 'MENTION') &&
+    !!stringData?.channelId &&
+    !!stringData?.actionToken;
+  const isDataOnly = isCallLike || isActionableChat;
   const messages = tokens.map((token) => {
     const aps = { sound: 'default', contentAvailable: true };
-    if (isCallLike) {
-      aps.category = 'CALL_INVITE';
+    if (isDataOnly) {
+      if (isCallLike) aps.category = 'CALL_INVITE';
       aps.alert = { title, body };
     }
     const androidNotification = {
@@ -63,8 +68,8 @@ async function sendToTokens(tokens, { title, body, data }) {
     if (isCallLike) androidNotification.channelId = 'calls';
     const message = {
       token,
-      notification: isCallLike ? undefined : { title, body },
-      data: isCallLike
+      notification: isDataOnly ? undefined : { title, body },
+      data: isDataOnly
         ? { ...(stringData || {}), title: String(title || ''), body: String(body || '') }
         : stringData,
       android: {
@@ -75,7 +80,7 @@ async function sendToTokens(tokens, { title, body, data }) {
         payload: { aps },
       },
     };
-    if (isCallLike) delete message.notification;
+    if (isDataOnly) delete message.notification;
     else message.android.notification = androidNotification;
     return message;
   });

@@ -20,7 +20,9 @@ class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         BestieFirebaseMessagingService.createCallNotificationChannel(this)
+        BestieFirebaseMessagingService.createMessageNotificationChannel(this)
         latestLaunchPayload = payloadFrom(intent)
+        cancelNotificationFromIntent(intent)
         applyCallWindowFlags(latestLaunchPayload)
     }
 
@@ -56,23 +58,39 @@ class MainActivity : FlutterActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         latestLaunchPayload = payloadFrom(intent)
+        cancelNotificationFromIntent(intent)
         applyCallWindowFlags(latestLaunchPayload)
     }
 
     private fun payloadFrom(intent: Intent?): Map<String, String?>? {
-        val type = intent?.getStringExtra("type") ?: return null
-        if (type != "call.incoming" && type != "meeting.invited") return null
+        if (intent == null) return null
+        val type = intent.getStringExtra("type")
+        val hasCallTarget = type == "call.incoming" || type == "meeting.invited"
+        val hasChatTarget = !intent.getStringExtra("channelId").isNullOrBlank()
+        val hasTaskTarget = !intent.getStringExtra("taskId").isNullOrBlank()
+        if (!hasCallTarget && !hasChatTarget && !hasTaskTarget) return null
         return mapOf(
-            "type" to type,
+            "type" to (type ?: if (hasChatTarget) "chat.message" else null),
             "callId" to intent.getStringExtra("callId"),
             "meetingSlug" to intent.getStringExtra("meetingSlug"),
             "mode" to intent.getStringExtra("mode"),
-            "fromName" to intent.getStringExtra("fromName")
+            "fromName" to intent.getStringExtra("fromName"),
+            "channelId" to intent.getStringExtra("channelId"),
+            "messageId" to intent.getStringExtra("messageId"),
+            "taskId" to intent.getStringExtra("taskId"),
+            "kind" to intent.getStringExtra("kind"),
+            "notificationId" to if (intent.hasExtra("notificationId")) {
+                intent.getIntExtra("notificationId", -1).toString()
+            } else {
+                null
+            }
         )
     }
 
     private fun applyCallWindowFlags(payload: Map<String, String?>?) {
         if (payload == null) return
+        val type = payload["type"]
+        if (type != "call.incoming" && type != "meeting.invited") return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
@@ -85,15 +103,24 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun cancelNotificationFromIntent(intent: Intent?) {
+        if (intent == null || !intent.hasExtra("notificationId")) return
+        val id = intent.getIntExtra("notificationId", -1)
+        if (id != -1) getSystemService(NotificationManager::class.java).cancel(id)
+    }
+
     private fun showOngoingCallNotification(args: Map<String, Any?>?) {
         val title = args?.get("title")?.toString() ?: "Call in progress"
         val body = args?.get("body")?.toString() ?: "Tap to return"
+        val startedAtMs = (args?.get("startedAtMs") as? Number)?.toLong()
+            ?: System.currentTimeMillis()
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra("type", if (args?.get("meetingSlug") != null) "meeting.invited" else "call.incoming")
             putExtra("callId", args?.get("callId")?.toString())
             putExtra("meetingSlug", args?.get("meetingSlug")?.toString())
             putExtra("mode", args?.get("mode")?.toString())
+            putExtra("notificationId", 4701)
         }
         val pendingIntent = PendingIntent.getActivity(
             this,
@@ -122,6 +149,10 @@ class MainActivity : FlutterActivity() {
             .setCategory(Notification.CATEGORY_CALL)
             .setOngoing(true)
             .setAutoCancel(false)
+            .setOnlyAlertOnce(true)
+            .setWhen(startedAtMs)
+            .setShowWhen(true)
+            .setUsesChronometer(true)
             .setContentIntent(pendingIntent)
             .build()
         getSystemService(NotificationManager::class.java).notify(4701, notification)

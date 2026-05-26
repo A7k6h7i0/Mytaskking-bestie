@@ -30,17 +30,23 @@ class IncomingCallOverlay extends ConsumerStatefulWidget {
       _IncomingCallOverlayState();
 }
 
-class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
+class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
+    with WidgetsBindingObserver {
   Map<String, dynamic>? _pending;
   Timer? _autoMiss;
   StreamSubscription<Map<String, dynamic>>? _pushInviteSub;
   final List<void Function()> _unsubs = [];
   String? _lastUserId;
   final _ringtone = FlutterRingtonePlayer();
+  bool _appResumed = true;
 
   @override
   void initState() {
     super.initState();
+    _appResumed = WidgetsBinding.instance.lifecycleState !=
+            AppLifecycleState.paused &&
+        WidgetsBinding.instance.lifecycleState != AppLifecycleState.detached;
+    WidgetsBinding.instance.addObserver(this);
     _pushInviteSub = _incomingCallPushEvents.stream.listen(_onPushInvite);
   }
 
@@ -53,7 +59,19 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
     for (final u in _unsubs) {
       u();
     }
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _appResumed = state == AppLifecycleState.resumed;
+    if (!_appResumed) {
+      _autoMiss?.cancel();
+      _hapticTimer?.cancel();
+      _ringtone.stop();
+      if (mounted && _pending != null) setState(() => _pending = null);
+    }
   }
 
   /// (Re)bind socket listeners whenever the auth user changes — login,
@@ -129,6 +147,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
   }
 
   void _onPushInvite(Map<String, dynamic> data) {
+    if (!_appResumed) return;
     final type = data['type']?.toString();
     final mode = (data['mode'] ?? 'VIDEO').toString().toUpperCase();
     final fromName =
@@ -169,6 +188,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
   }
 
   void _onIncoming(dynamic data) {
+    if (!_appResumed) return;
     if (data is! Map) return;
     final me = ref.read(authStoreProvider).user;
     final call = (data['call'] as Map?)?.cast<String, dynamic>();
@@ -215,6 +235,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
   /// so a flurry of arrivals (e.g. backfill on reconnect) doesn't turn into
   /// a machine-gun ding.
   Future<void> _playNotificationTone() async {
+    if (!_appResumed) return;
     final now = DateTime.now();
     if (_lastNotifChime != null &&
         now.difference(_lastNotifChime!).inMilliseconds < 800) {

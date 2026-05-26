@@ -51,11 +51,14 @@ class CallSession {
   static bool videoEnabled = false;
   static final Set<int> remoteUids = {};
   static final Map<int, String> remoteNames = {};
+
   /// Bumps whenever the session activates or deactivates so widgets
   /// outside the call screen (e.g. the "ongoing call" return pill) can
   /// rebuild without polling.
   static final ValueNotifier<int> revision = ValueNotifier<int>(0);
-  static void _ping() { revision.value = revision.value + 1; }
+  static void _ping() {
+    revision.value = revision.value + 1;
+  }
 
   static bool get isActive => engine != null;
   static bool matches(String? callId, String? meetingSlug) {
@@ -228,6 +231,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
         'callId': widget.callId,
         'meetingSlug': widget.meetingSlug,
         'mode': widget.mode,
+        'startedAtMs': (_connectedAt ?? DateTime.now()).millisecondsSinceEpoch,
       });
     } catch (_) {}
   }
@@ -470,7 +474,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       // it but don't fail the whole bootstrap on a non-critical setter.
       try {
         step = 'speakerphone';
-        await engine.setEnableSpeakerphone(_speakerOn);
+        await _applySpeakerRoute(_speakerOn);
       } catch (_) {/* will retry post-join */}
 
       // 6. Join. Pass the same channel profile here too — belt-and-suspenders.
@@ -610,8 +614,24 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   }
 
   Future<void> _toggleSpeaker() async {
-    setState(() => _speakerOn = !_speakerOn);
-    await _engine?.setEnableSpeakerphone(_speakerOn);
+    final next = !_speakerOn;
+    await _applySpeakerRoute(next);
+    if (mounted) setState(() => _speakerOn = next);
+  }
+
+  Future<void> _applySpeakerRoute(bool speakerOn) async {
+    final engine = _engine;
+    if (engine == null) return;
+    try {
+      await engine.setDefaultAudioRouteToSpeakerphone(speakerOn);
+    } catch (_) {}
+    try {
+      await engine.setRouteInCommunicationMode(speakerOn ? 3 : 1);
+      return;
+    } catch (_) {}
+    try {
+      await engine.setEnableSpeakerphone(speakerOn);
+    } catch (_) {}
   }
 
   Future<void> _toggleShare() async {
@@ -1618,7 +1638,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                 ? Icons.volume_up_rounded
                 : Icons.volume_down_rounded,
             onTap: _toggleSpeaker,
-            active: !_speakerOn,
+            active: _speakerOn,
             label: 'Speaker',
           ),
           pill(

@@ -1,9 +1,12 @@
 package com.mytaskking.mytaskking_mobile
 
+import android.app.ActivityManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.Person
+import android.app.RemoteInput
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
@@ -16,44 +19,55 @@ import com.google.firebase.messaging.RemoteMessage
 class BestieFirebaseMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         val data = message.data
-        val type = data["type"] ?: return
-        if (type != "call.incoming" && type != "meeting.invited") return
+        if (data.isEmpty()) return
 
+        val type = data["type"]
+        val kind = data["kind"]
+        if (type == "call.incoming" || type == "meeting.invited") {
+            if (isAppInForeground()) return
+            showIncomingCallNotification(data, type)
+            wakeBriefly()
+            return
+        }
+
+        if ((type == "chat.message" || kind == "CHAT" || kind == "MENTION") &&
+            !data["channelId"].isNullOrBlank()
+        ) {
+            if (isAppInForeground()) return
+            showMessageNotification(data)
+        }
+    }
+
+    private fun showIncomingCallNotification(data: Map<String, String>, type: String) {
         createCallNotificationChannel(this)
 
+        val fromName = data["fromName"] ?: "Someone"
         val title = data["title"]
             ?: if (type == "meeting.invited") "Meeting invite" else "Incoming call"
         val body = data["body"]
-            ?: data["fromName"]?.let { "$it is calling" }
-            ?: "Tap to join"
+            ?: if (type == "meeting.invited") "$fromName invited you to a meeting" else "$fromName is calling"
+        val notificationId = notificationIdFor(data["callId"] ?: data["meetingSlug"] ?: body)
 
-        val previewIntent = Intent(this, IncomingCallActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("type", type)
-            putExtra("callId", data["callId"])
-            putExtra("meetingSlug", data["meetingSlug"])
-            putExtra("mode", data["mode"])
-            putExtra("fromName", data["fromName"])
-        }
-        val requestCode = (data["callId"] ?: data["meetingSlug"] ?: System.currentTimeMillis().toString()).hashCode()
-        previewIntent.putExtra("notificationId", requestCode)
-        val pendingIntent = PendingIntent.getActivity(
+        val openIntent = targetIntent(data, type, notificationId)
+        val openPendingIntent = PendingIntent.getActivity(
             this,
-            requestCode,
-            previewIntent,
+            notificationId,
+            openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val declinePendingIntent = PendingIntent.getBroadcast(
+            this,
+            notificationId + 17,
+            Intent(this, NotificationActionReceiver::class.java).apply {
+                action = NotificationActionReceiver.ACTION_CALL_DECLINE
+                putExtra(NotificationActionReceiver.EXTRA_NOTIFICATION_ID, notificationId)
+                putExtra(NotificationActionReceiver.EXTRA_API_BASE_URL, data["apiBaseUrl"])
+                putExtra(NotificationActionReceiver.EXTRA_ACTION_TOKEN, data["actionToken"])
+            },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(this, CALLS_CHANNEL_ID)
-        } else {
-            @Suppress("DEPRECATION")
-            Notification.Builder(this)
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            builder.setTimeoutAfter(60_000)
-        }
-        val notification = builder
+        val builder = notificationBuilder(CALLS_CHANNEL_ID)
             .setSmallIcon(applicationInfo.icon)
             .setContentTitle(title)
             .setContentText(body)
@@ -65,18 +79,138 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
             .setAutoCancel(false)
             .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))
             .setVibrate(longArrayOf(0, 700, 500, 700))
-            .setContentIntent(pendingIntent)
-            .setFullScreenIntent(pendingIntent, true)
-            .build()
+            .setWhen(System.currentTimeMillis())
+            .setUsesChronometer(true)
+            .setShowWhen(true)
+            .setContentIntent(openPendingIntent)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            builder.setTimeoutAfter(60_000)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val person = Person.Builder().setName(fromName).build()
+            builder.setStyle(
+                Notification.CallStyle.forIncomingCall(
+                    person,
+                    declinePendingIntent,
+                    openPendingIntent
+                )
+            )
+        } else {
+            builder
+                .addAction(applicationInfo.icon, "Decline", declinePendingIntent)
+                .addAction(applicationInfo.icon, "Accept", openPendingIntent)
+        }
 
         getSystemService(NotificationManager::class.java)
-            .notify(requestCode, notification)
-        wakeBriefly()
-        try {
-            startActivity(previewIntent)
+            .notify(notificationId, builder.build())
+    }
+
+    private fun showMessageNotification(data: Map<String, String>) {
+        createMessageNotificationChannel(this)
+
+        val title = data["title"] ?: "New message"
+        val body = data["body"] ?: "Tap to open"
+        val notificationId = notificationIdFor(data["notificationId"] ?: data["messageId"] ?: body)
+        val openIntent = targetIntent(data, data["type"] ?: "chat.message", notificationId)
+        val openPendingIntent = PendingIntent.getActivity(
+            this,
+            notificationId,
+            openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val builder = notificationBuilder(MESSAGES_CHANNEL_ID)
+            .setSmallIcon(applicationInfo.icon)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(Notification.BigTextStyle().bigText(body))
+            .setCategory(Notification.CATEGORY_MESSAGE)
+            .setPriority(Notification.PRIORITY_HIGH)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setAutoCancel(true)
+            .setContentIntent(openPendingIntent)
+
+        val actionToken = data["actionToken"]
+        val apiBaseUrl = data["apiBaseUrl"]
+        if (!actionToken.isNullOrBlank() && !apiBaseUrl.isNullOrBlank()) {
+            val replyIntent = Intent(this, NotificationActionReceiver::class.java).apply {
+                action = NotificationActionReceiver.ACTION_CHAT_REPLY
+                putExtra(NotificationActionReceiver.EXTRA_NOTIFICATION_ID, notificationId)
+                putExtra(NotificationActionReceiver.EXTRA_API_BASE_URL, apiBaseUrl)
+                putExtra(NotificationActionReceiver.EXTRA_ACTION_TOKEN, actionToken)
+            }
+            val replyPendingIntent = PendingIntent.getBroadcast(
+                this,
+                notificationId + 31,
+                replyIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or mutablePendingIntentFlag()
+            )
+            val remoteInput = RemoteInput.Builder(NotificationActionReceiver.KEY_REPLY_TEXT)
+                .setLabel("Reply")
+                .build()
+            val replyAction = Notification.Action.Builder(
+                applicationInfo.icon,
+                "Reply",
+                replyPendingIntent
+            ).addRemoteInput(remoteInput)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                replyAction.setAllowGeneratedReplies(true)
+            }
+            builder.addAction(replyAction.build())
+        }
+
+        getSystemService(NotificationManager::class.java)
+            .notify(notificationId, builder.build())
+    }
+
+    private fun targetIntent(
+        data: Map<String, String>,
+        type: String,
+        notificationId: Int
+    ): Intent {
+        return Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            data.forEach { (key, value) ->
+                if (key != "notificationId") putExtra(key, value)
+            }
+            putExtra("type", type)
+            putExtra("notificationId", notificationId)
+        }
+    }
+
+    private fun notificationBuilder(channelId: String): Notification.Builder {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, channelId)
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(this)
+        }
+    }
+
+    private fun notificationIdFor(value: String): Int {
+        return value.hashCode().let { if (it == Int.MIN_VALUE) 1 else kotlin.math.abs(it) }
+    }
+
+    private fun mutablePendingIntentFlag(): Int {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            PendingIntent.FLAG_MUTABLE
+        } else {
+            0
+        }
+    }
+
+    private fun isAppInForeground(): Boolean {
+        return try {
+            val manager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            val currentPackageName = applicationContext.packageName
+            manager.runningAppProcesses?.any { process ->
+                process.processName == currentPackageName &&
+                    (process.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND ||
+                        process.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_VISIBLE)
+            } == true
         } catch (_: Exception) {
-            // Android may block background activity starts on some devices.
-            // The full-screen notification above remains the reliable path.
+            false
         }
     }
 
@@ -97,6 +231,7 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
 
     companion object {
         const val CALLS_CHANNEL_ID = "calls"
+        private const val MESSAGES_CHANNEL_ID = "messages"
 
         fun createCallNotificationChannel(context: Context) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -113,6 +248,21 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
                 description = "Incoming MyTaskKing calls and meeting invites"
                 enableVibration(true)
                 setSound(ringtoneUri, attrs)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            }
+            context.getSystemService(NotificationManager::class.java)
+                .createNotificationChannel(channel)
+        }
+
+        fun createMessageNotificationChannel(context: Context) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+            val channel = NotificationChannel(
+                MESSAGES_CHANNEL_ID,
+                "Messages",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Chat messages and mentions"
+                enableVibration(true)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
             context.getSystemService(NotificationManager::class.java)

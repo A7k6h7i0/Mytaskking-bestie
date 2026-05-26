@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show Platform;
 
+import 'package:dio/dio.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
@@ -18,6 +19,7 @@ import 'screens/ongoing_call_bar.dart';
 import 'state.dart' hide ThemeMode;
 
 const _foregroundNotificationsChannelId = 'foreground_notifications_silent';
+const _notificationReplyActionId = 'bestie.reply';
 final _localNotifications = FlutterLocalNotificationsPlugin();
 final _pushNavigationEvents =
     StreamController<Map<String, dynamic>>.broadcast();
@@ -27,6 +29,11 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   try {
     await _initializeFirebase();
   } catch (_) {}
+}
+
+@pragma('vm:entry-point')
+void _notificationTapBackground(NotificationResponse response) {
+  unawaited(_handleLocalNotificationResponse(response, navigateInApp: false));
 }
 
 void main() async {
@@ -151,15 +158,9 @@ Future<void> _initializeLocalNotifications() async {
   await _localNotifications.initialize(
     const InitializationSettings(android: android, iOS: ios),
     onDidReceiveNotificationResponse: (response) {
-      final payload = response.payload;
-      if (payload == null || payload.isEmpty) return;
-      try {
-        final raw = jsonDecode(payload);
-        if (raw is Map) {
-          _pushNavigationEvents.add(Map<String, dynamic>.from(raw));
-        }
-      } catch (_) {}
+      unawaited(_handleLocalNotificationResponse(response));
     },
+    onDidReceiveBackgroundNotificationResponse: _notificationTapBackground,
   );
 
   const channel = AndroidNotificationChannel(
@@ -192,11 +193,24 @@ Future<void> _showForegroundNotification(RemoteMessage message) async {
   final id = (message.messageId ?? DateTime.now().microsecondsSinceEpoch)
       .hashCode
       .abs();
+  final androidActions = _isActionableChatPush(data)
+      ? const <AndroidNotificationAction>[
+          AndroidNotificationAction(
+            _notificationReplyActionId,
+            'Reply',
+            showsUserInterface: false,
+            allowGeneratedReplies: true,
+            inputs: <AndroidNotificationActionInput>[
+              AndroidNotificationActionInput(label: 'Reply'),
+            ],
+          ),
+        ]
+      : null;
   await _localNotifications.show(
     id,
     title,
     body,
-    const NotificationDetails(
+    NotificationDetails(
       android: AndroidNotificationDetails(
         _foregroundNotificationsChannelId,
         'Foreground notifications',
@@ -206,8 +220,9 @@ Future<void> _showForegroundNotification(RemoteMessage message) async {
         priority: Priority.high,
         playSound: false,
         enableVibration: false,
+        actions: androidActions,
       ),
-      iOS: DarwinNotificationDetails(
+      iOS: const DarwinNotificationDetails(
         presentAlert: true,
         presentBadge: true,
         presentSound: false,
@@ -217,9 +232,69 @@ Future<void> _showForegroundNotification(RemoteMessage message) async {
   );
 }
 
+Future<void> _handleLocalNotificationResponse(
+  NotificationResponse response, {
+  bool navigateInApp = true,
+}) async {
+  final payload = response.payload;
+  if (payload == null || payload.isEmpty) return;
+  try {
+    final raw = jsonDecode(payload);
+    if (raw is! Map) return;
+    final data = Map<String, dynamic>.from(raw);
+    if (response.actionId == _notificationReplyActionId) {
+      await _sendNotificationReply(data, response.input);
+      return;
+    }
+    if (navigateInApp) _pushNavigationEvents.add(data);
+  } catch (_) {}
+}
+
+Future<void> _sendNotificationReply(
+  Map<String, dynamic> data,
+  String? input,
+) async {
+  final body = input?.trim();
+  if (body == null || body.isEmpty) return;
+  final actionToken = data['actionToken']?.toString();
+  final apiBaseUrl = data['apiBaseUrl']?.toString();
+  if (actionToken != null &&
+      actionToken.isNotEmpty &&
+      apiBaseUrl != null &&
+      apiBaseUrl.isNotEmpty) {
+    await Dio(BaseOptions(
+      connectTimeout: const Duration(seconds: 10),
+      receiveTimeout: const Duration(seconds: 15),
+    )).post(
+      '${apiBaseUrl.replaceFirst(RegExp(r'/+$'), '')}/notifications/actions/chat-reply',
+      data: {'token': actionToken, 'body': body},
+    );
+    return;
+  }
+
+  final channelId = data['channelId']?.toString();
+  if (channelId == null || channelId.isEmpty) return;
+  final auth = core.BestieAuthStore();
+  await auth.load();
+  if (auth.user == null) return;
+  await core.BestieApi(baseUrl: kApiBaseUrl, auth: auth).post(
+    '/chat/channels/$channelId/messages',
+    body: {'body': body, 'kind': 'TEXT'},
+  );
+}
+
 bool _isIncomingCallPush(Map<String, dynamic> data) {
   final type = data['type']?.toString();
   return type == 'call.incoming' || type == 'meeting.invited';
+}
+
+bool _isActionableChatPush(Map<String, dynamic> data) {
+  final type = data['type']?.toString();
+  final kind = data['kind']?.toString();
+  final channelId = data['channelId']?.toString();
+  return (type == 'chat.message' || kind == 'CHAT' || kind == 'MENTION') &&
+      channelId != null &&
+      channelId.isNotEmpty;
 }
 
 String? _titleForKind(String? kind) {

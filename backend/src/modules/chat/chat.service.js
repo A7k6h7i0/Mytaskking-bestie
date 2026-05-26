@@ -4,6 +4,15 @@ const prisma = require('../../database/prisma');
 const { NotFound, Forbidden, BadRequest } = require('../../utils/errors');
 const channelsService = require('../channels/channels.service');
 const notifications = require('../notifications/notifications.service');
+const cache = require('../../services/cache');
+
+const messageInclude = {
+  author: { select: { id: true, name: true, avatarUrl: true, role: true, isClient: true } },
+  attachments: true,
+  reactions: true,
+  replyTo: { select: { id: true, body: true, authorId: true } },
+  receipts: { select: { userId: true, state: true, at: true } },
+};
 
 async function listMessages(channelId, user, { cursor, limit = 40 } = {}) {
   await channelsService.ensureMember(channelId, user.id).catch((e) => {
@@ -17,15 +26,7 @@ async function listMessages(channelId, user, { cursor, limit = 40 } = {}) {
     where: { channelId, deletedAt: null, ...(cursor ? { id: { lt: cursor } } : {}) },
     take: Math.min(limit, 100),
     orderBy: { id: 'desc' },
-    include: {
-      author: { select: { id: true, name: true, avatarUrl: true, role: true, isClient: true } },
-      attachments: true,
-      reactions: true,
-      replyTo: { select: { id: true, body: true, authorId: true } },
-      // Per-recipient receipts power WhatsApp-style tick marks on the
-      // sender's side (✓ sent, ✓✓ delivered, ✓✓ blue = seen).
-      receipts: { select: { userId: true, state: true, at: true } },
-    },
+    include: messageInclude,
   });
   return { items: messages.reverse(), nextCursor: messages.length ? messages[0].id : null };
 }
@@ -79,7 +80,7 @@ async function sendMessage({ channelId, user, body, kind = 'TEXT', attachmentIds
     resolvedRootId = parent?.threadRootId || parent?.id || null;
   }
 
-  const message = await prisma.message.create({
+  let message = await prisma.message.create({
     data: {
       channelId,
       authorId: user.id,
@@ -89,11 +90,25 @@ async function sendMessage({ channelId, user, body, kind = 'TEXT', attachmentIds
       threadRootId: resolvedRootId || null,
       ...(attachmentIds.length ? { attachments: { connect: attachmentIds.map((id) => ({ id })) } } : {}),
     },
-    include: {
-      author: { select: { id: true, name: true, avatarUrl: true, role: true, isClient: true } },
-      attachments: true,
-    },
+    include: messageInclude,
   });
+
+  const onlineRecipientIds = await onlineMembersForDelivery(channel.members, user.id);
+  if (onlineRecipientIds.length) {
+    await prisma.messageReceipt.createMany({
+      data: onlineRecipientIds.map((userId) => ({
+        messageId: message.id,
+        userId,
+        state: 'DELIVERED',
+      })),
+      skipDuplicates: true,
+    });
+    message = await prisma.message.update({
+      where: { id: message.id },
+      data: { status: 'DELIVERED' },
+      include: messageInclude,
+    });
+  }
 
   // Update the thread root counters in the background — never block the send.
   if (resolvedRootId) {
@@ -263,6 +278,66 @@ async function recordReceiptsBulk({ messageIds, userId, state }) {
   return { count: rows.length };
 }
 
+async function onlineMembersForDelivery(members, authorId) {
+  const ids = [];
+  for (const member of members || []) {
+    const userId = member.userId || member.user?.id;
+    if (!userId || userId === authorId) continue;
+    const online = await cache.get(`presence:online:${userId}`).catch(() => null);
+    if (online === true) ids.push(userId);
+  }
+  return ids;
+}
+
+async function markDeliveredForUser({ userId, channelIds, limit = 500 }) {
+  const safeChannelIds = Array.from(new Set(channelIds || [])).filter(Boolean);
+  if (!safeChannelIds.length) return [];
+  const messages = await prisma.message.findMany({
+    where: {
+      channelId: { in: safeChannelIds },
+      authorId: { not: userId },
+      deletedAt: null,
+      receipts: {
+        none: {
+          userId,
+          state: 'DELIVERED',
+        },
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: limit,
+    select: { id: true, channelId: true },
+  });
+  if (!messages.length) return [];
+
+  await prisma.messageReceipt.createMany({
+    data: messages.map((message) => ({
+      messageId: message.id,
+      userId,
+      state: 'DELIVERED',
+    })),
+    skipDuplicates: true,
+  });
+  await prisma.message.updateMany({
+    where: {
+      id: { in: messages.map((message) => message.id) },
+      status: 'SENT',
+    },
+    data: { status: 'DELIVERED' },
+  });
+
+  const grouped = new Map();
+  for (const message of messages) {
+    const ids = grouped.get(message.channelId) || [];
+    ids.push(message.id);
+    grouped.set(message.channelId, ids);
+  }
+  return Array.from(grouped.entries()).map(([channelId, messageIds]) => ({
+    channelId,
+    messageIds,
+  }));
+}
+
 module.exports = {
   listMessages,
   sendMessage,
@@ -274,5 +349,6 @@ module.exports = {
   markRead,
   recordReceipt,
   recordReceiptsBulk,
+  markDeliveredForUser,
   listThread,
 };
