@@ -6,11 +6,66 @@ import 'package:mytaskking_design/mytaskking_design.dart';
 import '../state.dart';
 
 /// Call history — recent calls with a one-tap "ring back" action.
-class CallsScreen extends ConsumerWidget {
+/// Paginated 25 rows at a time so workspaces with high call volume
+/// don't fall off a cliff once history grows past a few hundred entries.
+class CallsScreen extends ConsumerStatefulWidget {
   const CallsScreen({super.key});
+  @override
+  ConsumerState<CallsScreen> createState() => _CallsScreenState();
+}
+
+class _CallsScreenState extends ConsumerState<CallsScreen> {
+  static const _pageSize = 25;
+  final ScrollController _scroll = ScrollController();
+  final List<Map<String, dynamic>> _items = [];
+  int _page = 1;
+  bool _loading = false;
+  bool _hasMore = true;
+  Object? _error;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  void initState() {
+    super.initState();
+    _scroll.addListener(_onScroll);
+    _loadMore();
+  }
+
+  @override
+  void dispose() {
+    _scroll.removeListener(_onScroll);
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scroll.hasClients) return;
+    final remaining = _scroll.position.maxScrollExtent - _scroll.offset;
+    if (remaining < 240 && _hasMore && !_loading) _loadMore();
+  }
+
+  Future<void> _loadMore() async {
+    setState(() { _loading = true; _error = null; });
+    try {
+      final res = await ref
+          .read(apiProvider)
+          .callHistory(page: _page, pageSize: _pageSize);
+      final batch =
+          ((res['items'] as List?) ?? const []).cast<Map<String, dynamic>>();
+      if (!mounted) return;
+      setState(() {
+        _items.addAll(batch);
+        _hasMore = batch.length >= _pageSize;
+        if (_hasMore) _page++;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() { _error = e; _loading = false; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final c = BestieColors.of(context);
     return Scaffold(
       backgroundColor: c.bg,
@@ -20,35 +75,63 @@ class CallsScreen extends ConsumerWidget {
         foregroundColor: c.text,
         title: const Text('Calls'),
       ),
-      body: FutureBuilder<Map<String, dynamic>>(
-        future: ref.read(apiProvider).callHistory(),
-        builder: (ctx, snap) {
-          if (snap.connectionState == ConnectionState.waiting) {
-            return const Center(child: BestieSpinner());
-          }
-          if (snap.hasError) {
-            return BestieEmptyState(
-              icon: Icons.error_outline_rounded,
-              iconColor: c.danger,
-              title: 'Could not load calls',
-              description: formatApiError(snap.error!),
-            );
-          }
-          final items = ((snap.data?['items'] as List?) ?? const []).cast<Map<String, dynamic>>();
-          if (items.isEmpty) {
-            return const BestieEmptyState(
-              icon: Icons.phone_outlined,
-              title: 'No calls yet',
-              description: 'Voice and video calls will show up here.',
-            );
-          }
-          return ListView.separated(
-            itemCount: items.length,
-            separatorBuilder: (_, __) => Divider(height: 1, indent: 72, color: c.border),
-            itemBuilder: (ctx, i) => _CallRow(call: items[i], colors: c),
-          );
-        },
-      ),
+      body: _items.isEmpty && _loading
+          ? const Center(child: BestieSpinner())
+          : (_items.isEmpty && _error != null
+              ? BestieEmptyState(
+                  icon: Icons.error_outline_rounded,
+                  iconColor: c.danger,
+                  title: 'Could not load calls',
+                  description: formatApiError(_error!),
+                )
+              : (_items.isEmpty
+                  ? const BestieEmptyState(
+                      icon: Icons.phone_outlined,
+                      title: 'No calls yet',
+                      description: 'Voice and video calls will show up here.',
+                    )
+                  : RefreshIndicator(
+                      onRefresh: () async {
+                        _page = 1;
+                        _hasMore = true;
+                        _items.clear();
+                        await _loadMore();
+                      },
+                      child: ListView.separated(
+                        controller: _scroll,
+                        itemCount: _items.length + 1,
+                        separatorBuilder: (_, __) =>
+                            Divider(height: 1, indent: 72, color: c.border),
+                        itemBuilder: (ctx, i) {
+                          if (i == _items.length) {
+                            if (_loading) {
+                              return const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 12),
+                                child: Center(
+                                  child: SizedBox(
+                                    width: 16, height: 16,
+                                    child:
+                                        CircularProgressIndicator(strokeWidth: 2),
+                                  ),
+                                ),
+                              );
+                            }
+                            if (!_hasMore) {
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                child: Center(
+                                  child: Text('End of history',
+                                      style: TextStyle(
+                                          fontSize: 11, color: c.textFaint)),
+                                ),
+                              );
+                            }
+                            return const SizedBox.shrink();
+                          }
+                          return _CallRow(call: _items[i], colors: c);
+                        },
+                      ),
+                    ))),
     );
   }
 }

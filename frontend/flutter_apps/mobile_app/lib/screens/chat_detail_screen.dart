@@ -80,6 +80,14 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
   String _searchQuery = '';
   final TextEditingController _searchCtl = TextEditingController();
 
+  // Pagination state: messagesProvider only returns the newest page; older
+  // messages are appended here on demand when the user scrolls back. The
+  // cursor is the oldest message id we know about (server uses `id < cursor`
+  // semantics).
+  final List<Map<String, dynamic>> _olderMessages = [];
+  bool _loadingOlder = false;
+  bool _hasMoreOlder = true;
+
   // Typing-indicator state. We track which remote users are mid-typing
   // (keyed by userId) and bump a per-user timer on every `chat.typing`
   // event; if no follow-up arrives within 4 s we drop the indicator.
@@ -159,6 +167,48 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     final shouldShow = _scroll.offset > 80;
     if (shouldShow != _showJumpToBottom) {
       setState(() => _showJumpToBottom = shouldShow);
+    }
+    // With reverse: true the "top" of the conversation is the *maximum*
+    // scroll extent. Fire the older-page fetch when we're within ~200 px
+    // of it. The check is gated on _hasMoreOlder + _loadingOlder so it
+    // can't double-fire mid-load.
+    final maxExtent = _scroll.position.maxScrollExtent;
+    final fromTop = maxExtent - _scroll.offset;
+    if (fromTop < 200 && _hasMoreOlder && !_loadingOlder) {
+      _loadMoreOlder();
+    }
+  }
+
+  /// Pulls the next page of older messages off the API using cursor =
+  /// oldest known message id, appends to _olderMessages and updates the
+  /// has-more flag based on whether the server returned a full page.
+  Future<void> _loadMoreOlder() async {
+    if (_loadingOlder || !_hasMoreOlder) return;
+    // Need an oldest-known id to ask "give me older than this".
+    final current = ref.read(messagesProvider(widget.channelId)).asData?.value
+            ?? const <Map<String, dynamic>>[];
+    final combined = [..._olderMessages, ...current];
+    if (combined.isEmpty) return;
+    combined.sort((a, b) =>
+        '${a['createdAt']}'.compareTo('${b['createdAt']}'));
+    final cursor = combined.first['id']?.toString();
+    if (cursor == null) return;
+    setState(() => _loadingOlder = true);
+    try {
+      final data =
+          await ref.read(apiProvider).listMessages(widget.channelId, cursor: cursor);
+      final items =
+          (data['items'] as List? ?? const []).cast<Map<String, dynamic>>();
+      if (!mounted) return;
+      setState(() {
+        _olderMessages.insertAll(0, items);
+        // No nextCursor → server has no more rows.
+        _hasMoreOlder = items.length >= 40 && data['nextCursor'] != null;
+      });
+    } catch (_) {
+      // Silent — user can scroll again to retry.
+    } finally {
+      if (mounted) setState(() => _loadingOlder = false);
     }
   }
 
@@ -1372,6 +1422,18 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
               description: formatApiError(e),
             ),
             data: (serverItemsRaw) {
+              // Prepend any older pages we've fetched on demand, de-duped
+              // by id (the latest page can overlap with what's still
+              // cached in messagesProvider after a socket invalidate).
+              final knownIds = serverItemsRaw
+                  .map((m) => m['id']?.toString())
+                  .whereType<String>()
+                  .toSet();
+              final mergedRaw = [
+                ..._olderMessages.where(
+                    (m) => !knownIds.contains(m['id']?.toString())),
+                ...serverItemsRaw,
+              ];
               // "Delete for me" — drop locally-hidden ids before any further work.
               final hidden = ref
                       .watch(_hiddenMessageIdsProvider(widget.channelId))
@@ -1379,8 +1441,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                       ?.value ??
                   const <String>{};
               var serverItems = hidden.isEmpty
-                  ? serverItemsRaw
-                  : serverItemsRaw
+                  ? mergedRaw
+                  : mergedRaw
                       .where((m) => !hidden.contains(m['id']?.toString()))
                       .toList();
               // Per-conversation search filter — case-insensitive substring
@@ -1446,8 +1508,36 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                 controller: _scroll,
                 reverse: true,
                 padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                itemCount: reversed.length,
+                // +1 slot at the visual top for the "loading older" pip /
+                // "start of conversation" marker.
+                itemCount: reversed.length + 1,
                 itemBuilder: (_, i) {
+                  if (i == reversed.length) {
+                    if (_loadingOlder) {
+                      return const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 12),
+                        child: Center(
+                          child: SizedBox(
+                            width: 16, height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        ),
+                      );
+                    }
+                    if (!_hasMoreOlder && reversed.length > 20) {
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        child: Center(
+                          child: Text(
+                            'Start of conversation',
+                            style: TextStyle(
+                                fontSize: 11, color: colors.textFaint),
+                          ),
+                        ),
+                      );
+                    }
+                    return const SizedBox.shrink();
+                  }
                   final m = reversed[i];
                   final kindStr = (m['kind'] ?? 'TEXT').toString();
                   final author =
