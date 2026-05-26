@@ -139,6 +139,7 @@ class MeetingsScreen extends ConsumerWidget {
     String mode = 'VIDEO';
     final picked = <Map<String, dynamic>>[];
     List<Map<String, dynamic>> employees = const [];
+    DateTime? scheduledAt;
     final api = ref.read(apiProvider);
     final me = ref.read(authStoreProvider).user;
 
@@ -193,6 +194,54 @@ class MeetingsScreen extends ConsumerWidget {
                         BestieSegmentOption(value: 'LIVESTREAM', label: 'Live'),
                       ],
                     ),
+                    const SizedBox(height: BestieTokens.s3),
+                    const Text('Schedule (optional)',
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: BestieTokens.cTextSoft)),
+                    const SizedBox(height: 6),
+                    OutlinedButton.icon(
+                      icon: Icon(
+                        scheduledAt == null
+                            ? Icons.calendar_today_outlined
+                            : Icons.event_available_rounded,
+                        size: 16,
+                      ),
+                      label: Text(
+                        scheduledAt == null
+                            ? 'Starts now (tap to schedule)'
+                            : _fmtScheduled(scheduledAt!),
+                      ),
+                      onPressed: () async {
+                        final initial = scheduledAt ??
+                            DateTime.now().add(const Duration(hours: 1));
+                        final date = await showDatePicker(
+                          context: ctx,
+                          initialDate: initial,
+                          firstDate: DateTime.now()
+                              .subtract(const Duration(days: 1)),
+                          lastDate: DateTime.now()
+                              .add(const Duration(days: 365 * 2)),
+                        );
+                        if (date == null) return;
+                        if (!ctx.mounted) return;
+                        final time = await showTimePicker(
+                          context: ctx,
+                          initialTime: TimeOfDay(
+                              hour: initial.hour, minute: initial.minute),
+                        );
+                        if (time == null) return;
+                        set(() => scheduledAt = DateTime(date.year, date.month,
+                            date.day, time.hour, time.minute));
+                      },
+                    ),
+                    if (scheduledAt != null)
+                      TextButton.icon(
+                        icon: const Icon(Icons.close_rounded, size: 14),
+                        label: const Text('Clear schedule'),
+                        onPressed: () => set(() => scheduledAt = null),
+                      ),
                     const SizedBox(height: BestieTokens.s3),
                     const Text('Invite from organization',
                         style: TextStyle(
@@ -287,6 +336,7 @@ class MeetingsScreen extends ConsumerWidget {
                       mode: mode,
                       participantIds:
                           picked.map((p) => p['id'] as String).toList(),
+                      scheduledAt: scheduledAt,
                     );
                     if (ctx.mounted) Navigator.pop(ctx);
                     ref.invalidate(meetingsProvider);
@@ -317,6 +367,28 @@ class MeetingsScreen extends ConsumerWidget {
   /// Bottom sheet that takes an existing meeting slug / URL and jumps
   /// straight into the call screen. Users who get a meeting link via email
   /// or another app paste it here.
+  /// Formats a scheduled-meeting start time — "Today 4:00 PM", "Tomorrow
+  /// 10:30 AM", or "Mon 12 Mar · 9:00 AM" depending on how far out it is.
+  String _fmtScheduled(DateTime dt) {
+    const months = ['Jan','Feb','Mar','Apr','May','Jun',
+                    'Jul','Aug','Sep','Oct','Nov','Dec'];
+    const dow = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final when = DateTime(dt.year, dt.month, dt.day);
+    final daysAway = when.difference(today).inDays;
+    final h12 = dt.hour == 0 ? 12 : (dt.hour > 12 ? dt.hour - 12 : dt.hour);
+    final mm = dt.minute.toString().padLeft(2, '0');
+    final ampm = dt.hour >= 12 ? 'PM' : 'AM';
+    final clock = '$h12:$mm $ampm';
+    if (daysAway == 0) return 'Today $clock';
+    if (daysAway == 1) return 'Tomorrow $clock';
+    if (daysAway > 0 && daysAway < 7) {
+      return '${dow[dt.weekday - 1]} $clock';
+    }
+    return '${dt.day} ${months[dt.month - 1]} · $clock';
+  }
+
   Future<void> _joinById(BuildContext context) async {
     final slugCtl = TextEditingController();
     await showModalBottomSheet<void>(

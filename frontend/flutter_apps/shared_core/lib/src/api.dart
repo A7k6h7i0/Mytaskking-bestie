@@ -147,6 +147,7 @@ extension BestieApiExt on BestieApi {
     required String name,
     String mode = 'VIDEO',
     List<String>? participantIds,
+    DateTime? scheduledAt,
   }) => post(
     '/meetings',
     body: {
@@ -154,6 +155,8 @@ extension BestieApiExt on BestieApi {
       'mode': mode,
       if (participantIds != null && participantIds.isNotEmpty)
         'participantIds': participantIds,
+      if (scheduledAt != null)
+        'scheduledAt': scheduledAt.toUtc().toIso8601String(),
     },
   );
   Future<Map<String, dynamic>> inviteMeetingParticipants(

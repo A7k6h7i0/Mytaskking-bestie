@@ -2323,6 +2323,14 @@ class _MessageBubble extends ConsumerWidget {
                 _showSeenBy(context);
               },
             ),
+          ListTile(
+            leading: Icon(Icons.forward_rounded, color: c.textSoft),
+            title: Text('Forward to channel…', style: TextStyle(color: c.text)),
+            onTap: () {
+              Navigator.pop(ctx);
+              _forwardMessage(context, ref);
+            },
+          ),
           if (canEdit)
             ListTile(
               leading: Icon(Icons.edit_outlined, color: c.textSoft),
@@ -2370,6 +2378,130 @@ class _MessageBubble extends ConsumerWidget {
       if (context.mounted)
         bestieToast(context, 'Could not save',
             body: formatApiError(e), kind: BestieToastKind.error);
+    }
+  }
+
+  /// Forward this message to another channel — opens a picker with all the
+  /// channels the user can post to. On selection, sends the same body
+  /// (and references the attachment ids when present) to the chosen
+  /// channel and toasts confirmation.
+  Future<void> _forwardMessage(BuildContext context, WidgetRef ref) async {
+    final c = BestieColors.of(context);
+    final api = ref.read(apiProvider);
+    List<Map<String, dynamic>> channels = const [];
+    try {
+      channels = await api.listChannels();
+    } catch (_) {/* empty list shows a friendly empty state */}
+    final selfChannelId = message['channelId']?.toString();
+    final pickable = channels
+        .where((c) => c['id']?.toString() != selfChannelId)
+        .toList();
+    if (!context.mounted) return;
+
+    final picked = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: c.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius:
+            BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
+      ),
+      builder: (ctx) => SafeArea(
+        top: false,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(ctx).size.height * 0.78),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+              child: Row(children: [
+                Icon(Icons.forward_rounded, size: 18, color: c.brandStrong),
+                const SizedBox(width: 8),
+                Text('Forward to…',
+                    style: TextStyle(
+                        color: c.text,
+                        fontSize: 16,
+                        fontWeight: BestieTokens.fwBold)),
+              ]),
+            ),
+            Divider(height: 1, color: c.border),
+            if (pickable.isEmpty)
+              Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text('No other channels to forward to.',
+                    style: TextStyle(color: c.textMuted)),
+              )
+            else
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  itemCount: pickable.length,
+                  separatorBuilder: (_, __) =>
+                      Divider(height: 1, color: c.border),
+                  itemBuilder: (_, i) {
+                    final ch = pickable[i];
+                    final kind = (ch['kind'] ?? '').toString();
+                    final isClient = ch['isClientChannel'] == true;
+                    return ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: isClient ? c.clientSoft : c.brandSoft,
+                        child: Icon(
+                          kind == 'DM'
+                              ? Icons.chat_bubble_outline_rounded
+                              : (kind == 'CLIENT'
+                                  ? Icons.business_center_outlined
+                                  : Icons.groups_outlined),
+                          color: isClient ? c.client : c.brandStrong,
+                          size: 18,
+                        ),
+                      ),
+                      title: Text(
+                        (ch['name'] ?? 'Direct message').toString(),
+                        style: TextStyle(
+                          color: c.text,
+                          fontWeight: BestieTokens.fwSemibold,
+                        ),
+                      ),
+                      subtitle: Text(
+                        kind.replaceAll('_', ' ').toLowerCase(),
+                        style: TextStyle(color: c.textMuted, fontSize: 11),
+                      ),
+                      onTap: () => Navigator.pop(ctx, ch),
+                    );
+                  },
+                ),
+              ),
+          ]),
+        ),
+      ),
+    );
+    if (picked == null || !context.mounted) return;
+
+    try {
+      final body = (message['body'] ?? '').toString();
+      final attachments =
+          (message['attachments'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+      final attachmentIds = attachments
+          .map((a) => a['id']?.toString())
+          .whereType<String>()
+          .toList();
+      await api.sendMessage(
+        picked['id'] as String,
+        body: body.isEmpty ? null : body,
+        attachmentIds: attachmentIds.isEmpty ? null : attachmentIds,
+        kind: attachmentIds.isNotEmpty ? 'FILE' : 'TEXT',
+      );
+      if (context.mounted) {
+        bestieToast(context, 'Forwarded',
+            body: 'Sent to ${picked['name'] ?? 'channel'}',
+            kind: BestieToastKind.success);
+      }
+    } catch (e) {
+      if (context.mounted) {
+        bestieToast(context, 'Forward failed',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
     }
   }
 
