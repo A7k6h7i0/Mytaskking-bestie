@@ -86,3 +86,29 @@
   border-top: 1px solid color-mix(in srgb, var(--c-border) 80%, transparent);
   background: color-mix(in srgb, var(--c-surface-1) 75%, transparent);
 }
+
+@media (max-width: 640px) {
+  .mo {
+    align-items: flex-end;
+    padding: 8px;
+  }
+
+  .mo__panel {
+    max-height: calc(100dvh - 16px);
+    border-radius: var(--r-xl) var(--r-xl) var(--r-md) var(--r-md);
+  }
+
+  .mo__head,
+  .mo__body,
+  .mo__foot {
+    padding-inline: var(--s-3);
+  }
+
+  .mo__foot {
+    flex-wrap: wrap;
+  }
+
+  .mo__foot .bb {
+    flex: 1 1 140px;
+  }
+}

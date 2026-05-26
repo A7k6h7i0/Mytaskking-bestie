@@ -76,3 +76,53 @@
 }
 .pp__icon:hover { background: var(--c-surface-2); color: var(--c-text); }
 .pp__icon--danger:hover { background: var(--c-client-soft); color: var(--c-client); }
+
+@media (max-width: 820px) {
+  .pp__head {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .pp__filters {
+    max-width: none;
+  }
+
+  .pp__create {
+    grid-template-columns: 1fr;
+    padding: var(--s-3);
+  }
+
+  .pp__create-actions {
+    justify-content: stretch;
+    flex-wrap: wrap;
+  }
+
+  .pp__create-actions .bb {
+    flex: 1 1 150px;
+  }
+
+  .pp__table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .pp__row,
+  .pp__table .pp__row,
+  .pp__table .pp__row--head {
+    min-width: 720px;
+  }
+
+  .pp__inline-input {
+    min-width: 180px;
+  }
+}
+
+@media (max-width: 520px) {
+  .pp__row,
+  .pp__table .pp__row,
+  .pp__table .pp__row--head {
+    min-width: 640px;
+    padding: 10px 12px;
+  }
+}

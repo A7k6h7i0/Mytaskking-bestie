@@ -74,3 +74,42 @@
 .fl__toggle.is-on .fl__toggle-knob { transform: translateX(20px); }
 
 .fl__empty { padding: var(--s-5); color: var(--c-text-muted); text-align: center; }
+
+@media (max-width: 900px) {
+  .fl__head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .fl__create {
+    grid-template-columns: 1fr;
+    padding: var(--s-3);
+  }
+
+  .fl__create-actions {
+    justify-content: stretch;
+    flex-wrap: wrap;
+  }
+
+  .fl__create-actions .bb {
+    flex: 1 1 140px;
+  }
+
+  .fl__row {
+    grid-template-columns: 40px minmax(0, 1fr);
+  }
+
+  .fl__toggle {
+    grid-column: 2;
+  }
+
+  .fl__title {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .fl__title code {
+    overflow-wrap: anywhere;
+  }
+}

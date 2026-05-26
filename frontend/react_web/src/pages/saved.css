@@ -21,3 +21,13 @@
 .sv__title { font-weight: 600; font-size: var(--fs-sm); }
 .sv__note { color: var(--c-text-muted); font-size: var(--fs-xs); }
 .sv__empty { color: var(--c-text-muted); padding: var(--s-5); }
+
+@media (max-width: 640px) {
+  .sv__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sv__card {
+    padding: var(--s-3);
+  }
+}

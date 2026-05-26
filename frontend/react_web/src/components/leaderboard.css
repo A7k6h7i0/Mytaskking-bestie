@@ -125,3 +125,20 @@
   gap: 8px;
   justify-content: center;
 }
+
+@media (max-width: 640px) {
+  .lb {
+    padding: var(--s-3);
+  }
+
+  .lb__row {
+    grid-template-columns: 28px 34px minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .lb__row > :nth-child(4),
+  .lb__row > :nth-child(5) {
+    grid-column: 3;
+    justify-self: start;
+  }
+}

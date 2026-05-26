@@ -461,3 +461,45 @@
 
 /* ---------- recent row ---------- */
 .cmdk__hit--recent .cmdk__hit-label { font-weight: var(--fw-medium); color: var(--c-text-soft); }
+
+@media (max-width: 640px) {
+  .cmdk {
+    padding: 8px;
+    align-items: stretch;
+  }
+
+  .cmdk__panel {
+    width: 100%;
+    max-height: calc(100dvh - 16px);
+    border-radius: var(--r-xl);
+  }
+
+  .cmdk__bar {
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .cmdk__bar kbd,
+  .cmdk__hit-arrow,
+  .cmdk__hit-action {
+    display: none;
+  }
+
+  .cmdk__hit {
+    align-items: flex-start;
+  }
+
+  .cmdk__hit-sub,
+  .cmdk__hit-meta {
+    max-width: none;
+    white-space: normal;
+  }
+
+  .cmdk__hit-header {
+    flex-wrap: wrap;
+  }
+
+  .cmdk__hit-time {
+    margin-left: 0;
+  }
+}

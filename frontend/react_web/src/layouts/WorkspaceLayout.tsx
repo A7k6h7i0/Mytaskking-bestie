@@ -2,7 +2,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   LayoutDashboard, MessageSquare, KanbanSquare, Users, UserCog, Phone, Headphones, Settings, LogOut, Hash,
-  Activity, Calendar, Bookmark, Search, BarChart3, ShieldCheck, Zap, Video, Flag, KeyRound, Radio, PhoneIncoming, PhoneCall, Minimize2, type LucideIcon,
+  Activity, Calendar, Bookmark, Search, BarChart3, ShieldCheck, Zap, Video, Flag, KeyRound, Radio, PhoneIncoming, PhoneCall, Minimize2, Menu, type LucideIcon,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuthStore } from '@/store/auth';
@@ -18,7 +18,7 @@ import { getSocket } from '@/services/socket';
 import { playNotificationSound } from '@/services/notificationSound';
 import { useCallStore } from '@/store/calls';
 import { toast } from '@/components/Toast';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { PageTransition } from '@/components/PageTransition';
 import { Logo } from '@/components/Logo';
 import './workspace-layout.css';
@@ -81,10 +81,25 @@ export default function WorkspaceLayout() {
   const setPendingCall = useCallStore((s) => s.setPending);
   const clearPendingCall = useCallStore((s) => s.clearPending);
   const qc = useQueryClient();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   if (!user) return null;
   const allowed = ALLOWED[user.role] || [];
   const nav = NAV.filter((n) => allowed.includes(n.to));
+  const activeNav = nav.find((n) => location.pathname === n.to || location.pathname.startsWith(`${n.to}/`));
+
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!sidebarOpen) return undefined;
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') setSidebarOpen(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [sidebarOpen]);
 
   useEffect(() => {
     const s = getSocket();
@@ -191,8 +206,8 @@ export default function WorkspaceLayout() {
   const inLiveCallRoute = location.pathname.startsWith('/calls/live/');
 
   return (
-    <div className="ws">
-      <aside className="ws__sidebar">
+    <div className={clsx('ws', sidebarOpen && 'is-sidebar-open')}>
+      <aside className={clsx('ws__sidebar', sidebarOpen && 'is-open')} aria-label="Workspace navigation">
         <div className="ws__brand">
           <Logo size={32} withWordmark onClick={() => navigate('/dashboard')} title="MyTaskKing · Home" />
         </div>
@@ -206,6 +221,7 @@ export default function WorkspaceLayout() {
             <NavLink
               key={n.to}
               to={n.to}
+              onClick={() => setSidebarOpen(false)}
               className={({ isActive }) => clsx('ws__nav-item', isActive && 'is-active')}
             >
               <n.icon size={18} />
@@ -227,6 +243,13 @@ export default function WorkspaceLayout() {
           </button>
         </div>
       </aside>
+      <button
+        type="button"
+        className="ws__scrim"
+        aria-label="Close navigation menu"
+        onClick={() => setSidebarOpen(false)}
+        tabIndex={-1}
+      />
 
       <main className="ws__main">
         {pendingCall?.call && (
@@ -250,7 +273,16 @@ export default function WorkspaceLayout() {
           </div>
         )}
         <header className="ws__topbar">
-          <div className="ws__topbar-title" />
+          <button
+            type="button"
+            className="ws__mobile-menu"
+            aria-label="Open navigation menu"
+            aria-expanded={sidebarOpen}
+            onClick={() => setSidebarOpen(true)}
+          >
+            <Menu size={20} />
+          </button>
+          <div className="ws__topbar-title">{activeNav?.label || 'Workspace'}</div>
           <div className="ws__topbar-actions">
             <ThemeSwitcher />
             <PresenceMenu />

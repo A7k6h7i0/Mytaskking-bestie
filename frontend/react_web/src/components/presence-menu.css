@@ -82,3 +82,13 @@
   font-size: var(--fs-xs);
   line-height: var(--lh-normal);
 }
+
+@media (max-width: 560px) {
+  .pm__menu {
+    position: fixed;
+    top: calc(var(--topbar-h) + 8px);
+    left: 8px;
+    right: 8px;
+    width: auto;
+  }
+}

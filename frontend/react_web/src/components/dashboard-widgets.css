@@ -93,3 +93,20 @@
 .dw__lib-row span { display: flex; flex-direction: column; gap: 2px; }
 .dw__lib-row strong { font-weight: 600; font-size: var(--fs-sm); }
 .dw__lib-row em { font-style: normal; font-size: var(--fs-xs); color: var(--c-text-muted); }
+
+@media (max-width: 720px) {
+  .dw__head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .dw__grid,
+  .dw__edit {
+    grid-template-columns: 1fr;
+  }
+
+  .dw__widget {
+    padding: var(--s-3);
+  }
+}

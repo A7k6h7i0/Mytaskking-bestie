@@ -174,3 +174,30 @@
     min-height: 0;
   }
 }
+
+@media (max-width: 560px) {
+  .cal__head,
+  .cal__attendance-head {
+    gap: 12px;
+  }
+
+  .cal__nav,
+  .cal__speech-tools {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .cal__nav .bb,
+  .cal__speech-tools .bb {
+    flex: 1 1 120px;
+  }
+
+  .cal__attendance-card,
+  .cal__attendance-block {
+    padding: var(--s-3);
+  }
+
+  .cal__attendance-status {
+    width: 100%;
+  }
+}

@@ -21,3 +21,21 @@
 .st__subtle { color: var(--c-text-muted); margin: 0; font-size: var(--fs-sm); }
 .st__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--s-3); }
 .st__actions { display: flex; justify-content: flex-start; }
+
+@media (max-width: 640px) {
+  .st {
+    gap: var(--s-3);
+  }
+
+  .st__section {
+    padding: var(--s-3);
+  }
+
+  .st__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .st__actions .bb {
+    width: 100%;
+  }
+}

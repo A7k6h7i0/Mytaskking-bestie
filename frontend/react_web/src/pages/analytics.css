@@ -83,3 +83,41 @@
   color: var(--c-text-muted);
   margin-top: 4px;
 }
+
+@media (max-width: 760px) {
+  .an {
+    gap: var(--s-3);
+  }
+
+  .an__row {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  }
+
+  .an__section {
+    padding: var(--s-3);
+    overflow-x: auto;
+  }
+
+  .an__bar-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .an__bar-label {
+    min-width: 0;
+  }
+
+  .an__bar-val {
+    text-align: left;
+  }
+
+  .an__table {
+    min-width: 620px;
+  }
+
+  .an__missed-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+}

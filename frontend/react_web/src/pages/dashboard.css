@@ -54,3 +54,43 @@
 .db__activity-kind { color: var(--c-text-muted); }
 .db__activity-time { margin-left: auto; color: var(--c-text-faint); font-size: var(--fs-xs); }
 .db__empty { color: var(--c-text-muted); padding: var(--s-2); }
+
+@media (max-width: 720px) {
+  .db {
+    gap: var(--s-3);
+  }
+
+  .db__head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .db__grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  }
+
+  .db__stat {
+    padding: var(--s-3);
+  }
+
+  .db__activity {
+    padding: var(--s-3);
+  }
+
+  .db__card-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .db__activity-list li {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .db__activity-time {
+    width: 100%;
+    margin-left: 16px;
+  }
+}

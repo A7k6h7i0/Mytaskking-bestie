@@ -185,11 +185,51 @@
 }
 
 @media (max-width: 768px) {
+  .cr__head,
   .cr__invite-head {
     flex-direction: column;
   }
 
+  .cr__head {
+    align-items: flex-start;
+  }
+
+  .cr__brand-card {
+    white-space: normal;
+  }
+
+  .cr__panel,
+  .cr__invite-panel {
+    padding: var(--s-3);
+  }
+
+  .cr__person,
+  .cr__invite-person {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .cr__actions,
+  .cr__invite-actions {
+    width: 100%;
+  }
+
+  .cr__actions .bb,
+  .cr__invite-actions .bb {
+    flex: 1 1 130px;
+  }
+
   .cr__invite-count {
     min-width: 0;
+  }
+
+  .cr__video-grid,
+  .cr__devices,
+  .cr__invite-list {
+    grid-template-columns: 1fr;
+  }
+
+  .cr__video-surface {
+    min-height: 220px;
   }
 }

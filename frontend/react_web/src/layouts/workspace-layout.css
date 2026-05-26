@@ -7,6 +7,7 @@
   height: 100vh;
   background: var(--c-bg);
   isolation: isolate;
+  overflow: hidden;
 }
 
 /* ---------- sidebar ---------- */
@@ -220,6 +221,11 @@
 }
 .ws__icon-btn:active { transform: scale(0.94); }
 
+.ws__mobile-menu,
+.ws__scrim {
+  display: none;
+}
+
 /* ---------- main column ---------- */
 .ws__main {
   display: flex;
@@ -250,6 +256,10 @@
   font-size: var(--fs-md);
   letter-spacing: var(--ls-snug);
   color: var(--c-text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ---------- content area ---------- */
@@ -470,15 +480,162 @@
 /* ---------- responsive ---------- */
 @media (max-width: 920px) {
   .ws {
-    grid-template-columns: var(--sidebar-w-collapsed) 1fr;
+    grid-template-columns: 1fr;
+    height: 100dvh;
   }
-  .ws__brand-text,
+
+  .ws__sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 79;
+    width: min(86vw, 320px);
+    max-width: 320px;
+    padding-top: max(var(--s-4), env(safe-area-inset-top));
+    transform: translateX(-105%);
+    transition: transform var(--dur-medium) var(--ease-out), box-shadow var(--dur-medium) var(--ease);
+    box-shadow: none;
+  }
+
+  .ws__sidebar.is-open {
+    transform: translateX(0);
+    box-shadow: var(--sh-hi);
+  }
+
+  .ws__scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 78;
+    display: block;
+    background: color-mix(in srgb, #05070b 54%, transparent);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--dur) var(--ease);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
+
+  .ws.is-sidebar-open .ws__scrim {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .ws__brand {
+    padding-inline: 12px;
+  }
+
+  .ws__search-trigger {
+    height: 42px;
+    margin-inline: 8px;
+  }
+
+  .ws__nav-item {
+    justify-content: flex-start;
+    padding: 11px 12px;
+    min-height: 42px;
+  }
+
   .ws__nav-item span,
   .ws__me-text,
   .ws__search-trigger > span,
   .ws__search-trigger kbd {
+    display: inline;
+  }
+
+  .ws__sidebar-foot {
+    flex-direction: row;
+    padding: 10px 12px;
+    gap: var(--s-2);
+  }
+
+  .ws__main {
+    min-width: 0;
+    height: 100dvh;
+  }
+
+  .ws__topbar {
+    min-height: var(--topbar-h);
+    height: auto;
+    padding: 0 10px;
+    gap: 8px;
+  }
+
+  .ws__mobile-menu {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    flex: 0 0 38px;
+    border-radius: var(--r-sm);
+    background: var(--c-surface-1);
+    border: 1px solid var(--c-border);
+    color: var(--c-text-soft);
+  }
+
+  .ws__topbar-title {
+    display: block;
+    flex: 1 1 auto;
+    font-size: var(--fs-base);
+  }
+
+  .ws__topbar-actions {
+    flex: 0 0 auto;
+    gap: 2px;
+  }
+
+  .ws__topbar-actions .pm__trigger {
+    width: 34px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .ws__topbar-actions .pm__label {
     display: none;
   }
-  .ws__nav-item { justify-content: center; padding: 10px; }
-  .ws__sidebar-foot { flex-direction: column; padding: 8px; gap: 8px; }
+
+  .ws__content {
+    padding: 12px;
+    overflow-x: hidden;
+  }
+
+  .ws__incoming-call {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .ws__incoming-actions,
+  .ws__incoming-modal-actions {
+    width: 100%;
+  }
+
+  .ws__incoming-actions .bb,
+  .ws__incoming-modal-actions .bb {
+    flex: 1 1 140px;
+  }
+
+  .ws__call-widget {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .ws__call-widget-badge {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .ws__topbar-actions .th {
+    display: none;
+  }
+
+  .ws__topbar-actions .ws__icon-btn[title^="Search"] {
+    display: none;
+  }
+
+  .ws__incoming-card {
+    padding: 26px 18px 20px;
+  }
 }

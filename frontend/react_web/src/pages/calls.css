@@ -29,3 +29,20 @@
 .cl__empty { padding: var(--s-5); color: var(--c-text-muted); }
 
 .cl__missed { margin-top: 6px; font-size: var(--fs-xs); color: var(--c-danger); font-weight: 600; }
+
+@media (max-width: 720px) {
+  .cl__head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .cl__row {
+    grid-template-columns: 40px minmax(0, 1fr);
+  }
+
+  .cl__row-meta {
+    grid-column: 2;
+    align-items: flex-start;
+  }
+}

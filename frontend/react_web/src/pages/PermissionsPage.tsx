@@ -52,24 +52,24 @@ export default function PermissionsPage() {
   });
 
   return (
-    <div className="pm">
-      <header className="pm__head">
+    <div className="perm">
+      <header className="perm__head">
         <div>
           <h1>Permissions</h1>
           <p>Role-level + per-user grants on top of the default RBAC matrix. Explicit denies always win.</p>
         </div>
       </header>
 
-      <section className="pm__compose">
+      <section className="perm__compose">
         <h3>Grant a permission</h3>
-        <div className="pm__compose-grid">
-          <label className="pm__select">
+        <div className="perm__compose-grid">
+          <label className="perm__select">
             <span>Role</span>
             <select value={form.roleName} onChange={(e) => setForm({ ...form, roleName: e.target.value })}>
               {ROLES.map((r) => <option key={r} value={r}>{r.replace('_', ' ')}</option>)}
             </select>
           </label>
-          <label className="pm__select">
+          <label className="perm__select">
             <span>Permission key</span>
             <select value={form.key} onChange={(e) => setForm({ ...form, key: e.target.value })}>
               {COMMON_KEYS.map((k) => <option key={k} value={k}>{k}</option>)}
@@ -81,7 +81,7 @@ export default function PermissionsPage() {
             value={form.key}
             onChange={(e) => setForm({ ...form, key: e.target.value })}
           />
-          <label className="pm__select">
+          <label className="perm__select">
             <span>Effect</span>
             <select value={form.allow ? 'allow' : 'deny'} onChange={(e) => setForm({ ...form, allow: e.target.value === 'allow' })}>
               <option value="allow">Allow</option>
@@ -92,23 +92,23 @@ export default function PermissionsPage() {
         </div>
       </section>
 
-      <section className="pm__list">
+      <section className="perm__list">
         <h3>Active grants</h3>
         {isLoading && <Skeleton height={120} />}
         {!isLoading && (data?.items.length ?? 0) === 0 && (
-          <div className="pm__empty">
+          <div className="perm__empty">
             <ShieldCheck size={20}/> No explicit grants — only the baked-in role defaults are in effect.
           </div>
         )}
         {!isLoading && data?.items.map((g) => (
-          <div key={g.id} className="pm__row">
-            <span className={clsx('pm__chip', g.allow ? 'is-allow' : 'is-deny')}>{g.allow ? 'ALLOW' : 'DENY'}</span>
-            <code className="pm__key">{g.key}</code>
-            <span className="pm__target">
-              {g.roleName && <span className="pm__role">role · {g.roleName.replace('_', ' ')}</span>}
-              {g.userId && <span className="pm__user">user · {g.userId.slice(0, 10)}…</span>}
+          <div key={g.id} className="perm__row">
+            <span className={clsx('perm__chip', g.allow ? 'is-allow' : 'is-deny')}>{g.allow ? 'ALLOW' : 'DENY'}</span>
+            <code className="perm__key">{g.key}</code>
+            <span className="perm__target">
+              {g.roleName && <span className="perm__role">role · {g.roleName.replace('_', ' ')}</span>}
+              {g.userId && <span className="perm__user">user · {g.userId.slice(0, 10)}…</span>}
             </span>
-            <button className="pm__delete" title="Revoke" onClick={() => revokeMut.mutate(g.id)}>
+            <button className="perm__delete" title="Revoke" onClick={() => revokeMut.mutate(g.id)}>
               <Trash2 size={14}/>
             </button>
           </div>

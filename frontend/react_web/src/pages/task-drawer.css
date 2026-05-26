@@ -69,3 +69,26 @@
   color: var(--c-text-muted); font-size: var(--fs-xs); margin-right: auto;
 }
 .td__footer-note--success { color: var(--c-success); font-weight: 600; }
+
+@media (max-width: 560px) {
+  .td {
+    gap: var(--s-3);
+  }
+
+  .td__assignee {
+    grid-template-columns: 32px minmax(0, 1fr);
+  }
+
+  .td__assignee > :nth-child(3) {
+    grid-column: 2;
+  }
+
+  .td__celebrate {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .td__footer-note {
+    width: 100%;
+  }
+}

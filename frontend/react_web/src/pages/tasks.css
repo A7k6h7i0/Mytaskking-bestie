@@ -139,3 +139,45 @@
 .tk__card--accepted  { background: linear-gradient(0deg, color-mix(in srgb, var(--c-brand)   4%, transparent), transparent); }
 .tk__card--completed { background: linear-gradient(0deg, color-mix(in srgb, var(--c-success) 6%, transparent), transparent); }
 .tk__card--declined  { opacity: 0.7; }
+
+@media (max-width: 760px) {
+  .tk {
+    gap: var(--s-3);
+  }
+
+  .tk__head {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .tk__head .bb {
+    width: 100%;
+  }
+
+  .tk__board {
+    grid-template-columns: repeat(5, minmax(min(84vw, 320px), 1fr));
+    gap: 10px;
+    padding-bottom: 8px;
+    scroll-snap-type: x proximity;
+  }
+
+  .tk__col {
+    scroll-snap-align: start;
+    min-height: 260px;
+  }
+
+  .tk__card-foot {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .tk__person {
+    grid-template-columns: 26px minmax(0, 1fr);
+  }
+
+  .tk__person > svg {
+    display: none;
+  }
+}

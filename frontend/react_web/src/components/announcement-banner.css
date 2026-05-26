@@ -69,3 +69,21 @@
 }
 .ab__close:hover { background: color-mix(in srgb, currentColor 12%, transparent); transform: scale(1.06); }
 .ab__close:active { transform: scale(0.92); }
+
+@media (max-width: 560px) {
+  .ab {
+    grid-template-columns: 20px 1fr 28px;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .ab__body {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .ab__body span {
+    white-space: normal;
+  }
+}

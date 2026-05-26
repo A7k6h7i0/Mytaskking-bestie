@@ -34,3 +34,26 @@
 }
 .ss__revoke:hover { background: var(--c-surface-2); color: var(--c-danger); }
 .ss__empty { padding: var(--s-5); color: var(--c-text-muted); text-align: center; }
+
+@media (max-width: 720px) {
+  .ss__head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .ss__row {
+    grid-template-columns: 40px minmax(0, 1fr) 28px;
+    gap: 10px;
+  }
+
+  .ss__status {
+    grid-column: 2;
+    width: fit-content;
+  }
+
+  .ss__revoke {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+  }
+}

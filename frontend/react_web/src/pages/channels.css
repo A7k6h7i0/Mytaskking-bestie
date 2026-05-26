@@ -57,3 +57,47 @@
   margin-top: 3px;
 }
 .cn__directory-empty { color: var(--c-text-muted); font-size: var(--fs-sm); padding: 10px 0; }
+
+@media (max-width: 720px) {
+  .cn {
+    gap: var(--s-3);
+  }
+
+  .cn__head {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .cn__head .bb {
+    width: 100%;
+  }
+
+  .cn__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .cn__card {
+    padding: var(--s-3);
+  }
+
+  .cn__card-head,
+  .cn__card-foot {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .cn__card-name,
+  .cn__chip,
+  .cn__person {
+    min-width: 0;
+  }
+
+  .cn__card-name span,
+  .cn__chip span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}

@@ -31,6 +31,13 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+}
+
+img,
+video,
+canvas {
+  max-width: 100%;
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -160,3 +167,27 @@ input, textarea, select {
 /* premium content section padding */
 .section { padding-block: var(--s-5); }
 .section + .section { border-top: 1px solid var(--c-border-soft); }
+
+@media (max-width: 720px) {
+  body {
+    background-attachment: scroll;
+  }
+
+  h1 { font-size: var(--fs-2xl); }
+  h2 { font-size: var(--fs-xl); }
+
+  input,
+  textarea,
+  select {
+    min-width: 0;
+  }
+
+  .bb {
+    min-height: 38px;
+    white-space: normal;
+  }
+
+  .section {
+    padding-block: var(--s-3);
+  }
+}
