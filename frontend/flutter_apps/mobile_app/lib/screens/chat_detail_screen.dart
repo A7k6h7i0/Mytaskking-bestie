@@ -794,15 +794,31 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     return (other['user'] as Map?)?.cast<String, dynamic>();
   }
 
+  /// "last seen today at 9:23 AM" / "yesterday at 7:12 PM" / "Wed at 4:01 PM"
+  /// / "12 Mar at 2:30 PM" — the user explicitly asked for the exact time
+  /// rather than relative "X hours ago" copy.
   String _lastSeenLabel(String? iso) {
     final dt = DateTime.tryParse(iso ?? '')?.toLocal();
     if (dt == null) return 'Offline';
-    final diff = DateTime.now().difference(dt);
-    if (diff.inSeconds < 45) return 'last seen just now';
-    if (diff.inMinutes < 60) return 'last seen ${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return 'last seen ${diff.inHours}h ago';
-    if (diff.inDays == 1) return 'last seen yesterday';
-    return 'last seen ${dt.day}/${dt.month}/${dt.year}';
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final seenDay = DateTime(dt.year, dt.month, dt.day);
+    final daysAgo = today.difference(seenDay).inDays;
+    final h12 = dt.hour == 0 ? 12 : (dt.hour > 12 ? dt.hour - 12 : dt.hour);
+    final mm = dt.minute.toString().padLeft(2, '0');
+    final ampm = dt.hour >= 12 ? 'PM' : 'AM';
+    final clock = '$h12:$mm $ampm';
+    if (daysAgo == 0) return 'last seen today at $clock';
+    if (daysAgo == 1) return 'last seen yesterday at $clock';
+    if (daysAgo < 7) {
+      const dow = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      return 'last seen ${dow[dt.weekday - 1]} at $clock';
+    }
+    const months = [
+      'Jan','Feb','Mar','Apr','May','Jun',
+      'Jul','Aug','Sep','Oct','Nov','Dec',
+    ];
+    return 'last seen ${dt.day} ${months[dt.month - 1]} at $clock';
   }
 
   /// Parses the composer text up to the cursor and extracts an in-progress
@@ -2207,6 +2223,15 @@ class _MessageBubble extends ConsumerWidget {
               _createTaskFromMessage(context, ref);
             },
           ),
+          if (mine)
+            ListTile(
+              leading: Icon(Icons.done_all_rounded, color: c.textSoft),
+              title: Text('Seen by', style: TextStyle(color: c.text)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showSeenBy(context);
+              },
+            ),
           if (canEdit)
             ListTile(
               leading: Icon(Icons.edit_outlined, color: c.textSoft),
@@ -2255,6 +2280,152 @@ class _MessageBubble extends ConsumerWidget {
         bestieToast(context, 'Could not save',
             body: formatApiError(e), kind: BestieToastKind.error);
     }
+  }
+
+  /// "Seen by" viewer — buckets the channel's other members into Seen /
+  /// Delivered / Sent based on the message's receipts array. Surfaced via
+  /// the long-press action sheet on a sent message and answers the
+  /// "who actually read this?" question in group + client channels.
+  void _showSeenBy(BuildContext context) {
+    final c = BestieColors.of(context);
+    final parentState =
+        context.findAncestorStateOfType<_ChatDetailScreenState>();
+    final channel = parentState?._channel;
+    if (channel == null) {
+      bestieToast(context, 'Loading members…', kind: BestieToastKind.info);
+      return;
+    }
+    final me = parentState!.ref.read(authStoreProvider).user;
+    final members = (channel['members'] as List?)
+            ?.cast<Map<String, dynamic>>()
+            .where((m) => m['userId'] != me?.id)
+            .toList() ??
+        const <Map<String, dynamic>>[];
+    final receipts =
+        (message['receipts'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+    final byUser = <String, String>{
+      for (final r in receipts)
+        if (r['userId'] != null) r['userId'].toString(): (r['state'] ?? 'SENT').toString(),
+    };
+
+    final seen = <Map<String, dynamic>>[];
+    final delivered = <Map<String, dynamic>>[];
+    final waiting = <Map<String, dynamic>>[];
+    for (final m in members) {
+      final uid = m['userId']?.toString();
+      final state = uid == null ? 'SENT' : (byUser[uid] ?? 'SENT');
+      if (state == 'SEEN') {
+        seen.add(m);
+      } else if (state == 'DELIVERED') {
+        delivered.add(m);
+      } else {
+        waiting.add(m);
+      }
+    }
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: c.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius:
+            BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
+      ),
+      builder: (ctx) => SafeArea(
+        top: false,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(ctx).size.height * 0.7),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+              child: Row(children: [
+                Icon(Icons.done_all_rounded, size: 18, color: c.brandStrong),
+                const SizedBox(width: 8),
+                Text('Message info',
+                    style: TextStyle(
+                        color: c.text,
+                        fontSize: 16,
+                        fontWeight: BestieTokens.fwBold)),
+              ]),
+            ),
+            Divider(height: 1, color: c.border),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                children: [
+                  if (seen.isNotEmpty)
+                    _seenSection(c, 'Read by', Icons.done_all_rounded,
+                        c.brandStrong, seen, byUser, showTime: true),
+                  if (delivered.isNotEmpty)
+                    _seenSection(c, 'Delivered to', Icons.done_all_outlined,
+                        c.textSoft, delivered, byUser),
+                  if (waiting.isNotEmpty)
+                    _seenSection(c, 'Sent · not yet delivered',
+                        Icons.schedule_rounded, c.textMuted, waiting, byUser),
+                  if (seen.isEmpty && delivered.isEmpty && waiting.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text('Just you in this conversation.',
+                          style: TextStyle(color: c.textMuted)),
+                    ),
+                ],
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _seenSection(
+    BestieColors c,
+    String title,
+    IconData icon,
+    Color accent,
+    List<Map<String, dynamic>> members,
+    Map<String, String> byUser, {
+    bool showTime = false,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+          child: Row(children: [
+            Icon(icon, size: 14, color: accent),
+            const SizedBox(width: 6),
+            Text(
+              '${title.toUpperCase()} · ${members.length}',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: BestieTokens.fwBold,
+                color: accent,
+                letterSpacing: BestieTokens.lsEyebrow,
+              ),
+            ),
+          ]),
+        ),
+        for (final m in members)
+          ListTile(
+            leading: BestieAvatar(
+              name: (m['user'] as Map?)?['name']?.toString() ?? '?',
+              imageUrl: (m['user'] as Map?)?['avatarUrl']?.toString(),
+              isClient: (m['user'] as Map?)?['isClient'] ?? false,
+              size: 32,
+            ),
+            title: BestieUserName(
+              name: (m['user'] as Map?)?['name']?.toString() ?? '',
+              isClient: (m['user'] as Map?)?['isClient'] ?? false,
+              style: TextStyle(
+                color: c.text,
+                fontWeight: BestieTokens.fwSemibold,
+                fontSize: 14,
+              ),
+            ),
+          ),
+      ],
+    );
   }
 
   /// Turn the highlighted chat message into a task. Prefills the title with

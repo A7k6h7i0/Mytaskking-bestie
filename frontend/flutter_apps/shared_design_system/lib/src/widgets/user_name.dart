@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../colors.dart';
 import '../tokens.dart';
 
 /// Renders a user's name. Clients are always shown in the brand-mandated red.
@@ -18,7 +19,10 @@ class BestieUserName extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isClient ? BestieTokens.cClient : BestieTokens.cText;
+    // Use theme-aware text color so the name stays readable in dark mode.
+    // Clients keep the brand-mandated red regardless of theme.
+    final c = BestieColors.of(context);
+    final color = isClient ? c.client : (style?.color ?? c.text);
     final base = (style ?? const TextStyle()).copyWith(
       color: color,
       fontWeight: isClient ? FontWeight.w700 : (style?.fontWeight ?? FontWeight.w600),

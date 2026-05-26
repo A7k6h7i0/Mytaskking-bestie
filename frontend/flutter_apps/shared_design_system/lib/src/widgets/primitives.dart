@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import '../colors.dart';
 import '../tokens.dart';
 import '../motion.dart';
 
@@ -533,9 +534,12 @@ void bestieToast(BuildContext context, String title, {String? body, BestieToastK
     BestieToastKind.warning => Icons.warning_amber_rounded,
     BestieToastKind.info    => Icons.info,
   };
+  // Pull theme-aware colors from BestieColors so dark mode renders bold
+  // titles in white (not the cText pure-black token, which is invisible).
+  final c = BestieColors.of(context);
   ScaffoldMessenger.of(context).showSnackBar(SnackBar(
     behavior: SnackBarBehavior.floating,
-    backgroundColor: BestieTokens.cSurface,
+    backgroundColor: c.surface,
     elevation: 8,
     duration: duration,
     margin: const EdgeInsets.all(BestieTokens.s4),
@@ -547,8 +551,8 @@ void bestieToast(BuildContext context, String title, {String? body, BestieToastK
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(title, style: const TextStyle(color: BestieTokens.cText, fontWeight: FontWeight.w700, fontSize: 14)),
-          if (body != null) Text(body, style: const TextStyle(color: BestieTokens.cTextMuted, fontSize: 12)),
+          Text(title, style: TextStyle(color: c.text, fontWeight: FontWeight.w700, fontSize: 14)),
+          if (body != null) Text(body, style: TextStyle(color: c.textMuted, fontSize: 12)),
         ],
       )),
     ]),
