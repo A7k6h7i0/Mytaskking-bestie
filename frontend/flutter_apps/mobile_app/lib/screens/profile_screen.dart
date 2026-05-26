@@ -120,6 +120,43 @@ class ProfileScreen extends ConsumerWidget {
               ],
             ),
           ),
+          // Font scale + reduce-motion give people with low vision or
+          // vestibular sensitivities a more comfortable experience.
+          ListTile(
+            leading: const Icon(Icons.text_fields_rounded),
+            title: const Text('Text size'),
+            subtitle: Text(
+              switch (ref.watch(fontScaleProvider)) {
+                <= 0.9 => 'Compact',
+                >= 1.3 => 'Largest',
+                >= 1.15 => 'Larger',
+                _ => 'Default',
+              },
+              style: const TextStyle(color: BestieTokens.cTextMuted, fontSize: 12),
+            ),
+            trailing: SizedBox(
+              width: 220,
+              child: Slider(
+                min: 0.85,
+                max: 1.4,
+                divisions: 11,
+                value: ref.watch(fontScaleProvider),
+                onChanged: (v) =>
+                    ref.read(fontScaleProvider.notifier).state = v,
+              ),
+            ),
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.animation_rounded),
+            title: const Text('Reduce motion'),
+            subtitle: const Text(
+              'Skip page-transition animations and decorative motion.',
+              style: TextStyle(color: BestieTokens.cTextMuted, fontSize: 12),
+            ),
+            value: ref.watch(reduceMotionProvider),
+            onChanged: (v) =>
+                ref.read(reduceMotionProvider.notifier).state = v,
+          ),
         ]),
 
         // ----- sessions -----

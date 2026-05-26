@@ -192,6 +192,15 @@ enum ThemeMode { light, dark, system }
 
 final themeModeProvider = StateProvider<ThemeMode>((_) => ThemeMode.light);
 
+// ----- accessibility -----
+/// User-set system font scale multiplier (1.0 = system default). Applied
+/// app-wide via MediaQuery so every Text widget picks it up.
+final fontScaleProvider = StateProvider<double>((_) => 1.0);
+
+/// When true, the app skips long page transitions and decorative
+/// animations. Useful for users with vestibular sensitivities.
+final reduceMotionProvider = StateProvider<bool>((_) => false);
+
 // ----- helpers exposed to screens -----
 extension RefBestie on Ref {
   /// Convenience — every screen calls this to grab the api client.

@@ -415,6 +415,7 @@ class _BestieAppState extends ConsumerState<BestieApp> {
   @override
   Widget build(BuildContext context) {
     final mode = ref.watch(themeModeProvider);
+    final fontScale = ref.watch(fontScaleProvider);
     return MaterialApp.router(
       title: 'MyTaskKing',
       debugShowCheckedModeBanner: false,
@@ -430,9 +431,15 @@ class _BestieAppState extends ConsumerState<BestieApp> {
       // The overlay listens for incoming-call socket events globally and
       // covers whatever screen you're on with an Accept/Decline ringer.
       // OngoingCallBar sits above it and surfaces a "tap to return"
-      // pill when the user has minimized a live call.
-      builder: (ctx, child) => IncomingCallOverlay(
-        child: OngoingCallBar(child: child ?? const SizedBox.shrink()),
+      // pill when the user has minimized a live call. The MediaQuery
+      // wrap applies the user-set font-scale preference app-wide.
+      builder: (ctx, child) => MediaQuery(
+        data: MediaQuery.of(ctx).copyWith(
+          textScaler: TextScaler.linear(fontScale),
+        ),
+        child: IncomingCallOverlay(
+          child: OngoingCallBar(child: child ?? const SizedBox.shrink()),
+        ),
       ),
     );
   }
