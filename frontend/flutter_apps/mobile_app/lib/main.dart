@@ -11,6 +11,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:mytaskking_core/mytaskking_core.dart' as core;
+import 'package:receive_sharing_intent/receive_sharing_intent.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'firebase_options.dart';
 import 'router.dart';
@@ -20,6 +22,8 @@ import 'state.dart' hide ThemeMode;
 
 const _foregroundNotificationsChannelId = 'foreground_notifications_silent';
 const _notificationReplyActionId = 'bestie.reply';
+const _notificationMarkReadActionId = 'bestie.mark_read';
+const _notificationSnoozeActionId = 'bestie.snooze_1h';
 final _localNotifications = FlutterLocalNotificationsPlugin();
 final _pushNavigationEvents =
     StreamController<Map<String, dynamic>>.broadcast();
@@ -204,6 +208,16 @@ Future<void> _showForegroundNotification(RemoteMessage message) async {
               AndroidNotificationActionInput(label: 'Reply'),
             ],
           ),
+          AndroidNotificationAction(
+            _notificationMarkReadActionId,
+            'Mark read',
+            showsUserInterface: false,
+          ),
+          AndroidNotificationAction(
+            _notificationSnoozeActionId,
+            'Snooze 1h',
+            showsUserInterface: false,
+          ),
         ]
       : null;
   await _localNotifications.show(
@@ -246,8 +260,50 @@ Future<void> _handleLocalNotificationResponse(
       await _sendNotificationReply(data, response.input);
       return;
     }
+    if (response.actionId == _notificationMarkReadActionId) {
+      await _markNotificationChannelRead(data);
+      return;
+    }
+    if (response.actionId == _notificationSnoozeActionId) {
+      await _snoozeNotificationChannel(data);
+      return;
+    }
     if (navigateInApp) _pushNavigationEvents.add(data);
   } catch (_) {}
+}
+
+/// Marks the source channel of a chat-notification read. Hits the
+/// existing `/chat/channels/:id/read` endpoint with cached auth so the
+/// action works even when the app isn't on screen.
+Future<void> _markNotificationChannelRead(Map<String, dynamic> data) async {
+  final channelId = data['channelId']?.toString();
+  if (channelId == null || channelId.isEmpty) return;
+  final auth = core.BestieAuthStore();
+  await auth.load();
+  if (auth.user == null) return;
+  try {
+    await core.BestieApi(baseUrl: kApiBaseUrl, auth: auth)
+        .post('/chat/channels/$channelId/read');
+  } catch (_) {/* best-effort */}
+}
+
+/// Local-only 1-hour mute on the source channel. Writes into the same
+/// SharedPreferences key the chat list reads so the mute applies
+/// uniformly to the in-app toast + the next time the user opens chat.
+Future<void> _snoozeNotificationChannel(Map<String, dynamic> data) async {
+  final channelId = data['channelId']?.toString();
+  if (channelId == null || channelId.isEmpty) return;
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('chat.muted_until_v2');
+    final cur = <String, dynamic>{};
+    if (raw != null && raw.isNotEmpty) {
+      try { cur.addAll(jsonDecode(raw) as Map<String, dynamic>); } catch (_) {}
+    }
+    cur[channelId] =
+        DateTime.now().add(const Duration(hours: 1)).toIso8601String();
+    await prefs.setString('chat.muted_until_v2', jsonEncode(cur));
+  } catch (_) {/* best-effort */}
 }
 
 Future<void> _sendNotificationReply(
@@ -319,18 +375,66 @@ class _BestieAppState extends ConsumerState<BestieApp> {
   static const _launchIntentChannel = MethodChannel('mytaskking/launch_intent');
   StreamSubscription<RemoteMessage>? _pushTapSub;
   StreamSubscription<Map<String, dynamic>>? _localPushTapSub;
+  StreamSubscription<List<SharedMediaFile>>? _shareIntentSub;
 
   @override
   void initState() {
     super.initState();
     _wirePushDeepLinks();
+    _wireShareIntent();
   }
 
   @override
   void dispose() {
     _pushTapSub?.cancel();
     _localPushTapSub?.cancel();
+    _shareIntentSub?.cancel();
     super.dispose();
+  }
+
+  /// Listens for content shared into MyTaskKing from another app via the
+  /// system share sheet (Photos → Share → MyTaskKing). Routes to the
+  /// `/share` target screen with the payload so the user picks a channel.
+  Future<void> _wireShareIntent() async {
+    try {
+      final initial =
+          await ReceiveSharingIntent.instance.getInitialMedia();
+      if (initial.isNotEmpty) {
+        WidgetsBinding.instance
+            .addPostFrameCallback((_) => _openShareTarget(initial));
+      }
+      _shareIntentSub = ReceiveSharingIntent.instance
+          .getMediaStream()
+          .listen(_openShareTarget);
+      // Tell the plugin we've consumed the initial intent so the same
+      // payload doesn't fire again on the next app start.
+      await ReceiveSharingIntent.instance.reset();
+    } catch (_) {/* plugin missing on desktop tests — ignore */}
+  }
+
+  void _openShareTarget(List<SharedMediaFile> files) {
+    if (files.isEmpty) return;
+    final paths = <String>[];
+    String? text;
+    for (final f in files) {
+      // Plain text shares come through with type == SharedMediaType.text
+      // and the message in path / .message.
+      if (f.type == SharedMediaType.text || f.type == SharedMediaType.url) {
+        text = (f.message ?? f.path).trim();
+      } else if (f.path.isNotEmpty) {
+        paths.add(f.path);
+      }
+    }
+    final router = ref.read(routerProvider);
+    router.go(
+      Uri(
+        path: '/share',
+        queryParameters: {
+          if (text != null && text.isNotEmpty) 'text': text,
+          if (paths.isNotEmpty) 'paths': paths.join('|'),
+        },
+      ).toString(),
+    );
   }
 
   Future<void> _wirePushDeepLinks() async {

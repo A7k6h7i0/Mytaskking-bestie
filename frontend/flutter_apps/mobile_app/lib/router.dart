@@ -12,6 +12,7 @@ import 'screens/meetings_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/search_screen.dart';
+import 'screens/share_target_screen.dart';
 import 'screens/call_screen.dart';
 import 'screens/employees_screen.dart';
 import 'screens/clients_screen.dart';
@@ -50,6 +51,20 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, s) => SearchScreen(
           initialQuery: s.uri.queryParameters['q'],
           initialKind: s.uri.queryParameters['k'],
+        ),
+      ),
+
+      // Share-into-MyTaskKing target — opened by the system share sheet
+      // (Android intent-filter for SEND / SEND_MULTIPLE). Receives text +
+      // file paths as query parameters from the share intent handler.
+      GoRoute(
+        path: '/share',
+        builder: (_, s) => ShareTargetScreen(
+          sharedText: s.uri.queryParameters['text'],
+          sharedFilePaths: (s.uri.queryParameters['paths'] ?? '')
+              .split('|')
+              .where((p) => p.isNotEmpty)
+              .toList(),
         ),
       ),
 
