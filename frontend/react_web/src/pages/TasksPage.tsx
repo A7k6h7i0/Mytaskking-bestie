@@ -25,6 +25,7 @@ const COLUMNS: Array<{ key: string; label: string }> = [
 
 const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] as const;
 type Priority = (typeof PRIORITIES)[number];
+const PRIORITY_WEIGHT: Record<string, number> = { URGENT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
 
 type Task = {
   id: string; title: string; description?: string | null;
@@ -39,6 +40,7 @@ export default function TasksPage() {
   const me = useAuthStore((s) => s.user);
   const [creating, setCreating] = useState(false);
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  const [priorityToastKey, setPriorityToastKey] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery<{ view: 'kanban'; columns: Record<string, Task[]> }>({
     queryKey: ['tasks.kanban'],
@@ -51,7 +53,7 @@ export default function TasksPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks.kanban'] }),
   });
 
-  // Listen for `task.assigned` events — pop a toast the moment someone
+  // Listen for `task.assigned` events - pop a toast the moment someone
   // assigns a task to me, even before the notification feed refetches.
   useEffect(() => {
     const s = getSocket();
@@ -59,7 +61,7 @@ export default function TasksPage() {
     const onAssigned = (p: { task: Task; assignerId: string; assignerName: string }) => {
       const mine = p.task.assignees?.some((a) => a.user.id === me.id);
       if (!mine) return;
-      const due = p.task.dueAt ? `· due ${dayjs(p.task.dueAt).format('MMM D, HH:mm')}` : '';
+      const due = p.task.dueAt ? ` -  due ${dayjs(p.task.dueAt).format('MMM D, HH:mm')}` : '';
       toast.info(`${p.assignerName} assigned you a task`, `${p.task.title} ${due}`);
       qc.invalidateQueries({ queryKey: ['tasks.kanban'] });
       qc.invalidateQueries({ queryKey: ['notifications.grouped'] });
@@ -67,6 +69,11 @@ export default function TasksPage() {
     const onAssignmentChanged = () => {
       qc.invalidateQueries({ queryKey: ['tasks.kanban'] });
       qc.invalidateQueries({ queryKey: ['task.detail'] });
+    };
+    const onAutoPromoted = (p: { task: Task }) => {
+      if (!p?.task) return;
+      toast.info(`${p.task.title} moved to In progress`, `${p.task.priority} priority is next in your queue.`);
+      qc.invalidateQueries({ queryKey: ['tasks.kanban'] });
     };
     const onSupervisorAssigned = (p: { task: Task; assignerName: string }) => {
       toast.info(`${p.assignerName} assigned work to your team`, p.task.title);
@@ -77,12 +84,24 @@ export default function TasksPage() {
     s.on('task.created', () => qc.invalidateQueries({ queryKey: ['tasks.kanban'] }));
     s.on('task.moved',   () => qc.invalidateQueries({ queryKey: ['tasks.kanban'] }));
     s.on('task.assignment.changed', onAssignmentChanged);
+    s.on('task.auto_promoted', onAutoPromoted);
     return () => {
       s.off('task.assigned', onAssigned);
       s.off('task.supervisor_assigned', onSupervisorAssigned);
       s.off('task.assignment.changed', onAssignmentChanged);
+      s.off('task.auto_promoted', onAutoPromoted);
     };
   }, [me, qc]);
+
+  useEffect(() => {
+    if (!data || !me) return;
+    const task = pickPriorityTaskForMe(data.columns, me.id);
+    if (!task || !['URGENT', 'HIGH'].includes(task.priority)) return;
+    const key = `${task.id}:${task.status}`;
+    if (priorityToastKey === key) return;
+    setPriorityToastKey(key);
+    toast.warn(`${task.title} is ${task.priority}`, 'Please try to complete it first.');
+  }, [data, me, priorityToastKey]);
 
   function onDragStart(e: React.DragEvent, taskId: string) {
     e.dataTransfer.setData('text/plain', taskId);
@@ -98,7 +117,7 @@ export default function TasksPage() {
       <header className="tk__head">
         <div>
           <h1 className="tk__title">Tasks</h1>
-          <p className="tk__sub">Realtime kanban — drag cards to update status. Anyone can assign to anyone.</p>
+          <p className="tk__sub">Realtime kanban - drag cards to update status. Anyone can assign to anyone.</p>
         </div>
         <Button onClick={() => setCreating(true)} className="m-press"><Plus size={16}/> New task</Button>
       </header>
@@ -131,20 +150,20 @@ export default function TasksPage() {
                       <span className="tk__card-title">{t.title}</span>
                     </div>
 
-                    {/* my own state on this task — only when I'm an assignee */}
+                    {/* my own state on this task - only when I'm an assignee */}
                     {mine && (
                       <div className="tk__card-state">
                         {mine.state === 'PENDING' && (
                           <Badge tone="warning" dot>Awaiting your accept</Badge>
                         )}
                         {mine.state === 'ACCEPTED' && (
-                          <Badge tone="brand" dot>Accepted · ready to complete</Badge>
+                          <Badge tone="brand" dot>Accepted - ready to complete</Badge>
                         )}
                         {mine.state === 'COMPLETED' && typeof mine.score === 'number' && (
                           <Badge
                             tone={mine.score >= 80 ? 'success' : mine.score >= 50 ? 'warning' : 'danger'}
                             dot
-                          >Completed · {mine.score}/100</Badge>
+                          >Completed - {mine.score}/100</Badge>
                         )}
                         {mine.state === 'DECLINED' && (
                           <Badge tone="danger" dot>You declined</Badge>
@@ -188,10 +207,27 @@ export default function TasksPage() {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 // New-task modal: title + description + priority + due date/time + assignees
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
+function pickPriorityTaskForMe(columns: Record<string, Task[]>, userId: string) {
+  const open = ['IN_PROGRESS', 'REVIEW', 'TODO']
+    .flatMap((status) => columns?.[status] || [])
+    .filter((task) =>
+      task.assignees?.some((assignee) =>
+        assignee.user.id === userId && assignee.state !== 'COMPLETED' && assignee.state !== 'DECLINED'
+      )
+    );
+  open.sort((a, b) => {
+    const byPriority = (PRIORITY_WEIGHT[a.priority] ?? 99) - (PRIORITY_WEIGHT[b.priority] ?? 99);
+    if (byPriority !== 0) return byPriority;
+    const aDue = a.dueAt ? new Date(a.dueAt).getTime() : Number.MAX_SAFE_INTEGER;
+    const bDue = b.dueAt ? new Date(b.dueAt).getTime() : Number.MAX_SAFE_INTEGER;
+    return aDue - bDue;
+  });
+  return open[0];
+}
 function NewTaskModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const qc = useQueryClient();
   const me = useAuthStore((s) => s.user);
@@ -214,7 +250,7 @@ function NewTaskModal({ open, onClose }: { open: boolean; onClose: () => void })
     }
   }, [open]);
 
-  // Pull employees + admins + telecallers — anyone the assigner could give work to.
+  // Pull employees + admins + telecallers - anyone the assigner could give work to.
   const { data: peopleData } = useQuery<{ items: Person[] }>({
     queryKey: ['people.assignable', peopleQuery],
     queryFn: async () => (await api.get('/employees', { params: { q: peopleQuery || undefined } })).data,
@@ -327,7 +363,7 @@ function NewTaskModal({ open, onClose }: { open: boolean; onClose: () => void })
             </div>
           )}
           <Input
-            placeholder="Search people…"
+            placeholder="Search people..."
             leading={<Users size={14} />}
             value={peopleQuery}
             onChange={(e) => setPeopleQuery(e.target.value)}
@@ -342,7 +378,7 @@ function NewTaskModal({ open, onClose }: { open: boolean; onClose: () => void })
                 <Avatar name={p.name} src={p.avatarUrl} isClient={p.isClient} size={26} />
                 <div>
                   <UserName name={p.name} isClient={p.isClient} role={p.role} />
-                  <span className="tk__person-meta">{p.userId} · {p.role.replace('_', ' ')}</span>
+                  <span className="tk__person-meta">{p.userId} - {p.role.replace('_', ' ')}</span>
                 </div>
                 {p.id === me?.id && <Badge tone="neutral">You</Badge>}
               </button>

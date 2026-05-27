@@ -64,6 +64,8 @@ model User {
   messageReceipts  MessageReceipt[]
   tasksAssigned   TaskAssignee[]
   tasksCreated    Task[]              @relation("TaskCreatedBy")
+  taskReportsAuthored TaskCompletionReport[] @relation("TaskReportAuthor")
+  taskReportRecipients TaskReportRecipient[] @relation("TaskReportRecipientUser")
   taskComments    TaskComment[]
   callsInitiated  Call[]              @relation("CallInitiator")
   callParticipants CallParticipant[]
@@ -329,6 +331,7 @@ model Task {
   createdBy   User          @relation("TaskCreatedBy", fields: [createdById], references: [id])
   createdById String
   assignees   TaskAssignee[]
+  completionReports TaskCompletionReport[]
   subtasks    Subtask[]
   comments    TaskComment[]
   attachments FileAsset[]   @relation("TaskAttachments")
@@ -367,10 +370,44 @@ model TaskAssignee {
   // we want the row to be a permanent record.
   score       Int?
   scoreReason String?              // short human string for the audit log + UI
+  completionReport TaskCompletionReport?
 
   @@unique([taskId, userId])
   @@index([userId, state])
   @@index([userId, completedAt])
+}
+
+model TaskCompletionReport {
+  id           String      @id @default(cuid())
+  task         Task        @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId       String
+  author       User        @relation("TaskReportAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  authorId     String
+  assignment   TaskAssignee? @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
+  assignmentId String?     @unique
+  body         String
+  wordCount    Int
+  recipients   TaskReportRecipient[]
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([taskId, createdAt])
+  @@index([authorId, createdAt])
+}
+
+model TaskReportRecipient {
+  id                String               @id @default(cuid())
+  report            TaskCompletionReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  reportId          String
+  user              User                 @relation("TaskReportRecipientUser", fields: [userId], references: [id], onDelete: Cascade)
+  userId            String
+  responseBody      String?
+  respondedAt       DateTime?
+  responseUpdatedAt DateTime?
+  createdAt         DateTime             @default(now())
+
+  @@unique([reportId, userId])
+  @@index([userId, createdAt])
 }
 
 model Subtask {

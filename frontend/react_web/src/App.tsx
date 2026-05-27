@@ -7,6 +7,7 @@ import DashboardPage from '@/pages/DashboardPage';
 import ChatPage from '@/pages/ChatPage';
 import ChannelsPage from '@/pages/ChannelsPage';
 import TasksPage from '@/pages/TasksPage';
+import ReportsPage from '@/pages/ReportsPage';
 import CallsPage from '@/pages/CallsPage';
 import CallRoomPage from '@/pages/CallRoomPage';
 import TelecallerPage from '@/pages/TelecallerPage';
@@ -77,6 +78,7 @@ export default function App() {
           <Route path="/chat/:channelId" element={<ChatPage />} />
           <Route path="/channels" element={<ChannelsPage />} />
           <Route path="/tasks" element={<TasksPage />} />
+          <Route path="/reports" element={<ReportsPage />} />
           <Route path="/calls" element={<CallsPage />} />
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/saved" element={<SavedPage />} />

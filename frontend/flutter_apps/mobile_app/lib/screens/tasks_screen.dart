@@ -16,9 +16,11 @@ class TasksScreen extends ConsumerStatefulWidget {
 
 class _TasksScreenState extends ConsumerState<TasksScreen> {
   void Function()? _offAssigned;
+  void Function()? _offAutoPromoted;
   _TaskFilter _filter = _TaskFilter.all;
   final _searchCtl = TextEditingController();
   String _query = '';
+  String? _priorityToastKey;
   // Selection mode: when the user long-presses a task we flip into a
   // multi-select state with a contextual app bar and "Mark all done" /
   // "Cancel" actions. Stored as ids so toggling is O(1).
@@ -35,12 +37,16 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
       final rt = ref.read(realtimeProvider);
       _offAssigned = rt.on<Map>('task.assigned', (data) {
         if (!mounted || me == null) return;
-        final task = (data['task'] as Map?)?.cast<String, dynamic>() ?? const {};
+        final task =
+            (data['task'] as Map?)?.cast<String, dynamic>() ?? const {};
         final assignerName = data['assignerName'] ?? 'Someone';
-        final assignees = (task['assignees'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+        final assignees =
+            (task['assignees'] as List?)?.cast<Map<String, dynamic>>() ??
+                const [];
         final mine = assignees.any((a) => (a['user'] as Map?)?['id'] == me.id);
         if (!mine) return;
-        final due = task['dueAt'] != null ? ' · due ${_fmt(task['dueAt'])}' : '';
+        final due =
+            task['dueAt'] != null ? ' · due ${_fmt(task['dueAt'])}' : '';
         bestieToast(
           context,
           '$assignerName assigned you a task',
@@ -50,12 +56,25 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
         ref.invalidate(tasksKanbanProvider);
         ref.invalidate(notificationsProvider);
       });
+      _offAutoPromoted = rt.on<Map>('task.auto_promoted', (data) {
+        if (!mounted) return;
+        final task =
+            (data['task'] as Map?)?.cast<String, dynamic>() ?? const {};
+        bestieToast(
+          context,
+          '${task['title'] ?? 'Next task'} moved to In progress',
+          body: '${task['priority'] ?? 'Next'} priority is next in your queue.',
+          kind: BestieToastKind.info,
+        );
+        ref.invalidate(tasksKanbanProvider);
+      });
     });
   }
 
   @override
   void dispose() {
     _offAssigned?.call();
+    _offAutoPromoted?.call();
     _searchCtl.dispose();
     super.dispose();
   }
@@ -72,12 +91,14 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
     final navReserve = 70.0 + MediaQuery.of(context).padding.bottom - 18;
     return Scaffold(
       backgroundColor: c.bg,
-      appBar: _selecting ? _selectionAppBar(c) : AppBar(
-        elevation: 0,
-        backgroundColor: c.surface,
-        foregroundColor: c.text,
-        title: const Text('Tasks'),
-      ),
+      appBar: _selecting
+          ? _selectionAppBar(c)
+          : AppBar(
+              elevation: 0,
+              backgroundColor: c.surface,
+              foregroundColor: c.text,
+              title: const Text('Tasks'),
+            ),
       bottomNavigationBar: SizedBox(height: navReserve),
       body: RefreshIndicator(
         onRefresh: () async => ref.refresh(tasksKanbanProvider.future),
@@ -95,28 +116,33 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
           data: (data) {
             // The provider still returns a kanban shape (columns keyed by
             // status) — flatten it for the list and sort by most-recent.
-            final cols = (data['columns'] as Map?)?.cast<String, dynamic>() ?? const {};
+            final cols =
+                (data['columns'] as Map?)?.cast<String, dynamic>() ?? const {};
             final all = cols.values
                 .expand((v) => (v as List).cast<Map<String, dynamic>>())
                 .toList();
-            all.sort((a, b) => '${b['updatedAt']}'.compareTo('${a['updatedAt']}'));
+            all.sort(
+                (a, b) => '${b['updatedAt']}'.compareTo('${a['updatedAt']}'));
 
             final me = ref.read(authStoreProvider).user;
             final counts = _countsFor(all, me?.id);
             var filtered = _applyFilter(all, _filter, me?.id);
             if (_query.isNotEmpty) {
               final q = _query.toLowerCase();
-              filtered = filtered.where((t) =>
-                ('${t['title'] ?? ''}').toLowerCase().contains(q) ||
-                ('${t['description'] ?? ''}').toLowerCase().contains(q)
-              ).toList();
+              filtered = filtered
+                  .where((t) =>
+                      ('${t['title'] ?? ''}').toLowerCase().contains(q) ||
+                      ('${t['description'] ?? ''}').toLowerCase().contains(q))
+                  .toList();
             }
+            _showPriorityToastFor(all, me?.id);
 
             if (all.isEmpty) {
               return BestieEmptyState(
                 icon: Icons.task_alt,
                 title: 'No tasks yet',
-                description: 'Create one and assign it to anyone in the workspace.',
+                description:
+                    'Create one and assign it to anyone in the workspace.',
                 action: FilledButton.icon(
                   onPressed: _newTask,
                   icon: const Icon(Icons.add),
@@ -139,7 +165,8 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
                       : ListView.separated(
                           padding: const EdgeInsets.fromLTRB(12, 4, 12, 96),
                           itemBuilder: (_, i) => _taskCard(filtered[i], c),
-                          separatorBuilder: (_, __) => const SizedBox(height: 8),
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 8),
                           itemCount: filtered.length,
                         ),
                 ),
@@ -160,7 +187,56 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
     );
   }
 
-  Map<_TaskFilter, int> _countsFor(List<Map<String, dynamic>> all, String? meId) {
+  void _showPriorityToastFor(List<Map<String, dynamic>> all, String? meId) {
+    if (meId == null) return;
+    final task = _pickPriorityTaskForMe(all, meId);
+    if (task == null) return;
+    final priority = task['priority']?.toString() ?? '';
+    if (priority != 'URGENT' && priority != 'HIGH') return;
+    final key = '${task['id']}:${task['status']}';
+    if (_priorityToastKey == key) return;
+    _priorityToastKey = key;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      bestieToast(
+        context,
+        '${task['title']} is $priority',
+        body: 'Please try to complete it first.',
+        kind: BestieToastKind.warning,
+      );
+    });
+  }
+
+  Map<String, dynamic>? _pickPriorityTaskForMe(
+      List<Map<String, dynamic>> all, String meId) {
+    final open = all.where((t) {
+      final status = (t['status'] ?? 'TODO').toString();
+      if (!['IN_PROGRESS', 'REVIEW', 'TODO'].contains(status)) return false;
+      final assignees =
+          (t['assignees'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+      return assignees.any((a) {
+        final state = a['state']?.toString();
+        return (a['user'] as Map?)?['id'] == meId &&
+            state != 'COMPLETED' &&
+            state != 'DECLINED';
+      });
+    }).toList();
+    const weights = {'URGENT': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3};
+    open.sort((a, b) {
+      final byPriority =
+          (weights[a['priority']] ?? 99) - (weights[b['priority']] ?? 99);
+      if (byPriority != 0) return byPriority;
+      final aDue =
+          DateTime.tryParse('${a['dueAt']}')?.millisecondsSinceEpoch ?? 1 << 62;
+      final bDue =
+          DateTime.tryParse('${b['dueAt']}')?.millisecondsSinceEpoch ?? 1 << 62;
+      return aDue.compareTo(bDue);
+    });
+    return open.isEmpty ? null : open.first;
+  }
+
+  Map<_TaskFilter, int> _countsFor(
+      List<Map<String, dynamic>> all, String? meId) {
     final now = DateTime.now();
     bool isToday(DateTime d) =>
         d.year == now.year && d.month == now.month && d.day == now.day;
@@ -168,8 +244,10 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
     for (final t in all) {
       final status = (t['status'] ?? 'TODO').toString();
       final done = status == 'DONE' || status == 'CANCELLED';
-      final assignees = (t['assignees'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
-      final mine = meId != null && assignees.any((a) => (a['user'] as Map?)?['id'] == meId);
+      final assignees =
+          (t['assignees'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+      final mine = meId != null &&
+          assignees.any((a) => (a['user'] as Map?)?['id'] == meId);
       final due = DateTime.tryParse('${t['dueAt']}')?.toLocal();
       out[_TaskFilter.all] = out[_TaskFilter.all]! + 1;
       if (mine && !done) out[_TaskFilter.mine] = out[_TaskFilter.mine]! + 1;
@@ -193,8 +271,10 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
     return all.where((t) {
       final status = (t['status'] ?? 'TODO').toString();
       final done = status == 'DONE' || status == 'CANCELLED';
-      final assignees = (t['assignees'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
-      final mine = meId != null && assignees.any((a) => (a['user'] as Map?)?['id'] == meId);
+      final assignees =
+          (t['assignees'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+      final mine = meId != null &&
+          assignees.any((a) => (a['user'] as Map?)?['id'] == meId);
       final due = DateTime.tryParse('${t['dueAt']}')?.toLocal();
       switch (f) {
         case _TaskFilter.mine:
@@ -233,7 +313,8 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
                 ),
           filled: true,
           fillColor: c.surface,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(BestieTokens.rPill),
             borderSide: BorderSide(color: c.border),
@@ -261,7 +342,8 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
         onPressed: () => setState(_selectedIds.clear),
       ),
       title: Text('${_selectedIds.length} selected',
-          style: TextStyle(color: c.brandStrong, fontWeight: BestieTokens.fwBold)),
+          style:
+              TextStyle(color: c.brandStrong, fontWeight: BestieTokens.fwBold)),
       actions: [
         IconButton(
           icon: const Icon(Icons.check_circle_outline_rounded),
@@ -285,7 +367,9 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
         // hitting them in parallel trips the per-route rate limiter.
         await api.updateTask(id, {'status': 'DONE'});
         ok += 1;
-      } catch (_) { fail += 1; }
+      } catch (_) {
+        fail += 1;
+      }
     }
     ref.invalidate(tasksKanbanProvider);
     if (mounted) {
@@ -321,7 +405,8 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
             backgroundColor: c.surface,
             selectedColor: BestieTokens.cBrand,
             side: BorderSide(color: selected ? BestieTokens.cBrand : c.border),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(BestieTokens.rPill)),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(BestieTokens.rPill)),
             visualDensity: VisualDensity.compact,
             materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
           );
@@ -333,7 +418,8 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
   Widget _taskCard(Map<String, dynamic> t, BestieColors c) {
     final priority = (t['priority'] as String? ?? 'MEDIUM').toLowerCase();
     final dueAt = t['dueAt'] as String?;
-    final assignees = (t['assignees'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+    final assignees =
+        (t['assignees'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
     final me = ref.read(authStoreProvider).user;
     final mine = assignees.firstWhere(
       (a) => (a['user'] as Map?)?['id'] == me?.id,
@@ -345,9 +431,9 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
 
     final priorityColor = switch (priority) {
       'urgent' => c.danger,
-      'high'   => c.warning,
+      'high' => c.warning,
       'medium' => c.info,
-      _        => c.borderStrong,
+      _ => c.borderStrong,
     };
 
     final id = t['id'] as String;
@@ -388,7 +474,8 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
               // priority + status row
               Row(children: [
                 Container(
-                  width: 30, height: 4,
+                  width: 30,
+                  height: 4,
                   decoration: BoxDecoration(
                     color: priorityColor,
                     borderRadius: BorderRadius.circular(2),
@@ -396,7 +483,8 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
                 ),
                 const SizedBox(width: 10),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
                     color: c.surface2,
                     borderRadius: BorderRadius.circular(BestieTokens.rPill),
@@ -430,7 +518,8 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
                   t['description'].toString(),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: c.textMuted, fontSize: 13, height: 1.35),
+                  style:
+                      TextStyle(color: c.textMuted, fontSize: 13, height: 1.35),
                 ),
               ],
               if (myState != null) ...[
@@ -454,9 +543,15 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
                                 border: Border.all(color: c.surface, width: 2),
                               ),
                               child: BestieAvatar(
-                                name: (assignees[i]['user'] as Map?)?['name']?.toString() ?? '?',
-                                imageUrl: (assignees[i]['user'] as Map?)?['avatarUrl']?.toString(),
-                                isClient: (assignees[i]['user'] as Map?)?['isClient'] ?? false,
+                                name: (assignees[i]['user'] as Map?)?['name']
+                                        ?.toString() ??
+                                    '?',
+                                imageUrl:
+                                    (assignees[i]['user'] as Map?)?['avatarUrl']
+                                        ?.toString(),
+                                isClient: (assignees[i]['user']
+                                        as Map?)?['isClient'] ??
+                                    false,
                                 size: 24,
                               ),
                             ),
@@ -465,7 +560,8 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
                           Positioned(
                             left: 3 * 16.0,
                             child: Container(
-                              width: 24, height: 24,
+                              width: 24,
+                              height: 24,
                               alignment: Alignment.center,
                               decoration: BoxDecoration(
                                 color: c.surface2,
@@ -475,7 +571,8 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
                               child: Text(
                                 '+${assignees.length - 3}',
                                 style: TextStyle(
-                                  fontSize: 9, color: c.textSoft,
+                                  fontSize: 9,
+                                  color: c.textSoft,
                                   fontWeight: BestieTokens.fwBold,
                                 ),
                               ),
@@ -487,7 +584,8 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
                 const Spacer(),
                 if (dueAt != null)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
                       color: c.warningSoft,
                       borderRadius: BorderRadius.circular(BestieTokens.rPill),
@@ -516,16 +614,29 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
   Widget _stateBadge(String state, int? score) {
     switch (state) {
       case 'PENDING':
-        return const BestieBadge(tone: BestieTone.warning, dot: true, child: Text('AWAITING ACCEPT'));
+        return const BestieBadge(
+            tone: BestieTone.warning,
+            dot: true,
+            child: Text('AWAITING ACCEPT'));
       case 'ACCEPTED':
-        return const BestieBadge(tone: BestieTone.brand, dot: true, child: Text('ACCEPTED'));
+        return const BestieBadge(
+            tone: BestieTone.brand, dot: true, child: Text('ACCEPTED'));
       case 'DECLINED':
-        return const BestieBadge(tone: BestieTone.danger, dot: true, child: Text('DECLINED'));
+        return const BestieBadge(
+            tone: BestieTone.danger, dot: true, child: Text('DECLINED'));
       case 'COMPLETED':
         final tone = score == null
             ? BestieTone.success
-            : (score >= 80 ? BestieTone.success : score >= 50 ? BestieTone.warning : BestieTone.danger);
-        return BestieBadge(tone: tone, dot: true, child: Text(score == null ? 'COMPLETED' : 'COMPLETED · $score/100'));
+            : (score >= 80
+                ? BestieTone.success
+                : score >= 50
+                    ? BestieTone.warning
+                    : BestieTone.danger);
+        return BestieBadge(
+            tone: tone,
+            dot: true,
+            child:
+                Text(score == null ? 'COMPLETED' : 'COMPLETED · $score/100'));
       default:
         return const SizedBox.shrink();
     }
@@ -539,7 +650,20 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
   String _fmt(dynamic iso) {
     final d = DateTime.tryParse('$iso')?.toLocal();
     if (d == null) return '$iso';
-    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec'
+    ];
     final h = d.hour.toString().padLeft(2, '0');
     final m = d.minute.toString().padLeft(2, '0');
     return '${months[d.month - 1]} ${d.day}, $h:$m';
@@ -592,7 +716,8 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
   void initState() {
     super.initState();
     final tomorrowFive = DateTime.now().add(const Duration(days: 1));
-    _due = DateTime(tomorrowFive.year, tomorrowFive.month, tomorrowFive.day, 17, 0);
+    _due = DateTime(
+        tomorrowFive.year, tomorrowFive.month, tomorrowFive.day, 17, 0);
     _loadPeople();
   }
 
@@ -613,7 +738,8 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
       initialDate: _due ?? DateTime.now(),
     );
     if (picked == null) return;
-    setState(() => _due = DateTime(picked.year, picked.month, picked.day, _due?.hour ?? 17, _due?.minute ?? 0));
+    setState(() => _due = DateTime(picked.year, picked.month, picked.day,
+        _due?.hour ?? 17, _due?.minute ?? 0));
   }
 
   Future<void> _pickTime() async {
@@ -623,7 +749,8 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
     );
     if (picked == null) return;
     final base = _due ?? DateTime.now();
-    setState(() => _due = DateTime(base.year, base.month, base.day, picked.hour, picked.minute));
+    setState(() => _due =
+        DateTime(base.year, base.month, base.day, picked.hour, picked.minute));
   }
 
   /// Two-step date + time picker for "deliver to assignee at" — when set,
@@ -631,7 +758,8 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
   /// backend cron triggers the assignment notification at exactly that
   /// time. Default to 1 hour in the future.
   Future<void> _pickScheduledAt() async {
-    final initial = _scheduledAt ?? DateTime.now().add(const Duration(hours: 1));
+    final initial =
+        _scheduledAt ?? DateTime.now().add(const Duration(hours: 1));
     final date = await showDatePicker(
       context: context,
       firstDate: DateTime.now().subtract(const Duration(days: 1)),
@@ -681,14 +809,29 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
         Navigator.pop(context);
       }
     } catch (e) {
-      if (mounted) bestieToast(context, 'Could not create', body: formatApiError(e), kind: BestieToastKind.error);
+      if (mounted)
+        bestieToast(context, 'Could not create',
+            body: formatApiError(e), kind: BestieToastKind.error);
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
   }
 
   String _fmt(DateTime d) {
-    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec'
+    ];
     final h = d.hour.toString().padLeft(2, '0');
     final m = d.minute.toString().padLeft(2, '0');
     return '${months[d.month - 1]} ${d.day}, $h:$m';
@@ -697,18 +840,24 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
   @override
   Widget build(BuildContext context) {
     final pickedIds = _picked.map((p) => p['id']).toSet();
-    final candidates = _people.where((p) => !pickedIds.contains(p['id'])).take(8).toList();
+    final candidates =
+        _people.where((p) => !pickedIds.contains(p['id'])).take(8).toList();
     final me = widget.ref.read(authStoreProvider).user;
 
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        BestieTokens.s4, 0, BestieTokens.s4,
+        BestieTokens.s4,
+        0,
+        BestieTokens.s4,
         MediaQuery.of(context).viewInsets.bottom + BestieTokens.s4,
       ),
       child: ListView(
         shrinkWrap: true,
         children: [
-          BestieTextField(label: 'Title', controller: _title, hint: 'What needs to happen?'),
+          BestieTextField(
+              label: 'Title',
+              controller: _title,
+              hint: 'What needs to happen?'),
           const SizedBox(height: BestieTokens.s2),
 
           BestieTextField(label: 'Description (optional)', controller: _desc),
@@ -716,15 +865,18 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
 
           // ----- priority -----
           const Text('Priority',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: BestieTokens.cTextSoft)),
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: BestieTokens.cTextSoft)),
           const SizedBox(height: 6),
           BestieSegmentedControl<String>(
             value: _priority,
             onChanged: (v) => setState(() => _priority = v),
             options: const [
-              BestieSegmentOption(value: 'LOW',    label: 'Low'),
+              BestieSegmentOption(value: 'LOW', label: 'Low'),
               BestieSegmentOption(value: 'MEDIUM', label: 'Medium'),
-              BestieSegmentOption(value: 'HIGH',   label: 'High'),
+              BestieSegmentOption(value: 'HIGH', label: 'High'),
               BestieSegmentOption(value: 'URGENT', label: 'Urgent'),
             ],
           ),
@@ -764,7 +916,10 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
 
           // ----- deliver-at (scheduled task) -----
           const Text('Deliver to assignee at (optional)',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: BestieTokens.cTextSoft)),
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: BestieTokens.cTextSoft)),
           const SizedBox(height: 6),
           OutlinedButton.icon(
             icon: Icon(
@@ -784,7 +939,8 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
               const Expanded(
                 child: Text(
                   'Assignee won\'t see this task or get notified until then.',
-                  style: TextStyle(color: BestieTokens.cTextMuted, fontSize: 12),
+                  style:
+                      TextStyle(color: BestieTokens.cTextMuted, fontSize: 12),
                 ),
               ),
               TextButton(
@@ -797,18 +953,32 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
 
           // ----- assignees -----
           const Text('Assign to',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: BestieTokens.cTextSoft)),
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: BestieTokens.cTextSoft)),
           if (_picked.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 6),
               child: Wrap(
-                spacing: 6, runSpacing: 6,
-                children: _picked.map((p) => InputChip(
-                  avatar: BestieAvatar(name: p['name'] ?? '?', imageUrl: p['avatarUrl'], isClient: p['isClient'] ?? false, size: 18),
-                  label: BestieUserName(name: p['name'] ?? '', isClient: p['isClient'] ?? false,
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                  onDeleted: () => setState(() => _picked.removeWhere((x) => x['id'] == p['id'])),
-                )).toList(),
+                spacing: 6,
+                runSpacing: 6,
+                children: _picked
+                    .map((p) => InputChip(
+                          avatar: BestieAvatar(
+                              name: p['name'] ?? '?',
+                              imageUrl: p['avatarUrl'],
+                              isClient: p['isClient'] ?? false,
+                              size: 18),
+                          label: BestieUserName(
+                              name: p['name'] ?? '',
+                              isClient: p['isClient'] ?? false,
+                              style: const TextStyle(
+                                  fontSize: 12, fontWeight: FontWeight.w600)),
+                          onDeleted: () => setState(() =>
+                              _picked.removeWhere((x) => x['id'] == p['id'])),
+                        ))
+                    .toList(),
               ),
             ),
           const SizedBox(height: 6),
@@ -830,12 +1000,19 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
                 final isMe = me?.id == p['id'];
                 return ListTile(
                   dense: true,
-                  leading: BestieAvatar(name: p['name'] ?? '?', imageUrl: p['avatarUrl'], isClient: p['isClient'] ?? false, size: 28),
-                  title: BestieUserName(name: p['name'] ?? '', isClient: p['isClient'] ?? false,
+                  leading: BestieAvatar(
+                      name: p['name'] ?? '?',
+                      imageUrl: p['avatarUrl'],
+                      isClient: p['isClient'] ?? false,
+                      size: 28),
+                  title: BestieUserName(
+                      name: p['name'] ?? '',
+                      isClient: p['isClient'] ?? false,
                       style: const TextStyle(fontWeight: FontWeight.w600)),
                   subtitle: Text(
                     '${p['userId']} · ${p['role']?.toString().replaceAll('_', ' ') ?? ''}',
-                    style: const TextStyle(color: BestieTokens.cTextMuted, fontSize: 12),
+                    style: const TextStyle(
+                        color: BestieTokens.cTextMuted, fontSize: 12),
                   ),
                   trailing: isMe
                       ? const BestieBadge(child: Text('YOU'))

@@ -205,6 +205,8 @@ class ShellScreen extends ConsumerWidget {
       _MoreEntry(
           Icons.event_outlined, 'Calendar', '/calendar', c.info, !isClient),
       _MoreEntry(
+          Icons.article_outlined, 'Reports', '/reports', c.success, !isClient),
+      _MoreEntry(
           Icons.videocam_outlined, 'Meetings', '/meetings', c.brand, !isClient),
       _MoreEntry(Icons.history_rounded, 'Call history', '/calls', c.success,
           !isClient),

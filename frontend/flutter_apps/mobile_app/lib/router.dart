@@ -24,6 +24,7 @@ import 'screens/telecaller_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/attendance_screen.dart';
 import 'screens/task_detail_screen.dart';
+import 'screens/reports_screen.dart';
 import 'state.dart' hide ThemeMode;
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -36,7 +37,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       final logged = auth.accessToken != null;
       final loginPath = state.matchedLocation == '/login';
       if (!logged && !loginPath) return '/login';
-      if (logged && loginPath)   return '/dashboard';
+      if (logged && loginPath) return '/dashboard';
       return null;
     },
     routes: [
@@ -72,21 +73,26 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
 
       // ----- "more" screens (outside the bottom-nav shell) -----
-      GoRoute(path: '/employees',     builder: (_, __) => const EmployeesScreen()),
-      GoRoute(path: '/clients',       builder: (_, __) => const ClientsScreen()),
-      GoRoute(path: '/calls',         builder: (_, __) => const CallsScreen()),
-      GoRoute(path: '/calendar',      builder: (_, __) => const CalendarScreen()),
-      GoRoute(path: '/announcements', builder: (_, __) => const AnnouncementsScreen()),
-      GoRoute(path: '/saved',         builder: (_, __) => const SavedScreen()),
-      GoRoute(path: '/sessions',      builder: (_, __) => const SessionsScreen()),
-      GoRoute(path: '/telecaller',    builder: (_, __) => const TelecallerScreen()),
-      GoRoute(path: '/settings',      builder: (_, __) => const SettingsScreen()),
+      GoRoute(path: '/employees', builder: (_, __) => const EmployeesScreen()),
+      GoRoute(path: '/clients', builder: (_, __) => const ClientsScreen()),
+      GoRoute(path: '/calls', builder: (_, __) => const CallsScreen()),
+      GoRoute(path: '/calendar', builder: (_, __) => const CalendarScreen()),
+      GoRoute(
+          path: '/announcements',
+          builder: (_, __) => const AnnouncementsScreen()),
+      GoRoute(path: '/saved', builder: (_, __) => const SavedScreen()),
+      GoRoute(path: '/sessions', builder: (_, __) => const SessionsScreen()),
+      GoRoute(
+          path: '/telecaller', builder: (_, __) => const TelecallerScreen()),
+      GoRoute(path: '/settings', builder: (_, __) => const SettingsScreen()),
+      GoRoute(path: '/reports', builder: (_, __) => const ReportsScreen()),
 
       // Chat detail lives OUTSIDE the shell so the bottom nav doesn't eat
       // composer + keyboard space. Back arrow returns to the chat list.
       GoRoute(
         path: '/chat/:channelId',
-        builder: (_, s) => ChatDetailScreen(channelId: s.pathParameters['channelId']!),
+        builder: (_, s) =>
+            ChatDetailScreen(channelId: s.pathParameters['channelId']!),
       ),
 
       // Task detail full-screen — out of the shell so the user can focus on
@@ -101,13 +107,19 @@ final routerProvider = Provider<GoRouter>((ref) {
       ShellRoute(
         builder: (ctx, state, child) => ShellScreen(child: child),
         routes: [
-          GoRoute(path: '/dashboard',     builder: (_, __) => const DashboardScreen()),
-          GoRoute(path: '/chat',          builder: (_, __) => const ChatListScreen()),
-          GoRoute(path: '/tasks',         builder: (_, __) => const TasksScreen()),
-          GoRoute(path: '/attendance',    builder: (_, __) => const AttendanceScreen()),
-          GoRoute(path: '/meetings',      builder: (_, __) => const MeetingsScreen()),
-          GoRoute(path: '/notifications', builder: (_, __) => const NotificationsScreen()),
-          GoRoute(path: '/profile',       builder: (_, __) => const ProfileScreen()),
+          GoRoute(
+              path: '/dashboard', builder: (_, __) => const DashboardScreen()),
+          GoRoute(path: '/chat', builder: (_, __) => const ChatListScreen()),
+          GoRoute(path: '/tasks', builder: (_, __) => const TasksScreen()),
+          GoRoute(
+              path: '/attendance',
+              builder: (_, __) => const AttendanceScreen()),
+          GoRoute(
+              path: '/meetings', builder: (_, __) => const MeetingsScreen()),
+          GoRoute(
+              path: '/notifications',
+              builder: (_, __) => const NotificationsScreen()),
+          GoRoute(path: '/profile', builder: (_, __) => const ProfileScreen()),
         ],
       ),
     ],
@@ -124,5 +136,8 @@ class _AuthListenable extends ChangeNotifier {
   final dynamic _auth;
   late final dynamic _sub;
   @override
-  void dispose() { _sub?.cancel(); super.dispose(); }
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
 }

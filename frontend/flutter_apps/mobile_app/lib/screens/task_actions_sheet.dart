@@ -8,18 +8,19 @@ import '../state.dart';
 /// when the user taps a card.
 ///
 /// State machine:
-///   PENDING   → Accept / Decline buttons
-///   ACCEPTED  → Mark complete
-///   DECLINED  → "You declined" note
-///   COMPLETED → Score ring + reason
+///   PENDING   â†’ Accept / Decline buttons
+///   ACCEPTED  â†’ Mark complete
+///   DECLINED  â†’ "You declined" note
+///   COMPLETED â†’ Score ring + reason
 ///
 /// On any transition we invalidate the kanban + notifications providers and
-/// pop a toast — the same `task.assignment.changed` socket event also fires
+/// pop a toast â€” the same `task.assignment.changed` socket event also fires
 /// to every other connected client.
 class TaskActionsSheet extends ConsumerStatefulWidget {
   final String taskId;
   final WidgetRef parentRef;
-  const TaskActionsSheet({super.key, required this.taskId, required this.parentRef});
+  const TaskActionsSheet(
+      {super.key, required this.taskId, required this.parentRef});
 
   @override
   ConsumerState<TaskActionsSheet> createState() => _TaskActionsSheetState();
@@ -40,33 +41,48 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
   Future<void> _load() async {
     try {
       final t = await ref.read(apiProvider).getTask(widget.taskId);
-      if (mounted) setState(() { _task = t; _loading = false; });
+      if (mounted)
+        setState(() {
+          _task = t;
+          _loading = false;
+        });
     } catch (e) {
-      if (mounted) setState(() { _err = formatApiError(e); _loading = false; });
+      if (mounted)
+        setState(() {
+          _err = formatApiError(e);
+          _loading = false;
+        });
     }
   }
 
-  Future<void> _act(Future<Map<String, dynamic>> Function() op, String successMsg) async {
+  Future<void> _act(
+      Future<Map<String, dynamic>> Function() op, String successMsg) async {
     setState(() => _busy = true);
     try {
       final row = await op();
       widget.parentRef.invalidate(tasksKanbanProvider);
       widget.parentRef.invalidate(notificationsProvider);
       if (mounted) {
-        // After accept/decline/complete the row carries fresh state — show
+        // After accept/decline/complete the row carries fresh state â€” show
         // the score in the toast when present.
         final score = row['score'] as int?;
         final reason = row['scoreReason'] as String?;
+        final promoted =
+            (row['autoPromotedTask'] as Map?)?.cast<String, dynamic>();
         bestieToast(
           context,
-          score != null ? 'Completed · $score/100' : successMsg,
-          body: reason,
+          score != null ? 'Completed - $score/100' : successMsg,
+          body: promoted != null
+              ? '${promoted['title']} moved to In progress'
+              : reason,
           kind: BestieToastKind.success,
         );
         Navigator.pop(context);
       }
     } catch (e) {
-      if (mounted) bestieToast(context, 'Action failed', body: formatApiError(e), kind: BestieToastKind.error);
+      if (mounted)
+        bestieToast(context, 'Action failed',
+            body: formatApiError(e), kind: BestieToastKind.error);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -75,7 +91,9 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Padding(padding: EdgeInsets.all(BestieTokens.s5), child: Center(child: BestieSpinner()));
+      return const Padding(
+          padding: EdgeInsets.all(BestieTokens.s5),
+          child: Center(child: BestieSpinner()));
     }
     if (_err != null || _task == null) {
       return Padding(
@@ -91,7 +109,8 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
 
     final t = _task!;
     final me = ref.read(authStoreProvider).user;
-    final assignees = (t['assignees'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+    final assignees =
+        (t['assignees'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
     final mine = assignees.firstWhere(
       (a) => (a['user'] as Map?)?['id'] == me?.id,
       orElse: () => const {},
@@ -102,7 +121,9 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
 
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        BestieTokens.s4, 0, BestieTokens.s4,
+        BestieTokens.s4,
+        0,
+        BestieTokens.s4,
         MediaQuery.of(context).viewInsets.bottom + BestieTokens.s4,
       ),
       child: SingleChildScrollView(
@@ -110,19 +131,24 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // ----- header -----
-            Text(t['title'] ?? '', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            Text(t['title'] ?? '',
+                style:
+                    const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
             const SizedBox(height: 6),
             Wrap(spacing: 6, runSpacing: 6, children: [
-              BestieBadge(child: Text(t['status']?.toString().replaceAll('_', ' ') ?? '')),
+              BestieBadge(
+                  child:
+                      Text(t['status']?.toString().replaceAll('_', ' ') ?? '')),
               BestieBadge(
                 tone: _priorityTone(t['priority']),
-                child: Text(t['priority'] ?? '—'),
+                child: Text(t['priority'] ?? 'â€”'),
               ),
-              if (t['dueAt'] != null) BestieBadge(
-                tone: BestieTone.warning,
-                dot: true,
-                child: Text('Due ${_fmt(t['dueAt'])}'),
-              ),
+              if (t['dueAt'] != null)
+                BestieBadge(
+                  tone: BestieTone.warning,
+                  dot: true,
+                  child: Text('Due ${_fmt(t['dueAt'])}'),
+                ),
             ]),
 
             if ((t['description'] as String?)?.isNotEmpty ?? false) ...[
@@ -141,18 +167,28 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
             // ----- assignees -----
             const SizedBox(height: BestieTokens.s4),
             const Text('Assignees',
-                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: BestieTokens.cTextMuted, letterSpacing: 0.5)),
+                style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: BestieTokens.cTextMuted,
+                    letterSpacing: 0.5)),
             const SizedBox(height: 8),
             ...assignees.map((a) {
-              final u = (a['user'] as Map?)?.cast<String, dynamic>() ?? const {};
+              final u =
+                  (a['user'] as Map?)?.cast<String, dynamic>() ?? const {};
               final state = a['state'] as String? ?? 'PENDING';
               final s = a['score'] as int?;
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Row(children: [
-                  BestieAvatar(name: u['name'] ?? '?', imageUrl: u['avatarUrl'], isClient: u['isClient'] ?? false, size: 28),
+                  BestieAvatar(
+                      name: u['name'] ?? '?',
+                      imageUrl: u['avatarUrl'],
+                      isClient: u['isClient'] ?? false,
+                      size: 28),
                   const SizedBox(width: 10),
-                  Expanded(child: BestieUserName(
+                  Expanded(
+                      child: BestieUserName(
                     name: u['name'] ?? '',
                     isClient: u['isClient'] ?? false,
                     style: const TextStyle(fontWeight: FontWeight.w600),
@@ -169,26 +205,39 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
                 padding: const EdgeInsets.all(BestieTokens.s3),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [BestieTokens.cSuccess.withOpacity(0.12), Colors.transparent],
+                    colors: [
+                      BestieTokens.cSuccess.withOpacity(0.12),
+                      Colors.transparent
+                    ],
                   ),
-                  border: Border.all(color: BestieTokens.cSuccess.withOpacity(0.3)),
+                  border:
+                      Border.all(color: BestieTokens.cSuccess.withOpacity(0.3)),
                   borderRadius: BorderRadius.circular(BestieTokens.rMd),
                 ),
                 child: Row(children: [
                   BestieProgressRing(
                     value: myScore / 100,
                     size: 64,
-                    color: myScore >= 80 ? BestieTokens.cSuccess :
-                           myScore >= 50 ? BestieTokens.cWarning : BestieTokens.cDanger,
-                    label: Text('$myScore', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                    color: myScore >= 80
+                        ? BestieTokens.cSuccess
+                        : myScore >= 50
+                            ? BestieTokens.cWarning
+                            : BestieTokens.cDanger,
+                    label: Text('$myScore',
+                        style: const TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.w800)),
                   ),
                   const SizedBox(width: 12),
-                  Expanded(child: Column(
+                  Expanded(
+                      child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Your score', style: TextStyle(fontWeight: FontWeight.w700)),
-                      if (scoreReason != null) Text(scoreReason,
-                          style: const TextStyle(color: BestieTokens.cTextMuted, fontSize: 12)),
+                      const Text('Your score',
+                          style: TextStyle(fontWeight: FontWeight.w700)),
+                      if (scoreReason != null)
+                        Text(scoreReason,
+                            style: const TextStyle(
+                                color: BestieTokens.cTextMuted, fontSize: 12)),
                     ],
                   )),
                 ]),
@@ -213,11 +262,15 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
               child: OutlinedButton.icon(
                 icon: const Icon(Icons.close),
                 label: const Text('Decline'),
-                style: OutlinedButton.styleFrom(foregroundColor: BestieTokens.cDanger),
-                onPressed: _busy ? null : () => _act(
-                  () => ref.read(apiProvider).declineTask(widget.taskId),
-                  'Declined',
-                ),
+                style: OutlinedButton.styleFrom(
+                    foregroundColor: BestieTokens.cDanger),
+                onPressed: _busy
+                    ? null
+                    : () => _act(
+                          () =>
+                              ref.read(apiProvider).declineTask(widget.taskId),
+                          'Declined',
+                        ),
               ),
             ),
             const SizedBox(width: 8),
@@ -243,10 +296,7 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
             icon: Icons.check_circle,
             loading: _busy,
             color: BestieTokens.cSuccess,
-            onPressed: () => _act(
-              () => ref.read(apiProvider).completeTask(widget.taskId),
-              'Marked complete',
-            ),
+            onPressed: _completeWithReport,
           ),
           const SizedBox(height: 8),
           _snoozeRow(),
@@ -259,7 +309,28 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
     }
   }
 
-  /// Quick "kick the can" row — pushes the task's due date forward without
+  Future<void> _completeWithReport() async {
+    if (_task == null) return;
+    final result = await bestieBottomSheet<_CompletionReportResult>(
+      context,
+      title: 'Complete with report',
+      builder: (_) => _CompletionReportSheet(
+        ref: ref,
+        task: _task!,
+      ),
+    );
+    if (result == null) return;
+    await _act(
+      () => ref.read(apiProvider).completeTask(
+            widget.taskId,
+            reportBody: result.body,
+            reportRecipientIds: result.recipientIds,
+          ),
+      'Marked complete',
+    );
+  }
+
+  /// Quick "kick the can" row â€” pushes the task's due date forward without
   /// reopening the create sheet. Designed for the common "I'll get to it
   /// after lunch / tomorrow / next sprint" pattern.
   Widget _snoozeRow() {
@@ -269,10 +340,13 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
       ('Next week', const Duration(days: 7)),
     ];
     return Row(children: [
-      const Icon(Icons.snooze_rounded, size: 14, color: BestieTokens.cTextMuted),
+      const Icon(Icons.snooze_rounded,
+          size: 14, color: BestieTokens.cTextMuted),
       const SizedBox(width: 6),
       const Text('Snooze:',
-          style: TextStyle(fontSize: 12, color: BestieTokens.cTextMuted,
+          style: TextStyle(
+              fontSize: 12,
+              color: BestieTokens.cTextMuted,
               fontWeight: FontWeight.w600)),
       const SizedBox(width: 8),
       for (final opt in options) ...[
@@ -282,7 +356,8 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
             minimumSize: const Size(0, 30),
             visualDensity: VisualDensity.compact,
-            textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            textStyle:
+                const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
           ),
           child: Text(opt.$1),
         ),
@@ -300,11 +375,11 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
       });
       widget.parentRef.invalidate(tasksKanbanProvider);
       if (mounted) {
-        bestieToast(context, 'Snoozed · $label',
+        bestieToast(context, 'Snoozed Â· $label',
             body: 'New due ${newDue.toLocal()}'.split('.').first,
             kind: BestieToastKind.success);
         // Close the detail screen so the user lands back where they came
-        // from — matches the existing accept/decline/complete flow.
+        // from â€” matches the existing accept/decline/complete flow.
         if (Navigator.canPop(context)) Navigator.pop(context);
       }
     } catch (e) {
@@ -319,34 +394,275 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
 
   Widget _stateChip(String state, int? score) {
     switch (state) {
-      case 'ACCEPTED':  return const BestieBadge(tone: BestieTone.brand,   dot: true, child: Text('ACCEPTED'));
-      case 'DECLINED':  return const BestieBadge(tone: BestieTone.danger,  dot: true, child: Text('DECLINED'));
+      case 'ACCEPTED':
+        return const BestieBadge(
+            tone: BestieTone.brand, dot: true, child: Text('ACCEPTED'));
+      case 'DECLINED':
+        return const BestieBadge(
+            tone: BestieTone.danger, dot: true, child: Text('DECLINED'));
       case 'COMPLETED':
         final tone = score == null
             ? BestieTone.success
-            : (score >= 80 ? BestieTone.success : score >= 50 ? BestieTone.warning : BestieTone.danger);
-        return BestieBadge(tone: tone, dot: true, child: Text(score == null ? 'COMPLETED' : '$score/100'));
+            : (score >= 80
+                ? BestieTone.success
+                : score >= 50
+                    ? BestieTone.warning
+                    : BestieTone.danger);
+        return BestieBadge(
+            tone: tone,
+            dot: true,
+            child: Text(score == null ? 'COMPLETED' : '$score/100'));
       case 'PENDING':
       default:
-        return const BestieBadge(tone: BestieTone.warning, dot: true, child: Text('PENDING'));
+        return const BestieBadge(
+            tone: BestieTone.warning, dot: true, child: Text('PENDING'));
     }
   }
 
   BestieTone _priorityTone(dynamic p) {
     switch (p) {
-      case 'URGENT': return BestieTone.danger;
-      case 'HIGH':   return BestieTone.warning;
-      case 'MEDIUM': return BestieTone.info;
-      default:       return BestieTone.neutral;
+      case 'URGENT':
+        return BestieTone.danger;
+      case 'HIGH':
+        return BestieTone.warning;
+      case 'MEDIUM':
+        return BestieTone.info;
+      default:
+        return BestieTone.neutral;
     }
   }
 
   String _fmt(dynamic iso) {
     final d = DateTime.tryParse('$iso')?.toLocal();
     if (d == null) return '$iso';
-    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec'
+    ];
     final h = d.hour.toString().padLeft(2, '0');
     final m = d.minute.toString().padLeft(2, '0');
     return '${months[d.month - 1]} ${d.day}, $h:$m';
+  }
+}
+
+class _CompletionReportResult {
+  final String body;
+  final List<String> recipientIds;
+  const _CompletionReportResult({
+    required this.body,
+    required this.recipientIds,
+  });
+}
+
+class _CompletionReportSheet extends StatefulWidget {
+  final WidgetRef ref;
+  final Map<String, dynamic> task;
+  const _CompletionReportSheet({required this.ref, required this.task});
+
+  @override
+  State<_CompletionReportSheet> createState() => _CompletionReportSheetState();
+}
+
+class _CompletionReportSheetState extends State<_CompletionReportSheet> {
+  final _body = TextEditingController();
+  final _peopleQuery = TextEditingController();
+  final List<Map<String, dynamic>> _picked = [];
+  List<Map<String, dynamic>> _people = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _picked.addAll(_defaultRecipients());
+    _loadPeople();
+  }
+
+  @override
+  void dispose() {
+    _body.dispose();
+    _peopleQuery.dispose();
+    super.dispose();
+  }
+
+  int get _words =>
+      _body.text.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+
+  List<Map<String, dynamic>> _defaultRecipients() {
+    final me = widget.ref.read(authStoreProvider).user;
+    final out = <String, Map<String, dynamic>>{};
+    final creator = (widget.task['createdBy'] as Map?)?.cast<String, dynamic>();
+    if (creator != null && creator['id'] != me?.id)
+      out[creator['id'] as String] = creator;
+    final assignees =
+        (widget.task['assignees'] as List?)?.cast<Map<String, dynamic>>() ??
+            const [];
+    for (final assignee in assignees) {
+      final user = (assignee['user'] as Map?)?.cast<String, dynamic>();
+      final id = user?['id']?.toString();
+      if (id != null && id != me?.id && out.length < 3) out[id] = user!;
+    }
+    return out.values.toList();
+  }
+
+  Future<void> _loadPeople([String? q]) async {
+    try {
+      final items = await widget.ref.read(apiProvider).listEmployees(q: q);
+      if (mounted) setState(() => _people = items);
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
+    final pickedIds = _picked.map((p) => p['id']).toSet();
+    final candidates =
+        _people.where((p) => !pickedIds.contains(p['id'])).take(8).toList();
+    final canSubmit =
+        _body.text.trim().isNotEmpty && _words <= 120 && _picked.isNotEmpty;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        BestieTokens.s4,
+        0,
+        BestieTokens.s4,
+        MediaQuery.of(context).viewInsets.bottom + BestieTokens.s4,
+      ),
+      child: ListView(
+        shrinkWrap: true,
+        children: [
+          Text(
+            'Before completing, add a short report and choose who receives it.',
+            style: TextStyle(color: c.textMuted, fontSize: 13),
+          ),
+          const SizedBox(height: BestieTokens.s3),
+          const Text(
+            'Report (120 words max)',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 6),
+          TextField(
+            controller: _body,
+            minLines: 4,
+            maxLines: 6,
+            onChanged: (_) => setState(() {}),
+            decoration: const InputDecoration(
+              hintText:
+                  'What did you finish, what changed, and anything the reviewer should know?',
+            ),
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: Text(
+              '$_words/120 words',
+              style: TextStyle(
+                color: _words > 120 ? c.danger : c.textMuted,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(height: BestieTokens.s3),
+          const Text(
+            'Report to',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+          ),
+          if (_picked.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: _picked
+                    .map((p) => InputChip(
+                          avatar: BestieAvatar(
+                            name: p['name'] ?? '?',
+                            imageUrl: p['avatarUrl'],
+                            isClient: p['isClient'] ?? false,
+                            size: 18,
+                          ),
+                          label: BestieUserName(
+                            name: p['name'] ?? '',
+                            isClient: p['isClient'] ?? false,
+                            style: const TextStyle(
+                                fontSize: 12, fontWeight: FontWeight.w600),
+                          ),
+                          onDeleted: () => setState(() =>
+                              _picked.removeWhere((x) => x['id'] == p['id'])),
+                        ))
+                    .toList(),
+              ),
+            ),
+          const SizedBox(height: 8),
+          BestieTextField(
+            label: 'Search people',
+            controller: _peopleQuery,
+            icon: Icons.search,
+            onChanged: (v) => _loadPeople(v),
+          ),
+          const SizedBox(height: 6),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 220),
+            child: ListView.separated(
+              shrinkWrap: true,
+              itemCount: candidates.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (_, i) {
+                final p = candidates[i];
+                return ListTile(
+                  dense: true,
+                  leading: BestieAvatar(
+                    name: p['name'] ?? '?',
+                    imageUrl: p['avatarUrl'],
+                    isClient: p['isClient'] ?? false,
+                    size: 28,
+                  ),
+                  title: BestieUserName(
+                    name: p['name'] ?? '',
+                    isClient: p['isClient'] ?? false,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: Text(
+                    '${p['userId'] ?? ''} - ${p['role']?.toString().replaceAll('_', ' ') ?? ''}',
+                    style: TextStyle(color: c.textMuted, fontSize: 12),
+                  ),
+                  trailing: const Icon(Icons.add, size: 16),
+                  onTap: () {
+                    setState(() {
+                      _picked.add(p);
+                      _peopleQuery.clear();
+                    });
+                  },
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: BestieTokens.s4),
+          BestiePrimaryButton(
+            label: 'Complete task',
+            icon: Icons.check_circle,
+            color: BestieTokens.cSuccess,
+            onPressed: canSubmit
+                ? () => Navigator.pop(
+                      context,
+                      _CompletionReportResult(
+                        body: _body.text.trim(),
+                        recipientIds:
+                            _picked.map((p) => p['id'] as String).toList(),
+                      ),
+                    )
+                : null,
+          ),
+        ],
+      ),
+    );
   }
 }

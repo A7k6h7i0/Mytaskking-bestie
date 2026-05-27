@@ -114,7 +114,22 @@ final tasksKanbanProvider =
   ref
       .watch(realtimeProvider)
       .onAny('task.moved', ([_]) => ref.invalidateSelf());
+  ref
+      .watch(realtimeProvider)
+      .onAny('task.auto_promoted', ([_]) => ref.invalidateSelf());
+  ref
+      .watch(realtimeProvider)
+      .onAny('task.assignment.changed', ([_]) => ref.invalidateSelf());
   return ref.watch(apiProvider).listTasks(view: 'kanban');
+});
+
+final taskReportsProvider =
+    FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
+  final rt = ref.watch(realtimeProvider);
+  rt.onAny('task.report.created', ([_]) => ref.invalidateSelf());
+  rt.onAny('task.report.updated', ([_]) => ref.invalidateSelf());
+  rt.onAny('task.report.response', ([_]) => ref.invalidateSelf());
+  return ref.watch(apiProvider).listReports();
 });
 
 // ----- meetings -----

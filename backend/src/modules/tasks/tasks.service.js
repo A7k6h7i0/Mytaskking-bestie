@@ -4,7 +4,18 @@ const prisma = require('../../database/prisma');
 const { NotFound, Forbidden } = require('../../utils/errors');
 
 const taskInclude = {
+  createdBy: { select: { id: true, name: true, avatarUrl: true, role: true, isClient: true } },
   assignees: { include: { user: { select: { id: true, name: true, avatarUrl: true, role: true, isClient: true } } } },
+  completionReports: {
+    include: {
+      author: { select: { id: true, name: true, avatarUrl: true, role: true, isClient: true } },
+      recipients: {
+        include: { user: { select: { id: true, name: true, avatarUrl: true, role: true, isClient: true } } },
+        orderBy: { createdAt: 'asc' },
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+  },
   subtasks: { orderBy: { order: 'asc' } },
   comments: {
     include: { author: { select: { id: true, name: true, avatarUrl: true, role: true, isClient: true } } },
@@ -220,7 +231,65 @@ async function complete({ taskId, userId }) {
   if (remaining === 0 && t.status !== 'DONE') {
     await prisma.task.update({ where: { id: taskId }, data: { status: 'DONE' } });
   }
-  return { assignment: row, autoCompleted: remaining === 0 };
+  const autoPromotedTask = await promoteNextTaskForUser({ userId, excludingTaskId: taskId });
+  return { assignment: row, autoCompleted: remaining === 0, autoPromotedTask };
+}
+
+const priorityWeight = { URGENT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+
+async function promoteNextTaskForUser({ userId, excludingTaskId }) {
+  const active = await prisma.task.count({
+    where: {
+      id: { not: excludingTaskId },
+      status: { in: ['IN_PROGRESS', 'REVIEW'] },
+      assignees: {
+        some: {
+          userId,
+          state: { in: ['PENDING', 'ACCEPTED'] },
+        },
+      },
+    },
+  });
+  if (active > 0) return null;
+
+  const candidates = await prisma.task.findMany({
+    where: {
+      id: { not: excludingTaskId },
+      status: 'TODO',
+      assignees: {
+        some: {
+          userId,
+          state: { in: ['PENDING', 'ACCEPTED'] },
+        },
+      },
+    },
+    include: taskInclude,
+    take: 25,
+    orderBy: [{ dueAt: 'asc' }, { order: 'asc' }, { createdAt: 'asc' }],
+  });
+  if (!candidates.length) return null;
+
+  candidates.sort((a, b) => {
+    const byPriority = (priorityWeight[a.priority] ?? 99) - (priorityWeight[b.priority] ?? 99);
+    if (byPriority !== 0) return byPriority;
+    const aDue = a.dueAt ? new Date(a.dueAt).getTime() : Number.MAX_SAFE_INTEGER;
+    const bDue = b.dueAt ? new Date(b.dueAt).getTime() : Number.MAX_SAFE_INTEGER;
+    if (aDue !== bDue) return aDue - bDue;
+    return (a.order || 0) - (b.order || 0);
+  });
+
+  const next = candidates[0];
+  await prisma.$transaction([
+    prisma.task.update({
+      where: { id: next.id },
+      data: { status: 'IN_PROGRESS' },
+    }),
+    prisma.taskAssignee.updateMany({
+      where: { taskId: next.id, userId, state: 'PENDING' },
+      data: { state: 'ACCEPTED', acceptedAt: new Date() },
+    }),
+  ]);
+  return prisma.task.findUnique({ where: { id: next.id }, include: taskInclude });
 }
 
 async function leaderboard({ limit = 20, sinceDays = 30 }) {
@@ -261,5 +330,5 @@ async function leaderboard({ limit = 20, sinceDays = 30 }) {
 module.exports = {
   list, getById, create, update, move, remove,
   addComment, addSubtask, toggleSubtask,
-  accept, decline, complete, leaderboard,
+  accept, decline, complete, leaderboard, promoteNextTaskForUser,
 };

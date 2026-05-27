@@ -9,6 +9,7 @@ const clients = require('./clients/clients.routes');
 const channels = require('./channels/channels.routes');
 const chat = require('./chat/chat.routes');
 const tasks = require('./tasks/tasks.routes');
+const reports = require('./reports/reports.routes');
 const calls = require('./calls/calls.routes');
 const telecaller = require('./telecaller/telecaller.routes');
 const notifications = require('./notifications/notifications.routes');
@@ -47,6 +48,7 @@ module.exports = function buildRouter() {
   router.use('/channels', channels);
   router.use('/chat', chat);
   router.use('/tasks', tasks);
+  router.use('/reports', reports);
   router.use('/calls', calls);
   router.use('/telecaller', telecaller);
   router.use('/notifications', notifications);

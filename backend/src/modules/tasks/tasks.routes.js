@@ -9,6 +9,7 @@ const service = require('./tasks.service');
 const audit = require('../../services/audit');
 const automations = require('../../services/automations');
 const notifications = require('../notifications/notifications.service');
+const reportsService = require('../reports/reports.service');
 const prisma = require('../../database/prisma');
 
 const router = Router();
@@ -16,11 +17,17 @@ router.use(requireAuth);
 
 const Status = Joi.string().valid('BACKLOG', 'TODO', 'IN_PROGRESS', 'REVIEW', 'DONE', 'CANCELLED');
 const Priority = Joi.string().valid('LOW', 'MEDIUM', 'HIGH', 'URGENT');
+const CompletionReportBody = Joi.string().min(1).max(1600).custom((value, helpers) => {
+  if (reportsService.wordCount(value) > 120) return helpers.error('any.invalid');
+  return value;
+}, '120-word completion report').messages({
+  'any.invalid': 'Completion report must be 120 words or less',
+});
 
 /**
  * Sends the two-sided assignment notifications:
- *   • each assignee gets "<assigner> assigned you '<title>' — due <when>"
- *   • the assigner gets a confirmation receipt with the same context
+ *   - each assignee gets "<assigner> assigned you '<title>' - due <when>"
+ *   - the assigner gets a confirmation receipt with the same context
  *
  * Also pushes a `task.assigned` socket event to each assignee's user room so
  * a live toast pops without waiting for the notification feed to refetch.
@@ -55,7 +62,7 @@ async function fanOutAssignment({ task, assigneeIds, assigner, io, isUpdate = fa
           userId,
           kind: 'TASK',
           title: `${assigner.name} ${verb} a task`,
-          body: due ? `${task.title} — due ${due}` : task.title,
+          body: due ? `${task.title} - due ${due}` : task.title,
           data: {
             taskId: task.id,
             assignerId: assigner.id,
@@ -69,8 +76,8 @@ async function fanOutAssignment({ task, assigneeIds, assigner, io, isUpdate = fa
     notifications.notify({
       userId: assigner.id,
       kind: 'TASK',
-      title: `Assigned · ${task.title}`,
-      body: `To ${uniqueAssigneeIds.length} ${uniqueAssigneeIds.length === 1 ? 'person' : 'people'}${due ? ` · due ${due}` : ''}`,
+      title: `Assigned - ${task.title}`,
+      body: `To ${uniqueAssigneeIds.length} ${uniqueAssigneeIds.length === 1 ? 'person' : 'people'}${due ? ` - due ${due}` : ''}`,
       data: { taskId: task.id, assigneeIds: uniqueAssigneeIds, dueAt: task.dueAt || null },
     }).catch(() => {}),
 
@@ -79,7 +86,7 @@ async function fanOutAssignment({ task, assigneeIds, assigner, io, isUpdate = fa
         userId: person.id,
         kind: 'TASK',
         title: `${assigner.name} assigned work to your team`,
-        body: `${task.title} · ${assignees.map((entry) => entry.name).join(', ')}${due ? ` · due ${due}` : ''}`,
+        body: `${task.title} - ${assignees.map((entry) => entry.name).join(', ')}${due ? ` - due ${due}` : ''}`,
         data: {
           taskId: task.id,
           assignerId: assigner.id,
@@ -122,7 +129,7 @@ router.get(
   asyncHandler(async (req, res) => res.json(await service.list({ user: req.user, ...req.query })))
 );
 
-// ⚠️ Keep `/leaderboard` ABOVE `/:id` — Express matches in order, and
+// Keep `/leaderboard` ABOVE `/:id` - Express matches in order, and
 // `/leaderboard` would otherwise resolve as `getById('leaderboard')`.
 router.get(
   '/leaderboard',
@@ -140,10 +147,10 @@ router.get('/:id', asyncHandler(async (req, res) => res.json(await service.getBy
 /**
  * Anyone authenticated can create a task and assign it to anyone. The legacy
  * RBAC default already covers `task.create` for every role and the API does
- * not gate `assigneeIds` against the caller's role — by design, so a peer-
+ * not gate `assigneeIds` against the caller's role - by design, so a peer-
  * to-peer "ask Priya to do X" flow works without admin intervention.
  *
- * Clients are intentionally excluded — they can read tasks they're added to
+ * Clients are intentionally excluded - they can read tasks they're added to
  * but can't create or assign. The service-layer permission check enforces
  * that downstream.
  */
@@ -172,7 +179,7 @@ router.post(
       .catch(() => {});
     req.app.get('io')?.emit('task.created', task);
 
-    // For SCHEDULED tasks we *don't* fan out the assignment now — the
+    // For SCHEDULED tasks we *don't* fan out the assignment now - the
     // cron job (scheduledTasksJob) will fire `task.assigned` + push the
     // moment scheduledAt passes. The creator still gets confirmation via
     // the 201 response.
@@ -279,7 +286,7 @@ router.patch(
 );
 
 // ---------------------------------------------------------------------------
-// Assignment lifecycle endpoints — accept / decline / complete
+// Assignment lifecycle endpoints - accept / decline / complete
 // ---------------------------------------------------------------------------
 
 /**
@@ -297,7 +304,7 @@ async function _notifyCreator({ row, kind, title, body, req, payload = {} }) {
       data: { taskId: row.taskId, assigneeId: row.userId, state: row.state, ...payload },
     }).catch(() => {});
   }
-  // Also notify the assignee themselves with their own receipt — gives them
+  // Also notify the assignee themselves with their own receipt - gives them
   // an explicit record of every transition in the notification feed.
   notifications.notify({
     userId: row.userId,
@@ -347,21 +354,48 @@ router.post(
 
 router.post(
   '/:id/complete',
+  validate({
+    body: Joi.object({
+      reportBody: CompletionReportBody.required(),
+      reportRecipientIds: Joi.array().items(Joi.string()).min(1).max(50).required(),
+    }),
+  }),
   asyncHandler(async (req, res) => {
-    const { assignment: row, autoCompleted } = await service.complete({
+    await reportsService.validateReportInput(req.body.reportBody, req.body.reportRecipientIds);
+    const { assignment: row, autoCompleted, autoPromotedTask } = await service.complete({
       taskId: req.params.id,
       userId: req.user.id,
+    });
+    const report = await reportsService.createForCompletion({
+      taskId: req.params.id,
+      author: req.user,
+      assignmentId: row.id,
+      body: req.body.reportBody,
+      recipientIds: req.body.reportRecipientIds,
+      io: req.app.get('io'),
     });
     await _notifyCreator({
       row,
       kind: 'task.completed',
       req,
       title: `${req.user.name} completed your task`,
-      body: `${row.task.title} · score ${row.score}/100 · ${row.scoreReason}`,
-      payload: { score: row.score, autoCompleted },
+      body: `${row.task.title} - score ${row.score}/100 - ${row.scoreReason}`,
+      payload: { score: row.score, autoCompleted, reportId: report.id },
     });
-    res.json({ ...row, autoCompleted });
+    if (autoPromotedTask) {
+      const io = req.app.get('io');
+      io?.emit('task.moved', autoPromotedTask);
+      io?.to(`user:${req.user.id}`).emit('task.auto_promoted', { task: autoPromotedTask });
+      notifications.notify({
+        userId: req.user.id,
+        kind: 'TASK',
+        title: `${autoPromotedTask.title} moved to In progress`,
+        body: `${autoPromotedTask.priority} priority is next in your queue`,
+        data: { taskId: autoPromotedTask.id, autoPromoted: true },
+        io,
+      }).catch(() => {});
+    }
+    res.json({ ...row, autoCompleted, report, autoPromotedTask });
   })
 );
-
 module.exports = router;

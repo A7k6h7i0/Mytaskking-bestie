@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, X, CheckCircle2, Sparkles, Clock, AlertTriangle } from 'lucide-react';
 import dayjs from 'dayjs';
@@ -13,6 +13,7 @@ import { ProgressRing } from '@/components/ui/Progress';
 import { SuccessCheck } from '@/components/ui/SuccessCheck';
 import { RiveSlot, type RiveSlotName } from '@/components/ui/RiveSlot';
 import { toast } from '@/components/Toast';
+import { TaskReportModal, type ReportPerson } from '@/pages/TaskReportModal';
 import './task-drawer.css';
 
 interface Props {
@@ -33,20 +34,21 @@ type TaskDetail = {
   id: string; title: string; description?: string | null;
   status: string; priority: string; dueAt?: string | null;
   createdById: string;
-  createdBy?: { id: string; name: string; avatarUrl?: string | null; isClient: boolean; role: string };
+  createdBy?: ReportPerson;
   assignees: AssigneeRow[];
 };
 
 /**
  * Side panel that drives the full assignee lifecycle for one task:
- * PENDING → Accept | Decline → COMPLETED (with score).
+ * PENDING -> Accept | Decline -> COMPLETED (with score).
  *
- * Mounted at app level — opens whenever the parent component sets `taskId`.
+ * Mounted at app level - opens whenever the parent component sets `taskId`.
  * On close we drop the query so the next open refetches fresh state.
  */
 export function TaskDrawer({ taskId, onClose }: Props) {
   const qc = useQueryClient();
   const me = useAuthStore((s) => s.user);
+  const [reportOpen, setReportOpen] = useState(false);
 
   const { data, isLoading } = useQuery<TaskDetail>({
     queryKey: ['task.detail', taskId],
@@ -76,9 +78,14 @@ export function TaskDrawer({ taskId, onClose }: Props) {
     onError: () => toast.error('Could not decline'),
   });
   const complete = useMutation({
-    mutationFn: async () => (await api.post(`/tasks/${taskId}/complete`)).data,
-    onSuccess: (row: AssigneeRow & { autoCompleted?: boolean }) => {
-      toast.success(`Completed · ${row.score}/100`, row.scoreReason || undefined);
+    mutationFn: async ({ reportBody, reportRecipientIds }: { reportBody: string; reportRecipientIds: string[] }) =>
+      (await api.post(`/tasks/${taskId}/complete`, { reportBody, reportRecipientIds })).data,
+    onSuccess: (row: AssigneeRow & { autoCompleted?: boolean; autoPromotedTask?: TaskDetail | null }) => {
+      toast.success(`Completed - ${row.score}/100`, row.scoreReason || undefined);
+      if (row.autoPromotedTask) {
+        toast.info(`${row.autoPromotedTask.title} started`, `${row.autoPromotedTask.priority} priority is next.`);
+      }
+      setReportOpen(false);
       invalidate();
     },
     onError: () => toast.error('Could not complete'),
@@ -92,21 +99,21 @@ export function TaskDrawer({ taskId, onClose }: Props) {
       onClose={onClose}
       side="right"
       width={460}
-      title={data?.title || 'Loading…'}
+      title={data?.title || 'Loading...'}
       footer={
         myAssignment ? (
           <TaskFooter
             assignment={myAssignment}
             onAccept={() => accept.mutate()}
             onDecline={() => decline.mutate()}
-            onComplete={() => complete.mutate()}
+            onComplete={() => setReportOpen(true)}
             busy={accept.isPending || decline.isPending || complete.isPending}
           />
         ) : null
       }
     >
       {isLoading || !data ? (
-        <div className="td__loading">Loading…</div>
+        <div className="td__loading">Loading...</div>
       ) : (
         <div className="td">
           {/* ---- meta strip ---- */}
@@ -150,7 +157,7 @@ export function TaskDrawer({ taskId, onClose }: Props) {
                     {a.state === 'COMPLETED' && (
                       <div className="td__assignee-meta">
                         Completed {dayjs(a.completedAt).fromNow?.() || dayjs(a.completedAt).format('MMM D')}
-                        {a.scoreReason && ` · ${a.scoreReason}`}
+                        {a.scoreReason && ` - ${a.scoreReason}`}
                       </div>
                     )}
                     {a.state === 'ACCEPTED' && a.acceptedAt && (
@@ -179,15 +186,38 @@ export function TaskDrawer({ taskId, onClose }: Props) {
               <RiveSlot name={scoreRive(myAssignment.score)} size={88}
                 fallback={<SuccessCheck size={56} />} />
               <div>
-                <strong>Nice work — {myAssignment.score}/100</strong>
+                <strong>Nice work - {myAssignment.score}/100</strong>
                 <p>{myAssignment.scoreReason}</p>
               </div>
             </section>
           )}
         </div>
       )}
+      {data && (
+        <TaskReportModal
+          open={reportOpen}
+          onClose={() => setReportOpen(false)}
+          title="Complete with report"
+          description="Before completing, write a short report and choose who should receive it."
+          initialRecipients={defaultReportRecipients(data, me?.id)}
+          submitLabel="Complete task"
+          busy={complete.isPending}
+          onSubmit={(reportBody, reportRecipientIds) => complete.mutate({ reportBody, reportRecipientIds })}
+        />
+      )}
     </Drawer>
   );
+}
+
+function defaultReportRecipients(task: TaskDetail, myId?: string): ReportPerson[] {
+  const people = new Map<string, ReportPerson>();
+  if (task.createdBy && task.createdBy.id !== myId) people.set(task.createdBy.id, task.createdBy);
+  for (const assignee of task.assignees || []) {
+    if (assignee.user.id !== myId && people.size < 3) {
+      people.set(assignee.user.id, assignee.user);
+    }
+  }
+  return Array.from(people.values());
 }
 
 function TaskFooter({
@@ -227,7 +257,7 @@ function TaskFooter({
     case 'COMPLETED':
       return (
         <span className="td__footer-note td__footer-note--success">
-          <Sparkles size={12} /> Completed · {assignment.score}/100
+          <Sparkles size={12} /> Completed - {assignment.score}/100
         </span>
       );
     default:
@@ -270,7 +300,7 @@ function scoreRive(score?: number | null): RiveSlotName {
 function relative(iso: string): string {
   const diff = new Date(iso).getTime() - Date.now();
   const h = diff / 3_600_000;
-  if (Math.abs(h) < 1) return ` · ${Math.round(h * 60)}m`;
-  if (Math.abs(h) < 24) return ` · ${h > 0 ? '+' : ''}${Math.round(h)}h`;
-  return ` · ${Math.round(h / 24)}d`;
+  if (Math.abs(h) < 1) return ` - ${Math.round(h * 60)}m`;
+  if (Math.abs(h) < 24) return ` - ${h > 0 ? '+' : ''}${Math.round(h)}h`;
+  return ` - ${Math.round(h / 24)}d`;
 }
