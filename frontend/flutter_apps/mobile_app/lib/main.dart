@@ -11,7 +11,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:mytaskking_core/mytaskking_core.dart' as core;
-import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'firebase_options.dart';
@@ -375,66 +374,18 @@ class _BestieAppState extends ConsumerState<BestieApp> {
   static const _launchIntentChannel = MethodChannel('mytaskking/launch_intent');
   StreamSubscription<RemoteMessage>? _pushTapSub;
   StreamSubscription<Map<String, dynamic>>? _localPushTapSub;
-  StreamSubscription<List<SharedMediaFile>>? _shareIntentSub;
 
   @override
   void initState() {
     super.initState();
     _wirePushDeepLinks();
-    _wireShareIntent();
   }
 
   @override
   void dispose() {
     _pushTapSub?.cancel();
     _localPushTapSub?.cancel();
-    _shareIntentSub?.cancel();
     super.dispose();
-  }
-
-  /// Listens for content shared into MyTaskKing from another app via the
-  /// system share sheet (Photos → Share → MyTaskKing). Routes to the
-  /// `/share` target screen with the payload so the user picks a channel.
-  Future<void> _wireShareIntent() async {
-    try {
-      final initial =
-          await ReceiveSharingIntent.instance.getInitialMedia();
-      if (initial.isNotEmpty) {
-        WidgetsBinding.instance
-            .addPostFrameCallback((_) => _openShareTarget(initial));
-      }
-      _shareIntentSub = ReceiveSharingIntent.instance
-          .getMediaStream()
-          .listen(_openShareTarget);
-      // Tell the plugin we've consumed the initial intent so the same
-      // payload doesn't fire again on the next app start.
-      await ReceiveSharingIntent.instance.reset();
-    } catch (_) {/* plugin missing on desktop tests — ignore */}
-  }
-
-  void _openShareTarget(List<SharedMediaFile> files) {
-    if (files.isEmpty) return;
-    final paths = <String>[];
-    String? text;
-    for (final f in files) {
-      // Plain text shares come through with type == SharedMediaType.text
-      // and the message in path / .message.
-      if (f.type == SharedMediaType.text || f.type == SharedMediaType.url) {
-        text = (f.message ?? f.path).trim();
-      } else if (f.path.isNotEmpty) {
-        paths.add(f.path);
-      }
-    }
-    final router = ref.read(routerProvider);
-    router.go(
-      Uri(
-        path: '/share',
-        queryParameters: {
-          if (text != null && text.isNotEmpty) 'text': text,
-          if (paths.isNotEmpty) 'paths': paths.join('|'),
-        },
-      ).toString(),
-    );
   }
 
   Future<void> _wirePushDeepLinks() async {
