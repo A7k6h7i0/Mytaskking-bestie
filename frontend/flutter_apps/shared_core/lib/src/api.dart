@@ -626,6 +626,13 @@ extension BestieApiExt on BestieApi {
         body: {'report': report, if (timezone != null) 'timezone': timezone},
       );
 
+  /// Toggle a short break — first call starts it, second ends it. The
+  /// backend auto-notifies the user's supervisor on each transition.
+  Future<Map<String, dynamic>> attendanceBreak({String? timezone}) =>
+      post('/attendance/break', body: {
+        if (timezone != null) 'timezone': timezone,
+      });
+
   /// Range of workday entries between two ISO dates, used by the streak
   /// counter to walk back from today and count consecutive check-ins.
   Future<Map<String, dynamic>> attendanceRange({

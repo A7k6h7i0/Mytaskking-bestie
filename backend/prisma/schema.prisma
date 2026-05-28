@@ -777,6 +777,11 @@ model WorkdayLog {
   lunchStartedAt    DateTime?
   lunchEndedAt      DateTime?
   lunchNote         String?
+  // Short break tracking — onBreakSince is set while the user is away on
+  // a break; breakSeconds accumulates the total break time for the day.
+  // The user's supervisor is auto-notified on each break start / end.
+  onBreakSince      DateTime?
+  breakSeconds      Int       @default(0)
   checkOutAt        DateTime?
   checkOutReport    String?
   checkOutWordCount Int?

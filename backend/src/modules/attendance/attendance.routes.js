@@ -126,6 +126,9 @@ function serializeEntry(entry) {
     checkOutAt: entry.checkOutAt,
     checkOutReport: entry.checkOutReport,
     checkOutWordCount: entry.checkOutWordCount,
+    onBreakSince: entry.onBreakSince,
+    onBreak: entry.onBreakSince != null,
+    breakSeconds: entry.breakSeconds || 0,
   };
 }
 
@@ -240,6 +243,61 @@ router.post(
 
     const updated = await prisma.workdayLog.update({ where: { id: entry.id }, data });
     res.json({ ok: true, entry: serializeEntry(updated) });
+  })
+);
+
+// Break toggle — first call starts a break, second ends it. On each
+// transition the user's supervisor(s) get an auto-notification:
+// "X took a break" / "X is back from break".
+router.post(
+  '/break',
+  validate({ body: Joi.object({ timezone: Joi.string().allow('', null) }) }),
+  asyncHandler(async (req, res) => {
+    const timezone = normalizeTimezone(req.body.timezone);
+    const { entry, now } = await getOrCreateTodayLog(req.user.id, timezone);
+    if (!entry.checkInAt) throw BadRequest('Check in first before taking a break');
+    if (entry.checkOutAt) throw Conflict('You have already checked out for today');
+
+    const starting = entry.onBreakSince == null;
+    let data;
+    if (starting) {
+      data = { onBreakSince: now };
+    } else {
+      const elapsed = Math.max(
+        0,
+        Math.round((now.getTime() - new Date(entry.onBreakSince).getTime()) / 1000),
+      );
+      data = { onBreakSince: null, breakSeconds: (entry.breakSeconds || 0) + elapsed };
+    }
+    const updated = await prisma.workdayLog.update({ where: { id: entry.id }, data });
+
+    // Fire-and-forget supervisor notification.
+    (async () => {
+      try {
+        const notifications = require('../notifications/notifications.service');
+        const links = await prisma.userSupervisor.findMany({
+          where: { userId: req.user.id },
+          select: { supervisorId: true },
+        });
+        const io = req.app.get('io');
+        for (const { supervisorId } of links) {
+          await notifications.notify({
+            userId: supervisorId,
+            kind: 'SYSTEM',
+            title: starting
+              ? `${req.user.name} took a break`
+              : `${req.user.name} is back from break`,
+            body: starting
+              ? 'They stepped away just now.'
+              : 'They have resumed work.',
+            data: { kind: 'BREAK', userId: req.user.id, onBreak: starting },
+            io,
+          });
+        }
+      } catch (_) {/* notification is best-effort */}
+    })();
+
+    res.json({ ok: true, onBreak: starting, entry: serializeEntry(updated) });
   })
 );
 

@@ -169,6 +169,32 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
     }
   }
 
+  Future<void> _toggleBreak() async {
+    setState(() => _busy = true);
+    try {
+      final res = await ref.read(apiProvider).attendanceBreak();
+      final onBreak = res['onBreak'] == true;
+      await _refresh();
+      if (mounted) {
+        bestieToast(
+          context,
+          onBreak ? 'Break started' : 'Welcome back',
+          body: onBreak
+              ? 'Your supervisor was notified you stepped away.'
+              : 'Your supervisor was notified you\'re back.',
+          kind: BestieToastKind.success,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Break toggle failed',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _checkOut() async {
     final count = _wordCount(_report.text);
     if (count < _minWords) {
@@ -235,6 +261,8 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
                       ],
                       const SizedBox(height: 16),
                       _checkInSection(c),
+                      const SizedBox(height: 16),
+                      _breakSection(c),
                       const SizedBox(height: 16),
                       _lunchSection(c),
                       const SizedBox(height: 16),
@@ -450,6 +478,53 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
             ),
           ]),
         ],
+      ],
+    );
+  }
+
+  Widget _breakSection(BestieColors c) {
+    final entry = (_today?['entry'] as Map?)?.cast<String, dynamic>();
+    final onBreak = entry?['onBreak'] == true;
+    final checkedIn = entry?['checkInAt'] != null;
+    final checkedOut = entry?['checkOutAt'] != null;
+    final breakSecs = (entry?['breakSeconds'] as num?)?.toInt() ?? 0;
+    final available = checkedIn && !checkedOut;
+
+    String fmtMins(int secs) {
+      final m = (secs / 60).round();
+      if (m < 60) return '${m}m';
+      return '${m ~/ 60}h ${m % 60}m';
+    }
+
+    return _SectionCard(
+      icon: Icons.coffee_outlined,
+      iconColor: c.info,
+      title: 'Break',
+      subtitle: onBreak
+          ? 'On break since ${_formatTime(entry?['onBreakSince']?.toString())} — supervisor notified'
+          : breakSecs > 0
+              ? 'Total break today · ${fmtMins(breakSecs)}'
+              : 'Step away anytime — your supervisor is told automatically',
+      done: false,
+      colors: c,
+      children: [
+        if (available)
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: _busy ? null : _toggleBreak,
+              style: FilledButton.styleFrom(
+                backgroundColor: onBreak ? c.success : c.info,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+              icon: Icon(onBreak ? Icons.work_rounded : Icons.coffee_rounded,
+                  size: 18),
+              label: Text(onBreak ? 'I\'m back' : 'Take a break'),
+            ),
+          )
+        else
+          Text('Check in to use breaks.',
+              style: TextStyle(color: c.textMuted, fontSize: 13)),
       ],
     );
   }
