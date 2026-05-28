@@ -221,10 +221,10 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
 
-    // Reserve the shell's floating-nav footprint so the body stops above
-    // the nav pill instead of extending behind it (which hid the checkout
-    // section and made the screen feel un-scrollable).
-    final navReserve = 70.0 + MediaQuery.of(context).padding.bottom - 14;
+    // Pad the list bottom past the shell's floating nav (70 + margin +
+    // safe-area) so the checkout section clears it — without an empty
+    // bottomNavigationBar SizedBox that rendered as a white strip.
+    final bottomPad = 70.0 + 24 + MediaQuery.of(context).padding.bottom;
     return Scaffold(
       backgroundColor: c.bg,
       appBar: AppBar(
@@ -240,7 +240,6 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
           ),
         ],
       ),
-      bottomNavigationBar: SizedBox(height: navReserve),
       body: _loading
           ? const Center(child: BestieSpinner())
           : _error != null
@@ -256,7 +255,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
                     // AlwaysScrollable so pull-to-refresh works even when
                     // content is short, and the list always reaches its end.
                     physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 40),
+                    padding: EdgeInsets.fromLTRB(16, 16, 16, bottomPad),
                     children: [
                       _StatusCard(today: _today, colors: c),
                       if (_streak > 0) ...[

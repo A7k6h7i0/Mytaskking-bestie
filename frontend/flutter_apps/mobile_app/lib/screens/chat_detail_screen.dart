@@ -1918,22 +1918,31 @@ class _ComposerState extends State<_Composer> {
     super.dispose();
   }
 
-  /// Toggle on-device dictation. New speech is appended to whatever was
-  /// already typed, so the user can mix typing + voice.
+  /// Toggle continuous on-device dictation. Single press starts; it keeps
+  /// listening across pauses (auto-restarting each recognition session and
+  /// committing the text) until the user taps the mic again to stop. New
+  /// speech is appended to whatever was already typed.
   Future<void> _toggleDictation() async {
     if (_dictating) {
-      await _speech.stop();
-      if (mounted) setState(() => _dictating = false);
+      await _stopDictation();
       return;
     }
     final available = await _speech.initialize(
       onStatus: (s) {
-        if ((s == 'done' || s == 'notListening') && mounted) {
-          setState(() => _dictating = false);
+        // A session ends on a natural pause. If the user hasn't stopped,
+        // commit the text and start a fresh session so dictation feels
+        // continuous instead of cutting off after one sentence.
+        if ((s == 'done' || s == 'notListening') && _dictating && mounted) {
+          _dictateBaseText = widget.controller.text;
+          _restartDictation();
         }
       },
       onError: (_) {
-        if (mounted) setState(() => _dictating = false);
+        // Transient errors (e.g. no speech) — keep going if still active.
+        if (_dictating && mounted) {
+          _dictateBaseText = widget.controller.text;
+          _restartDictation();
+        }
       },
     );
     if (!available) {
@@ -1946,20 +1955,37 @@ class _ComposerState extends State<_Composer> {
     }
     _dictateBaseText = widget.controller.text;
     setState(() => _dictating = true);
-    await _speech.listen(
+    _restartDictation();
+  }
+
+  void _restartDictation() {
+    if (!_dictating) return;
+    _speech.listen(
       onResult: (r) {
-        final sep =
-            _dictateBaseText.isEmpty || _dictateBaseText.endsWith(' ') ? '' : ' ';
+        final sep = _dictateBaseText.isEmpty || _dictateBaseText.endsWith(' ')
+            ? ''
+            : ' ';
+        final text = '$_dictateBaseText$sep${r.recognizedWords}';
         widget.controller.value = TextEditingValue(
-          text: '$_dictateBaseText$sep${r.recognizedWords}',
-          selection: TextSelection.collapsed(
-            offset: '$_dictateBaseText$sep${r.recognizedWords}'.length,
-          ),
+          text: text,
+          selection: TextSelection.collapsed(offset: text.length),
         );
       },
-      listenFor: const Duration(minutes: 1),
-      pauseFor: const Duration(seconds: 4),
+      // Long session window + generous pause so we rarely cut off; the
+      // onStatus handler restarts us anyway if the OS ends a session.
+      listenFor: const Duration(minutes: 5),
+      pauseFor: const Duration(seconds: 8),
+      listenOptions: stt.SpeechListenOptions(
+        listenMode: stt.ListenMode.dictation,
+        partialResults: true,
+        cancelOnError: false,
+      ),
     );
+  }
+
+  Future<void> _stopDictation() async {
+    if (mounted) setState(() => _dictating = false);
+    try { await _speech.stop(); } catch (_) {}
   }
 
   /// Run the composer text through the AI grammar/clarity fixer and replace
@@ -2081,123 +2107,107 @@ class _ComposerState extends State<_Composer> {
   }
 
   Widget _normalBar(BestieColors colors) {
-    // Compact constraints keep the leading actions tight so the text field
-    // stays wide even with attach + emoji + dictate all visible.
-    const tight = BoxConstraints(minWidth: 34, minHeight: 40);
+    // WhatsApp-style: a single rounded pill holds emoji · text · (AI-fix) ·
+    // attach · dictate; a separate circular send/mic button sits to the
+    // right of the pill.
+    Widget pillIcon(IconData icon, VoidCallback onTap,
+        {String? tooltip, Color? color}) {
+      return IconButton(
+        icon: Icon(icon, color: color ?? colors.textSoft, size: 22),
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(minWidth: 38, minHeight: 40),
+        visualDensity: VisualDensity.compact,
+        onPressed: onTap,
+        tooltip: tooltip,
+      );
+    }
+
     return Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-      widget.attaching
-          ? const Padding(
-              padding: EdgeInsets.all(10), child: BestieSpinner(size: 18))
-          : IconButton(
-              icon: Icon(Icons.add_circle_outline_rounded,
-                  color: colors.textSoft, size: 22),
-              padding: EdgeInsets.zero,
-              constraints: tight,
-              visualDensity: VisualDensity.compact,
-              onPressed: widget.onAttach,
-              tooltip: 'Attach',
-            ),
-      IconButton(
-        icon: Icon(Icons.emoji_emotions_outlined,
-            color: colors.textSoft, size: 22),
-        padding: EdgeInsets.zero,
-        constraints: tight,
-        visualDensity: VisualDensity.compact,
-        onPressed: _showEmojiPicker,
-        tooltip: 'Emoji',
-      ),
-      // Dictate (speech → text). Pulses brand-colour while listening.
-      IconButton(
-        icon: Icon(
-          _dictating ? Icons.mic_rounded : Icons.mic_none_rounded,
-          color: _dictating ? colors.brand : colors.textSoft,
-          size: 22,
-        ),
-        padding: EdgeInsets.zero,
-        constraints: tight,
-        visualDensity: VisualDensity.compact,
-        onPressed: _toggleDictation,
-        tooltip: _dictating ? 'Stop dictation' : 'Dictate',
-      ),
-      const SizedBox(width: 4),
       Expanded(
-        child: TextField(
-          controller: widget.controller,
-          focusNode: _focusNode,
-          minLines: 1,
-          maxLines: 5,
-          textCapitalization: TextCapitalization.sentences,
-          style: TextStyle(color: colors.text),
-          decoration: InputDecoration(
-            isCollapsed: true,
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            hintText: 'Write a message…',
-            hintStyle: TextStyle(
-                color: colors.textMuted, fontWeight: BestieTokens.fwRegular),
-            filled: true,
-            fillColor: colors.surface2,
-            // AI grammar / clarity fix lives inside the field as a suffix so
-            // it doesn't eat the row width — only shown when there's text.
-            suffixIcon: _hasText
-                ? IconButton(
-                    icon: _correcting
-                        ? const SizedBox(
-                            width: 16, height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2))
-                        : Icon(Icons.auto_fix_high_rounded,
-                            color: colors.textMuted, size: 20),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                    onPressed: _correcting ? null : _correctGrammar,
-                    tooltip: 'Fix grammar',
-                  )
-                : null,
-            suffixIconConstraints:
-                const BoxConstraints(minWidth: 40, minHeight: 40),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(BestieTokens.rPill),
-              borderSide: BorderSide.none,
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(BestieTokens.rPill),
-              borderSide: BorderSide.none,
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(BestieTokens.rPill),
-              borderSide:
-                  const BorderSide(color: BestieTokens.cBrand, width: 1.4),
-            ),
+        child: Container(
+          decoration: BoxDecoration(
+            color: colors.surface2,
+            borderRadius: BorderRadius.circular(24),
           ),
-          onSubmitted: (_) => widget.onSend(),
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            pillIcon(Icons.emoji_emotions_outlined, _showEmojiPicker,
+                tooltip: 'Emoji'),
+            Expanded(
+              child: TextField(
+                controller: widget.controller,
+                focusNode: _focusNode,
+                minLines: 1,
+                maxLines: 5,
+                textCapitalization: TextCapitalization.sentences,
+                style: TextStyle(color: colors.text),
+                decoration: InputDecoration(
+                  isCollapsed: true,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 11),
+                  hintText: 'Message',
+                  hintStyle: TextStyle(
+                      color: colors.textMuted,
+                      fontWeight: BestieTokens.fwRegular),
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                ),
+                onSubmitted: (_) => widget.onSend(),
+              ),
+            ),
+            // AI grammar fix — only when there's text to clean up.
+            if (_hasText)
+              _correcting
+                  ? const Padding(
+                      padding: EdgeInsets.all(9),
+                      child: SizedBox(
+                          width: 18, height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2)))
+                  : pillIcon(Icons.auto_fix_high_rounded, _correctGrammar,
+                      tooltip: 'Fix grammar'),
+            // Attach + dictate live on the right of the pill, WhatsApp-style.
+            widget.attaching
+                ? const Padding(
+                    padding: EdgeInsets.all(9),
+                    child: SizedBox(
+                        width: 18, height: 18, child: BestieSpinner(size: 18)))
+                : pillIcon(Icons.attach_file_rounded, widget.onAttach,
+                    tooltip: 'Attach'),
+            pillIcon(
+              _dictating ? Icons.mic_rounded : Icons.mic_none_rounded,
+              _toggleDictation,
+              tooltip: _dictating ? 'Stop dictation' : 'Dictate',
+              color: _dictating ? colors.brand : colors.textSoft,
+            ),
+          ]),
         ),
       ),
       const SizedBox(width: 6),
+      // Circular send / voice-note button. With text → send. Empty →
+      // press-and-hold to record a voice note (WhatsApp gesture); a plain
+      // tap just hints how to use it.
       widget.sending
           ? const Padding(
               padding: EdgeInsets.all(10), child: BestieSpinner(size: 18))
-          : (_hasText
-              ? IconButton.filled(
-                  style: IconButton.styleFrom(
-                    backgroundColor: BestieTokens.cBrand,
-                    foregroundColor: Colors.white,
-                  ),
-                  icon: const Icon(Icons.send_rounded, size: 18),
-                  onPressed: () => widget.onSend(),
-                )
-              : GestureDetector(
-                  onLongPress: _startRecording,
-                  child: IconButton.filled(
-                    style: IconButton.styleFrom(
-                      backgroundColor: BestieTokens.cBrand,
-                      foregroundColor: Colors.white,
-                    ),
-                    icon: const Icon(Icons.mic_rounded, size: 18),
-                    // Single tap also starts — long-press is the WhatsApp gesture
-                    // but a tap is more discoverable on first use.
-                    onPressed: _startRecording,
-                  ),
-                )),
+          : GestureDetector(
+              onLongPress: _hasText ? null : _startRecording,
+              child: Container(
+                width: 48, height: 48,
+                decoration: const BoxDecoration(
+                  color: BestieTokens.cBrand,
+                  shape: BoxShape.circle,
+                ),
+                child: IconButton(
+                  icon: Icon(_hasText ? Icons.send_rounded : Icons.mic_rounded,
+                      color: Colors.white, size: 22),
+                  onPressed: _hasText
+                      ? () => widget.onSend()
+                      : () => bestieToast(context, 'Hold to record',
+                          body: 'Press and hold the mic for a voice note.',
+                          kind: BestieToastKind.info),
+                ),
+              ),
+            ),
     ]);
   }
 
