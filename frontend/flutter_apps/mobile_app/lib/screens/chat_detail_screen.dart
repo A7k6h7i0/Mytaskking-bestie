@@ -88,6 +88,15 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
   bool _loadingOlder = false;
   bool _hasMoreOlder = true;
 
+  // Unread-divider state. Captured once on first paint from my member's
+  // lastReadAt so the "N new messages" line stays anchored where I left
+  // off even as I scroll past it.
+  DateTime? _myLastReadAt;
+  String? _unreadBoundaryId;
+  int _unreadAtOpen = 0;
+  bool _boundaryComputed = false;
+  bool _scrolledToUnread = false;
+
   // Typing-indicator state. We track which remote users are mid-typing
   // (keyed by userId) and bump a per-user timer on every `chat.typing`
   // event; if no follow-up arrives within 4 s we drop the indicator.
@@ -274,7 +283,22 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
   Future<void> _loadChannel() async {
     try {
       final c = await ref.read(apiProvider).getChannel(widget.channelId);
-      if (mounted) setState(() => _channel = c);
+      // Snapshot my last-read timestamp *before* the screen marks
+      // everything seen — it anchors the unread divider.
+      final me = ref.read(authStoreProvider).user;
+      final members =
+          (c['members'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+      final mine = members.firstWhere(
+        (m) => m['userId'] == me?.id,
+        orElse: () => const {},
+      );
+      final lr = mine['lastReadAt']?.toString();
+      if (mounted) {
+        setState(() {
+          _channel = c;
+          _myLastReadAt = lr != null ? DateTime.tryParse(lr) : null;
+        });
+      }
     } catch (_) {/* header falls back to generic title */}
   }
 
@@ -982,16 +1006,23 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
             const [];
     final me = ref.read(authStoreProvider).user;
     final q = query.toLowerCase();
-    final matches = members
-        .map((m) => (m['user'] as Map?)?.cast<String, dynamic>())
-        .whereType<Map<String, dynamic>>()
-        .where((u) {
-          if (me?.id != null && u['id'] == me!.id) return false;
-          final name = (u['name'] ?? '').toString().toLowerCase();
-          return q.isEmpty || name.contains(q);
-        })
-        .take(5)
-        .toList();
+    // Broadcast mentions surface first when the query is empty or matches.
+    final broadcast = <Map<String, dynamic>>[
+      {'name': 'everyone', '_broadcast': true, '_desc': 'Notify the whole channel'},
+      {'name': 'here', '_broadcast': true, '_desc': 'Notify members who are active'},
+    ].where((b) => q.isEmpty || (b['name'] as String).startsWith(q)).toList();
+    final matches = [
+      ...broadcast,
+      ...members
+          .map((m) => (m['user'] as Map?)?.cast<String, dynamic>())
+          .whereType<Map<String, dynamic>>()
+          .where((u) {
+            if (me?.id != null && u['id'] == me!.id) return false;
+            final name = (u['name'] ?? '').toString().toLowerCase();
+            return q.isEmpty || name.contains(q);
+          })
+          .take(5),
+    ];
     if (matches.isEmpty) return const SizedBox.shrink();
     return Container(
       constraints: const BoxConstraints(maxHeight: 200),
@@ -1005,31 +1036,49 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
         padding: const EdgeInsets.symmetric(vertical: 4),
         itemBuilder: (_, i) {
           final u = matches[i];
+          final isBroadcast = u['_broadcast'] == true;
           return InkWell(
             onTap: () => _applyMention(u),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               child: Row(children: [
-                BestieAvatar(
-                  name: u['name']?.toString() ?? '?',
-                  imageUrl: u['avatarUrl']?.toString(),
-                  isClient: u['isClient'] ?? false,
-                  size: 28,
-                ),
+                if (isBroadcast)
+                  CircleAvatar(
+                    radius: 14,
+                    backgroundColor: c.brandSoft,
+                    child: Icon(Icons.campaign_rounded,
+                        size: 16, color: c.brandStrong),
+                  )
+                else
+                  BestieAvatar(
+                    name: u['name']?.toString() ?? '?',
+                    imageUrl: u['avatarUrl']?.toString(),
+                    isClient: u['isClient'] ?? false,
+                    size: 28,
+                  ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: BestieUserName(
-                    name: u['name']?.toString() ?? '',
-                    isClient: u['isClient'] ?? false,
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: c.text,
-                      fontWeight: BestieTokens.fwSemibold,
-                    ),
-                  ),
+                  child: isBroadcast
+                      ? Text('@${u['name']}',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: c.text,
+                            fontWeight: BestieTokens.fwBold,
+                          ))
+                      : BestieUserName(
+                          name: u['name']?.toString() ?? '',
+                          isClient: u['isClient'] ?? false,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: c.text,
+                            fontWeight: BestieTokens.fwSemibold,
+                          ),
+                        ),
                 ),
                 Text(
-                  (u['role'] ?? '').toString().replaceAll('_', ' '),
+                  isBroadcast
+                      ? (u['_desc'] ?? '').toString()
+                      : (u['role'] ?? '').toString().replaceAll('_', ' '),
                   style: TextStyle(fontSize: 10, color: c.textMuted),
                 ),
               ]),
@@ -1527,6 +1576,27 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
               // Combined list: server messages then optimistic outgoing.
               final items = [...serverItems, ..._pendingOutgoing];
 
+              // Compute the unread boundary once — the oldest message that
+              // arrived after my lastReadAt and wasn't sent by me. Anchors
+              // the "N new messages" divider.
+              if (!_boundaryComputed && _myLastReadAt != null) {
+                final me = ref.read(authStoreProvider).user;
+                final unread = items.where((m) {
+                  final t = DateTime.tryParse('${m['createdAt']}');
+                  final authorId = (m['author'] as Map?)?['id'];
+                  return t != null &&
+                      t.isAfter(_myLastReadAt!) &&
+                      authorId != me?.id;
+                }).toList();
+                if (unread.isNotEmpty) {
+                  unread.sort((a, b) =>
+                      '${a['createdAt']}'.compareTo('${b['createdAt']}'));
+                  _unreadBoundaryId = unread.first['id']?.toString();
+                  _unreadAtOpen = unread.length;
+                }
+                _boundaryComputed = true;
+              }
+
               // Auto-scroll to the newest message on arrival.
               if (items.length != _lastCount) {
                 _lastCount = items.length;
@@ -1601,10 +1671,23 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                       ? _SystemBubble(message: m) as Widget
                       : _MessageBubble(message: m, author: author, mine: mine);
 
-                  if (divider == null) return bubble;
+                  // "N new messages" unread divider — rendered above the
+                  // boundary message (so, below it in the reversed list).
+                  final isBoundary =
+                      m['id']?.toString() == _unreadBoundaryId;
+                  final unreadDivider = isBoundary
+                      ? _UnreadDivider(count: _unreadAtOpen, colors: colors)
+                      : null;
+
+                  final extras = <Widget>[
+                    bubble,
+                    if (unreadDivider != null) unreadDivider,
+                    if (divider != null) divider,
+                  ];
+                  if (extras.length == 1) return bubble;
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [bubble, divider],
+                    children: extras,
                   );
                 },
               );
@@ -3431,6 +3514,38 @@ class _ReplyQuote extends StatelessWidget {
 
 /// Date divider chip — "Today / Yesterday / Mar 18, 2024" pill inserted
 /// between messages from different calendar days.
+/// "↓ N new messages" line shown at the boundary between read + unread
+/// messages, like Slack / Telegram. Brand-tinted so it's distinct from
+/// the neutral date dividers.
+class _UnreadDivider extends StatelessWidget {
+  final int count;
+  final BestieColors colors;
+  const _UnreadDivider({required this.count, required this.colors});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(children: [
+        Expanded(child: Divider(color: colors.brand.withOpacity(0.4))),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: Text(
+            count == 1 ? '1 new message' : '$count new messages',
+            style: TextStyle(
+              color: colors.brand,
+              fontSize: 11,
+              fontWeight: BestieTokens.fwBold,
+              letterSpacing: BestieTokens.lsWide,
+            ),
+          ),
+        ),
+        Expanded(child: Divider(color: colors.brand.withOpacity(0.4))),
+      ]),
+    );
+  }
+}
+
 class _DateDivider extends StatelessWidget {
   final String? timestamp;
   const _DateDivider({required this.timestamp});

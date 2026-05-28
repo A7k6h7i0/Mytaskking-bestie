@@ -165,6 +165,15 @@ async function sendMessage({ channelId, user, body, kind = 'TEXT', attachmentIds
 function findMentionTargets({ body, members, authorId }) {
   const source = String(body || '').toLowerCase();
   if (!source.includes('@')) return [];
+  // Broadcast mentions — @everyone / @here / @channel notify every member
+  // (except the author). We don't distinguish online vs offline for @here
+  // server-side; the client decides whether to suppress for muted channels.
+  const isBroadcast = /(^|\s)@(everyone|here|channel)\b/.test(source);
+  if (isBroadcast) {
+    return (members || [])
+      .map((m) => m.user)
+      .filter((p) => p && p.id !== authorId);
+  }
   const picks = [];
   for (const member of members || []) {
     const person = member.user;
