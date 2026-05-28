@@ -1577,6 +1577,25 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
               // Combined list: server messages then optimistic outgoing.
               final items = [...serverItems, ..._pendingOutgoing];
 
+              // Call ids that have since ENDED/MISSED/DECLINED — used to
+              // strip the "Tap to join" pill off an earlier STARTED bubble
+              // once the call is over.
+              final endedCallIds = <String>{};
+              for (final m in items) {
+                if ((m['kind'] ?? '') != 'CALL_EVENT') continue;
+                final raw = (m['body'] ?? '').toString();
+                final marker = raw.lastIndexOf('|call:');
+                if (marker < 0) continue;
+                final tail = raw.substring(marker + 6);
+                final colon = tail.indexOf(':');
+                if (colon < 0) continue;
+                final cid = tail.substring(0, colon);
+                final st = tail.substring(colon + 1);
+                if (st == 'ENDED' || st == 'MISSED' || st == 'DECLINED') {
+                  endedCallIds.add(cid);
+                }
+              }
+
               // Compute the unread boundary once — the oldest message that
               // arrived after my lastReadAt and wasn't sent by me. Anchors
               // the "N new messages" divider.
@@ -1669,7 +1688,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                       : null;
 
                   final bubble = kindStr == 'SYSTEM' || kindStr == 'CALL_EVENT'
-                      ? _SystemBubble(message: m) as Widget
+                      ? _SystemBubble(message: m, endedCallIds: endedCallIds) as Widget
                       : _MessageBubble(message: m, author: author, mine: mine);
 
                   // "N new messages" unread divider — rendered above the
@@ -2127,10 +2146,12 @@ class _ComposerState extends State<_Composer> {
         child: Container(
           decoration: BoxDecoration(
             color: colors.surface2,
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(26),
+            border: Border.all(color: colors.border),
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 2),
           child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            // Emoji on the far left, inside the pill.
             pillIcon(Icons.emoji_emotions_outlined, _showEmojiPicker,
                 tooltip: 'Emoji'),
             Expanded(
@@ -2151,21 +2172,12 @@ class _ComposerState extends State<_Composer> {
                   border: InputBorder.none,
                   enabledBorder: InputBorder.none,
                   focusedBorder: InputBorder.none,
+                  filled: false,
                 ),
                 onSubmitted: (_) => widget.onSend(),
               ),
             ),
-            // AI grammar fix — only when there's text to clean up.
-            if (_hasText)
-              _correcting
-                  ? const Padding(
-                      padding: EdgeInsets.all(9),
-                      child: SizedBox(
-                          width: 18, height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2)))
-                  : pillIcon(Icons.auto_fix_high_rounded, _correctGrammar,
-                      tooltip: 'Fix grammar'),
-            // Attach + dictate live on the right of the pill, WhatsApp-style.
+            // Attach (paperclip) + AI sparkle (where WhatsApp's camera sits).
             widget.attaching
                 ? const Padding(
                     padding: EdgeInsets.all(9),
@@ -2173,19 +2185,29 @@ class _ComposerState extends State<_Composer> {
                         width: 18, height: 18, child: BestieSpinner(size: 18)))
                 : pillIcon(Icons.attach_file_rounded, widget.onAttach,
                     tooltip: 'Attach'),
-            pillIcon(
-              _dictating ? Icons.mic_rounded : Icons.mic_none_rounded,
-              _toggleDictation,
-              tooltip: _dictating ? 'Stop dictation' : 'Dictate',
-              color: _dictating ? colors.brand : colors.textSoft,
-            ),
+            _correcting
+                ? const Padding(
+                    padding: EdgeInsets.all(9),
+                    child: SizedBox(
+                        width: 18, height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2)))
+                : pillIcon(
+                    Icons.auto_fix_high_rounded,
+                    _hasText
+                        ? _correctGrammar
+                        : () => bestieToast(context, 'AI assist',
+                            body: 'Type a message, then tap to polish it.',
+                            kind: BestieToastKind.info),
+                    tooltip: 'AI polish',
+                    color: _hasText ? colors.brand : colors.textSoft,
+                  ),
           ]),
         ),
       ),
       const SizedBox(width: 6),
-      // Circular send / voice-note button. With text → send. Empty →
-      // press-and-hold to record a voice note (WhatsApp gesture); a plain
-      // tap just hints how to use it.
+      // Circular send / mic button — mirrors WhatsApp. With text it's Send.
+      // Empty: tap to dictate (speech→text), press-and-hold to record a
+      // voice note. While dictating it turns into a stop control.
       widget.sending
           ? const Padding(
               padding: EdgeInsets.all(10), child: BestieSpinner(size: 18))
@@ -2193,18 +2215,21 @@ class _ComposerState extends State<_Composer> {
               onLongPress: _hasText ? null : _startRecording,
               child: Container(
                 width: 48, height: 48,
-                decoration: const BoxDecoration(
-                  color: BestieTokens.cBrand,
+                decoration: BoxDecoration(
+                  color: _dictating ? colors.danger : BestieTokens.cBrand,
                   shape: BoxShape.circle,
                 ),
                 child: IconButton(
-                  icon: Icon(_hasText ? Icons.send_rounded : Icons.mic_rounded,
-                      color: Colors.white, size: 22),
+                  icon: Icon(
+                    _hasText
+                        ? Icons.send_rounded
+                        : (_dictating ? Icons.stop_rounded : Icons.mic_rounded),
+                    color: Colors.white,
+                    size: 22,
+                  ),
                   onPressed: _hasText
                       ? () => widget.onSend()
-                      : () => bestieToast(context, 'Hold to record',
-                          body: 'Press and hold the mic for a voice note.',
-                          kind: BestieToastKind.info),
+                      : _toggleDictation,
                 ),
               ),
             ),
@@ -2321,7 +2346,8 @@ class _MemberTile extends StatelessWidget {
 /// surface a tap-to-join button while the call is still ACTIVE.
 class _SystemBubble extends StatelessWidget {
   final Map<String, dynamic> message;
-  const _SystemBubble({required this.message});
+  final Set<String> endedCallIds;
+  const _SystemBubble({required this.message, this.endedCallIds = const {}});
 
   ({String display, String? callId, String? status}) _parseBody(String raw) {
     final marker = raw.lastIndexOf('|call:');
@@ -2371,9 +2397,11 @@ class _SystemBubble extends StatelessWidget {
       icon = Icons.info_outline_rounded;
     }
 
-    // Tap-to-join when the call is still ACTIVE — mirrors WhatsApp's
-    // "Tap to join" pill on missed/in-progress calls.
-    final canJoin = isActive && parsed.callId != null;
+    // Tap-to-join only while the call is still ACTIVE *and* hasn't since
+    // ended — a later "Call ended" event for the same id strips the pill.
+    final canJoin = isActive &&
+        parsed.callId != null &&
+        !endedCallIds.contains(parsed.callId);
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
