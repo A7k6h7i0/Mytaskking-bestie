@@ -95,6 +95,16 @@ extension BestieApiExt on BestieApi {
   Future<Map<String, dynamic>> unfurl(String url) =>
       get('/unfurl', query: {'url': url});
 
+  /// AI-drafted task completion report (≤120 words) built from the task +
+  /// recent channel chat. Returns `{ draft, provider }`.
+  Future<Map<String, dynamic>> draftCompletionReport(String taskId) =>
+      post('/tasks/$taskId/draft-report');
+
+  /// AI grammar / clarity correction for composer text. Returns
+  /// `{ corrected, changed }`; `corrected` echoes the input when AI is off.
+  Future<Map<String, dynamic>> correctText(String text) =>
+      post('/chat/ai/correct', body: {'text': text});
+
   Future<Map<String, dynamic>> createTask({
     required String title,
     String? description,

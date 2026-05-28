@@ -86,6 +86,20 @@ async function geminiGenerate({ prompt, maxOutputTokens = 256, responseMimeType 
   return extractText(data);
 }
 
+/// Runs a fully-formed prompt straight through the model — used when the
+/// caller has already written the instructions (completion-report drafts,
+/// grammar fixes, etc) and just wants the raw generated text back.
+async function generate({ prompt, maxTokens = 512 }) {
+  if (provider === 'noop' || !process.env.AI_API_KEY) {
+    return { text: '', provider: 'noop' };
+  }
+  if (provider === 'gemini') {
+    const text = await geminiGenerate({ prompt, maxOutputTokens: maxTokens });
+    return { text: (text || '').trim(), provider: 'gemini', model };
+  }
+  throw new Error(`AI provider not implemented: ${provider}`);
+}
+
 async function summarize({ text, kind = 'general', maxTokens = 256 }) {
   if (provider === 'noop' || !process.env.AI_API_KEY) {
     logger.debug({ kind }, 'ai.summarize.noop');
@@ -189,4 +203,4 @@ async function insights({ scope, payload }) {
   throw new Error(`AI provider not implemented: ${provider}`);
 }
 
-module.exports = { summarize, transcribe, rerankSearch, insights, provider };
+module.exports = { generate, summarize, transcribe, rerankSearch, insights, provider };

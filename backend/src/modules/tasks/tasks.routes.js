@@ -352,6 +352,53 @@ router.post(
   })
 );
 
+// AI-drafted completion report — pulls the task + its description and (when
+// the task is tied to a channel) the recent chat, then asks Gemini for a
+// ≤120-word first-person completion report the user can edit before sending.
+router.post(
+  '/:id/draft-report',
+  asyncHandler(async (req, res) => {
+    const ai = require('../../services/ai');
+    const task = await service.getById(req.params.id, req.user);
+    let context = `Task: ${task.title}\n`;
+    if (task.description) context += `Description: ${task.description}\n`;
+    const subtaskList = (task.subtasks || [])
+      .map((s) => `- [${s.done ? 'x' : ' '}] ${s.title}`)
+      .join('\n');
+    if (subtaskList) context += `Subtasks:\n${subtaskList}\n`;
+    if (task.channelId) {
+      try {
+        const recent = await prisma.message.findMany({
+          where: { channelId: task.channelId, deletedAt: null, body: { not: null } },
+          orderBy: { createdAt: 'desc' },
+          take: 20,
+          select: { body: true, author: { select: { name: true } } },
+        });
+        if (recent.length) {
+          context += '\nRecent discussion:\n' +
+            recent.reverse()
+              .map((m) => `${m.author?.name || 'Someone'}: ${m.body}`)
+              .join('\n');
+        }
+      } catch (_) {/* chat context is optional */}
+    }
+    const prompt = [
+      'Write a first-person task completion report for a workplace app.',
+      'Constraints: 60-110 words, plain text, no markdown or headings.',
+      'Describe what was done, the outcome, and anything notable left over.',
+      'Be concrete and specific; avoid filler and corporate jargon.',
+      '',
+      context,
+    ].join('\n');
+    try {
+      const result = await ai.generate({ prompt, maxTokens: 280 });
+      res.json({ draft: result.text || '', provider: result.provider });
+    } catch (err) {
+      res.json({ draft: '', error: err.message });
+    }
+  })
+);
+
 router.post(
   '/:id/complete',
   validate({

@@ -11,6 +11,35 @@ const audit = require('../../services/audit');
 const router = Router();
 router.use(requireAuth);
 
+// AI grammar / clarity fix — returns a corrected version of the supplied
+// text. Used by the composer's "fix grammar" affordance. Returns the
+// original unchanged when AI is disabled (noop provider).
+router.post(
+  '/ai/correct',
+  validate({ body: Joi.object({ text: Joi.string().min(1).max(4000).required() }) }),
+  asyncHandler(async (req, res) => {
+    const ai = require('../../services/ai');
+    const prompt = [
+      'Correct the grammar, spelling, and clarity of this chat message.',
+      'Keep the original meaning, tone, and language. Do not add new content,',
+      'greetings, or sign-offs. Return ONLY the corrected message text.',
+      '',
+      `Message: ${req.body.text}`,
+    ].join('\n');
+    try {
+      const result = await ai.generate({ prompt, maxTokens: 400 });
+      const corrected = (result.text || '').trim();
+      res.json({
+        corrected: corrected.length === 0 ? req.body.text : corrected,
+        provider: result.provider,
+        changed: corrected.length > 0 && corrected !== req.body.text.trim(),
+      });
+    } catch (err) {
+      res.json({ corrected: req.body.text, error: err.message, changed: false });
+    }
+  })
+);
+
 router.get(
   '/channels/:channelId/messages',
   validate({

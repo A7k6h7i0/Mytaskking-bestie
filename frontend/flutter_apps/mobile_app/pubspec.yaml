@@ -35,6 +35,8 @@ dependencies:
   # Plays the device's default ringtone for the incoming-call overlay so
   # the call rings the way users expect (vs a generic synth tone).
   flutter_ringtone_player: ^4.0.0+3
+  # On-device speech recognition for the composer's "dictate" mic button.
+  speech_to_text: ^7.0.0
 
 dependency_overrides:
   # record 5.x's federated linux implementation has a platform-interface

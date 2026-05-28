@@ -12,6 +12,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../state.dart';
@@ -1721,6 +1722,15 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
           onStartRecording: _startVoiceRecording,
           onStopRecording: _stopVoiceRecording,
           onSendVoice: _sendVoiceNote,
+          onCorrect: (text) async {
+            try {
+              final res = await ref.read(apiProvider).correctText(text);
+              if (res['changed'] == true) return res['corrected']?.toString();
+              return null;
+            } catch (_) {
+              return null;
+            }
+          },
         ),
       ]),
       // Quick way back to the latest message after scrolling up. Mini-sized
@@ -1854,6 +1864,9 @@ class _Composer extends StatefulWidget {
   final Future<void> Function() onStartRecording;
   final Future<String?> Function() onStopRecording;
   final Future<void> Function(String path) onSendVoice;
+  /// Returns an AI-corrected version of [text] (or null on failure / no
+  /// change). Wired by the parent to the /chat/ai/correct endpoint.
+  final Future<String?> Function(String text) onCorrect;
 
   const _Composer({
     required this.colors,
@@ -1865,6 +1878,7 @@ class _Composer extends StatefulWidget {
     required this.onStartRecording,
     required this.onStopRecording,
     required this.onSendVoice,
+    required this.onCorrect,
   });
 
   @override
@@ -1877,6 +1891,12 @@ class _ComposerState extends State<_Composer> {
   int _seconds = 0;
   Timer? _ticker;
 
+  // Dictation (speech → text) + AI grammar-fix state.
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  bool _dictating = false;
+  bool _correcting = false;
+  String _dictateBaseText = '';
+
   @override
   void initState() {
     super.initState();
@@ -1888,7 +1908,75 @@ class _ComposerState extends State<_Composer> {
   void dispose() {
     widget.controller.removeListener(_onTextChanged);
     _ticker?.cancel();
+    _speech.stop();
     super.dispose();
+  }
+
+  /// Toggle on-device dictation. New speech is appended to whatever was
+  /// already typed, so the user can mix typing + voice.
+  Future<void> _toggleDictation() async {
+    if (_dictating) {
+      await _speech.stop();
+      if (mounted) setState(() => _dictating = false);
+      return;
+    }
+    final available = await _speech.initialize(
+      onStatus: (s) {
+        if ((s == 'done' || s == 'notListening') && mounted) {
+          setState(() => _dictating = false);
+        }
+      },
+      onError: (_) {
+        if (mounted) setState(() => _dictating = false);
+      },
+    );
+    if (!available) {
+      if (mounted) {
+        bestieToast(context, 'Speech not available',
+            body: 'Enable microphone + speech in Settings.',
+            kind: BestieToastKind.warning);
+      }
+      return;
+    }
+    _dictateBaseText = widget.controller.text;
+    setState(() => _dictating = true);
+    await _speech.listen(
+      onResult: (r) {
+        final sep =
+            _dictateBaseText.isEmpty || _dictateBaseText.endsWith(' ') ? '' : ' ';
+        widget.controller.value = TextEditingValue(
+          text: '$_dictateBaseText$sep${r.recognizedWords}',
+          selection: TextSelection.collapsed(
+            offset: '$_dictateBaseText$sep${r.recognizedWords}'.length,
+          ),
+        );
+      },
+      listenFor: const Duration(minutes: 1),
+      pauseFor: const Duration(seconds: 4),
+    );
+  }
+
+  /// Run the composer text through the AI grammar/clarity fixer and replace
+  /// it with the corrected version (with a toast if nothing changed).
+  Future<void> _correctGrammar() async {
+    final text = widget.controller.text.trim();
+    if (text.isEmpty) return;
+    setState(() => _correcting = true);
+    try {
+      final corrected = await widget.onCorrect(text);
+      if (!mounted) return;
+      if (corrected == null) {
+        bestieToast(context, 'Looks good already',
+            kind: BestieToastKind.info);
+      } else {
+        widget.controller.value = TextEditingValue(
+          text: corrected,
+          selection: TextSelection.collapsed(offset: corrected.length),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _correcting = false);
+    }
   }
 
   void _onTextChanged() {
@@ -2002,6 +2090,26 @@ class _ComposerState extends State<_Composer> {
         onPressed: _showEmojiPicker,
         tooltip: 'Emoji',
       ),
+      // Dictate (speech → text). Pulses brand-colour while listening.
+      IconButton(
+        icon: Icon(
+          _dictating ? Icons.mic_rounded : Icons.mic_none_rounded,
+          color: _dictating ? colors.brand : colors.textSoft,
+        ),
+        onPressed: _toggleDictation,
+        tooltip: _dictating ? 'Stop dictation' : 'Dictate',
+      ),
+      // AI grammar / clarity fix — only when there's something to fix.
+      if (_hasText)
+        IconButton(
+          icon: _correcting
+              ? const SizedBox(
+                  width: 18, height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : Icon(Icons.auto_fix_high_rounded, color: colors.textSoft),
+          onPressed: _correcting ? null : _correctGrammar,
+          tooltip: 'Fix grammar',
+        ),
       Expanded(
         child: TextField(
           controller: widget.controller,

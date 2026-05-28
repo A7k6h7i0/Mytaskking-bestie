@@ -478,6 +478,32 @@ class _CompletionReportSheetState extends State<_CompletionReportSheet> {
   final _peopleQuery = TextEditingController();
   final List<Map<String, dynamic>> _picked = [];
   List<Map<String, dynamic>> _people = [];
+  bool _drafting = false;
+
+  Future<void> _draftWithAi() async {
+    setState(() => _drafting = true);
+    try {
+      final res = await widget.ref
+          .read(apiProvider)
+          .draftCompletionReport(widget.task['id'] as String);
+      final draft = (res['draft'] ?? '').toString().trim();
+      if (!mounted) return;
+      if (draft.isEmpty) {
+        bestieToast(context, 'AI draft unavailable',
+            body: 'Write your report manually.',
+            kind: BestieToastKind.warning);
+      } else {
+        setState(() => _body.text = draft);
+      }
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Couldn\'t draft',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    } finally {
+      if (mounted) setState(() => _drafting = false);
+    }
+  }
 
   @override
   void initState() {
@@ -544,10 +570,27 @@ class _CompletionReportSheetState extends State<_CompletionReportSheet> {
             style: TextStyle(color: c.textMuted, fontSize: 13),
           ),
           const SizedBox(height: BestieTokens.s3),
-          const Text(
-            'Report (120 words max)',
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-          ),
+          Row(children: [
+            const Expanded(
+              child: Text(
+                'Report (120 words max)',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+            ),
+            TextButton.icon(
+              onPressed: _drafting ? null : _draftWithAi,
+              icon: _drafting
+                  ? const SizedBox(
+                      width: 14, height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.auto_awesome_rounded, size: 16),
+              label: Text(_drafting ? 'Drafting…' : 'Draft with AI'),
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                visualDensity: VisualDensity.compact,
+              ),
+            ),
+          ]),
           const SizedBox(height: 6),
           TextField(
             controller: _body,
