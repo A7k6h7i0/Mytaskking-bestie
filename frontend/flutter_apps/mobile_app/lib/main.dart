@@ -15,6 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'firebase_options.dart';
 import 'router.dart';
+import 'screens/connectivity_banner.dart';
 import 'screens/incoming_call_overlay.dart';
 import 'screens/ongoing_call_bar.dart';
 import 'state.dart' hide ThemeMode;
@@ -493,7 +494,11 @@ class _BestieAppState extends ConsumerState<BestieApp> {
           textScaler: TextScaler.linear(fontScale),
         ),
         child: IncomingCallOverlay(
-          child: OngoingCallBar(child: child ?? const SizedBox.shrink()),
+          child: OngoingCallBar(
+            child: ConnectivityBanner(
+              child: child ?? const SizedBox.shrink(),
+            ),
+          ),
         ),
       ),
     );

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -83,6 +84,52 @@ Future<void> _writeUnmuted(String channelId) async {
   final legacy = (prefs.getStringList(_kMutedKey) ?? const <String>[]).toList();
   legacy.remove(channelId);
   await prefs.setStringList(_kMutedKey, legacy);
+}
+
+/// Tracks which channels currently have someone typing, populated from
+/// `chat.typing` socket events. Each channel entry self-expires ~4 s after
+/// the last keystroke so the "typing…" tile label fades on its own.
+final typingChannelsProvider =
+    StateNotifierProvider<_TypingChannelsNotifier, Set<String>>((ref) {
+  return _TypingChannelsNotifier(ref);
+});
+
+class _TypingChannelsNotifier extends StateNotifier<Set<String>> {
+  final Ref _ref;
+  final Map<String, Timer> _timers = {};
+  void Function()? _unsub;
+  _TypingChannelsNotifier(this._ref) : super(const {}) {
+    final rt = _ref.read(realtimeProvider);
+    _unsub = rt.onAny('chat.typing', ([data]) {
+      if (data is! Map) return;
+      final channelId = data['channelId']?.toString();
+      if (channelId == null) return;
+      final me = _ref.read(authStoreProvider).user;
+      if (data['userId']?.toString() == me?.id) return;
+      final typing = data['typing'] == true;
+      _timers[channelId]?.cancel();
+      if (!typing) {
+        if (state.contains(channelId)) {
+          state = {...state}..remove(channelId);
+        }
+        return;
+      }
+      if (!state.contains(channelId)) state = {...state, channelId};
+      _timers[channelId] = Timer(const Duration(seconds: 4), () {
+        _timers.remove(channelId);
+        if (state.contains(channelId)) {
+          state = {...state}..remove(channelId);
+        }
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    for (final t in _timers.values) { t.cancel(); }
+    _unsub?.call();
+    super.dispose();
+  }
 }
 
 /// Chat home — grouped by conversation kind:
@@ -389,6 +436,10 @@ class _ChatTile extends ConsumerWidget {
     final timeLine = BestieTime.shortRelative(
       lastMessage?['createdAt']?.toString() ?? channel['updatedAt']?.toString(),
     );
+    // Live "typing…" overrides the preview line whenever someone in this
+    // channel is mid-keystroke (driven by typingChannelsProvider).
+    final isTyping =
+        ref.watch(typingChannelsProvider).contains(channel['id']?.toString());
 
     final muted = ref.watch(_mutedChannelsProvider).asData?.value
             .contains(channel['id'] as String) ?? false;
@@ -457,16 +508,30 @@ class _ChatTile extends ConsumerWidget {
                   const SizedBox(height: 2),
                   Row(children: [
                     Expanded(
-                      child: Text(
-                        previewLine.isEmpty ? '—' : previewLine,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: unread ? c.text : c.textMuted,
-                          fontSize: 13,
-                          fontWeight: unread ? BestieTokens.fwSemibold : BestieTokens.fwRegular,
-                        ),
-                      ),
+                      child: isTyping
+                          ? Text(
+                              'typing…',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: c.brand,
+                                fontSize: 13,
+                                fontWeight: BestieTokens.fwSemibold,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            )
+                          : Text(
+                              previewLine.isEmpty ? '—' : previewLine,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: unread ? c.text : c.textMuted,
+                                fontSize: 13,
+                                fontWeight: unread
+                                    ? BestieTokens.fwSemibold
+                                    : BestieTokens.fwRegular,
+                              ),
+                            ),
                     ),
                     if (unread)
                       Container(

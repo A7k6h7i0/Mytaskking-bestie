@@ -504,8 +504,10 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     }
 
     // Optimistic stub — render the bubble immediately with a clock icon, then
-    // replace it when the server's row lands in the messages provider.
+    // replace it when the server's row lands in the messages provider. The
+    // _send* keys carry the params needed to auto-retry on failure.
     final tempId = 'pending_${DateTime.now().microsecondsSinceEpoch}';
+    final replyId = _replyingTo?['id'] as String?;
     final optimistic = <String, dynamic>{
       'id': tempId,
       'kind':
@@ -523,6 +525,11 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
       },
       'attachments': const [],
       'receipts': const [],
+      // Retry metadata (stripped from display).
+      '_sendBody': body.isEmpty ? null : body,
+      '_sendAttachmentIds': attachmentIds,
+      '_sendReplyId': replyId,
+      '_sendAttempts': 0,
     };
     setState(() {
       _pendingOutgoing.add(optimistic);
@@ -531,38 +538,72 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     if (overrideBody == null) _composer.clear();
     _scrollToLatestSoon();
 
-    final replyId = _replyingTo?['id'] as String?;
-    // Capture before clearing — the user may have already typed their next
-    // message by the time the network roundtrip lands.
     final wasReplying = _replyingTo != null;
     if (wasReplying) setState(() => _replyingTo = null);
 
+    await _attemptSend(tempId);
+    if (mounted) setState(() => _sending = false);
+  }
+
+  /// Performs the actual network send for an optimistic stub and, on
+  /// failure, marks it FAILED and schedules an auto-retry with exponential
+  /// backoff (2 s → 5 s → 10 s, max 3 attempts). After the last attempt the
+  /// bubble keeps the FAILED state so the user can tap to retry manually.
+  Future<void> _attemptSend(String tempId) async {
+    final stub = _pendingOutgoing.firstWhere(
+      (m) => m['id'] == tempId,
+      orElse: () => const {},
+    );
+    if (stub.isEmpty) return;
+    if (mounted) {
+      setState(() => stub['status'] = 'SENDING');
+    }
     try {
+      final attachmentIds =
+          (stub['_sendAttachmentIds'] as List?)?.cast<String>();
       await ref.read(apiProvider).sendMessage(
             widget.channelId,
-            body: body.isEmpty ? null : body,
+            body: stub['_sendBody'] as String?,
             attachmentIds: attachmentIds,
             kind: attachmentIds != null && attachmentIds.isNotEmpty
                 ? 'FILE'
                 : 'TEXT',
-            replyToId: replyId,
+            replyToId: stub['_sendReplyId'] as String?,
           );
-      // Server-side message now exists; drop the optimistic stub on next
-      // refresh. The realtime socket also pushes a chat.message.created that
-      // invalidates the provider — this is a belt-and-suspenders.
       ref.invalidate(messagesProvider(widget.channelId));
     } catch (e) {
-      // Mark the optimistic message as failed so the user can see why.
-      setState(() {
-        final i = _pendingOutgoing.indexWhere((m) => m['id'] == tempId);
-        if (i >= 0) _pendingOutgoing[i]['status'] = 'FAILED';
-      });
-      if (mounted)
-        bestieToast(context, 'Could not send',
-            body: formatApiError(e), kind: BestieToastKind.error);
-    } finally {
-      if (mounted) setState(() => _sending = false);
+      final attempts = (stub['_sendAttempts'] as int? ?? 0) + 1;
+      stub['_sendAttempts'] = attempts;
+      if (mounted) setState(() => stub['status'] = 'FAILED');
+      if (attempts < 3) {
+        // Backoff schedule: 2 s, 5 s, then give up to manual retry.
+        final delay = attempts == 1
+            ? const Duration(seconds: 2)
+            : const Duration(seconds: 5);
+        Future.delayed(delay, () {
+          // Only retry if the stub is still pending + still FAILED.
+          final still = _pendingOutgoing.any((m) => m['id'] == tempId);
+          if (still && mounted && stub['status'] == 'FAILED') {
+            _attemptSend(tempId);
+          }
+        });
+      } else if (mounted) {
+        bestieToast(context, 'Couldn\'t send',
+            body: 'Tap the message to retry.', kind: BestieToastKind.error);
+      }
     }
+  }
+
+  /// Manual retry from the failed-message bubble — resets the attempt
+  /// counter so the backoff ladder starts fresh.
+  void _retryFailed(String tempId) {
+    final stub = _pendingOutgoing.firstWhere(
+      (m) => m['id'] == tempId,
+      orElse: () => const {},
+    );
+    if (stub.isEmpty) return;
+    stub['_sendAttempts'] = 0;
+    _attemptSend(tempId);
   }
 
   /// Start recording a voice note to a temp file. Mic permission is requested
@@ -2190,6 +2231,8 @@ class _MessageBubble extends ConsumerWidget {
     final isDeleted = message['deletedAt'] != null;
     final isEdited = message['editedAt'] != null;
 
+    final isFailed = status == 'FAILED';
+    final isPending = (message['id']?.toString() ?? '').startsWith('pending_');
     return _SwipeToReply(
       enabled: !isDeleted,
       onReply: () => context
@@ -2197,6 +2240,12 @@ class _MessageBubble extends ConsumerWidget {
           ?._startReply(message),
       child: GestureDetector(
         onLongPress: isDeleted ? null : () => _showActions(context, ref),
+        // Tap a failed-to-send message to retry immediately.
+        onTap: (isFailed && isPending)
+            ? () => context
+                .findAncestorStateOfType<_ChatDetailScreenState>()
+                ?._retryFailed(message['id'].toString())
+            : null,
         child: Align(
           alignment: align,
           child: Container(

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'socket_client.dart';
 
@@ -27,11 +28,18 @@ import 'socket_client.dart';
 ///   • announcement.published
 ///   • calendar.event.created / .updated
 ///   • activity.recorded
+/// Coarse connection state for the UI's offline banner.
+enum BestieConnState { connecting, connected, disconnected }
+
 class BestieRealtime {
   final BestieSocket _client;
   io.Socket? _socket;
   final Map<String, List<void Function(dynamic data)>> _handlers = {};
   bool _connecting = false;
+
+  /// Broadcasts socket connectivity transitions so widgets (e.g. the
+  /// offline banner) can react without polling `isConnected`.
+  final connState = _ConnNotifier(BestieConnState.connecting);
 
   BestieRealtime(this._client);
 
@@ -42,6 +50,7 @@ class BestieRealtime {
     if (_connecting) return;
     _connecting = true;
     try {
+      connState.value = BestieConnState.connecting;
       final s = _client.connect();
       _socket = s
         ..onConnect((_) {
@@ -49,14 +58,18 @@ class BestieRealtime {
           // handler attached before the socket actually opened would never
           // receive events (the root cause of "no incoming call ringer").
           _rebindAll();
+          connState.value = BestieConnState.connected;
         })
-        ..onDisconnect((_) {})
-        ..onConnectError((_) {})
+        ..onDisconnect((_) => connState.value = BestieConnState.disconnected)
+        ..onConnectError((_) => connState.value = BestieConnState.disconnected)
         ..onError((_) {});
 
       // If the socket-io client is already connected synchronously (rare),
       // attach handlers right away too.
-      if (s.connected) _rebindAll();
+      if (s.connected) {
+        _rebindAll();
+        connState.value = BestieConnState.connected;
+      }
     } catch (_) {
       // No-op — auth token typically not ready before login. The next read
       // (e.g. after login) will retry.
@@ -150,4 +163,10 @@ class BestieRealtime {
     _client.disconnect();
     _socket = null;
   }
+}
+
+/// Tiny ValueNotifier subclass so consumers can `ValueListenableBuilder`
+/// over connection state without importing socket internals.
+class _ConnNotifier extends ValueNotifier<BestieConnState> {
+  _ConnNotifier(super.value);
 }
