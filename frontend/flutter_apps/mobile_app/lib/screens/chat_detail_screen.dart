@@ -1897,6 +1897,11 @@ class _ComposerState extends State<_Composer> {
   bool _correcting = false;
   String _dictateBaseText = '';
 
+  // A state-owned focus node — without this the TextField creates a fresh
+  // internal node on the setState that flips `_hasText` (first keystroke /
+  // clearing the field), which drops focus and closes the keyboard.
+  final FocusNode _focusNode = FocusNode();
+
   @override
   void initState() {
     super.initState();
@@ -1909,6 +1914,7 @@ class _ComposerState extends State<_Composer> {
     widget.controller.removeListener(_onTextChanged);
     _ticker?.cancel();
     _speech.stop();
+    _focusNode.dispose();
     super.dispose();
   }
 
@@ -2075,18 +2081,28 @@ class _ComposerState extends State<_Composer> {
   }
 
   Widget _normalBar(BestieColors colors) {
+    // Compact constraints keep the leading actions tight so the text field
+    // stays wide even with attach + emoji + dictate all visible.
+    const tight = BoxConstraints(minWidth: 34, minHeight: 40);
     return Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
       widget.attaching
           ? const Padding(
-              padding: EdgeInsets.all(12), child: BestieSpinner(size: 18))
+              padding: EdgeInsets.all(10), child: BestieSpinner(size: 18))
           : IconButton(
               icon: Icon(Icons.add_circle_outline_rounded,
-                  color: colors.textSoft),
+                  color: colors.textSoft, size: 22),
+              padding: EdgeInsets.zero,
+              constraints: tight,
+              visualDensity: VisualDensity.compact,
               onPressed: widget.onAttach,
               tooltip: 'Attach',
             ),
       IconButton(
-        icon: Icon(Icons.emoji_emotions_outlined, color: colors.textSoft),
+        icon: Icon(Icons.emoji_emotions_outlined,
+            color: colors.textSoft, size: 22),
+        padding: EdgeInsets.zero,
+        constraints: tight,
+        visualDensity: VisualDensity.compact,
         onPressed: _showEmojiPicker,
         tooltip: 'Emoji',
       ),
@@ -2095,24 +2111,19 @@ class _ComposerState extends State<_Composer> {
         icon: Icon(
           _dictating ? Icons.mic_rounded : Icons.mic_none_rounded,
           color: _dictating ? colors.brand : colors.textSoft,
+          size: 22,
         ),
+        padding: EdgeInsets.zero,
+        constraints: tight,
+        visualDensity: VisualDensity.compact,
         onPressed: _toggleDictation,
         tooltip: _dictating ? 'Stop dictation' : 'Dictate',
       ),
-      // AI grammar / clarity fix — only when there's something to fix.
-      if (_hasText)
-        IconButton(
-          icon: _correcting
-              ? const SizedBox(
-                  width: 18, height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2))
-              : Icon(Icons.auto_fix_high_rounded, color: colors.textSoft),
-          onPressed: _correcting ? null : _correctGrammar,
-          tooltip: 'Fix grammar',
-        ),
+      const SizedBox(width: 4),
       Expanded(
         child: TextField(
           controller: widget.controller,
+          focusNode: _focusNode,
           minLines: 1,
           maxLines: 5,
           textCapitalization: TextCapitalization.sentences,
@@ -2126,6 +2137,24 @@ class _ComposerState extends State<_Composer> {
                 color: colors.textMuted, fontWeight: BestieTokens.fwRegular),
             filled: true,
             fillColor: colors.surface2,
+            // AI grammar / clarity fix lives inside the field as a suffix so
+            // it doesn't eat the row width — only shown when there's text.
+            suffixIcon: _hasText
+                ? IconButton(
+                    icon: _correcting
+                        ? const SizedBox(
+                            width: 16, height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : Icon(Icons.auto_fix_high_rounded,
+                            color: colors.textMuted, size: 20),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                    onPressed: _correcting ? null : _correctGrammar,
+                    tooltip: 'Fix grammar',
+                  )
+                : null,
+            suffixIconConstraints:
+                const BoxConstraints(minWidth: 40, minHeight: 40),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(BestieTokens.rPill),
               borderSide: BorderSide.none,
@@ -2426,6 +2455,7 @@ class _MessageBubble extends ConsumerWidget {
     final isPending = (message['id']?.toString() ?? '').startsWith('pending_');
     return _SwipeToReply(
       enabled: !isDeleted,
+      mine: mine,
       onReply: () => context
           .findAncestorStateOfType<_ChatDetailScreenState>()
           ?._startReply(message),
@@ -4119,10 +4149,15 @@ class _SwipeToReply extends StatefulWidget {
   final Widget child;
   final VoidCallback onReply;
   final bool enabled;
+  /// Right-aligned (my own) bubbles swipe LEFT to reply; left-aligned
+  /// (incoming) bubbles swipe RIGHT — mirrors WhatsApp so the gesture feels
+  /// natural on both sides. Defaults to the incoming (swipe-right) behavior.
+  final bool mine;
   const _SwipeToReply({
     required this.child,
     required this.onReply,
     this.enabled = true,
+    this.mine = false,
   });
 
   @override
@@ -4134,6 +4169,7 @@ class _SwipeToReplyState extends State<_SwipeToReply>
   static const _threshold = 56.0;
   static const _maxDrag = 96.0;
 
+  // Signed drag offset. Positive = dragged right, negative = dragged left.
   double _dx = 0;
   bool _triggered = false;
   late final AnimationController _release = AnimationController(
@@ -4142,6 +4178,10 @@ class _SwipeToReplyState extends State<_SwipeToReply>
   )..addListener(() {
       if (mounted) setState(() => _dx = _release.value);
     });
+
+  // For mine: valid drag is leftward (negative). For incoming: rightward.
+  double get _signedDx => widget.mine ? _dx.clamp(-_maxDrag, 0.0) : _dx.clamp(0.0, _maxDrag);
+  double get _progress => (_signedDx.abs() / _threshold).clamp(0.0, 1.0);
 
   @override
   void dispose() {
@@ -4156,8 +4196,11 @@ class _SwipeToReplyState extends State<_SwipeToReply>
 
   void _onDragUpdate(DragUpdateDetails d) {
     if (!widget.enabled) return;
-    final next = (_dx + d.delta.dx).clamp(0.0, _maxDrag);
-    if (next >= _threshold && !_triggered) {
+    var next = _dx + d.delta.dx;
+    next = widget.mine
+        ? next.clamp(-_maxDrag, 0.0)
+        : next.clamp(0.0, _maxDrag);
+    if (next.abs() >= _threshold && !_triggered) {
       _triggered = true;
       HapticFeedback.selectionClick();
     }
@@ -4166,7 +4209,7 @@ class _SwipeToReplyState extends State<_SwipeToReply>
 
   void _onDragEnd(DragEndDetails _) {
     if (!widget.enabled) return;
-    if (_dx >= _threshold) widget.onReply();
+    if (_signedDx.abs() >= _threshold) widget.onReply();
     _release
       ..value = _dx
       ..animateTo(0, curve: Curves.easeOutCubic);
@@ -4175,39 +4218,36 @@ class _SwipeToReplyState extends State<_SwipeToReply>
   @override
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
-    final progress = (_dx / _threshold).clamp(0.0, 1.0);
+    final progress = _progress;
+    final iconChip = Center(
+      child: Opacity(
+        opacity: progress,
+        child: Transform.scale(
+          scale: 0.6 + 0.4 * progress,
+          child: Container(
+            width: 30, height: 30,
+            decoration: BoxDecoration(
+              color: c.brand.withOpacity(0.16),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(Icons.reply_rounded, color: c.brandStrong, size: 18),
+          ),
+        ),
+      ),
+    );
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
       onHorizontalDragStart: _onDragStart,
       onHorizontalDragUpdate: _onDragUpdate,
       onHorizontalDragEnd: _onDragEnd,
       child: Stack(children: [
-        // Reply glyph that fades + scales in behind the bubble as the user
-        // drags. Sits flush against the left edge so the bubble appears to
-        // peel away from it.
-        Positioned(
-          left: 4,
-          top: 0, bottom: 0,
-          child: Center(
-            child: Opacity(
-              opacity: progress,
-              child: Transform.scale(
-                scale: 0.6 + 0.4 * progress,
-                child: Container(
-                  width: 30, height: 30,
-                  decoration: BoxDecoration(
-                    color: c.brand.withOpacity(0.16),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(Icons.reply_rounded,
-                      color: c.brandStrong, size: 18),
-                ),
-              ),
-            ),
-          ),
-        ),
+        // Reply glyph peeks from the side the bubble peels away from.
+        if (widget.mine)
+          Positioned(right: 4, top: 0, bottom: 0, child: iconChip)
+        else
+          Positioned(left: 4, top: 0, bottom: 0, child: iconChip),
         Transform.translate(
-          offset: Offset(_dx, 0),
+          offset: Offset(_signedDx, 0),
           child: widget.child,
         ),
       ]),
