@@ -537,4 +537,41 @@ router.post(
   })
 );
 
+// Attach a client-recorded file (uploaded as a FileAsset) to the meeting so
+// it shows up in the admin recordings panel.
+router.post(
+  '/:slug/recording',
+  validate({
+    body: Joi.object({
+      fileId: Joi.string().allow(null, ''),
+      url: Joi.string().allow(null, ''),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    const room = await prisma.meetingRoom.findUnique({ where: { slug: req.params.slug } });
+    if (!room) throw NotFound('Meeting not found');
+    // Only the host/admin or an actual participant may attach a recording —
+    // otherwise any authenticated user could overwrite a meeting's recording
+    // just by knowing its slug.
+    if (!canManageRoom(room, req.user)) {
+      const participant = await prisma.meetingRoomParticipant.findFirst({
+        where: { roomId: room.id, userId: req.user.id },
+      });
+      if (!participant) throw Forbidden();
+    }
+    let url = req.body.url || null;
+    if (!url && req.body.fileId) {
+      const file = await prisma.fileAsset.findUnique({ where: { id: req.body.fileId } });
+      url = file?.url || null;
+    }
+    if (!url) throw BadRequest('Recording url required');
+    const updated = await prisma.meetingRoom.update({
+      where: { id: room.id },
+      data: { recordingUrl: url },
+    });
+    audit.record({ kind: 'meeting.recording.saved', entity: 'meeting', entityId: room.id, payload: { url }, req });
+    res.json({ ok: true, recordingUrl: updated.recordingUrl });
+  })
+);
+
 module.exports = router;

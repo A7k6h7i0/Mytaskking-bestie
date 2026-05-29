@@ -33,6 +33,20 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   try {
     await _initializeFirebase();
   } catch (_) {}
+  // Chat / mention pushes are sent data-only so we can attach reply actions.
+  // Android does NOT auto-display data-only messages, so without this the
+  // notification never reaches the tray while the app is backgrounded — and
+  // there's nothing for the user to tap to open the conversation. Render it
+  // ourselves here, carrying the payload so a tap deep-links correctly.
+  // Skip messages that already carry a `notification` block (the system tray
+  // shows those automatically — rendering again would double-notify) and
+  // calls, which have their own native incoming-call path.
+  try {
+    if (message.notification != null) return;
+    if (_isIncomingCallPush(message.data)) return;
+    await _initializeLocalNotifications();
+    await _showForegroundNotification(message);
+  } catch (_) {/* best-effort */}
 }
 
 @pragma('vm:entry-point')

@@ -21,6 +21,7 @@ import SessionsPage from '@/pages/SessionsPage';
 import AnalyticsPage from '@/pages/AnalyticsPage';
 import MeetingsPage from '@/pages/MeetingsPage';
 import MeetingJoinPage from '@/pages/MeetingJoinPage';
+import RecordingsPage from '@/pages/RecordingsPage';
 import FlagsPage from '@/pages/FlagsPage';
 import PermissionsPage from '@/pages/PermissionsPage';
 import { ToastHost } from '@/components/Toast';
@@ -85,6 +86,10 @@ export default function App() {
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/meetings" element={<MeetingsPage />} />
+          <Route
+            path="/recordings"
+            element={<RoleGate allow={['SUPER_ADMIN', 'ADMIN']}><RecordingsPage /></RoleGate>}
+          />
           <Route
             path="/activity"
             element={<RoleGate allow={['SUPER_ADMIN', 'ADMIN']}><ActivityPage /></RoleGate>}

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../active_call_state.dart';
@@ -107,6 +109,8 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   bool _speakerOn = true;
   bool _sharing = false;
   bool _recording = false;
+  bool _savingRecording = false;
+  String? _recordingPath;
   String? _error;
   Map<String, dynamic>? _callMeta;
   final List<void Function()> _callUnsubs = [];
@@ -268,6 +272,16 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   }
 
   Future<void> _teardown({bool notifyServer = true}) async {
+    // Flush an in-progress recording before the engine is released — whether
+    // the call ends by hang up OR the remote party leaving. Otherwise the
+    // local file is never finalized/uploaded and is silently lost.
+    if (_recording) {
+      _recording = false;
+      try {
+        await _engine?.stopAudioRecording();
+        await _uploadRecording();
+      } catch (_) {/* best-effort */}
+    }
     if (notifyServer && widget.callId != null) {
       try {
         await ref.read(apiProvider).post('/calls/${widget.callId}/leave');
@@ -459,6 +473,22 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       step = 'enable-audio';
       await engine.enableAudio();
 
+      // Loud, clear calls. Default Agora routes through Android's in-call
+      // (communication) volume stream, which is often quiet and not boostable
+      // by the user. The GAME_STREAMING scenario keeps audio on the media
+      // stream so it plays back loud, and we push the playback gain up.
+      step = 'audio-profile';
+      try {
+        await engine.setAudioProfile(
+          profile: AudioProfileType.audioProfileMusicStandard,
+          scenario: AudioScenarioType.audioScenarioGameStreaming,
+        );
+      } catch (_) {/* non-critical tuning */}
+      try {
+        await engine.adjustPlaybackSignalVolume(300);
+        await engine.adjustRecordingSignalVolume(160);
+      } catch (_) {/* non-critical tuning */}
+
       if (_isVideo) {
         step = 'enable-video';
         await engine.enableVideo();
@@ -493,6 +523,13 @@ class _CallScreenState extends ConsumerState<CallScreen> {
           autoSubscribeVideo: true,
         ),
       );
+
+      // Re-assert route + gain after join — some Android devices reset the
+      // audio route when the channel connects, which is what made calls quiet.
+      try {
+        await _applySpeakerRoute(_speakerOn);
+        await engine.adjustPlaybackSignalVolume(300);
+      } catch (_) {/* non-critical */}
 
       if (widget.callId != null) {
         try {
@@ -660,34 +697,91 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     }
   }
 
+  /// Records the whole channel (everyone's mixed audio) to a local file via
+  /// the Agora SDK, then on stop uploads it and attaches the URL to the
+  /// call/meeting so it surfaces in the admin panel. Fully client-side — no
+  /// Agora Cloud Recording add-on needed.
   Future<void> _toggleRecord() async {
-    final slug = widget.meetingSlug ?? widget.callId;
-    if (slug == null) return;
-    setState(() => _recording = !_recording);
-    try {
-      if (_recording) {
-        await ref
-            .read(apiProvider)
-            .post('/meetings/$slug/recording/start')
-            .catchError((_) => <String, dynamic>{});
+    final engine = _engine;
+    if (engine == null || _savingRecording) return;
+    if (!_recording) {
+      try {
+        final dir = await getApplicationDocumentsDirectory();
+        final id = widget.callId ?? widget.meetingSlug ?? 'call';
+        final path =
+            '${dir.path}/rec_${id}_${DateTime.now().millisecondsSinceEpoch}.aac';
+        await engine.startAudioRecording(AudioRecordingConfiguration(
+          filePath: path,
+          fileRecordingType: AudioFileRecordingType.audioFileRecordingMixed,
+          quality: AudioRecordingQualityType.audioRecordingQualityHigh,
+          sampleRate: 32000,
+        ));
+        setState(() {
+          _recording = true;
+          _recordingPath = path;
+        });
         if (mounted) {
           bestieToast(context, 'Recording started',
-              body: 'A copy will be saved to Files when the call ends.',
+              body: 'Everyone in this call is being recorded.',
               kind: BestieToastKind.success);
         }
-      } else {
-        await ref
-            .read(apiProvider)
-            .post('/meetings/$slug/recording/stop')
-            .catchError((_) => <String, dynamic>{});
-        if (mounted)
-          bestieToast(context, 'Recording stopped', kind: BestieToastKind.info);
+      } catch (e) {
+        if (mounted) {
+          bestieToast(context, 'Recording unavailable',
+              body: e.toString(), kind: BestieToastKind.error);
+        }
       }
+      return;
+    }
+    // Stop + upload + attach.
+    setState(() {
+      _recording = false;
+      _savingRecording = true;
+    });
+    try {
+      await engine.stopAudioRecording();
+      await _uploadRecording();
     } catch (e) {
-      setState(() => _recording = !_recording);
-      if (mounted)
-        bestieToast(context, 'Recording unavailable',
+      if (mounted) {
+        bestieToast(context, "Couldn't save recording",
             body: e.toString(), kind: BestieToastKind.error);
+      }
+    } finally {
+      if (mounted) setState(() => _savingRecording = false);
+    }
+  }
+
+  Future<void> _uploadRecording() async {
+    final path = _recordingPath;
+    _recordingPath = null;
+    if (path == null) return;
+    final file = File(path);
+    if (!await file.exists()) return;
+    final bytes = await file.readAsBytes();
+    if (bytes.isEmpty) return;
+    final api = ref.read(apiProvider);
+    final asset = await api.uploadFile(
+      bytes: bytes,
+      filename: path.split('/').last,
+      mimeType: 'audio/aac',
+    );
+    final fileId = asset['id']?.toString();
+    final url = asset['url']?.toString();
+    // Attach the recording to the call or meeting so admins can find it.
+    if (widget.callId != null) {
+      await api.post('/calls/${widget.callId}/recording',
+          body: {'fileId': fileId, 'url': url});
+    } else if (widget.meetingSlug != null) {
+      await api.post('/meetings/${widget.meetingSlug}/recording',
+          body: {'fileId': fileId, 'url': url});
+    }
+    try {
+      await file.delete();
+    } catch (_) {}
+    if (mounted) {
+      bestieToast(context, 'Recording saved',
+          body: 'Available to admins in the web panel.',
+          kind: BestieToastKind.success);
     }
   }
 
@@ -805,6 +899,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   }
 
   Future<void> _hangup() async {
+    // _teardown flushes any in-progress recording before releasing the engine.
     await _teardown();
     if (mounted) context.go('/chat');
   }
@@ -1650,12 +1745,16 @@ class _CallScreenState extends ConsumerState<CallScreen> {
             label: _sharing ? 'Stop' : 'Share',
           ),
           pill(
-            icon: _recording
-                ? Icons.stop_circle_rounded
-                : Icons.fiber_manual_record_rounded,
+            icon: _savingRecording
+                ? Icons.hourglass_top_rounded
+                : (_recording
+                    ? Icons.stop_circle_rounded
+                    : Icons.fiber_manual_record_rounded),
             onTap: _toggleRecord,
-            active: _recording,
-            label: _recording ? 'Stop' : 'Record',
+            active: _recording || _savingRecording,
+            label: _savingRecording
+                ? 'Saving'
+                : (_recording ? 'Stop' : 'Record'),
           ),
         ]),
         const SizedBox(height: 22),

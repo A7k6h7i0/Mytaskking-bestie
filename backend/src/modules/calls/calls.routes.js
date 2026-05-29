@@ -222,6 +222,49 @@ router.get(
   asyncHandler(async (req, res) => res.json(await service.history({ user: req.user, ...req.query })))
 );
 
+// ----- recording -----
+// The client records the mixed channel audio locally, uploads it as a
+// FileAsset, then posts the resulting URL here so it's attached to the call
+// and surfaces in the admin recordings panel.
+router.post(
+  '/:id/recording',
+  validate({
+    body: Joi.object({
+      fileId: Joi.string().allow(null, ''),
+      url: Joi.string().allow(null, ''),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    const call = await prisma.call.findUnique({
+      where: { id: req.params.id },
+      include: { participants: true },
+    });
+    if (!call) return res.status(404).json({ error: 'Call not found' });
+    const isParticipant =
+      call.initiatorId === req.user.id ||
+      (call.participants || []).some((p) => p.userId === req.user.id);
+    if (!isParticipant) return res.status(403).json({ error: 'Not a participant' });
+    let url = req.body.url || null;
+    if (!url && req.body.fileId) {
+      const file = await prisma.fileAsset.findUnique({ where: { id: req.body.fileId } });
+      url = file?.url || null;
+    }
+    if (!url) return res.status(400).json({ error: 'Recording url required' });
+    const updated = await prisma.call.update({
+      where: { id: call.id },
+      data: { recordingUrl: url },
+    });
+    audit.record({
+      kind: 'call.recording.saved',
+      entity: 'call',
+      entityId: call.id,
+      payload: { url },
+      req,
+    });
+    res.json({ ok: true, recordingUrl: updated.recordingUrl });
+  })
+);
+
 // ----- screen sharing -----
 // Agora screen share uses a separate logical UID on the same channelName so
 // the publisher's camera/mic stream and screen stream are independently
