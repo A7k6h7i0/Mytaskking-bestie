@@ -69,6 +69,7 @@ async function fanOutAssignment({ task, assigneeIds, assigner, io, isUpdate = fa
             dueAt: task.dueAt || null,
             priority: task.priority,
           },
+          io,
         }).catch(() => {})
       ),
 
@@ -79,6 +80,7 @@ async function fanOutAssignment({ task, assigneeIds, assigner, io, isUpdate = fa
       title: `Assigned - ${task.title}`,
       body: `To ${uniqueAssigneeIds.length} ${uniqueAssigneeIds.length === 1 ? 'person' : 'people'}${due ? ` - due ${due}` : ''}`,
       data: { taskId: task.id, assigneeIds: uniqueAssigneeIds, dueAt: task.dueAt || null },
+      io,
     }).catch(() => {}),
 
     ...Array.from(supervisorRecipients.values()).map(({ person, assignees }) =>
@@ -93,6 +95,7 @@ async function fanOutAssignment({ task, assigneeIds, assigner, io, isUpdate = fa
           assigneeIds: assignees.map((entry) => entry.id),
           supervisorId: person.id,
         },
+        io,
       }).catch(() => {})
     ),
   ]);
@@ -294,6 +297,7 @@ router.patch(
  * to their user-room, write an audit log. Keeps the three handlers tight.
  */
 async function _notifyCreator({ row, kind, title, body, req, payload = {} }) {
+  const io = req.app.get('io');
   const creatorId = row.task.createdById;
   if (creatorId && creatorId !== row.userId) {
     notifications.notify({
@@ -302,6 +306,7 @@ async function _notifyCreator({ row, kind, title, body, req, payload = {} }) {
       title,
       body,
       data: { taskId: row.taskId, assigneeId: row.userId, state: row.state, ...payload },
+      io,
     }).catch(() => {});
   }
   // Also notify the assignee themselves with their own receipt - gives them
@@ -312,11 +317,11 @@ async function _notifyCreator({ row, kind, title, body, req, payload = {} }) {
     title,
     body,
     data: { taskId: row.taskId, state: row.state, ...payload },
+    io,
   }).catch(() => {});
 
   audit.record({ kind, entity: 'task', entityId: row.taskId, payload: { userId: row.userId, ...payload }, req });
 
-  const io = req.app.get('io');
   io?.emit('task.assignment.changed', {
     taskId: row.taskId,
     userId: row.userId,

@@ -92,6 +92,10 @@ app.use(errorHandler);
 
 const io = initSockets(server);
 app.set('io', io);
+// Background jobs (cron) reach Socket.IO through global.io since they don't
+// have an Express req. Without this, scheduled-task / reminder notifications
+// never emit their realtime `notification.created` / `task.assigned` events.
+global.io = io;
 
 startJobs();
 eventBus.startDispatcher();

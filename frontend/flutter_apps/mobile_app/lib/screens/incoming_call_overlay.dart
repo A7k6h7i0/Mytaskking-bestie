@@ -54,6 +54,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
   void dispose() {
     _autoMiss?.cancel();
     _hapticTimer?.cancel();
+    _bannerTimer?.cancel();
     _pushInviteSub?.cancel();
     _ringtone.stop();
     for (final u in _unsubs) {
@@ -99,7 +100,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     // backend already filters out muted / off-channel events via
     // notify(), so we ring whenever this fires.
     _unsubs.add(
-        rt.onAny('notification.created', ([_]) => _playNotificationTone()));
+        rt.onAny('notification.created', ([data]) => _onNotification(data)));
     _unsubs.add(rt.onAny('call.declined', ([data]) {
       // Caller side: another participant declined. We dismiss our ringer if
       // it was the same call (some race conditions on group calls).
@@ -229,6 +230,47 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
   }
 
   DateTime? _lastNotifChime;
+  Map<String, dynamic>? _banner;
+  Timer? _bannerTimer;
+
+  /// Fired on every realtime `notification.created` (task assigned, chat,
+  /// mention, etc). Plays the chime AND shows a tappable in-app banner so the
+  /// notification is actually visible while the app is open — not just audible.
+  void _onNotification(dynamic data) {
+    _playNotificationTone();
+    if (!_appResumed || data is! Map) return;
+    final title = (data['title'] ?? '').toString();
+    final body = (data['body'] ?? '').toString();
+    if (title.isEmpty && body.isEmpty) return;
+    if (!mounted) return;
+    setState(() => _banner = Map<String, dynamic>.from(data));
+    _bannerTimer?.cancel();
+    _bannerTimer = Timer(const Duration(seconds: 5), () {
+      if (mounted) setState(() => _banner = null);
+    });
+  }
+
+  void _openBanner() {
+    final n = _banner;
+    _bannerTimer?.cancel();
+    if (mounted) setState(() => _banner = null);
+    if (n == null) return;
+    final route = _routeForNotification(n);
+    if (route != null) ref.read(routerProvider).go(route);
+  }
+
+  /// Maps a notification's inner `data` to an in-app route. Mirrors the push
+  /// deep-link logic in main.dart so a tap lands on the same screen.
+  String? _routeForNotification(Map n) {
+    final inner = (n['data'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final taskId = inner['taskId']?.toString();
+    if (taskId != null && taskId.isNotEmpty) return '/tasks/$taskId';
+    final channelId = inner['channelId']?.toString();
+    if (channelId != null && channelId.isNotEmpty) return '/chat/$channelId';
+    final kind = (n['kind'] ?? '').toString();
+    if (kind == 'LEAD_FOLLOWUP') return '/telecaller';
+    return '/notifications';
+  }
 
   /// Plays a single OS-default notification chime — used for incoming chat
   /// messages + non-call notifications. Rate-limited to one chime per 800 ms
@@ -338,6 +380,22 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
 
     return Stack(children: [
       widget.child,
+      // In-app notification banner (task assigned, mention, etc) — only when
+      // there's no full-screen ringer up.
+      if (_banner != null && _pending == null)
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: _NotificationBanner(
+            payload: _banner!,
+            onTap: _openBanner,
+            onDismiss: () {
+              _bannerTimer?.cancel();
+              if (mounted) setState(() => _banner = null);
+            },
+          ),
+        ),
       if (_pending != null)
         Positioned.fill(
             child: _RingerScreen(
@@ -346,6 +404,110 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
           onDecline: _decline,
         )),
     ]);
+  }
+}
+
+/// A compact, tappable banner that slides in from the top for a new realtime
+/// notification. Tapping opens the target; the X dismisses it.
+class _NotificationBanner extends StatelessWidget {
+  final Map<String, dynamic> payload;
+  final VoidCallback onTap;
+  final VoidCallback onDismiss;
+  const _NotificationBanner(
+      {required this.payload, required this.onTap, required this.onDismiss});
+
+  IconData _iconFor(String kind) {
+    switch (kind) {
+      case 'TASK':
+        return Icons.checklist_rounded;
+      case 'CHAT':
+      case 'MENTION':
+        return Icons.chat_bubble_rounded;
+      case 'LEAD_FOLLOWUP':
+        return Icons.phone_in_talk_rounded;
+      default:
+        return Icons.notifications_rounded;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = BestieColors.of(context);
+    final title = (payload['title'] ?? 'Notification').toString();
+    final body = (payload['body'] ?? '').toString();
+    final kind = (payload['kind'] ?? '').toString();
+    return SafeArea(
+      bottom: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              decoration: BoxDecoration(
+                color: colors.surface,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: colors.border),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.18),
+                    blurRadius: 16,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: Row(children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: colors.brand.withOpacity(0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(_iconFor(kind), color: colors.brand, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: colors.text,
+                          fontWeight: BestieTokens.fwSemibold,
+                          fontSize: 14,
+                        ),
+                      ),
+                      if (body.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          body,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: colors.textSoft, fontSize: 12),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(Icons.close_rounded, color: colors.textMuted, size: 18),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: onDismiss,
+                ),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

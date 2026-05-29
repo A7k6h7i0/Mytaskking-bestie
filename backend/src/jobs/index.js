@@ -92,6 +92,7 @@ async function _addMarker(taskId, marker) {
 }
 
 async function _notifyAll(task, assignees, { title, body, data }) {
+  const io = global.io || null;
   for (const a of assignees) {
     await notifications.notify({
       userId: a.userId,
@@ -99,6 +100,7 @@ async function _notifyAll(task, assignees, { title, body, data }) {
       title,
       body,
       data: { taskId: task.id, ...data },
+      io,
     }).catch(() => {});
   }
 }
