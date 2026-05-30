@@ -945,56 +945,148 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     );
   }
 
-  Widget _header() {
-    return Row(children: [
-      IconButton(
-        icon: const Icon(Icons.expand_more_rounded,
-            color: Colors.white, size: 28),
-        onPressed: _minimize,
-        tooltip: 'Minimize',
-      ),
-      Expanded(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(_channelName ?? 'Connecting…',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 15,
-                fontWeight: BestieTokens.fwBold,
-                letterSpacing: BestieTokens.lsSnug,
-              )),
-          Row(children: [
-            if (_recording)
-              Container(
-                margin: const EdgeInsets.only(right: 6, top: 2),
-                width: 8,
-                height: 8,
-                decoration: const BoxDecoration(
-                    color: Color(0xFFEF4444), shape: BoxShape.circle),
-              ),
-            Text(_connectedAt == null ? _status : _formatElapsed(_elapsed),
-                style: const TextStyle(color: Colors.white70, fontSize: 12)),
-          ]),
-        ]),
-      ),
-      IconButton(
-        icon: const Icon(Icons.person_add_alt_1_rounded, color: Colors.white),
-        tooltip: 'Invite',
-        onPressed: _showInvite,
-      ),
-      IconButton(
-        icon: const Icon(Icons.people_alt_rounded, color: Colors.white),
-        tooltip: 'Participants',
-        onPressed: _showParticipants,
-      ),
-      if (_isVideo)
-        IconButton(
-          icon: const Icon(Icons.cameraswitch_outlined, color: Colors.white),
-          onPressed: _flipCamera,
-          tooltip: 'Flip camera',
+  bool get _isMeeting => widget.meetingSlug != null;
+
+  /// Small translucent circle button used in both call + meeting headers.
+  Widget _circleHeaderIcon(IconData icon, VoidCallback onTap, {String? tooltip}) {
+    return Tooltip(
+      message: tooltip ?? '',
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.12),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(icon, color: Colors.white, size: 20),
         ),
-    ]);
+      ),
+    );
+  }
+
+  Widget _header() {
+    return _isMeeting ? _meetingHeader() : _callHeader();
+  }
+
+  /// WhatsApp-style: minimize on the left, caller name + "End-to-end
+  /// encrypted" centered, add-participant on the right. Timer shown under
+  /// the lock once connected.
+  Widget _callHeader() {
+    final title = _channelName ?? 'Connecting…';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+      child: Row(children: [
+        _circleHeaderIcon(Icons.close_fullscreen_rounded, _minimize,
+            tooltip: 'Minimize'),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.center, children: [
+            Text(title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 17,
+                  fontWeight: BestieTokens.fwBold,
+                  letterSpacing: BestieTokens.lsSnug,
+                )),
+            const SizedBox(height: 2),
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              const Icon(Icons.lock_rounded, color: Colors.white70, size: 11),
+              const SizedBox(width: 4),
+              Text(
+                _connectedAt == null
+                    ? 'End-to-end encrypted'
+                    : 'End-to-end encrypted · ${_formatElapsed(_elapsed)}',
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+              if (_recording) ...[
+                const SizedBox(width: 8),
+                Container(
+                  width: 7, height: 7,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFEF4444), shape: BoxShape.circle,
+                  ),
+                ),
+              ],
+            ]),
+          ]),
+        ),
+        _circleHeaderIcon(Icons.person_add_alt_1_rounded, _showInvite,
+            tooltip: 'Invite'),
+      ]),
+    );
+  }
+
+  /// Google Meet–style: meeting name + e2e/time on the left, participants chip
+  /// on the right (taps to open the participants sheet).
+  Widget _meetingHeader() {
+    final title = _channelName ?? 'Meeting';
+    final count = 1 + _remoteUids.length;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 4, 10, 0),
+      child: Row(children: [
+        _circleHeaderIcon(Icons.close_fullscreen_rounded, _minimize,
+            tooltip: 'Minimize'),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: BestieTokens.fwBold,
+                )),
+            const SizedBox(height: 2),
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              const Icon(Icons.lock_rounded, color: Colors.white70, size: 11),
+              const SizedBox(width: 4),
+              Text(
+                _connectedAt == null
+                    ? 'Encrypted meeting'
+                    : _formatElapsed(_elapsed),
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+              if (_recording) ...[
+                const SizedBox(width: 8),
+                Container(
+                  width: 7, height: 7,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFEF4444), shape: BoxShape.circle,
+                  ),
+                ),
+              ],
+            ]),
+          ]),
+        ),
+        GestureDetector(
+          onTap: _showParticipants,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              const Icon(Icons.people_alt_rounded,
+                  color: Colors.white, size: 16),
+              const SizedBox(width: 6),
+              Text('$count',
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: BestieTokens.fwSemibold)),
+            ]),
+          ),
+        ),
+        const SizedBox(width: 8),
+        _circleHeaderIcon(Icons.person_add_alt_1_rounded, _showInvite,
+            tooltip: 'Invite'),
+      ]),
+    );
   }
 
   /// In-call invite — search teammates + add them to the live call.
@@ -1533,23 +1625,32 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       );
     }
     if (!_isVideo) {
+      // For meetings keep the multi-tile grid (Google Meet style).
+      if (_isMeeting) {
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 112, 20, 220),
+            child: Column(
+                mainAxisAlignment: MainAxisAlignment.center, children: [
+              _voiceParticipantsGrid(),
+              const SizedBox(height: 24),
+              _participantsStrip(showTimer: false),
+              const SizedBox(height: 14),
+              Text(_connectedAt == null ? _status : _formatElapsed(_elapsed),
+                  style: const TextStyle(color: Colors.white70, fontSize: 14)),
+            ]),
+          ),
+        );
+      }
+      // Calls: WhatsApp-style — a single big avatar dead-center, nothing else
+      // (name + e2e + timer all live in the top header).
+      final remoteName = _remoteNames.isNotEmpty
+          ? _remoteNames.values.first
+          : (_channelName ?? 'Connecting');
       return Center(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 112, 20, 220),
-          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-            _voiceParticipantsGrid(),
-            const SizedBox(height: 24),
-            _participantsStrip(showTimer: false),
-            const SizedBox(height: 14),
-            Text(_connectedAt == null ? _status : _formatElapsed(_elapsed),
-                style: const TextStyle(color: Colors.white70, fontSize: 14)),
-            const SizedBox(height: 8),
-            Text(
-              'Tap Video to switch on your camera',
-              style: TextStyle(
-                  color: Colors.white.withOpacity(0.46), fontSize: 12),
-            ),
-          ]),
+          child: BestieAvatar(name: remoteName, size: 200),
         ),
       );
     }
@@ -1677,99 +1778,201 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     );
   }
 
-  Widget _controls() {
-    Widget pill({
-      required IconData icon,
-      required VoidCallback onTap,
-      bool active = false,
-      String? label,
-    }) {
-      return Column(mainAxisSize: MainAxisSize.min, children: [
-        GestureDetector(
-          onTap: onTap,
-          child: Container(
-            width: 58,
-            height: 58,
-            decoration: BoxDecoration(
-              color: active ? Colors.white : Colors.white.withOpacity(0.14),
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white.withOpacity(0.18)),
-            ),
-            child: Icon(icon,
-                color: active ? Colors.black : Colors.white, size: 22),
-          ),
-        ),
-        if (label != null) ...[
-          const SizedBox(height: 4),
-          Text(label,
-              style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 10,
-                  fontWeight: BestieTokens.fwSemibold)),
-        ],
-      ]);
-    }
+  /// A single circular control button used inside the WhatsApp/Meet bars.
+  Widget _ctrlCircle({
+    required IconData icon,
+    required VoidCallback onTap,
+    bool active = false,
+    Color? background,
+    Color? iconColor,
+    double size = 52,
+    double iconSize = 22,
+  }) {
+    final Color bg = background ??
+        (active ? Colors.white : Colors.white.withOpacity(0.14));
+    final Color fg = iconColor ??
+        (background != null
+            ? Colors.white
+            : (active ? Colors.black : Colors.white));
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
+        child: Icon(icon, color: fg, size: iconSize),
+      ),
+    );
+  }
 
+  Widget _controls() {
+    return _isMeeting ? _meetingControls() : _callControls();
+  }
+
+  /// WhatsApp call controls — one translucent rounded pill with 5 circles:
+  /// more · camera · speaker · mic · end. Share / Record / Flip live in the
+  /// `_showMore` sheet to keep the bar uncluttered.
+  Widget _callControls() {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
-          pill(
-            icon: _muted ? Icons.mic_off_rounded : Icons.mic_rounded,
-            onTap: _toggleMute,
-            active: _muted,
-            label: 'Mute',
-          ),
-          pill(
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.55),
+          borderRadius: BorderRadius.circular(40),
+          border: Border.all(color: Colors.white.withOpacity(0.08)),
+        ),
+        child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+          _ctrlCircle(
+              icon: Icons.more_horiz_rounded, onTap: _showMore),
+          _ctrlCircle(
             icon: (!_videoEnabled || _cameraOff)
                 ? Icons.videocam_off_rounded
                 : Icons.videocam_rounded,
             onTap: _toggleCamera,
             active: !_videoEnabled || _cameraOff,
-            label: _videoEnabled ? 'Camera' : 'Video',
           ),
-          pill(
+          _ctrlCircle(
             icon: _speakerOn
                 ? Icons.volume_up_rounded
-                : Icons.volume_down_rounded,
+                : Icons.bluetooth_audio_rounded,
             onTap: _toggleSpeaker,
             active: _speakerOn,
-            label: 'Speaker',
           ),
-          pill(
-            icon: _sharing
-                ? Icons.stop_screen_share_rounded
-                : Icons.screen_share_rounded,
-            onTap: _toggleShare,
-            active: _sharing,
-            label: _sharing ? 'Stop' : 'Share',
+          _ctrlCircle(
+            icon: _muted ? Icons.mic_off_rounded : Icons.mic_rounded,
+            onTap: _toggleMute,
+            active: _muted,
           ),
-          pill(
-            icon: _savingRecording
-                ? Icons.hourglass_top_rounded
-                : (_recording
-                    ? Icons.stop_circle_rounded
-                    : Icons.fiber_manual_record_rounded),
-            onTap: _toggleRecord,
-            active: _recording || _savingRecording,
-            label: _savingRecording
-                ? 'Saving'
-                : (_recording ? 'Stop' : 'Record'),
+          _ctrlCircle(
+            icon: Icons.call_end_rounded,
+            onTap: _hangup,
+            background: BestieTokens.cDanger,
           ),
         ]),
-        const SizedBox(height: 22),
-        GestureDetector(
-          onTap: _hangup,
-          child: Container(
-            width: 76,
-            height: 76,
-            decoration: const BoxDecoration(
-                color: BestieTokens.cDanger, shape: BoxShape.circle),
-            child: const Icon(Icons.call_end_rounded,
-                color: Colors.white, size: 30),
-          ),
+      ),
+    );
+  }
+
+  /// Google Meet meeting controls — six circles in a row: mic · camera ·
+  /// share · raise hand · more · leave.
+  Widget _meetingControls() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.62),
+          borderRadius: BorderRadius.circular(40),
+          border: Border.all(color: Colors.white.withOpacity(0.08)),
         ),
-      ]),
+        child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+          _ctrlCircle(
+            icon: _muted ? Icons.mic_off_rounded : Icons.mic_rounded,
+            onTap: _toggleMute,
+            active: _muted,
+          ),
+          _ctrlCircle(
+            icon: (!_videoEnabled || _cameraOff)
+                ? Icons.videocam_off_rounded
+                : Icons.videocam_rounded,
+            onTap: _toggleCamera,
+            active: !_videoEnabled || _cameraOff,
+          ),
+          _ctrlCircle(
+            icon: _sharing
+                ? Icons.stop_screen_share_rounded
+                : Icons.present_to_all_rounded,
+            onTap: _toggleShare,
+            active: _sharing,
+          ),
+          _ctrlCircle(
+            icon: Icons.front_hand_outlined,
+            onTap: () => bestieToast(context, 'Hand raised',
+                kind: BestieToastKind.info),
+          ),
+          _ctrlCircle(
+            icon: Icons.more_vert_rounded,
+            onTap: _showMore,
+          ),
+          _ctrlCircle(
+            icon: Icons.call_end_rounded,
+            onTap: _hangup,
+            background: BestieTokens.cDanger,
+            size: 56,
+            iconSize: 24,
+          ),
+        ]),
+      ),
+    );
+  }
+
+  /// Overflow menu reached from the call/meeting controls' "more" button.
+  /// Holds the secondary actions (screen share, record, flip camera,
+  /// participants) so the main controls stay clean and WhatsApp-like.
+  void _showMore() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final c = BestieColors.of(ctx);
+        Widget tile(IconData icon, String label, VoidCallback onTap,
+            {Color? color}) {
+          return ListTile(
+            leading: Icon(icon, color: color ?? c.text),
+            title: Text(label, style: TextStyle(color: c.text)),
+            onTap: () {
+              Navigator.of(ctx).pop();
+              onTap();
+            },
+          );
+        }
+        return Container(
+          decoration: BoxDecoration(
+            color: c.surface,
+            borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(BestieTokens.rXl)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: c.borderStrong,
+                  borderRadius: BorderRadius.circular(BestieTokens.rPill),
+                ),
+              ),
+              tile(
+                _sharing
+                    ? Icons.stop_screen_share_rounded
+                    : Icons.screen_share_rounded,
+                _sharing ? 'Stop sharing' : 'Share screen',
+                _toggleShare,
+                color: _sharing ? c.danger : null,
+              ),
+              tile(
+                _savingRecording
+                    ? Icons.hourglass_top_rounded
+                    : (_recording
+                        ? Icons.stop_circle_rounded
+                        : Icons.fiber_manual_record_rounded),
+                _savingRecording
+                    ? 'Saving recording…'
+                    : (_recording ? 'Stop recording' : 'Record call'),
+                _toggleRecord,
+                color: _recording ? c.danger : null,
+              ),
+              if (_isVideo)
+                tile(Icons.cameraswitch_outlined, 'Flip camera', _flipCamera),
+              tile(Icons.people_alt_rounded, 'Participants', _showParticipants),
+              const SizedBox(height: 4),
+            ]),
+          ),
+        );
+      },
     );
   }
 }

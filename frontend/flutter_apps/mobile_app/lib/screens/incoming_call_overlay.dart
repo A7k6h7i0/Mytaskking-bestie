@@ -536,84 +536,65 @@ class _RingerScreen extends ConsumerWidget {
     final meetingName =
         (payload['meetingName'] ?? call['name'] ?? '').toString();
 
+    final subtitle = isMeeting
+        ? (meetingName.isEmpty
+            ? 'Meeting invite'
+            : 'Meeting · $meetingName')
+        : (mode == 'VOICE' ? 'MyTaskKing voice call' : 'MyTaskKing video call');
     return Material(
       color: const Color(0xFF0B1220),
       child: SafeArea(
         child: Column(children: [
-          const SizedBox(height: 36),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(children: [
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  const _PulseDot(),
-                  const SizedBox(width: 6),
-                  Text(
-                    isMeeting
-                        ? 'Incoming meeting invite'
-                        : (kind == 'GROUP'
-                            ? 'Group ringing · $participantCount'
-                            : 'Incoming ${mode.toLowerCase()} call'),
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: BestieTokens.fwSemibold,
-                        letterSpacing: BestieTokens.lsWide),
-                  ),
-                ]),
+          const SizedBox(height: 56),
+          // Single slim status line at the top — WhatsApp shows just the
+          // service name, no chip + no mode toggle on the right.
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            const Icon(Icons.lock_rounded, color: Colors.white60, size: 12),
+            const SizedBox(width: 6),
+            Text(
+              subtitle,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 13,
+                fontWeight: BestieTokens.fwSemibold,
+                letterSpacing: BestieTokens.lsWide,
               ),
-              const Spacer(),
-              Text(
-                mode == 'VOICE' ? '🎙️ Voice' : '🎥 Video',
-                style: const TextStyle(
-                    color: Colors.white60,
-                    fontSize: 12,
-                    fontWeight: BestieTokens.fwSemibold),
-              ),
-            ]),
-          ),
+            ),
+          ]),
           const Spacer(),
-          // Avatar with concentric pulse rings.
           _RingingAvatar(
               name: name,
               imageUrl: initiator['avatarUrl']?.toString(),
               isClient: isClient),
-          const SizedBox(height: 22),
+          const SizedBox(height: 24),
           BestieUserName(
             name: name,
             isClient: isClient,
             style: const TextStyle(
               color: Colors.white,
-              fontSize: 26,
+              fontSize: 30,
               fontWeight: BestieTokens.fwBold,
               letterSpacing: BestieTokens.lsTight,
             ),
           ),
           const SizedBox(height: 8),
           Text(
-            isMeeting
-                ? (meetingName.isEmpty
-                    ? 'invited you to a meeting'
-                    : 'invited you to "$meetingName"')
-                : (kind == 'GROUP' ? 'is calling the team' : 'is calling…'),
+            kind == 'GROUP'
+                ? 'Group call · $participantCount'
+                : (isMeeting ? 'invited you' : 'incoming call…'),
             textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.white70, fontSize: 14),
+            style: const TextStyle(color: Colors.white60, fontSize: 14),
           ),
           const Spacer(),
+          // Two big circles, no labels — pure WhatsApp.
           Padding(
-            padding: const EdgeInsets.fromLTRB(40, 0, 40, 56),
+            padding: const EdgeInsets.fromLTRB(56, 0, 56, 64),
             child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   _RingerButton(
                     icon: Icons.call_end_rounded,
-                    label: 'Decline',
+                    label: '',
                     color: BestieTokens.cDanger,
                     onTap: onDecline,
                   ),
@@ -621,7 +602,7 @@ class _RingerScreen extends ConsumerWidget {
                     icon: mode == 'VOICE'
                         ? Icons.call_rounded
                         : Icons.videocam_rounded,
-                    label: 'Accept',
+                    label: '',
                     color: BestieTokens.cSuccess,
                     onTap: onAccept,
                     bounce: true,
@@ -715,10 +696,12 @@ class _RingerButtonState extends State<_RingerButton>
           ),
         ),
       ),
-      const SizedBox(height: 8),
-      Text(widget.label,
-          style: const TextStyle(
-              color: Colors.white, fontWeight: BestieTokens.fwSemibold)),
+      if (widget.label.isNotEmpty) ...[
+        const SizedBox(height: 8),
+        Text(widget.label,
+            style: const TextStyle(
+                color: Colors.white, fontWeight: BestieTokens.fwSemibold)),
+      ],
     ]);
   }
 }
