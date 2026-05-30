@@ -64,6 +64,12 @@ class _ConnectivityBannerState extends ConsumerState<ConnectivityBanner> {
 
   @override
   Widget build(BuildContext context) {
+    // Only meaningful once signed in — the socket only connects with an auth
+    // token, so on the login screen it's "disconnected" by design and the
+    // offline banner would show falsely. Gate it on having a logged-in user.
+    final user = ref.watch(currentUserProvider).asData?.value ??
+        ref.read(authStoreProvider).user;
+    final visible = _show && user != null;
     return Stack(children: [
       widget.child,
       Positioned(
@@ -73,8 +79,8 @@ class _ConnectivityBannerState extends ConsumerState<ConnectivityBanner> {
         child: AnimatedSlide(
           duration: const Duration(milliseconds: 220),
           curve: Curves.easeOut,
-          offset: _show ? Offset.zero : const Offset(0, -1),
-          child: _show ? const _Bar() : const SizedBox.shrink(),
+          offset: visible ? Offset.zero : const Offset(0, -1),
+          child: visible ? const _Bar() : const SizedBox.shrink(),
         ),
       ),
     ]);
