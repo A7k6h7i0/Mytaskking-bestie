@@ -2703,141 +2703,168 @@ class _MessageBubble extends ConsumerWidget {
     showModalBottomSheet(
       context: context,
       backgroundColor: c.surface,
+      // Scroll-controlled + scrollable list so a long action set (Edit, Delete,
+      // etc.) is never clipped off the bottom of the sheet.
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius:
             BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
       ),
       builder: (ctx) => SafeArea(
         top: false,
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Container(
-            width: 40,
-            height: 4,
-            margin: const EdgeInsets.symmetric(vertical: 10),
-            decoration: BoxDecoration(
-              color: c.borderStrong,
-              borderRadius: BorderRadius.circular(BestieTokens.rPill),
-            ),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.7,
           ),
-          // Quick-react row: recently-used first (so the user's habits stay
-          // one tap away), then the iMessage / WhatsApp defaults.
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.symmetric(vertical: 10),
+              decoration: BoxDecoration(
+                color: c.borderStrong,
+                borderRadius: BorderRadius.circular(BestieTokens.rPill),
+              ),
+            ),
+            // Quick-react row: recently-used first (so the user's habits stay
+            // one tap away), then the iMessage / WhatsApp defaults.
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    for (final e in merged)
+                      _ReactionChip(
+                          emoji: e,
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            _RecentEmojis.push(e);
+                            _reactWith(context, ref, e);
+                          }),
+                  ]),
+            ),
+            Divider(height: 1, color: c.border),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                padding: EdgeInsets.zero,
                 children: [
-                  for (final e in merged)
-                    _ReactionChip(
-                        emoji: e,
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          _RecentEmojis.push(e);
-                          _reactWith(context, ref, e);
-                        }),
-                ]),
-          ),
-          Divider(height: 1, color: c.border),
-          ListTile(
-            leading: Icon(Icons.copy_rounded, color: c.textSoft),
-            title: Text('Copy', style: TextStyle(color: c.text)),
-            onTap: () async {
-              Navigator.pop(ctx);
-              await Clipboard.setData(
-                  ClipboardData(text: (message['body'] ?? '').toString()));
-              if (context.mounted)
-                bestieToast(context, 'Copied', kind: BestieToastKind.success);
-            },
-          ),
-          ListTile(
-            leading: Icon(
-              message['pinned'] == true
-                  ? Icons.push_pin
-                  : Icons.push_pin_outlined,
-              color: c.textSoft,
+                  ListTile(
+                    leading: Icon(Icons.copy_rounded, color: c.textSoft),
+                    title: Text('Copy', style: TextStyle(color: c.text)),
+                    onTap: () async {
+                      Navigator.pop(ctx);
+                      await Clipboard.setData(ClipboardData(
+                          text: (message['body'] ?? '').toString()));
+                      if (context.mounted)
+                        bestieToast(context, 'Copied',
+                            kind: BestieToastKind.success);
+                    },
+                  ),
+                  // Edit sits right under Copy for own text messages so it's
+                  // always visible, not buried at the bottom of the sheet.
+                  if (canEdit)
+                    ListTile(
+                      leading: Icon(Icons.edit_outlined, color: c.textSoft),
+                      title: Text('Edit', style: TextStyle(color: c.text)),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _editMessage(context, ref);
+                      },
+                    ),
+                  ListTile(
+                    leading: Icon(Icons.reply_rounded, color: c.textSoft),
+                    title: Text('Reply', style: TextStyle(color: c.text)),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      context
+                          .findAncestorStateOfType<_ChatDetailScreenState>()
+                          ?._startReply(message);
+                    },
+                  ),
+                  ListTile(
+                    leading: Icon(
+                      message['pinned'] == true
+                          ? Icons.push_pin
+                          : Icons.push_pin_outlined,
+                      color: c.textSoft,
+                    ),
+                    title: Text(
+                        message['pinned'] == true
+                            ? 'Unpin message'
+                            : 'Pin message',
+                        style: TextStyle(color: c.text)),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _togglePin(context, ref);
+                    },
+                  ),
+                  ListTile(
+                    leading:
+                        Icon(Icons.bookmark_border_rounded, color: c.textSoft),
+                    title:
+                        Text('Save message', style: TextStyle(color: c.text)),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _saveMessage(context, ref);
+                    },
+                  ),
+                  ListTile(
+                    leading: Icon(Icons.task_alt_rounded, color: c.textSoft),
+                    title: Text('Create task from message',
+                        style: TextStyle(color: c.text)),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _createTaskFromMessage(context, ref);
+                    },
+                  ),
+                  if (mine)
+                    ListTile(
+                      leading:
+                          Icon(Icons.done_all_rounded, color: c.textSoft),
+                      title: Text('Seen by', style: TextStyle(color: c.text)),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _showSeenBy(context);
+                      },
+                    ),
+                  ListTile(
+                    leading: Icon(Icons.forward_rounded, color: c.textSoft),
+                    title: Text('Forward to channel…',
+                        style: TextStyle(color: c.text)),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _forwardMessage(context, ref);
+                    },
+                  ),
+                  if (canDeleteForEveryone)
+                    ListTile(
+                      leading: Icon(Icons.delete_outline_rounded,
+                          color: c.danger),
+                      title: Text('Delete for everyone',
+                          style: TextStyle(
+                              color: c.danger,
+                              fontWeight: BestieTokens.fwSemibold)),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _deleteForEveryone(context, ref);
+                      },
+                    ),
+                  ListTile(
+                    leading: Icon(Icons.visibility_off_outlined,
+                        color: c.textSoft),
+                    title:
+                        Text('Delete for me', style: TextStyle(color: c.text)),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _deleteForMe(context, ref);
+                    },
+                  ),
+                ],
+              ),
             ),
-            title: Text(
-                message['pinned'] == true ? 'Unpin message' : 'Pin message',
-                style: TextStyle(color: c.text)),
-            onTap: () {
-              Navigator.pop(ctx);
-              _togglePin(context, ref);
-            },
-          ),
-          ListTile(
-            leading: Icon(Icons.reply_rounded, color: c.textSoft),
-            title: Text('Reply', style: TextStyle(color: c.text)),
-            onTap: () {
-              Navigator.pop(ctx);
-              // Look up the parent state in the widget tree so we can set
-              // its `_replyingTo` and focus the composer.
-              context
-                  .findAncestorStateOfType<_ChatDetailScreenState>()
-                  ?._startReply(message);
-            },
-          ),
-          ListTile(
-            leading: Icon(Icons.bookmark_border_rounded, color: c.textSoft),
-            title: Text('Save message', style: TextStyle(color: c.text)),
-            onTap: () {
-              Navigator.pop(ctx);
-              _saveMessage(context, ref);
-            },
-          ),
-          ListTile(
-            leading: Icon(Icons.task_alt_rounded, color: c.textSoft),
-            title: Text('Create task from message',
-                style: TextStyle(color: c.text)),
-            onTap: () {
-              Navigator.pop(ctx);
-              _createTaskFromMessage(context, ref);
-            },
-          ),
-          if (mine)
-            ListTile(
-              leading: Icon(Icons.done_all_rounded, color: c.textSoft),
-              title: Text('Seen by', style: TextStyle(color: c.text)),
-              onTap: () {
-                Navigator.pop(ctx);
-                _showSeenBy(context);
-              },
-            ),
-          ListTile(
-            leading: Icon(Icons.forward_rounded, color: c.textSoft),
-            title: Text('Forward to channel…', style: TextStyle(color: c.text)),
-            onTap: () {
-              Navigator.pop(ctx);
-              _forwardMessage(context, ref);
-            },
-          ),
-          if (canEdit)
-            ListTile(
-              leading: Icon(Icons.edit_outlined, color: c.textSoft),
-              title: Text('Edit', style: TextStyle(color: c.text)),
-              onTap: () {
-                Navigator.pop(ctx);
-                _editMessage(context, ref);
-              },
-            ),
-          if (canDeleteForEveryone)
-            ListTile(
-              leading: Icon(Icons.delete_outline_rounded, color: c.danger),
-              title: Text('Delete for everyone',
-                  style: TextStyle(
-                      color: c.danger, fontWeight: BestieTokens.fwSemibold)),
-              onTap: () {
-                Navigator.pop(ctx);
-                _deleteForEveryone(context, ref);
-              },
-            ),
-          ListTile(
-            leading: Icon(Icons.visibility_off_outlined, color: c.textSoft),
-            title: Text('Delete for me', style: TextStyle(color: c.text)),
-            onTap: () {
-              Navigator.pop(ctx);
-              _deleteForMe(context, ref);
-            },
-          ),
-        ]),
+          ]),
+        ),
       ),
     );
   }
