@@ -993,12 +993,8 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                 )),
             const SizedBox(height: 2),
             Row(mainAxisSize: MainAxisSize.min, children: [
-              const Icon(Icons.lock_rounded, color: Colors.white70, size: 11),
-              const SizedBox(width: 4),
               Text(
-                _connectedAt == null
-                    ? 'End-to-end encrypted'
-                    : 'End-to-end encrypted · ${_formatElapsed(_elapsed)}',
+                _connectedAt == null ? _status : _formatElapsed(_elapsed),
                 style: const TextStyle(color: Colors.white70, fontSize: 12),
               ),
               if (_recording) ...[
@@ -1042,12 +1038,8 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                 )),
             const SizedBox(height: 2),
             Row(mainAxisSize: MainAxisSize.min, children: [
-              const Icon(Icons.lock_rounded, color: Colors.white70, size: 11),
-              const SizedBox(width: 4),
               Text(
-                _connectedAt == null
-                    ? 'Encrypted meeting'
-                    : _formatElapsed(_elapsed),
+                _connectedAt == null ? _status : _formatElapsed(_elapsed),
                 style: const TextStyle(color: Colors.white70, fontSize: 12),
               ),
               if (_recording) ...[

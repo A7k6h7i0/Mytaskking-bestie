@@ -549,8 +549,6 @@ class _RingerScreen extends ConsumerWidget {
           // Single slim status line at the top — WhatsApp shows just the
           // service name, no chip + no mode toggle on the right.
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            const Icon(Icons.lock_rounded, color: Colors.white60, size: 12),
-            const SizedBox(width: 6),
             Text(
               subtitle,
               style: const TextStyle(
