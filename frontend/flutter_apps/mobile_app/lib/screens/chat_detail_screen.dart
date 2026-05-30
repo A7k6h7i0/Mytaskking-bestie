@@ -105,12 +105,15 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
   Timer? _myTypingThrottle;
   DateTime? _lastTypingEmit;
   void Function()? _presenceUnsub;
+  void Function()? _newMsgUnsub;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadChannel();
+    _joinAndMarkRead();
+    _listenForNewMessages();
     _listenForPresence();
     _listenForReceiptEvents();
     _listenForTyping();
@@ -118,6 +121,39 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     _composer.addListener(_onComposerChanged);
     _restoreDraft();
     _composer.addListener(_persistDraftDebounced);
+  }
+
+  /// Join this channel's realtime room (covers channels created after the
+  /// socket connected) and clear its unread badge. Refreshes the chat list so
+  /// the unread count drops immediately instead of staying stuck.
+  void _joinAndMarkRead() {
+    try {
+      ref.read(realtimeProvider).emit('channel.join', widget.channelId);
+    } catch (_) {/* socket may be reconnecting */}
+    _markRead();
+  }
+
+  void _markRead() {
+    ref
+        .read(apiProvider)
+        .markChannelRead(widget.channelId)
+        .then((_) {
+      if (mounted) ref.invalidate(channelsProvider);
+    }).catchError((_) {/* best-effort */});
+  }
+
+  /// Live-append incoming messages while the chat is open. The messages
+  /// provider already invalidates on this event, but listening here too
+  /// guarantees the open conversation refreshes (and stays marked read)
+  /// without the user having to leave and re-enter.
+  void _listenForNewMessages() {
+    final rt = ref.read(realtimeProvider);
+    _newMsgUnsub = rt.onAny('chat.message.created', ([data]) {
+      if (data is! Map || data['channelId'] != widget.channelId) return;
+      if (!mounted) return;
+      ref.invalidate(messagesProvider(widget.channelId));
+      _markRead();
+    });
   }
 
   /// Restores the persisted draft (if any) for this channel so swiping away
@@ -159,6 +195,9 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     _myTypingThrottle?.cancel();
     _receiptInvalidate?.cancel();
     _presenceUnsub?.call();
+    _newMsgUnsub?.call();
+    // NB: we deliberately do NOT emit channel.leave — staying in the room lets
+    // the chat list keep its unread counters live while we're elsewhere.
     for (final t in _typing.values) {
       t.timeout.cancel();
     }
@@ -970,17 +1009,20 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     final mm = dt.minute.toString().padLeft(2, '0');
     final ampm = dt.hour >= 12 ? 'PM' : 'AM';
     final clock = '$h12:$mm $ampm';
-    if (daysAgo == 0) return 'last seen today at $clock';
-    if (daysAgo == 1) return 'last seen yesterday at $clock';
+    // Keep these short — the header has limited width (avatar + name + 3 action
+    // icons), and the long "last seen today at …" form was truncating the time
+    // away with an ellipsis.
+    if (daysAgo == 0) return 'last seen $clock';
+    if (daysAgo == 1) return 'last seen yesterday $clock';
     if (daysAgo < 7) {
       const dow = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-      return 'last seen ${dow[dt.weekday - 1]} at $clock';
+      return 'last seen ${dow[dt.weekday - 1]} $clock';
     }
     const months = [
       'Jan','Feb','Mar','Apr','May','Jun',
       'Jul','Aug','Sep','Oct','Nov','Dec',
     ];
-    return 'last seen ${dt.day} ${months[dt.month - 1]} at $clock';
+    return 'last seen ${dt.day} ${months[dt.month - 1]}';
   }
 
   /// Parses the composer text up to the cursor and extracts an in-progress
@@ -1648,6 +1690,12 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                 );
               }
 
+              // Sort strictly by createdAt (ISO-8601 sorts chronologically as
+              // text) so a socket-merged or optimistic message can never land
+              // out of order — which previously pushed the first message above
+              // the wrong day divider.
+              items.sort((a, b) => (a['createdAt']?.toString() ?? '')
+                  .compareTo(b['createdAt']?.toString() ?? ''));
               // `reverse: true` pins the newest message at the bottom (above
               // the composer) so the visual order matches WhatsApp. We render
               // the *reversed* list so index 0 = newest.

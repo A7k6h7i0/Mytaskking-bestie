@@ -26,8 +26,11 @@ router.post(
     if (!req.file) throw BadRequest('No file uploaded');
     const isImage = req.file.mimetype.startsWith('image/');
 
+    // Prefer Cloudinary for images (gives width/height + transforms), but fall
+    // back to R2 when Cloudinary isn't configured — otherwise an image upload
+    // 500'd ("Internal server error") on servers that only have R2 set up.
     let asset;
-    if (isImage) {
+    if (isImage && cloudinary.isConfigured()) {
       const result = await cloudinary.uploadBuffer(req.file.buffer, { folder: 'bestie/chat' });
       asset = await prisma.fileAsset.create({
         data: {
@@ -42,8 +45,9 @@ router.post(
           uploadedById: req.user.id,
         },
       });
-    } else {
-      const key = `files/${Date.now()}-${req.file.originalname}`;
+    } else if (r2.isConfigured()) {
+      const safeName = (req.file.originalname || 'file').replace(/[^\w.\-]/g, '_');
+      const key = `files/${Date.now()}-${safeName}`;
       const put = await r2.putBuffer({ buffer: req.file.buffer, key, contentType: req.file.mimetype });
       asset = await prisma.fileAsset.create({
         data: {
@@ -56,6 +60,10 @@ router.post(
           uploadedById: req.user.id,
         },
       });
+    } else {
+      throw BadRequest(
+        'File storage is not configured on the server. Set Cloudinary or R2 credentials.'
+      );
     }
     res.status(201).json(asset);
   })

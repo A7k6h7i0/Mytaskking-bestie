@@ -61,4 +61,8 @@ async function remove(key) {
   await c.send(new DeleteObjectCommand({ Bucket: config.r2.bucket, Key: key }));
 }
 
-module.exports = { putBuffer, presignPut, presignGet, remove, publicUrlFor };
+function isConfigured() {
+  return !!(config.r2.endpoint && config.r2.accessKeyId);
+}
+
+module.exports = { putBuffer, presignPut, presignGet, remove, publicUrlFor, isConfigured };

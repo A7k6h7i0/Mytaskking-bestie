@@ -491,21 +491,21 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       step = 'enable-audio';
       await engine.enableAudio();
 
-      // Loud + Bluetooth-friendly. The GAME_STREAMING scenario we used before
-      // pinned audio to the media stream (loud) but broke Bluetooth headset
-      // routing. audioScenarioDefault lets Agora switch between earpiece,
-      // speaker and Bluetooth correctly; we keep calls loud by boosting the
-      // playback signal volume instead.
+      // Clear, Bluetooth-friendly voice. SPEECH_STANDARD enables Agora's voice
+      // noise-suppression + echo cancellation (kills the background noise), and
+      // the default scenario lets audio route to earpiece/speaker/Bluetooth.
+      // We use a MODERATE playback boost — the old 300% gain clipped and pumped
+      // the AGC, which is what made audio cut out for both sides then return.
       step = 'audio-profile';
       try {
         await engine.setAudioProfile(
-          profile: AudioProfileType.audioProfileDefault,
+          profile: AudioProfileType.audioProfileSpeechStandard,
           scenario: AudioScenarioType.audioScenarioDefault,
         );
       } catch (_) {/* non-critical tuning */}
       try {
-        await engine.adjustPlaybackSignalVolume(300);
-        await engine.adjustRecordingSignalVolume(160);
+        await engine.adjustPlaybackSignalVolume(160);
+        await engine.adjustRecordingSignalVolume(120);
       } catch (_) {/* non-critical tuning */}
 
       if (_isVideo) {
@@ -554,7 +554,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       // audio route when the channel connects, which is what made calls quiet.
       try {
         await _applyAudioRoute(_route);
-        await engine.adjustPlaybackSignalVolume(300);
+        await engine.adjustPlaybackSignalVolume(160);
       } catch (_) {/* non-critical */}
 
       if (widget.callId != null) {
