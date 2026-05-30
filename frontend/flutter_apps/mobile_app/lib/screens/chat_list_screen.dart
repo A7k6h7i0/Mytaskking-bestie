@@ -388,11 +388,12 @@ class _ChatTile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final c = BestieColors.of(context);
     final members = (channel['members'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
-    final myMember = members.firstWhere(
-      (m) => m['userId'] == currentUserId,
-      orElse: () => const {},
-    );
-    final unread = myMember['lastReadAt'] == null;
+    // Unread is driven by the backend's unreadCount, which already EXCLUDES
+    // the current user's own messages — so sending a message yourself never
+    // lights up an unread badge. (The old `lastReadAt == null` check did,
+    // which made your own "Hii" look like an incoming unread message.)
+    final unreadCount = (channel['unreadCount'] as num?)?.toInt() ?? 0;
+    final unread = unreadCount > 0;
     final isClient = channel['isClientChannel'] == true || kind == 'CLIENT';
 
     // Build display name. For DMs prefer the *other* member's name.
@@ -418,7 +419,7 @@ class _ChatTile extends ConsumerWidget {
     final hasLast = lastMessage != null;
     String previewLine;
     if (hasLast) {
-      previewLine = switch (lastKind) {
+      final base = switch (lastKind) {
         'IMAGE'      => '📷 Photo',
         'FILE'       => '📎 File',
         'VOICE_NOTE' => '🎙️ Voice note',
@@ -426,6 +427,23 @@ class _ChatTile extends ConsumerWidget {
         'SYSTEM'     => lastBody,
         _            => lastBody.isEmpty ? '' : lastBody,
       };
+      // WhatsApp-style sender prefix: "You: " for your own last message, and
+      // "Name: " for someone else's in a group. DMs from the other person show
+      // no prefix. System/call events are shown as-is.
+      final lastAuthorId = lastMessage['authorId']?.toString();
+      final author = (lastMessage['author'] as Map?)?.cast<String, dynamic>();
+      final isMine = lastAuthorId != null && lastAuthorId == currentUserId;
+      if (lastKind == 'SYSTEM' || lastKind == 'CALL_EVENT' || base.isEmpty) {
+        previewLine = base;
+      } else if (isMine) {
+        previewLine = 'You: $base';
+      } else if (kind != 'DM') {
+        final n = (author?['name'] ?? '').toString().trim();
+        final first = n.isEmpty ? '' : n.split(' ').first;
+        previewLine = first.isEmpty ? base : '$first: $base';
+      } else {
+        previewLine = base;
+      }
     } else {
       previewLine = switch (kind) {
         'DM'     => 'Direct message',
@@ -472,6 +490,7 @@ class _ChatTile extends ConsumerWidget {
                     ),
                   ),
             const SizedBox(width: 12),
+            // Left block: name (top) + preview (bottom).
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -494,57 +513,77 @@ class _ChatTile extends ConsumerWidget {
                       const SizedBox(width: 6),
                       Icon(Icons.volume_off_rounded, size: 13, color: c.textMuted),
                     ],
-                    const Spacer(),
-                    if (timeLine.isNotEmpty)
-                      Text(
-                        timeLine,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: unread ? BestieTokens.fwSemibold : BestieTokens.fwMedium,
-                          color: unread ? c.brand : c.textFaint,
-                        ),
-                      ),
                   ]),
-                  const SizedBox(height: 2),
-                  Row(children: [
-                    Expanded(
-                      child: isTyping
-                          ? Text(
-                              'typing…',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: c.brand,
-                                fontSize: 13,
-                                fontWeight: BestieTokens.fwSemibold,
-                                fontStyle: FontStyle.italic,
-                              ),
-                            )
-                          : Text(
-                              previewLine.isEmpty ? '—' : previewLine,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: unread ? c.text : c.textMuted,
-                                fontSize: 13,
-                                fontWeight: unread
-                                    ? BestieTokens.fwSemibold
-                                    : BestieTokens.fwRegular,
-                              ),
-                            ),
-                    ),
-                    if (unread)
-                      Container(
-                        margin: const EdgeInsets.only(left: 6),
-                        width: 9, height: 9,
-                        decoration: BoxDecoration(
-                          color: muted ? c.textMuted : c.brand,
-                          shape: BoxShape.circle,
+                  const SizedBox(height: 3),
+                  isTyping
+                      ? Text(
+                          'typing…',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: c.brand,
+                            fontSize: 13,
+                            fontWeight: BestieTokens.fwSemibold,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        )
+                      : Text(
+                          previewLine.isEmpty ? '—' : previewLine,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: unread ? c.text : c.textMuted,
+                            fontSize: 13,
+                            fontWeight: unread
+                                ? BestieTokens.fwSemibold
+                                : BestieTokens.fwRegular,
+                          ),
                         ),
-                      ),
-                  ]),
                 ],
               ),
+            ),
+            const SizedBox(width: 8),
+            // Right block: timestamp pinned to the TOP, unread count badge
+            // below it (WhatsApp layout — the time no longer floats in the
+            // vertical middle of the row).
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (timeLine.isNotEmpty)
+                  Text(
+                    timeLine,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: unread
+                          ? BestieTokens.fwSemibold
+                          : BestieTokens.fwMedium,
+                      color: unread ? c.brand : c.textFaint,
+                    ),
+                  ),
+                const SizedBox(height: 6),
+                if (unread)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                    constraints: const BoxConstraints(minWidth: 18),
+                    decoration: BoxDecoration(
+                      color: muted ? c.textMuted : c.brand,
+                      borderRadius: BorderRadius.circular(BestieTokens.rPill),
+                    ),
+                    child: Text(
+                      unreadCount > 99 ? '99+' : '$unreadCount',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: BestieTokens.fwBold,
+                        height: 1.3,
+                      ),
+                    ),
+                  )
+                else
+                  const SizedBox(height: 18),
+              ],
             ),
           ]),
         ),
