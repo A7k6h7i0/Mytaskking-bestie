@@ -911,22 +911,85 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.of(context).padding.bottom;
+    final topInset = MediaQuery.of(context).padding.top;
+    final showingVideo = _isVideo && _remoteUids.isNotEmpty;
     return Scaffold(
       backgroundColor: Colors.black,
-      body: SafeArea(
-        child: Stack(children: [
-          Positioned.fill(child: _remoteSurface()),
-          if (_isVideo && _joined && !_cameraOff)
-            Positioned(
-              right: 16,
-              top: 16,
-              width: 110,
-              height: 160,
+      body: Stack(children: [
+        // Depth backdrop — a soft vertical gradient so voice calls aren't a
+        // flat black void (WhatsApp does the same). Hidden once real remote
+        // video fills the screen.
+        if (!showingVideo)
+          const Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0xFF18222E), Color(0xFF0B1118), Color(0xFF05080C)],
+                  stops: [0.0, 0.55, 1.0],
+                ),
+              ),
+            ),
+          ),
+        Positioned.fill(child: _remoteSurface()),
+
+        // Top scrim for header legibility over video.
+        if (showingVideo)
+          Positioned(
+            top: 0, left: 0, right: 0,
+            child: IgnorePointer(
+              child: Container(
+                height: topInset + 110,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Colors.black.withOpacity(0.55), Colors.transparent],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        // Bottom scrim for control legibility over video.
+        if (showingVideo)
+          Positioned(
+            bottom: 0, left: 0, right: 0,
+            child: IgnorePointer(
+              child: Container(
+                height: bottomInset + 160,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.bottomCenter,
+                    end: Alignment.topCenter,
+                    colors: [Colors.black.withOpacity(0.6), Colors.transparent],
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+        // Self-view PiP — rounded, shadowed, tap to flip camera.
+        if (_isVideo && _joined && !_cameraOff)
+          Positioned(
+            right: 14,
+            top: topInset + 64,
+            width: 104,
+            height: 150,
+            child: GestureDetector(
+              onTap: _flipCamera,
               child: Container(
                 clipBehavior: Clip.antiAlias,
                 decoration: BoxDecoration(
-                  border: Border.all(color: Colors.white24, width: 1),
-                  borderRadius: BorderRadius.circular(BestieTokens.rMd),
+                  border: Border.all(color: Colors.white.withOpacity(0.2), width: 1),
+                  borderRadius: BorderRadius.circular(18),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.4),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
                 ),
                 child: _engine != null
                     ? AgoraVideoView(
@@ -937,11 +1000,28 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                     : const SizedBox.shrink(),
               ),
             ),
-          Positioned(top: 8, left: 8, right: 8, child: _header()),
-          Positioned(
-              bottom: 22 + bottomInset, left: 0, right: 0, child: _controls()),
-        ]),
-      ),
+          ),
+
+        Positioned(
+            top: topInset + 8, left: 8, right: 8, child: _header()),
+        // Controls fade + slide up on entrance.
+        Positioned(
+          bottom: 22 + bottomInset,
+          left: 0,
+          right: 0,
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0, end: 1),
+            duration: const Duration(milliseconds: 320),
+            curve: Curves.easeOutCubic,
+            builder: (ctx, v, child) => Opacity(
+              opacity: v,
+              child: Transform.translate(
+                  offset: Offset(0, (1 - v) * 24), child: child),
+            ),
+            child: _controls(),
+          ),
+        ),
+      ]),
     );
   }
 
@@ -1635,26 +1715,53 @@ class _CallScreenState extends ConsumerState<CallScreen> {
         );
       }
       // Calls: WhatsApp-style — a single big avatar dead-center, nothing else
-      // (name + e2e + timer all live in the top header).
+      // (name + timer live in the top header).
       final remoteName = _remoteNames.isNotEmpty
           ? _remoteNames.values.first
           : (_channelName ?? 'Connecting');
       return Center(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 112, 20, 220),
-          child: BestieAvatar(name: remoteName, size: 200),
+          child: Container(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.45),
+                  blurRadius: 40,
+                  spreadRadius: 4,
+                ),
+              ],
+            ),
+            child: BestieAvatar(name: remoteName, size: 200),
+          ),
         ),
       );
     }
     if (_remoteUids.isEmpty) {
       return Center(
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          _participantsStrip(showTimer: false),
-          const SizedBox(height: 18),
-          Icon(Icons.videocam_outlined, color: Colors.white24, size: 76),
-          const SizedBox(height: 16),
-          Text(_joined ? 'Waiting for others…' : _status,
-              style: const TextStyle(color: Colors.white70, fontSize: 14)),
+          // Soft pulsing ring around the call icon while we wait.
+          TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0.85, end: 1.0),
+            duration: const Duration(milliseconds: 900),
+            curve: Curves.easeInOut,
+            builder: (ctx, v, child) => Transform.scale(scale: v, child: child),
+            child: Container(
+              width: 104,
+              height: 104,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.06),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white.withOpacity(0.12)),
+              ),
+              child: const Icon(Icons.videocam_outlined,
+                  color: Colors.white38, size: 46),
+            ),
+          ),
+          const SizedBox(height: 22),
+          Text(_joined ? 'Waiting for others to join…' : _status,
+              style: const TextStyle(color: Colors.white70, fontSize: 15)),
         ]),
       );
     }
@@ -1786,12 +1893,26 @@ class _CallScreenState extends ConsumerState<CallScreen> {
         (background != null
             ? Colors.white
             : (active ? Colors.black : Colors.white));
-    return GestureDetector(
+    return _PressableCircle(
       onTap: onTap,
-      child: Container(
+      size: size,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
         width: size,
         height: size,
-        decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
+        decoration: BoxDecoration(
+          color: bg,
+          shape: BoxShape.circle,
+          boxShadow: background != null
+              ? [
+                  BoxShadow(
+                    color: background.withOpacity(0.5),
+                    blurRadius: 16,
+                    spreadRadius: 1,
+                  ),
+                ]
+              : null,
+        ),
         child: Icon(icon, color: fg, size: iconSize),
       ),
     );
@@ -1979,4 +2100,42 @@ class _Participant {
       required this.role,
       required this.muted,
       required this.video});
+}
+
+/// A circular control that scales down slightly while pressed for tactile
+/// feedback — used by every call/meeting control button.
+class _PressableCircle extends StatefulWidget {
+  final Widget child;
+  final VoidCallback onTap;
+  final double size;
+  const _PressableCircle(
+      {required this.child, required this.onTap, required this.size});
+
+  @override
+  State<_PressableCircle> createState() => _PressableCircleState();
+}
+
+class _PressableCircleState extends State<_PressableCircle> {
+  bool _down = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (_) => setState(() => _down = true),
+      onTapUp: (_) => setState(() => _down = false),
+      onTapCancel: () => setState(() => _down = false),
+      onTap: widget.onTap,
+      child: AnimatedScale(
+        scale: _down ? 0.88 : 1.0,
+        duration: const Duration(milliseconds: 110),
+        curve: Curves.easeOut,
+        child: SizedBox(
+          width: widget.size,
+          height: widget.size,
+          child: widget.child,
+        ),
+      ),
+    );
+  }
 }
