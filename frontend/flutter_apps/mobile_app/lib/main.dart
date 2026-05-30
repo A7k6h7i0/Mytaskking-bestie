@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:mytaskking_core/mytaskking_core.dart' as core;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -394,6 +395,33 @@ class _BestieAppState extends ConsumerState<BestieApp> {
   void initState() {
     super.initState();
     _wirePushDeepLinks();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _requestStartupPermissions());
+  }
+
+  /// Ask for the permissions the app needs up front, once, on first launch —
+  /// notifications, microphone and camera (calls/meetings), plus media access
+  /// for sharing photos/files. Runs after the first frame so the OS dialogs
+  /// appear over the app, and only once (tracked in SharedPreferences) so we
+  /// don't nag on every cold start. The call screen still re-requests mic/cam
+  /// at join time as a fallback if the user declined here.
+  Future<void> _requestStartupPermissions() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool('perms.onboarded_v1') == true) return;
+      final toRequest = <Permission>[
+        Permission.notification,
+        Permission.microphone,
+        Permission.camera,
+      ];
+      // Android 13+ uses granular media perms; older versions use storage.
+      if (Platform.isAndroid) {
+        toRequest.add(Permission.photos);
+      }
+      // Request sequentially-batched; permission_handler shows the native
+      // dialogs one after another.
+      await toRequest.request();
+      await prefs.setBool('perms.onboarded_v1', true);
+    } catch (_) {/* best-effort — features re-prompt on first use */}
   }
 
   @override
