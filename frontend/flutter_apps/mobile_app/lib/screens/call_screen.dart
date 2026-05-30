@@ -117,7 +117,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   String _status = 'Preparing…';
   bool _muted = false;
   bool _cameraOff = false;
-  bool _speakerOn = true;
+  CallAudioRoute _route = CallAudioRoute.earpiece;
   bool _sharing = false;
   bool _recording = false;
   bool _savingRecording = false;
@@ -139,7 +139,9 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       _videoEnabled = widget.mode == 'video';
       // Voice calls default to earpiece (so Bluetooth/earpiece is used and the
       // call is private); video calls default to speaker.
-      _speakerOn = widget.mode == 'video';
+      _route = widget.mode == 'video'
+          ? CallAudioRoute.speaker
+          : CallAudioRoute.earpiece;
     }
     // The call screen is now on top — hide the return-to-call pill.
     _CallSession.onCallScreen = true;
@@ -521,7 +523,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       // it but don't fail the whole bootstrap on a non-critical setter.
       try {
         step = 'speakerphone';
-        await _applySpeakerRoute(_speakerOn);
+        await _applyAudioRoute(_route);
       } catch (_) {/* will retry post-join */}
 
       // 6. Join. The server returns a wildcard token (uid 0) for calls, so we
@@ -551,7 +553,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       // Re-assert route + gain after join — some Android devices reset the
       // audio route when the channel connects, which is what made calls quiet.
       try {
-        await _applySpeakerRoute(_speakerOn);
+        await _applyAudioRoute(_route);
         await engine.adjustPlaybackSignalVolume(300);
       } catch (_) {/* non-critical */}
 
@@ -678,25 +680,44 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     await _engine?.switchCamera();
   }
 
-  Future<void> _toggleSpeaker() async {
-    final next = !_speakerOn;
-    await _applySpeakerRoute(next);
-    if (mounted) setState(() => _speakerOn = next);
+  /// Cycle earpiece → speaker → bluetooth → earpiece.
+  Future<void> _cycleAudioRoute() async {
+    final next = switch (_route) {
+      CallAudioRoute.earpiece => CallAudioRoute.speaker,
+      CallAudioRoute.speaker => CallAudioRoute.bluetooth,
+      CallAudioRoute.bluetooth => CallAudioRoute.earpiece,
+    };
+    await _applyAudioRoute(next);
+    if (mounted) setState(() => _route = next);
+    if (mounted) {
+      bestieToast(context, _audioRouteLabel(next), kind: BestieToastKind.info);
+    }
   }
 
-  Future<void> _applySpeakerRoute(bool speakerOn) async {
+  String _audioRouteLabel(CallAudioRoute r) => switch (r) {
+        CallAudioRoute.earpiece => 'Earpiece',
+        CallAudioRoute.speaker => 'Speaker',
+        CallAudioRoute.bluetooth => 'Bluetooth',
+      };
+
+  IconData _audioRouteIcon(CallAudioRoute r) => switch (r) {
+        CallAudioRoute.earpiece => Icons.phone_in_talk_rounded,
+        CallAudioRoute.speaker => Icons.volume_up_rounded,
+        CallAudioRoute.bluetooth => Icons.bluetooth_audio_rounded,
+      };
+
+  Future<void> _applyAudioRoute(CallAudioRoute r) async {
     final engine = _engine;
     if (engine == null) return;
-    // speakerOn=false leaves the default route alone so Agora auto-selects a
-    // connected Bluetooth headset or the earpiece. speakerOn=true forces the
-    // loudspeaker. (The previous build called a non-standard route helper then
-    // `return`ed before setEnableSpeakerphone ever ran, so the toggle did
-    // nothing — and forcing the speaker route on connect blocked Bluetooth.)
+    final speaker = r == CallAudioRoute.speaker;
+    // Earpiece + Bluetooth both keep the loudspeaker OFF — when a Bluetooth
+    // headset is connected Android auto-routes to it; otherwise it's the
+    // earpiece. Speaker forces the loudspeaker on.
     try {
-      await engine.setDefaultAudioRouteToSpeakerphone(speakerOn);
+      await engine.setDefaultAudioRouteToSpeakerphone(speaker);
     } catch (_) {}
     try {
-      await engine.setEnableSpeakerphone(speakerOn);
+      await engine.setEnableSpeakerphone(speaker);
     } catch (_) {}
   }
 
@@ -1068,11 +1089,38 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     return _isMeeting ? _meetingHeader() : _callHeader();
   }
 
-  /// WhatsApp-style: minimize on the left, caller name + "End-to-end
-  /// encrypted" centered, add-participant on the right. Timer shown under
-  /// the lock once connected.
+  /// Human-readable call title: the other participant's name (or names for a
+  /// group), never the raw Agora channel id ("call_wSEPLkpXr").
+  String _callDisplayTitle() {
+    final me = ref.read(authStoreProvider).user;
+    // Prefer the invited participants from the call metadata.
+    final parts = (_callMeta?['call']?['participants'] as List?) ??
+        (_callMeta?['participants'] as List?) ??
+        const [];
+    final names = <String>[];
+    for (final p in parts) {
+      if (p is! Map) continue;
+      if (p['userId'] == me?.id) continue;
+      final u = (p['user'] as Map?)?.cast<String, dynamic>();
+      final n = (u?['name'] ?? '').toString().trim();
+      if (n.isNotEmpty && !names.contains(n)) names.add(n);
+    }
+    // Fall back to the live remote-stream names (announce map).
+    if (names.isEmpty) {
+      for (final n in _remoteNames.values) {
+        if (n.isNotEmpty && !names.contains(n)) names.add(n);
+      }
+    }
+    if (names.isEmpty) return _joined ? 'In call' : 'Connecting…';
+    if (names.length == 1) return names.first;
+    if (names.length == 2) return '${names[0]}, ${names[1]}';
+    return '${names[0]} +${names.length - 1}';
+  }
+
+  /// WhatsApp-style: minimize on the left, caller name centered, add-participant
+  /// on the right. Timer shown under the name once connected.
   Widget _callHeader() {
-    final title = _channelName ?? 'Connecting…';
+    final title = _callDisplayTitle();
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
       child: Row(children: [
@@ -2023,11 +2071,9 @@ class _CallScreenState extends ConsumerState<CallScreen> {
             active: !_videoEnabled || _cameraOff,
           ),
           _ctrlCircle(
-            icon: _speakerOn
-                ? Icons.volume_up_rounded
-                : Icons.bluetooth_audio_rounded,
-            onTap: _toggleSpeaker,
-            active: _speakerOn,
+            icon: _audioRouteIcon(_route),
+            onTap: _cycleAudioRoute,
+            active: _route != CallAudioRoute.earpiece,
           ),
           _ctrlCircle(
             icon: _muted ? Icons.mic_off_rounded : Icons.mic_rounded,
@@ -2166,6 +2212,11 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     );
   }
 }
+
+/// Audio output route the user can cycle through: earpiece → speaker →
+/// bluetooth. Earpiece and bluetooth both keep the loudspeaker off; when a
+/// Bluetooth headset is connected Android routes to it automatically.
+enum CallAudioRoute { earpiece, speaker, bluetooth }
 
 class _Participant {
   final String name;

@@ -417,15 +417,20 @@ class _ChatTile extends ConsumerWidget {
     final lastBody = (lastMessage?['body'] ?? '').toString();
     final lastKind = (lastMessage?['kind'] ?? 'TEXT').toString();
     final hasLast = lastMessage != null;
+    // CALL_EVENT bodies carry a "|call:<id>:<status>" trailer used by the chat
+    // bubble for the tap-to-join affordance — strip it from the list preview
+    // so it doesn't leak ("Call ended · 12:07 PM · 14m|call:cmpsam…").
+    final callPipe = lastBody.indexOf('|call:');
+    final cleanBody = callPipe >= 0 ? lastBody.substring(0, callPipe) : lastBody;
     String previewLine;
     if (hasLast) {
       final base = switch (lastKind) {
         'IMAGE'      => '📷 Photo',
         'FILE'       => '📎 File',
         'VOICE_NOTE' => '🎙️ Voice note',
-        'CALL_EVENT' => lastBody.isEmpty ? '📞 Call' : lastBody,
-        'SYSTEM'     => lastBody,
-        _            => lastBody.isEmpty ? '' : lastBody,
+        'CALL_EVENT' => cleanBody.isEmpty ? '📞 Call' : cleanBody,
+        'SYSTEM'     => cleanBody,
+        _            => cleanBody.isEmpty ? '' : cleanBody,
       };
       // WhatsApp-style sender prefix: "You: " for your own last message, and
       // "Name: " for someone else's in a group. DMs from the other person show
