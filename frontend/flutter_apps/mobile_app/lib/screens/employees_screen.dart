@@ -58,7 +58,7 @@ class _EmployeesScreenState extends ConsumerState<EmployeesScreen> {
         memberIds: [user['id'] as String],
       );
       ref.invalidate(channelsProvider);
-      if (mounted) context.go('/chat/${ch['id']}');
+      if (mounted) context.push('/chat/${ch['id']}');
     } catch (e) {
       if (mounted) bestieToast(context, 'Could not open chat',
           body: formatApiError(e), kind: BestieToastKind.error);

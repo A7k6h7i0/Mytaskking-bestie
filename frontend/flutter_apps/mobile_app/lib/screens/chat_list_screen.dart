@@ -306,7 +306,7 @@ class ChatListScreen extends ConsumerWidget {
     if (channel != null && context.mounted) {
       ref.invalidate(channelsProvider);
       final id = channel['id']?.toString();
-      if (id != null) context.go('/chat/$id');
+      if (id != null) context.push('/chat/$id');
     }
   }
 }
@@ -465,7 +465,7 @@ class _ChatTile extends ConsumerWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: () => context.go('/chat/${channel['id']}'),
+        onTap: () => context.push('/chat/${channel['id']}'),
         onLongPress: () => _showTileMenu(context, ref, muted),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),

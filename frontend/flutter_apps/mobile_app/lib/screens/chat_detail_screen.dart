@@ -267,7 +267,12 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
         if (mounted && existing != null) setState(() => _typing.remove(uid));
         return;
       }
-      final name = data['name']?.toString() ?? existing?.name ?? 'Someone';
+      // Backend broadcasts the typer's name as `userName`; keep `name` as a
+      // fallback for older payloads. Without this it always read "Someone".
+      final name = data['userName']?.toString() ??
+          data['name']?.toString() ??
+          existing?.name ??
+          'Someone';
       final timer = Timer(const Duration(seconds: 4), () {
         if (mounted) setState(() => _typing.remove(uid));
       });
@@ -1370,6 +1375,18 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
   }
 
   @override
+  /// Pop back to wherever we came from. When this screen was pushed (the
+  /// normal flow) that's the previous screen; if it was reached via a deep
+  /// link / stack-replace there's nothing to pop, so fall back to the chat
+  /// list instead of letting BACK exit the app.
+  void _goBack(BuildContext context) {
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go('/chat');
+    }
+  }
+
   Widget build(BuildContext context) {
     final colors = BestieColors.of(context);
     final messages = ref.watch(messagesProvider(widget.channelId));
@@ -1390,7 +1407,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
         foregroundColor: colors.text,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: () => context.go('/chat'),
+          onPressed: () => _goBack(context),
         ),
         titleSpacing: 0,
         title: Row(children: [

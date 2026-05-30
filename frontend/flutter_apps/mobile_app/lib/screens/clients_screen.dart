@@ -59,7 +59,7 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
         memberIds: [client['id'] as String],
       );
       ref.invalidate(channelsProvider);
-      if (mounted) context.go('/chat/${ch['id']}');
+      if (mounted) context.push('/chat/${ch['id']}');
     } catch (e) {
       if (mounted) bestieToast(context, 'Could not open channel',
           body: formatApiError(e), kind: BestieToastKind.error);

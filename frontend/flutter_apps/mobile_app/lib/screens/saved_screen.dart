@@ -80,7 +80,7 @@ class SavedScreen extends ConsumerWidget {
                     switch (kind) {
                       case 'MESSAGE':
                         final cid = s['channelId']?.toString();
-                        if (cid != null) context.go('/chat/$cid');
+                        if (cid != null) context.push('/chat/$cid');
                         break;
                       case 'TASK':
                         context.go('/tasks');

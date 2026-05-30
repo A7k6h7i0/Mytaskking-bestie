@@ -43,12 +43,12 @@ class SearchScreen extends ConsumerWidget {
     switch (kind) {
       case 'channels': {
         final id = item['id']?.toString();
-        if (id != null) context.go('/chat/$id');
+        if (id != null) context.push('/chat/$id');
         break;
       }
       case 'messages': {
         final channelId = item['channelId']?.toString();
-        if (channelId != null) context.go('/chat/$channelId');
+        if (channelId != null) context.push('/chat/$channelId');
         break;
       }
       case 'files': {
@@ -61,7 +61,7 @@ class SearchScreen extends ConsumerWidget {
             : null;
         final channelId = channel?['id']?.toString();
         if (channelId != null) {
-          context.go('/chat/$channelId');
+          context.push('/chat/$channelId');
         } else {
           final url = item['url']?.toString();
           if (url != null && context.mounted) {
@@ -97,7 +97,7 @@ class SearchScreen extends ConsumerWidget {
           ref.invalidate(channelsProvider);
           final id = channel['id']?.toString();
           if (id != null && context.mounted) {
-            context.go('/chat/$id');
+            context.push('/chat/$id');
           }
         } catch (e) {
           if (context.mounted) {
