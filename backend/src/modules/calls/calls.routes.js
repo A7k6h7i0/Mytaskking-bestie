@@ -124,14 +124,47 @@ router.get(
 
 router.post('/:id/join', asyncHandler(async (req, res) => {
   const call = await service.join({ callId: req.params.id, user: req.user });
+  // The client sends the random per-device uid it actually joined Agora with
+  // (wildcard token flow); fall back to the derived uid for old clients.
+  const agoraUid = Number(req.body?.agoraUid) > 0
+    ? Number(req.body.agoraUid)
+    : agora.toAgoraUid(req.user.id);
   emitToCallParticipants(req.app.get('io'), call, 'call.participant.joined', {
     callId: call.id,
     userId: req.user.id,
     userName: req.user.name,
-    agoraUid: agora.toAgoraUid(req.user.id),
+    agoraUid,
   });
   res.json(call);
 }));
+
+// Re-broadcast a participant's real Agora uid + name so every device can label
+// its tiles correctly — used for bidirectional discovery when devices join at
+// different times (and to support the same account on multiple devices).
+router.post(
+  '/:id/announce',
+  validate({
+    body: Joi.object({
+      agoraUid: Joi.number().required(),
+      userName: Joi.string().allow('', null),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    const call = await prisma.call.findUnique({
+      where: { id: req.params.id },
+      include: { participants: true },
+    });
+    if (call) {
+      emitToCallParticipants(req.app.get('io'), call, 'call.announce', {
+        callId: call.id,
+        userId: req.user.id,
+        userName: req.body.userName || req.user.name,
+        agoraUid: Number(req.body.agoraUid),
+      });
+    }
+    res.json({ ok: true });
+  })
+);
 
 router.post('/:id/leave', asyncHandler(async (req, res) => {
   const call = await service.leave({ callId: req.params.id, user: req.user });

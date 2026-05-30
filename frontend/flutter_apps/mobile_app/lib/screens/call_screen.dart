@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:flutter/material.dart';
@@ -51,6 +52,15 @@ class CallSession {
   static String? activeMeetingSlug;
   static bool joined = false;
   static bool videoEnabled = false;
+  /// This device's randomly-chosen Agora uid for the active call. Random per
+  /// device so the same account can join from two phones without colliding.
+  static int? myUid;
+  /// True while the live call screen (/call or /meeting) is mounted on top.
+  /// The "ongoing call · tap to return" pill keys off this instead of the
+  /// router location — reading GoRouterState from the app-level builder
+  /// context (above the Navigator) is unreliable and was making the pill
+  /// show even while the user was on the call screen.
+  static bool onCallScreen = false;
   static final Set<int> remoteUids = {};
   static final Map<int, String> remoteNames = {};
 
@@ -83,6 +93,7 @@ class CallSession {
     activeMeetingSlug = null;
     joined = false;
     videoEnabled = false;
+    onCallScreen = false;
     remoteUids.clear();
     remoteNames.clear();
     _ping();
@@ -126,7 +137,13 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     super.initState();
     if (!_CallSession.matches(widget.callId, widget.meetingSlug)) {
       _videoEnabled = widget.mode == 'video';
+      // Voice calls default to earpiece (so Bluetooth/earpiece is used and the
+      // call is private); video calls default to speaker.
+      _speakerOn = widget.mode == 'video';
     }
+    // The call screen is now on top — hide the return-to-call pill.
+    _CallSession.onCallScreen = true;
+    _CallSession._ping();
     _subscribeCallLifecycle();
     _bootstrap();
   }
@@ -138,9 +155,11 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     }
     _callUnsubs.clear();
     _timer?.cancel();
-    // Do NOT tear down on dispose — the user closing the call window
-    // should keep the call running in the background. Only explicit
-    // Hang Up (`_hangup`) ends the session.
+    // Left the call screen — if the call is still live, the return pill should
+    // reappear. (We do NOT tear the engine down here; only explicit Hang Up
+    // ends the session, so the call keeps running in the background.)
+    _CallSession.onCallScreen = false;
+    _CallSession._ping();
     super.dispose();
   }
 
@@ -158,22 +177,42 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       if (data is! Map || data['callId'] != callId) return;
       _endBecauseRemoteClosed();
     }));
-    _callUnsubs.add(rt.onAny('call.participant.joined', ([data]) {
+    // A participant (any device) announced its real Agora uid + name. We use
+    // this to label the tile for that uid. Because each device announces its
+    // own random uid, the same account on two phones shows as two tiles.
+    void onPresence([dynamic data]) {
       if (data is! Map || data['callId'] != callId) return;
-      final me = ref.read(authStoreProvider).user;
-      if (data['userId'] == me?.id) return;
       final uidRaw = data['agoraUid'];
       final uid = uidRaw is int ? uidRaw : int.tryParse('$uidRaw');
       if (uid == null || uid <= 0) return;
+      if (uid == _CallSession.myUid) return; // that's me
+      final name = data['userName']?.toString();
       if (!mounted) return;
+      final isNew = !_remoteNames.containsKey(uid);
       setState(() {
-        _remoteUids.add(uid);
-        final name = data['userName']?.toString();
         if (name != null && name.isNotEmpty) _remoteNames[uid] = name;
       });
-      _markRemoteConnected();
-      _publishActiveCallState();
-    }));
+      // Bidirectional discovery: when someone new appears, re-announce
+      // myself so they learn my uid→name too (I may have joined first).
+      if (isNew) _announceSelf();
+    }
+
+    _callUnsubs.add(rt.onAny('call.participant.joined', onPresence));
+    _callUnsubs.add(rt.onAny('call.announce', onPresence));
+  }
+
+  /// Tell the other call participants this device's real Agora uid + name so
+  /// they can label our tile. Debounced lightly via best-effort fire-and-forget.
+  void _announceSelf() {
+    final callId = widget.callId;
+    final uid = _CallSession.myUid;
+    if (callId == null || uid == null) return;
+    final me = ref.read(authStoreProvider).user;
+    ref
+        .read(apiProvider)
+        .post('/calls/$callId/announce',
+            body: {'agoraUid': uid, 'userName': me?.name ?? ''})
+        .catchError((_) => <String, dynamic>{});
   }
 
   Future<void> _endBecauseRemoteClosed() async {
@@ -244,31 +283,6 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     try {
       await _callNotificationChannel.invokeMethod('hide');
     } catch (_) {}
-  }
-
-  void _applyJoinedParticipants(Map<String, dynamic>? payload) {
-    final call = (payload?['call'] as Map?)?.cast<String, dynamic>();
-    final participants = (call?['participants'] as List?) ?? const [];
-    final me = ref.read(authStoreProvider).user;
-    var changed = false;
-    for (final raw in participants) {
-      if (raw is! Map) continue;
-      if (raw['userId'] == me?.id) continue;
-      if (raw['joinedAt'] == null) continue;
-      final uidRaw = raw['agoraUid'];
-      final uid = uidRaw is int ? uidRaw : int.tryParse('$uidRaw');
-      if (uid == null || uid <= 0) continue;
-      changed = _remoteUids.add(uid) || changed;
-      final user = (raw['user'] as Map?)?.cast<String, dynamic>();
-      final name = user?['name']?.toString();
-      if (name != null && name.isNotEmpty) _remoteNames[uid] = name;
-    }
-    if (changed && mounted) {
-      setState(() {});
-      _markRemoteConnected();
-      _publishActiveCallState();
-      _showOngoingCallNotification();
-    }
   }
 
   Future<void> _teardown({bool notifyServer = true}) async {
@@ -401,6 +415,9 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       step = 'permissions';
       final perms = <Permission>[Permission.microphone];
       if (_isVideo) perms.add(Permission.camera);
+      // Android 12+ needs runtime BLUETOOTH_CONNECT to route call audio to a
+      // Bluetooth headset. Requested best-effort — not fatal if denied.
+      if (Platform.isAndroid) perms.add(Permission.bluetoothConnect);
       final granted = await perms.request();
       final mic = granted[Permission.microphone];
       if (mic != PermissionStatus.granted && mic != PermissionStatus.limited) {
@@ -419,7 +436,6 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       setState(() => _status = 'Connecting…');
       final tokenResp = await _fetchToken();
       _callMeta = tokenResp;
-      _applyJoinedParticipants(tokenResp);
       final appId = tokenResp['appId']?.toString();
       final token = tokenResp['token']?.toString();
       final channel = tokenResp['channelName']?.toString();
@@ -473,15 +489,16 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       step = 'enable-audio';
       await engine.enableAudio();
 
-      // Loud, clear calls. Default Agora routes through Android's in-call
-      // (communication) volume stream, which is often quiet and not boostable
-      // by the user. The GAME_STREAMING scenario keeps audio on the media
-      // stream so it plays back loud, and we push the playback gain up.
+      // Loud + Bluetooth-friendly. The GAME_STREAMING scenario we used before
+      // pinned audio to the media stream (loud) but broke Bluetooth headset
+      // routing. audioScenarioDefault lets Agora switch between earpiece,
+      // speaker and Bluetooth correctly; we keep calls loud by boosting the
+      // playback signal volume instead.
       step = 'audio-profile';
       try {
         await engine.setAudioProfile(
-          profile: AudioProfileType.audioProfileMusicStandard,
-          scenario: AudioScenarioType.audioScenarioGameStreaming,
+          profile: AudioProfileType.audioProfileDefault,
+          scenario: AudioScenarioType.audioScenarioDefault,
         );
       } catch (_) {/* non-critical tuning */}
       try {
@@ -507,9 +524,16 @@ class _CallScreenState extends ConsumerState<CallScreen> {
         await _applySpeakerRoute(_speakerOn);
       } catch (_) {/* will retry post-join */}
 
-      // 6. Join. Pass the same channel profile here too — belt-and-suspenders.
+      // 6. Join. The server returns a wildcard token (uid 0) for calls, so we
+      // pick our OWN random uid per device — that's what lets the same account
+      // join from two phones as two distinct participants. Meetings still
+      // return a fixed uid, which we honor.
       step = 'join-channel';
-      final uid = uidRaw is int ? uidRaw : int.tryParse('$uidRaw') ?? 0;
+      final serverUid = uidRaw is int ? uidRaw : int.tryParse('$uidRaw') ?? 0;
+      final uid = serverUid > 0
+          ? serverUid
+          : (1 + Random().nextInt(2147483646));
+      _CallSession.myUid = uid;
       await engine.joinChannel(
         token: token,
         channelId: channel,
@@ -533,10 +557,14 @@ class _CallScreenState extends ConsumerState<CallScreen> {
 
       if (widget.callId != null) {
         try {
-          final joinedCall =
-              await ref.read(apiProvider).post('/calls/${widget.callId}/join');
-          _applyJoinedParticipants({'call': joinedCall});
+          // Tell the server our real per-device uid so it broadcasts the right
+          // uid→name mapping to the other participants' tiles.
+          await ref.read(apiProvider).post('/calls/${widget.callId}/join',
+              body: {'agoraUid': uid});
         } catch (_) {}
+        // Announce again over the socket once we're in — covers participants
+        // who were already in the call before us.
+        _announceSelf();
       }
     } on AgoraRtcException catch (e) {
       if (!mounted) return;
@@ -659,12 +687,13 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   Future<void> _applySpeakerRoute(bool speakerOn) async {
     final engine = _engine;
     if (engine == null) return;
+    // speakerOn=false leaves the default route alone so Agora auto-selects a
+    // connected Bluetooth headset or the earpiece. speakerOn=true forces the
+    // loudspeaker. (The previous build called a non-standard route helper then
+    // `return`ed before setEnableSpeakerphone ever ran, so the toggle did
+    // nothing — and forcing the speaker route on connect blocked Bluetooth.)
     try {
       await engine.setDefaultAudioRouteToSpeakerphone(speakerOn);
-    } catch (_) {}
-    try {
-      await engine.setRouteInCommunicationMode(speakerOn ? 3 : 1);
-      return;
     } catch (_) {}
     try {
       await engine.setEnableSpeakerphone(speakerOn);
@@ -797,26 +826,15 @@ class _CallScreenState extends ConsumerState<CallScreen> {
           participants.add(_Participant(
               name: me.name, role: 'You', muted: _muted, video: !_cameraOff));
         }
+        // Only people actually IN the call: me + every live remote stream.
+        // (We deliberately don't list invited-but-not-joined users here — the
+        // sheet answers "who's on this call right now".)
         for (final uid in _remoteUids) {
           participants.add(_Participant(
               name: _remoteNames[uid] ?? 'Participant',
-              role: 'Remote',
+              role: 'In call',
               muted: false,
               video: true));
-        }
-        final invited = ((_callMeta?['call']?['participants'] as List?) ??
-                (_callMeta?['participants'] as List?) ??
-                const [])
-            .cast<dynamic>();
-        for (final p in invited) {
-          if (p is Map) {
-            final u = (p['user'] as Map?)?.cast<String, dynamic>();
-            final n = (u?['name'] ?? '').toString();
-            if (n.isEmpty || n == me?.name) continue;
-            if (participants.any((pp) => pp.name == n)) continue;
-            participants.add(_Participant(
-                name: n, role: 'Invited', muted: true, video: false));
-          }
         }
         return Container(
           decoration: BoxDecoration(
@@ -1161,6 +1179,59 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     );
   }
 
+  /// Builds a labelled section (header + checkbox rows) for the invite sheet.
+  /// Returns an empty list when there are no people so the header is hidden.
+  List<Widget> _inviteSection(
+    BuildContext ctx,
+    BestieColors c,
+    String label,
+    List<Map<String, dynamic>> people,
+    Set<String> selected,
+    StateSetter set,
+  ) {
+    if (people.isEmpty) return const [];
+    return [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+        child: Text(label.toUpperCase(),
+            style: TextStyle(
+              color: c.textMuted,
+              fontSize: 11,
+              fontWeight: BestieTokens.fwBold,
+              letterSpacing: BestieTokens.lsWide,
+            )),
+      ),
+      for (final u in people)
+        Builder(builder: (_) {
+          final id = u['id'] as String;
+          final picked = selected.contains(id);
+          return CheckboxListTile(
+            value: picked,
+            onChanged: (_) => set(() {
+              picked ? selected.remove(id) : selected.add(id);
+            }),
+            controlAffinity: ListTileControlAffinity.trailing,
+            secondary: BestieAvatar(
+              name: (u['name'] ?? '—').toString(),
+              imageUrl: u['avatarUrl']?.toString(),
+              isClient: u['isClient'] == true,
+              size: 36,
+            ),
+            title: Text((u['name'] ?? '—').toString(),
+                style: TextStyle(
+                    color: c.text, fontWeight: BestieTokens.fwSemibold)),
+            subtitle: Text(
+                (u['customTitle'] ?? u['role'] ?? '')
+                    .toString()
+                    .replaceAll('_', ' ')
+                    .toLowerCase(),
+                style: TextStyle(color: c.textMuted, fontSize: 12)),
+            activeColor: BestieTokens.cBrand,
+          );
+        }),
+    ];
+  }
+
   /// In-call invite — search teammates + add them to the live call.
   /// For meetings (no callId), we surface a shareable link instead so users
   /// can invite teammates or external participants by URL.
@@ -1175,16 +1246,25 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     final selected = <String>{};
     final api = ref.read(apiProvider);
     final controller = TextEditingController();
-    List<Map<String, dynamic>> employees = [];
+    final me = ref.read(authStoreProvider).user;
+    List<Map<String, dynamic>> members = [];
+    List<Map<String, dynamic>> clients = [];
     String? error;
     bool loading = true;
 
     Future<void> fetchPeople(StateSetter set, String q) async {
       try {
-        final res = await api.listEmployees(q: q.isEmpty ? null : q);
+        // Members and clients come from separate endpoints — fetch both and
+        // show them in two sections.
+        final results = await Future.wait([
+          api.listEmployees(q: q.isEmpty ? null : q),
+          api.listClients(q: q.isEmpty ? null : q).catchError(
+              (_) => <Map<String, dynamic>>[]),
+        ]);
         if (mounted)
           set(() {
-            employees = res;
+            members = results[0].where((u) => u['id'] != me?.id).toList();
+            clients = results[1].where((u) => u['id'] != me?.id).toList();
             loading = false;
             error = null;
           });
@@ -1203,7 +1283,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       backgroundColor: Colors.transparent,
       builder: (ctx) {
         return StatefulBuilder(builder: (ctx, set) {
-          if (employees.isEmpty && loading && error == null) {
+          if (members.isEmpty && clients.isEmpty && loading && error == null) {
             fetchPeople(set, '');
           }
           final c = BestieColors.of(ctx);
@@ -1280,43 +1360,21 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                               iconColor: c.danger,
                               title: 'Could not load',
                               description: error)
-                          : ListView.builder(
-                              controller: sc,
-                              itemCount: employees.length,
-                              itemBuilder: (ctx, i) {
-                                final u = employees[i];
-                                final id = u['id'] as String;
-                                final picked = selected.contains(id);
-                                return CheckboxListTile(
-                                  value: picked,
-                                  onChanged: (_) => set(() {
-                                    picked
-                                        ? selected.remove(id)
-                                        : selected.add(id);
-                                  }),
-                                  controlAffinity:
-                                      ListTileControlAffinity.trailing,
-                                  secondary: BestieAvatar(
-                                    name: (u['name'] ?? '—').toString(),
-                                    imageUrl: u['avatarUrl']?.toString(),
-                                    isClient: u['isClient'] == true,
-                                    size: 36,
-                                  ),
-                                  title: Text((u['name'] ?? '—').toString(),
-                                      style: TextStyle(
-                                          color: c.text,
-                                          fontWeight: BestieTokens.fwSemibold)),
-                                  subtitle: Text(
-                                      (u['customTitle'] ?? u['role'] ?? '')
-                                          .toString()
-                                          .replaceAll('_', ' ')
-                                          .toLowerCase(),
-                                      style: TextStyle(
-                                          color: c.textMuted, fontSize: 12)),
-                                  activeColor: BestieTokens.cBrand,
-                                );
-                              },
-                            ),
+                          : (members.isEmpty && clients.isEmpty)
+                              ? BestieEmptyState(
+                                  icon: Icons.search_off_rounded,
+                                  title: 'No one found',
+                                  description: 'Try a different search.')
+                              : ListView(
+                                  controller: sc,
+                                  children: [
+                                    ..._inviteSection(
+                                        ctx, c, 'Organization members',
+                                        members, selected, set),
+                                    ..._inviteSection(ctx, c, 'Clients',
+                                        clients, selected, set),
+                                  ],
+                                ),
                 ),
                 SafeArea(
                   top: false,
@@ -1714,10 +1772,27 @@ class _CallScreenState extends ConsumerState<CallScreen> {
           ),
         );
       }
-      // Calls: WhatsApp-style — a single big avatar dead-center, nothing else
-      // (name + timer live in the top header).
-      final remoteName = _remoteNames.isNotEmpty
-          ? _remoteNames.values.first
+      // Calls with more than one remote stream (e.g. the same account joined
+      // from two devices, or a group call) → show a tile per participant so
+      // every joined device gets its own icon.
+      if (_remoteUids.length > 1) {
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 112, 20, 220),
+            child: Column(
+                mainAxisAlignment: MainAxisAlignment.center, children: [
+              _voiceParticipantsGrid(),
+              const SizedBox(height: 18),
+              Text(_connectedAt == null ? _status : _formatElapsed(_elapsed),
+                  style: const TextStyle(color: Colors.white70, fontSize: 14)),
+            ]),
+          ),
+        );
+      }
+      // 1:1 call: WhatsApp-style single big avatar dead-center (name + timer
+      // live in the top header).
+      final remoteName = _remoteUids.isNotEmpty
+          ? (_remoteNames[_remoteUids.first] ?? 'Participant')
           : (_channelName ?? 'Connecting');
       return Center(
         child: Padding(
@@ -1784,10 +1859,11 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   }
 
   Widget _participantsStrip({bool showTimer = true}) {
-    final names = <String>[
-      if (_remoteNames.isEmpty && _remoteUids.isNotEmpty) 'Participant',
-      ..._remoteNames.values,
-    ];
+    // One entry per live remote stream (so the same account on two devices
+    // reads as two participants), labelled from the announce map.
+    final names = _remoteUids
+        .map((uid) => _remoteNames[uid] ?? 'Participant')
+        .toList();
     final label = names.isEmpty ? 'Waiting for others' : names.join(', ');
     return Container(
       constraints: const BoxConstraints(maxWidth: 320),
@@ -1825,10 +1901,11 @@ class _CallScreenState extends ConsumerState<CallScreen> {
 
   Widget _voiceParticipantsGrid() {
     final me = ref.read(authStoreProvider).user;
+    // Me first, then one tile per live remote stream (keyed by Agora uid, so
+    // two devices of the same account show as two tiles).
     final names = <String>[
       me?.name ?? 'You',
-      if (_remoteNames.isNotEmpty) ..._remoteNames.values,
-      if (_remoteNames.isEmpty && _remoteUids.isNotEmpty) 'Participant',
+      ..._remoteUids.map((uid) => _remoteNames[uid] ?? 'Participant'),
     ];
     return Wrap(
       alignment: WrapAlignment.center,

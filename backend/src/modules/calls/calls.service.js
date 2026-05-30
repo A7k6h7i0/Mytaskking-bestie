@@ -89,7 +89,9 @@ async function initiate({ initiator, participantIds, kind = 'ONE_TO_ONE', channe
     include: callInclude,
   });
 
-  const tokenForUser = (uid) => agora.generateRtcToken({ channelName: call.channelName, uid });
+  // Wildcard tokens: each device picks its own random uid at join time so the
+  // same account can be in the call from multiple devices without colliding.
+  const tokenForUser = () => agora.generateRtcToken({ channelName: call.channelName, wildcard: true });
   await postCallEventMessage({ call, kind: 'STARTED', actor: initiator });
 
   return {
@@ -104,7 +106,7 @@ async function tokenFor({ callId, user }) {
   const isParticipant = call.participants.some((p) => p.userId === user.id);
   if (!isParticipant) throw Forbidden('Not a participant of this call');
   return {
-    ...agora.generateRtcToken({ channelName: call.channelName, uid: user.id }),
+    ...agora.generateRtcToken({ channelName: call.channelName, wildcard: true }),
     call: withAgoraParticipantUids(call),
   };
 }

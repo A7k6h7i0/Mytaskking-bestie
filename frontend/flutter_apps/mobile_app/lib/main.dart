@@ -414,8 +414,10 @@ class _BestieAppState extends ConsumerState<BestieApp> {
         Permission.camera,
       ];
       // Android 13+ uses granular media perms; older versions use storage.
+      // Bluetooth (Android 12+) lets calls route to a paired headset.
       if (Platform.isAndroid) {
         toRequest.add(Permission.photos);
+        toRequest.add(Permission.bluetoothConnect);
       }
       // Request sequentially-batched; permission_handler shows the native
       // dialogs one after another.

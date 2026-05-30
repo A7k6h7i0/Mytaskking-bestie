@@ -16,14 +16,18 @@ function toAgoraUid(uid) {
   return mapped + 1;
 }
 
-function generateRtcToken({ channelName, uid, role = 'publisher', ttlSeconds }) {
+// `wildcard: true` builds a token bound to uid 0, which Agora accepts for ANY
+// uid the client chooses to join with. This is what lets the SAME account join
+// from two devices — each device picks its own random uid instead of the
+// deterministic per-user uid (which would collide and kick the first device).
+function generateRtcToken({ channelName, uid, role = 'publisher', ttlSeconds, wildcard = false }) {
   if (!config.agora.appId || !config.agora.appCertificate) {
-    return { token: null, channelName, uid, expiresAt: null, disabled: true };
+    return { token: null, channelName, uid: wildcard ? 0 : uid, expiresAt: null, disabled: true };
   }
   const ttl = ttlSeconds || config.agora.tokenTtlSeconds;
   const expireTime = Math.floor(Date.now() / 1000) + ttl;
   const rtcRole = role === 'subscriber' ? RtcRole.SUBSCRIBER : RtcRole.PUBLISHER;
-  const tokenUid = toAgoraUid(uid);
+  const tokenUid = wildcard ? 0 : toAgoraUid(uid);
   const token = RtcTokenBuilder.buildTokenWithUid(
     config.agora.appId,
     config.agora.appCertificate,

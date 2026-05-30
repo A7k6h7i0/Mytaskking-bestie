@@ -29,21 +29,16 @@ class _OngoingCallBarState extends State<OngoingCallBar> {
     super.dispose();
   }
 
-  void _onRevisionChanged() => setState(() {});
-
-  bool _onCallRoute(BuildContext context) {
-    try {
-      final state = GoRouterState.of(context);
-      final loc = state.uri.toString();
-      return loc.startsWith('/call/') || loc.startsWith('/meeting/');
-    } catch (_) {
-      return false;
-    }
+  void _onRevisionChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
-    final showPill = CallSession.isActive && !_onCallRoute(context);
+    // Key off the call screen's own mounted flag — reading GoRouterState from
+    // this app-level builder context (above the Navigator) is unreliable and
+    // was leaving the pill visible while the user was on the call screen.
+    final showPill = CallSession.isActive && !CallSession.onCallScreen;
     return Stack(children: [
       widget.child,
       if (showPill)
