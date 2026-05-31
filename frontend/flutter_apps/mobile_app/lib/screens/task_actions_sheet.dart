@@ -164,10 +164,37 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
               ),
             ],
 
+            // ----- assigned by -----
+            if ((t['createdBy'] as Map?)?['name'] != null) ...[
+              const SizedBox(height: BestieTokens.s4),
+              const Text('Assigned by',
+                  style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: BestieTokens.cTextMuted,
+                      letterSpacing: 0.5)),
+              const SizedBox(height: 8),
+              Row(children: [
+                BestieAvatar(
+                    name: (t['createdBy'] as Map)['name'] ?? '?',
+                    imageUrl: (t['createdBy'] as Map)['avatarUrl'],
+                    isClient: (t['createdBy'] as Map)['isClient'] ?? false,
+                    size: 28),
+                const SizedBox(width: 10),
+                Expanded(
+                    child: BestieUserName(
+                  name: (t['createdBy'] as Map)['name'] ?? '',
+                  isClient: (t['createdBy'] as Map)['isClient'] ?? false,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                )),
+              ]),
+            ],
+
             // ----- assignees -----
             const SizedBox(height: BestieTokens.s4),
-            const Text('Assignees',
-                style: TextStyle(
+            Text(
+                assignees.length == 1 ? 'Assigned to' : 'Assigned to (${assignees.length})',
+                style: const TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
                     color: BestieTokens.cTextMuted,

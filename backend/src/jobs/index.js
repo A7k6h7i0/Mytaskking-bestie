@@ -91,6 +91,15 @@ async function _addMarker(taskId, marker) {
   }).catch(() => {});
 }
 
+// Only people who still owe work on the task — drops anyone who has already
+// COMPLETED or DECLINED their assignment so finished users stop getting
+// "due / overdue" reminders.
+function _pendingAssignees(assignees) {
+  return (assignees || []).filter(
+    (a) => a.state !== 'COMPLETED' && a.state !== 'DECLINED'
+  );
+}
+
 async function _notifyAll(task, assignees, { title, body, data }) {
   const io = global.io || null;
   for (const a of assignees) {
@@ -119,7 +128,7 @@ function taskRemindersJob() {
         dueAt: { gte: new Date(nowMs - 60_000), lte: horizon },
         status: { notIn: ['DONE', 'CANCELLED'] },
       },
-      include: { assignees: { select: { userId: true } } },
+      include: { assignees: { select: { userId: true, state: true } } },
     });
 
     for (const t of upcoming) {
@@ -135,7 +144,10 @@ function taskRemindersJob() {
         const body = phase.id === 'due'
           ? 'Your task deadline just hit. Mark it complete or extend the due date.'
           : `Deadline ${new Date(dueMs).toUTCString()}`;
-        await _notifyAll(t, t.assignees, {
+        // Don't nag people who already finished (or declined) their part.
+        const pending = _pendingAssignees(t.assignees);
+        if (pending.length === 0) continue;
+        await _notifyAll(t, pending, {
           title,
           body,
           data: { reminder: phase.id, dueAt: new Date(dueMs).toISOString() },
@@ -158,7 +170,7 @@ function overdueReminderJob() {
         dueAt: { lt: now },
         status: { notIn: ['DONE', 'CANCELLED'] },
       },
-      include: { assignees: { select: { userId: true } } },
+      include: { assignees: { select: { userId: true, state: true } } },
     });
     for (const t of overdue) {
       const dueMs = new Date(t.dueAt).getTime();
@@ -175,7 +187,9 @@ function overdueReminderJob() {
       const elapsed = hours > 0
         ? `${hours}h ${mins}m`
         : `${mins}m`;
-      await _notifyAll(t, t.assignees, {
+      const pending = _pendingAssignees(t.assignees);
+      if (pending.length === 0) continue;
+      await _notifyAll(t, pending, {
         title: `Still overdue — ${t.title}`,
         body: `${elapsed} past deadline. Mark complete or push the due date.`,
         data: { reminder: 'overdue', overdueMinutes: overdueMin },

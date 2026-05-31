@@ -1,11 +1,8 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
-import '../active_call_state.dart';
 import '../state.dart';
 
 /// Mobile shell with role-aware bottom navigation.
@@ -93,17 +90,11 @@ class ShellScreen extends ConsumerWidget {
       child: Scaffold(
         extendBody: true,
         backgroundColor: colors.bg,
-        body: Stack(
-          children: [
-            Positioned.fill(child: child),
-            Positioned(
-              left: 16,
-              right: 16,
-              bottom: 98 + MediaQuery.of(context).padding.bottom,
-              child: _MiniCallBar(colors: colors),
-            ),
-          ],
-        ),
+        // The ongoing-call indicator is the single global top pill
+        // (OngoingCallBar in main.dart). We deliberately do NOT also render a
+        // bottom mini-bar here — two indicators at once was confusing and the
+        // bottom bar covered the Create button on the task sheet.
+        body: child,
         bottomNavigationBar: _PremiumBottomNav(
           tabs: tabs,
           currentIndex: index,
@@ -227,117 +218,6 @@ class ShellScreen extends ConsumerWidget {
       _MoreEntry(
           Icons.settings_outlined, 'Settings', '/settings', c.textSoft, true),
     ].where((e) => e.visible).toList();
-  }
-}
-
-class _MiniCallBar extends StatefulWidget {
-  final BestieColors colors;
-  const _MiniCallBar({required this.colors});
-
-  @override
-  State<_MiniCallBar> createState() => _MiniCallBarState();
-}
-
-class _MiniCallBarState extends State<_MiniCallBar> {
-  late final Timer _timer;
-
-  @override
-  void initState() {
-    super.initState();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() {});
-    });
-  }
-
-  @override
-  void dispose() {
-    _timer.cancel();
-    super.dispose();
-  }
-
-  String _elapsed(DateTime startedAt) {
-    final d = DateTime.now().difference(startedAt);
-    final h = d.inHours;
-    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return h > 0 ? '$h:$m:$s' : '$m:$s';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<ActiveCallInfo?>(
-      valueListenable: ActiveCallState.current,
-      builder: (context, call, _) {
-        if (call == null) return const SizedBox.shrink();
-        return Material(
-          color: Colors.transparent,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(18),
-            onTap: () => context.go(call.route),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(
-                color: widget.colors.surface.withOpacity(0.96),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: widget.colors.border),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.18),
-                    blurRadius: 18,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
-              ),
-              child: Row(children: [
-                Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: BestieTokens.cSuccess.withOpacity(0.12),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    call.mode == 'voice'
-                        ? Icons.call_rounded
-                        : Icons.videocam_rounded,
-                    color: BestieTokens.cSuccess,
-                    size: 20,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        call.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: widget.colors.text,
-                          fontWeight: BestieTokens.fwBold,
-                          fontSize: 13,
-                        ),
-                      ),
-                      Text(
-                        'In call · ${_elapsed(call.startedAt)}',
-                        style: TextStyle(
-                          color: widget.colors.textMuted,
-                          fontSize: 11,
-                          fontWeight: BestieTokens.fwSemibold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const Icon(Icons.open_in_full_rounded, size: 18),
-              ]),
-            ),
-          ),
-        );
-      },
-    );
   }
 }
 

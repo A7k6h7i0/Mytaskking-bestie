@@ -119,6 +119,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   bool _cameraOff = false;
   CallAudioRoute _route = CallAudioRoute.earpiece;
   bool _sharing = false;
+  bool _reconnecting = false;
   bool _recording = false;
   bool _savingRecording = false;
   String? _recordingPath;
@@ -320,41 +321,76 @@ class _CallScreenState extends ConsumerState<CallScreen> {
         if (!mounted) return;
         setState(() {
           _joined = true;
-          _status = _remoteUids.isEmpty ? 'Waiting for others…' : 'Connected';
+          _reconnecting = false;
+          // Before anyone answers we're ringing them, not connected.
+          _status = _remoteUids.isEmpty ? 'Ringing…' : 'Connected';
         });
         _publishActiveCallState();
         _showOngoingCallNotification();
       },
       onUserJoined: (conn, remoteUid, elapsed) {
         if (!mounted) return;
-        setState(() => _remoteUids.add(remoteUid));
+        setState(() {
+          _remoteUids.add(remoteUid);
+          _reconnecting = false;
+        });
         _markRemoteConnected();
+        _reassertAudio();
         _publishActiveCallState();
         _showOngoingCallNotification();
       },
       onUserOffline: (conn, remoteUid, reason) {
         if (!mounted) return;
-        setState(() => _status = 'Participant reconnecting…');
+        setState(() => _status =
+            _connectedAt == null ? 'Ringing…' : 'Reconnecting…');
         // Do not remove the participant immediately. Agora also fires this
         // for temporary network drops; the backend call.ended event is the
         // source of truth for a real hang-up.
       },
+      onUserMuteAudio: (conn, remoteUid, muted) {
+        // Make sure we're subscribed to their audio when they unmute — guards
+        // against the "no audio for a while then it comes back" dropouts.
+        if (!muted) {
+          try {
+            engine.muteRemoteAudioStream(uid: remoteUid, mute: false);
+          } catch (_) {}
+        }
+      },
       onConnectionLost: (conn) {
         if (!mounted) return;
-        setState(() => _status = 'Network lost · reconnecting…');
+        setState(() {
+          _reconnecting = true;
+          _status = 'Reconnecting…';
+        });
       },
       onRejoinChannelSuccess: (conn, elapsed) {
         if (!mounted) return;
-        setState(() => _status = 'Connected');
+        setState(() {
+          _reconnecting = false;
+          _status = _remoteUids.isEmpty ? 'Ringing…' : 'Connected';
+        });
+        // Audio engine often needs a nudge after a rejoin or the call stays
+        // silent for both sides until something else wakes it.
+        _reassertAudio();
       },
       onConnectionStateChanged: (conn, state, reason) {
         if (!mounted) return;
         if (state == ConnectionStateType.connectionStateReconnecting) {
-          setState(() => _status = 'Network issue · reconnecting…');
+          setState(() {
+            _reconnecting = true;
+            _status = 'Reconnecting…';
+          });
         } else if (state == ConnectionStateType.connectionStateConnected) {
-          setState(() => _status = 'Connected');
+          setState(() {
+            _reconnecting = false;
+            _status = _remoteUids.isEmpty ? 'Ringing…' : 'Connected';
+          });
+          _reassertAudio();
         } else if (state == ConnectionStateType.connectionStateFailed) {
-          setState(() => _status = 'Network failed · tap Retry');
+          setState(() {
+            _reconnecting = true;
+            _status = 'Reconnecting…';
+          });
         }
       },
       onTokenPrivilegeWillExpire: (conn, t) async {
@@ -366,6 +402,16 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       },
       onError: (err, msg) {
         if (!mounted) return;
+        // A mid-call native error should NOT blank the whole call screen — keep
+        // the call UI up and show a reconnect state. Only surface a hard error
+        // (with Retry) if we never managed to join in the first place.
+        if (_joined) {
+          setState(() {
+            _reconnecting = true;
+            _status = 'Reconnecting…';
+          });
+          return;
+        }
         setState(() {
           _error =
               'Agora native error ${err.value()}${msg.isNotEmpty ? ' — $msg' : ''}';
@@ -380,6 +426,21 @@ class _CallScreenState extends ConsumerState<CallScreen> {
         _timer?.cancel();
       },
     ));
+  }
+
+  /// Re-enable + re-route audio after a (re)connect. Without this the call can
+  /// stay silent for both parties for a while after a network blip until the
+  /// engine recovers on its own.
+  Future<void> _reassertAudio() async {
+    final engine = _engine;
+    if (engine == null) return;
+    try {
+      await engine.enableAudio();
+      await engine.muteAllRemoteAudioStreams(false);
+      await engine.muteLocalAudioStream(_muted);
+      await _applyAudioRoute(_route);
+      await engine.adjustPlaybackSignalVolume(160);
+    } catch (_) {/* best-effort recovery */}
   }
 
   Future<void> _bootstrap() async {
@@ -435,7 +496,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
 
       // 2. Fetch token + appId from the backend.
       step = 'token-fetch';
-      setState(() => _status = 'Connecting…');
+      setState(() => _status = _isMeeting ? 'Joining…' : 'Calling…');
       final tokenResp = await _fetchToken();
       _callMeta = tokenResp;
       final appId = tokenResp['appId']?.toString();
@@ -1043,6 +1104,42 @@ class _CallScreenState extends ConsumerState<CallScreen> {
 
         Positioned(
             top: topInset + 8, left: 8, right: 8, child: _header()),
+        // Network-trouble banner — keeps the call UI visible (never blanks)
+        // and tells the user to check their connection while Agora reconnects.
+        if (_reconnecting && _error == null)
+          Positioned(
+            top: topInset + 64,
+            left: 16,
+            right: 16,
+            child: IgnorePointer(
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFB45309).withOpacity(0.95),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Row(mainAxisSize: MainAxisSize.min, children: const [
+                  SizedBox(
+                    width: 14, height: 14,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation(Colors.white)),
+                  ),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Reconnecting… check your internet connection',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 12.5,
+                          fontWeight: BestieTokens.fwSemibold),
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+          ),
         // Controls fade + slide up on entrance.
         Positioned(
           bottom: 22 + bottomInset,
