@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Search, Trash2, UserX, Calendar } from 'lucide-react';
+import { Plus, Search, Trash2, UserX } from 'lucide-react';
 import dayjs from 'dayjs';
 import { api } from '@/services/api';
 import { Avatar } from '@/components/ui/Avatar';

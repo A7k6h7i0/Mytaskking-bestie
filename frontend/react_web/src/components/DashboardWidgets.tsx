@@ -55,7 +55,7 @@ export function DashboardWidgets() {
     onError: () => toast.error('Could not save dashboard'),
   });
 
-  const widgets = editing ? draft : (data?.items || []);
+  const widgets = useMemo(() => (editing ? draft : (data?.items || [])), [data?.items, draft, editing]);
 
   function move(from: number, to: number) {
     setDraft((prev) => {

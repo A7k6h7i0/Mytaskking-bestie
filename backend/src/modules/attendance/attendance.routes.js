@@ -65,11 +65,6 @@ function parseWordCount(text) {
     .length;
 }
 
-function ensureMinimumWords(text, label) {
-  const count = parseWordCount(text);
-  return count;
-}
-
 function ensureMinimumWordsWithConfig(text, label, minRequiredWords) {
   const count = parseWordCount(text);
   if (count < minRequiredWords) {

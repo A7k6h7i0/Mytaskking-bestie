@@ -40,7 +40,7 @@ export function ParticleField({
     const canvas = canvasRef.current;
     if (!canvas || reduced) return;
     const ctx = canvas.getContext('2d')!;
-    let dpr = window.devicePixelRatio || 1;
+    const dpr = window.devicePixelRatio || 1;
     let raf = 0;
     let particles: P[] = [];
     let alive = true;

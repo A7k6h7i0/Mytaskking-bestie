@@ -3,7 +3,7 @@
 const logger = require('../utils/logger');
 const { HttpError } = require('../utils/errors');
 
-function notFound(req, res, next) {
+function notFound(req, res, _next) {
   res.status(404).json({ error: { code: 'not_found', message: `Route ${req.method} ${req.path} not found` } });
 }
 

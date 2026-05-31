@@ -15,7 +15,7 @@ async function requireAuth(req, _res, next) {
     let payload;
     try {
       payload = verifyAccessToken(token);
-    } catch (e) {
+    } catch {
       throw Unauthorized('Invalid or expired token');
     }
 

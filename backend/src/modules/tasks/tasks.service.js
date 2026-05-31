@@ -128,7 +128,7 @@ async function create(input, creator) {
 }
 
 async function update(id, input, user) {
-  const existing = await getById(id, user);
+  await getById(id, user);
   const data = { ...input };
   delete data.assigneeIds;
   if (data.dueAt) data.dueAt = new Date(data.dueAt);

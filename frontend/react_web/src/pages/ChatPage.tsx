@@ -126,7 +126,7 @@ export default function ChatPage() {
     queryKey: ['channels.mine'],
     queryFn: async () => (await api.get('/channels')).data,
   });
-  const channels = channelsData?.items || [];
+  const channels = useMemo(() => channelsData?.items || [], [channelsData?.items]);
   const active = channels.find((c) => c.id === channelId) || channels[0];
   const directPeer = useMemo(() => {
     if (active?.kind !== 'DM') return null;
@@ -498,9 +498,10 @@ export default function ChatPage() {
   }
 
   useEffect(() => {
+    const uploadControllers = uploadControllersRef.current;
     return () => {
       mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
-      Object.values(uploadControllersRef.current).forEach((controller) => controller.abort());
+      Object.values(uploadControllers).forEach((controller) => controller.abort());
     };
   }, []);
 

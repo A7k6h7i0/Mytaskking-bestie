@@ -2,7 +2,7 @@
 
 const helmet = require('helmet');
 const cache = require('../services/cache');
-const { TooMany, Forbidden } = require('../utils/errors');
+const { TooMany } = require('../utils/errors');
 
 /**
  * Production-grade security middleware bundle.
@@ -72,7 +72,7 @@ function bruteForce({ key = 'default', threshold = 8, window = 300, block = 900 
         },
       };
       next();
-    } catch (err) {
+    } catch {
       next();
     }
   };

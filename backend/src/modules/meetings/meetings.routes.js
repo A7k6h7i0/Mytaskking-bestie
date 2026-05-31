@@ -20,7 +20,10 @@ const PUBLIC_BASE_URL = process.env.MEETING_PUBLIC_URL || config.cors.webOrigin?
 
 function serializeRoom(room) {
   if (!room) return room;
-  const { participants, shareEvents, guestRequests, ...rest } = room;
+  const rest = { ...room };
+  delete rest.participants;
+  delete rest.shareEvents;
+  delete rest.guestRequests;
   return {
     ...rest,
     shareUrl: `${PUBLIC_BASE_URL.replace(/\/$/, '')}/meetings/join/${rest.slug}`,

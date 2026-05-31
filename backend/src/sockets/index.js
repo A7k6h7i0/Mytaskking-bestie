@@ -48,7 +48,7 @@ module.exports = function initSockets(server) {
       }
       socket.user = user;
       next();
-    } catch (e) {
+    } catch {
       next(new Error('unauthorized'));
     }
   });

@@ -31,7 +31,8 @@ class DashboardScreen extends ConsumerWidget {
         onRefresh: () async {
           ref.invalidate(_dashboardAttendanceProvider);
           ref.invalidate(tasksKanbanProvider);
-          await ref.refresh(dashboardProvider.future);
+          ref.invalidate(dashboardProvider);
+          await ref.read(dashboardProvider.future);
         },
         child: overview.when(
           loading: () => const Center(child: BestieSpinner()),

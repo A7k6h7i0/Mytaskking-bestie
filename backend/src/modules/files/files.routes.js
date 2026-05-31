@@ -46,7 +46,7 @@ router.post(
         },
       });
     } else if (r2.isConfigured()) {
-      const safeName = (req.file.originalname || 'file').replace(/[^\w.\-]/g, '_');
+      const safeName = (req.file.originalname || 'file').replace(/[^\w.-]/g, '_');
       const key = `files/${Date.now()}-${safeName}`;
       const put = await r2.putBuffer({ buffer: req.file.buffer, key, contentType: req.file.mimetype });
       asset = await prisma.fileAsset.create({

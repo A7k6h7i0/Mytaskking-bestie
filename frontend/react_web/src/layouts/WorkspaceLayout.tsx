@@ -84,11 +84,7 @@ export default function WorkspaceLayout() {
   const clearPendingCall = useCallStore((s) => s.clearPending);
   const qc = useQueryClient();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  if (!user) return null;
-  const allowed = ALLOWED[user.role] || [];
-  const nav = NAV.filter((n) => allowed.includes(n.to));
-  const activeNav = nav.find((n) => location.pathname === n.to || location.pathname.startsWith(`${n.to}/`));
+  const userId = user?.id;
 
   useEffect(() => {
     setSidebarOpen(false);
@@ -123,17 +119,17 @@ export default function WorkspaceLayout() {
       s.off('call.invited', onIncoming);
       s.off('call.declined', onDeclined);
     };
-  }, []);
+  }, [clearPendingCall, pendingCall?.call?.id, setPendingCall]);
 
   useEffect(() => {
     const s = getSocket();
-    if (!s) return;
+    if (!s || !userId) return;
 
     const onNotification = () => {
       qc.invalidateQueries({ queryKey: ['notifications.grouped'] });
     };
     const onMeetingParticipantJoined = (payload: MeetingParticipantJoinedEvent) => {
-      if (payload?.participant?.userId === user.id) return;
+      if (payload?.participant?.userId === userId) return;
       qc.invalidateQueries({ queryKey: ['meetings.mine'] });
       qc.invalidateQueries({ queryKey: ['meeting.public.lobby', payload.slug] });
       toast.info(
@@ -144,7 +140,7 @@ export default function WorkspaceLayout() {
     };
     const onChatMessage = (message: ChatMessageEvent) => {
       if (!message?.channelId) return;
-      const isMine = message.authorId === user.id;
+      const isMine = message.authorId === userId;
       const isActiveChat = location.pathname === `/chat/${message.channelId}`;
 
       qc.setQueryData<ChannelListData>(['channels.mine'], (prev) => {
@@ -176,7 +172,12 @@ export default function WorkspaceLayout() {
       s.off('meeting.participant.joined', onMeetingParticipantJoined);
       s.off('chat.message.created', onChatMessage);
     };
-  }, [location.pathname, qc, user.id]);
+  }, [location.pathname, qc, userId]);
+
+  if (!user) return null;
+  const allowed = ALLOWED[user.role] || [];
+  const nav = NAV.filter((n) => allowed.includes(n.to));
+  const activeNav = nav.find((n) => location.pathname === n.to || location.pathname.startsWith(`${n.to}/`));
 
   function answerPendingCall() {
     if (!pendingCall?.call?.id) return;

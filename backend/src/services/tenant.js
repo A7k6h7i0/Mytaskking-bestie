@@ -28,7 +28,7 @@ async function ensureDefaultTenant() {
       },
     });
     logger.info({ id: DEFAULT_TENANT_ID }, 'tenant.default.created');
-  } catch (err) {
+  } catch {
     // race: another worker created it first — ignore
   }
 }

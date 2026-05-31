@@ -96,7 +96,6 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
   String? _unreadBoundaryId;
   int _unreadAtOpen = 0;
   bool _boundaryComputed = false;
-  bool _scrolledToUnread = false;
 
   // Typing-indicator state. We track which remote users are mid-typing
   // (keyed by userId) and bump a per-user timer on every `chat.typing`
@@ -134,10 +133,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
   }
 
   void _markRead() {
-    ref
-        .read(apiProvider)
-        .markChannelRead(widget.channelId)
-        .then((_) {
+    ref.read(apiProvider).markChannelRead(widget.channelId).then((_) {
       if (mounted) ref.invalidate(channelsProvider);
     }).catchError((_) {/* best-effort */});
   }
@@ -162,7 +158,10 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     try {
       final prefs = await SharedPreferences.getInstance();
       final draft = prefs.getString('chat.draft.${widget.channelId}');
-      if (draft != null && draft.isNotEmpty && _composer.text.isEmpty && mounted) {
+      if (draft != null &&
+          draft.isNotEmpty &&
+          _composer.text.isEmpty &&
+          mounted) {
         _composer.text = draft;
       }
     } catch (_) {/* draft is best-effort */}
@@ -234,18 +233,19 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
   Future<void> _loadMoreOlder() async {
     if (_loadingOlder || !_hasMoreOlder) return;
     // Need an oldest-known id to ask "give me older than this".
-    final current = ref.read(messagesProvider(widget.channelId)).asData?.value
-            ?? const <Map<String, dynamic>>[];
+    final current =
+        ref.read(messagesProvider(widget.channelId)).asData?.value ??
+            const <Map<String, dynamic>>[];
     final combined = [..._olderMessages, ...current];
     if (combined.isEmpty) return;
-    combined.sort((a, b) =>
-        '${a['createdAt']}'.compareTo('${b['createdAt']}'));
+    combined.sort((a, b) => '${a['createdAt']}'.compareTo('${b['createdAt']}'));
     final cursor = combined.first['id']?.toString();
     if (cursor == null) return;
     setState(() => _loadingOlder = true);
     try {
-      final data =
-          await ref.read(apiProvider).listMessages(widget.channelId, cursor: cursor);
+      final data = await ref
+          .read(apiProvider)
+          .listMessages(widget.channelId, cursor: cursor);
       final items =
           (data['items'] as List? ?? const []).cast<Map<String, dynamic>>();
       if (!mounted) return;
@@ -1019,8 +1019,18 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
       return 'last seen ${dow[dt.weekday - 1]} $clock';
     }
     const months = [
-      'Jan','Feb','Mar','Apr','May','Jun',
-      'Jul','Aug','Sep','Oct','Nov','Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return 'last seen ${dt.day} ${months[dt.month - 1]}';
   }
@@ -1056,8 +1066,16 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     final q = query.toLowerCase();
     // Broadcast mentions surface first when the query is empty or matches.
     final broadcast = <Map<String, dynamic>>[
-      {'name': 'everyone', '_broadcast': true, '_desc': 'Notify the whole channel'},
-      {'name': 'here', '_broadcast': true, '_desc': 'Notify members who are active'},
+      {
+        'name': 'everyone',
+        '_broadcast': true,
+        '_desc': 'Notify the whole channel'
+      },
+      {
+        'name': 'here',
+        '_broadcast': true,
+        '_desc': 'Notify members who are active'
+      },
     ].where((b) => q.isEmpty || (b['name'] as String).startsWith(q)).toList();
     final matches = [
       ...broadcast,
@@ -1065,11 +1083,10 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
           .map((m) => (m['user'] as Map?)?.cast<String, dynamic>())
           .whereType<Map<String, dynamic>>()
           .where((u) {
-            if (me?.id != null && u['id'] == me!.id) return false;
-            final name = (u['name'] ?? '').toString().toLowerCase();
-            return q.isEmpty || name.contains(q);
-          })
-          .take(5),
+        if (me?.id != null && u['id'] == me!.id) return false;
+        final name = (u['name'] ?? '').toString().toLowerCase();
+        return q.isEmpty || name.contains(q);
+      }).take(5),
     ];
     if (matches.isEmpty) return const SizedBox.shrink();
     return Container(
@@ -1416,7 +1433,6 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     );
   }
 
-  @override
   /// Pop back to wherever we came from. When this screen was pushed (the
   /// normal flow) that's the previous screen; if it was reached via a deep
   /// link / stack-replace there's nothing to pop, so fall back to the chat
@@ -1429,6 +1445,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     }
   }
 
+  @override
   Widget build(BuildContext context) {
     final colors = BestieColors.of(context);
     final messages = ref.watch(messagesProvider(widget.channelId));
@@ -1550,8 +1567,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                       filled: true,
                       fillColor: colors.surface2,
                       border: OutlineInputBorder(
-                        borderRadius:
-                            BorderRadius.circular(BestieTokens.rPill),
+                        borderRadius: BorderRadius.circular(BestieTokens.rPill),
                         borderSide: BorderSide.none,
                       ),
                     ),
@@ -1580,8 +1596,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                   .whereType<String>()
                   .toSet();
               final mergedRaw = [
-                ..._olderMessages.where(
-                    (m) => !knownIds.contains(m['id']?.toString())),
+                ..._olderMessages
+                    .where((m) => !knownIds.contains(m['id']?.toString())),
                 ...serverItemsRaw,
               ];
               // "Delete for me" — drop locally-hidden ids before any further work.
@@ -1601,8 +1617,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
               if (_searching && _searchQuery.isNotEmpty) {
                 final q = _searchQuery.toLowerCase();
                 serverItems = serverItems
-                    .where((m) =>
-                        ('${m['body'] ?? ''}').toLowerCase().contains(q))
+                    .where(
+                        (m) => ('${m['body'] ?? ''}').toLowerCase().contains(q))
                     .toList();
               }
               // Mark inbound messages as DELIVERED + SEEN now that they're on screen.
@@ -1714,7 +1730,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                         padding: EdgeInsets.symmetric(vertical: 12),
                         child: Center(
                           child: SizedBox(
-                            width: 16, height: 16,
+                            width: 16,
+                            height: 16,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           ),
                         ),
@@ -1753,13 +1770,13 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                       : null;
 
                   final bubble = kindStr == 'SYSTEM' || kindStr == 'CALL_EVENT'
-                      ? _SystemBubble(message: m, endedCallIds: endedCallIds) as Widget
+                      ? _SystemBubble(message: m, endedCallIds: endedCallIds)
+                          as Widget
                       : _MessageBubble(message: m, author: author, mine: mine);
 
                   // "N new messages" unread divider — rendered above the
                   // boundary message (so, below it in the reversed list).
-                  final isBoundary =
-                      m['id']?.toString() == _unreadBoundaryId;
+                  final isBoundary = m['id']?.toString() == _unreadBoundaryId;
                   final unreadDivider = isBoundary
                       ? _UnreadDivider(count: _unreadAtOpen, colors: colors)
                       : null;
@@ -1948,6 +1965,7 @@ class _Composer extends StatefulWidget {
   final Future<void> Function() onStartRecording;
   final Future<String?> Function() onStopRecording;
   final Future<void> Function(String path) onSendVoice;
+
   /// Returns an AI-corrected version of [text] (or null on failure / no
   /// change). Wired by the parent to the /chat/ai/correct endpoint.
   final Future<String?> Function(String text) onCorrect;
@@ -2069,7 +2087,9 @@ class _ComposerState extends State<_Composer> {
 
   Future<void> _stopDictation() async {
     if (mounted) setState(() => _dictating = false);
-    try { await _speech.stop(); } catch (_) {}
+    try {
+      await _speech.stop();
+    } catch (_) {}
   }
 
   /// Run the composer text through the AI grammar/clarity fixer and replace
@@ -2082,8 +2102,7 @@ class _ComposerState extends State<_Composer> {
       final corrected = await widget.onCorrect(text);
       if (!mounted) return;
       if (corrected == null) {
-        bestieToast(context, 'Looks good already',
-            kind: BestieToastKind.info);
+        bestieToast(context, 'Looks good already', kind: BestieToastKind.info);
       } else {
         widget.controller.value = TextEditingValue(
           text: corrected,
@@ -2254,7 +2273,8 @@ class _ComposerState extends State<_Composer> {
                 ? const Padding(
                     padding: EdgeInsets.all(9),
                     child: SizedBox(
-                        width: 18, height: 18,
+                        width: 18,
+                        height: 18,
                         child: CircularProgressIndicator(strokeWidth: 2)))
                 : pillIcon(
                     Icons.auto_fix_high_rounded,
@@ -2279,7 +2299,8 @@ class _ComposerState extends State<_Composer> {
           : GestureDetector(
               onLongPress: _hasText ? null : _startRecording,
               child: Container(
-                width: 48, height: 48,
+                width: 48,
+                height: 48,
                 decoration: BoxDecoration(
                   color: _dictating ? colors.danger : BestieTokens.cBrand,
                   shape: BoxShape.circle,
@@ -2292,9 +2313,8 @@ class _ComposerState extends State<_Composer> {
                     color: Colors.white,
                     size: 22,
                   ),
-                  onPressed: _hasText
-                      ? () => widget.onSend()
-                      : _toggleDictation,
+                  onPressed:
+                      _hasText ? () => widget.onSend() : _toggleDictation,
                 ),
               ),
             ),
@@ -2820,8 +2840,7 @@ class _MessageBubble extends ConsumerWidget {
                   ),
                   if (mine)
                     ListTile(
-                      leading:
-                          Icon(Icons.done_all_rounded, color: c.textSoft),
+                      leading: Icon(Icons.done_all_rounded, color: c.textSoft),
                       title: Text('Seen by', style: TextStyle(color: c.text)),
                       onTap: () {
                         Navigator.pop(ctx);
@@ -2839,8 +2858,8 @@ class _MessageBubble extends ConsumerWidget {
                   ),
                   if (canDeleteForEveryone)
                     ListTile(
-                      leading: Icon(Icons.delete_outline_rounded,
-                          color: c.danger),
+                      leading:
+                          Icon(Icons.delete_outline_rounded, color: c.danger),
                       title: Text('Delete for everyone',
                           style: TextStyle(
                               color: c.danger,
@@ -2851,8 +2870,8 @@ class _MessageBubble extends ConsumerWidget {
                       },
                     ),
                   ListTile(
-                    leading: Icon(Icons.visibility_off_outlined,
-                        color: c.textSoft),
+                    leading:
+                        Icon(Icons.visibility_off_outlined, color: c.textSoft),
                     title:
                         Text('Delete for me', style: TextStyle(color: c.text)),
                     onTap: () {
@@ -2898,9 +2917,8 @@ class _MessageBubble extends ConsumerWidget {
       channels = await api.listChannels();
     } catch (_) {/* empty list shows a friendly empty state */}
     final selfChannelId = message['channelId']?.toString();
-    final pickable = channels
-        .where((c) => c['id']?.toString() != selfChannelId)
-        .toList();
+    final pickable =
+        channels.where((c) => c['id']?.toString() != selfChannelId).toList();
     if (!context.mounted) return;
 
     final picked = await showModalBottomSheet<Map<String, dynamic>>(
@@ -2914,8 +2932,8 @@ class _MessageBubble extends ConsumerWidget {
       builder: (ctx) => SafeArea(
         top: false,
         child: ConstrainedBox(
-          constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(ctx).size.height * 0.78),
+          constraints:
+              BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.78),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
@@ -2986,7 +3004,8 @@ class _MessageBubble extends ConsumerWidget {
     try {
       final body = (message['body'] ?? '').toString();
       final attachments =
-          (message['attachments'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+          (message['attachments'] as List?)?.cast<Map<String, dynamic>>() ??
+              const [];
       final attachmentIds = attachments
           .map((a) => a['id']?.toString())
           .whereType<String>()
@@ -3030,10 +3049,12 @@ class _MessageBubble extends ConsumerWidget {
             .toList() ??
         const <Map<String, dynamic>>[];
     final receipts =
-        (message['receipts'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+        (message['receipts'] as List?)?.cast<Map<String, dynamic>>() ??
+            const [];
     final byUser = <String, String>{
       for (final r in receipts)
-        if (r['userId'] != null) r['userId'].toString(): (r['state'] ?? 'SENT').toString(),
+        if (r['userId'] != null)
+          r['userId'].toString(): (r['state'] ?? 'SENT').toString(),
     };
 
     final seen = <Map<String, dynamic>>[];
@@ -3061,8 +3082,8 @@ class _MessageBubble extends ConsumerWidget {
       builder: (ctx) => SafeArea(
         top: false,
         child: ConstrainedBox(
-          constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(ctx).size.height * 0.7),
+          constraints:
+              BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.7),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
@@ -3084,7 +3105,8 @@ class _MessageBubble extends ConsumerWidget {
                 children: [
                   if (seen.isNotEmpty)
                     _seenSection(c, 'Read by', Icons.done_all_rounded,
-                        c.brandStrong, seen, byUser, showTime: true),
+                        c.brandStrong, seen, byUser,
+                        showTime: true),
                   if (delivered.isNotEmpty)
                     _seenSection(c, 'Delivered to', Icons.done_all_outlined,
                         c.textSoft, delivered, byUser),
@@ -4179,7 +4201,6 @@ class _RecentEmojis {
   }
 }
 
-
 /// Fullscreen image viewer with pinch-to-zoom + pan, double-tap to reset,
 /// hero animation from the inline thumbnail, and a translucent close
 /// button. Wraps an InteractiveViewer so pinch / pan / fling all work
@@ -4221,13 +4242,15 @@ class _FullscreenImage extends StatelessWidget {
                     loadingBuilder: (_, child, progress) {
                       if (progress == null) return child;
                       return const SizedBox(
-                        width: 56, height: 56,
+                        width: 56,
+                        height: 56,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       );
                     },
                     errorBuilder: (_, __, ___) => const Icon(
                       Icons.broken_image_outlined,
-                      color: Colors.white60, size: 64,
+                      color: Colors.white60,
+                      size: 64,
                     ),
                   ),
                 ),
@@ -4250,10 +4273,12 @@ class _FullscreenImage extends StatelessWidget {
         if (name.isNotEmpty)
           Positioned(
             bottom: MediaQuery.of(context).padding.bottom + 16,
-            left: 16, right: 16,
+            left: 16,
+            right: 16,
             child: Center(
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
                   color: Colors.black54,
                   borderRadius: BorderRadius.circular(999),
@@ -4279,6 +4304,7 @@ class _SwipeToReply extends StatefulWidget {
   final Widget child;
   final VoidCallback onReply;
   final bool enabled;
+
   /// Right-aligned (my own) bubbles swipe LEFT to reply; left-aligned
   /// (incoming) bubbles swipe RIGHT — mirrors WhatsApp so the gesture feels
   /// natural on both sides. Defaults to the incoming (swipe-right) behavior.
@@ -4310,7 +4336,8 @@ class _SwipeToReplyState extends State<_SwipeToReply>
     });
 
   // For mine: valid drag is leftward (negative). For incoming: rightward.
-  double get _signedDx => widget.mine ? _dx.clamp(-_maxDrag, 0.0) : _dx.clamp(0.0, _maxDrag);
+  double get _signedDx =>
+      widget.mine ? _dx.clamp(-_maxDrag, 0.0) : _dx.clamp(0.0, _maxDrag);
   double get _progress => (_signedDx.abs() / _threshold).clamp(0.0, 1.0);
 
   @override
@@ -4327,9 +4354,7 @@ class _SwipeToReplyState extends State<_SwipeToReply>
   void _onDragUpdate(DragUpdateDetails d) {
     if (!widget.enabled) return;
     var next = _dx + d.delta.dx;
-    next = widget.mine
-        ? next.clamp(-_maxDrag, 0.0)
-        : next.clamp(0.0, _maxDrag);
+    next = widget.mine ? next.clamp(-_maxDrag, 0.0) : next.clamp(0.0, _maxDrag);
     if (next.abs() >= _threshold && !_triggered) {
       _triggered = true;
       HapticFeedback.selectionClick();
@@ -4355,7 +4380,8 @@ class _SwipeToReplyState extends State<_SwipeToReply>
         child: Transform.scale(
           scale: 0.6 + 0.4 * progress,
           child: Container(
-            width: 30, height: 30,
+            width: 30,
+            height: 30,
             decoration: BoxDecoration(
               color: c.brand.withOpacity(0.16),
               shape: BoxShape.circle,
@@ -4426,8 +4452,7 @@ class _LinkPreview extends ConsumerWidget {
           child: ClipRRect(
             borderRadius: BorderRadius.circular(BestieTokens.rSm),
             child: Container(
-              constraints:
-                  const BoxConstraints(maxWidth: 280, minWidth: 200),
+              constraints: const BoxConstraints(maxWidth: 280, minWidth: 200),
               decoration: BoxDecoration(
                 color: mine ? Colors.white.withOpacity(0.12) : c.surface2,
                 border: Border(

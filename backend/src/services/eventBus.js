@@ -115,7 +115,7 @@ function startDispatcher({ batchSize = 50, intervalMs = 2_000 } = {}) {
   logger.info({ transport: TRANSPORT, intervalMs }, 'eventBus.dispatcher.started');
 }
 
-async function transportSend(row) {
+async function transportSend(_row) {
   switch (TRANSPORT) {
     case 'kafka':
     case 'rabbitmq':
