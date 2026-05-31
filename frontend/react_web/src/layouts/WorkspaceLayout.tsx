@@ -196,6 +196,9 @@ export default function WorkspaceLayout() {
     await api.post('/auth/logout', { refreshToken }).catch(() => {});
     disconnectSocket();
     clear();
+    // Drop all cached queries so the next user on this machine never briefly
+    // sees the previous account's channels/tasks/dashboard data.
+    qc.clear();
     navigate('/login', { replace: true });
   }
 

@@ -33,6 +33,11 @@ async function refreshAccessToken(): Promise<string | null> {
   } catch {
     clear();
     return null;
+  } finally {
+    // Clear the shared in-flight promise here (one place) so concurrent 401s
+    // all await the SAME refresh. Resetting it per-awaiter let a later 401
+    // start a second refresh against an already-rotated refresh token.
+    refreshPromise = null;
   }
 }
 
@@ -44,7 +49,6 @@ api.interceptors.response.use(
       original._retried = true;
       refreshPromise = refreshPromise || refreshAccessToken();
       const newToken = await refreshPromise;
-      refreshPromise = null;
       if (newToken) {
         original.headers = original.headers || {};
         (original.headers as Record<string, string>).Authorization = `Bearer ${newToken}`;

@@ -79,15 +79,21 @@ export default function TasksPage() {
       toast.info(`${p.assignerName} assigned work to your team`, p.task.title);
       qc.invalidateQueries({ queryKey: ['notifications.grouped'] });
     };
+    // Named handlers so cleanup removes them — previously task.created/moved
+    // used anonymous closures that could never be .off()'d, leaking a pair of
+    // listeners (and a refetch each) on every navigation back to Tasks.
+    const onKanbanInvalidate = () => qc.invalidateQueries({ queryKey: ['tasks.kanban'] });
     s.on('task.assigned', onAssigned);
     s.on('task.supervisor_assigned', onSupervisorAssigned);
-    s.on('task.created', () => qc.invalidateQueries({ queryKey: ['tasks.kanban'] }));
-    s.on('task.moved',   () => qc.invalidateQueries({ queryKey: ['tasks.kanban'] }));
+    s.on('task.created', onKanbanInvalidate);
+    s.on('task.moved', onKanbanInvalidate);
     s.on('task.assignment.changed', onAssignmentChanged);
     s.on('task.auto_promoted', onAutoPromoted);
     return () => {
       s.off('task.assigned', onAssigned);
       s.off('task.supervisor_assigned', onSupervisorAssigned);
+      s.off('task.created', onKanbanInvalidate);
+      s.off('task.moved', onKanbanInvalidate);
       s.off('task.assignment.changed', onAssignmentChanged);
       s.off('task.auto_promoted', onAutoPromoted);
     };

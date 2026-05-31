@@ -25,7 +25,7 @@ export default function CallsPage() {
       </header>
 
       <div className="cl__list">
-        {data?.items.map((c) => (
+        {(data?.items || []).map((c) => (
           <article key={c.id} className="cl__row">
             <div className="cl__row-icon">
               {c.kind === 'GROUP' ? <Users size={18} /> : c.status === 'MISSED' ? <PhoneIncoming size={18} /> : <Phone size={18} />}

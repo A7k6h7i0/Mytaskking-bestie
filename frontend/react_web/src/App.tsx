@@ -9,6 +9,7 @@ import ChannelsPage from '@/pages/ChannelsPage';
 import TasksPage from '@/pages/TasksPage';
 import ReportsPage from '@/pages/ReportsPage';
 import CallsPage from '@/pages/CallsPage';
+import CallRoomPage from '@/pages/CallRoomPage';
 import TelecallerPage from '@/pages/TelecallerPage';
 import EmployeesPage from '@/pages/EmployeesPage';
 import ClientsPage from '@/pages/ClientsPage';
@@ -80,6 +81,7 @@ export default function App() {
           <Route path="/tasks" element={<TasksPage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/calls" element={<CallsPage />} />
+          <Route path="/calls/live/:callId" element={<CallRoomPage />} />
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/saved" element={<SavedPage />} />
           <Route path="/settings" element={<SettingsPage />} />

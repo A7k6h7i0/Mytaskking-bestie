@@ -10,8 +10,15 @@ import { UserName } from '@/components/ui/UserName';
 import { toast } from '@/components/Toast';
 import { useAuthStore } from '@/store/auth';
 import { useCallStore } from '@/store/calls';
+import { getSocket } from '@/services/socket';
 import { Input } from '@/components/ui/Input';
 import './call-room.css';
+
+// Each device joins Agora with its own random uid (the backend hands out
+// wildcard tokens), so the same account can be in a call from several devices.
+function randomAgoraUid(): number {
+  return 1 + Math.floor(Math.random() * 2147483646);
+}
 
 type CallToken = {
   token: string;
@@ -68,6 +75,10 @@ export default function CallRoomPage() {
   const localVideoRef = useRef<HTMLDivElement | null>(null);
   const remoteVideoRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const ringtoneRef = useRef<{ stop: () => void } | null>(null);
+  const myUidRef = useRef<number>(0);
+  // Maps a remote Agora uid → that participant's identity, learned from the
+  // backend's call.participant.joined / call.announce socket events.
+  const [uidToUser, setUidToUser] = useState<Record<string, { userId: string; name: string }>>({});
 
   const { data: history } = useQuery<{ items: HistoryCall[] }>({
     queryKey: ['calls.history.live'],
@@ -93,7 +104,9 @@ export default function CallRoomPage() {
 
   const joinMut = useMutation({
     mutationFn: async () => {
-      await api.post(`/calls/${callId}/join`);
+      if (!myUidRef.current) myUidRef.current = randomAgoraUid();
+      // Tell the server our real per-device uid so peers can label our tile.
+      await api.post(`/calls/${callId}/join`, { agoraUid: myUidRef.current });
       return tokenQuery.refetch();
     },
     onError: (err: any) => toast.error(err?.response?.data?.error?.message || 'Could not join call'),
@@ -154,8 +167,21 @@ export default function CallRoomPage() {
       });
       client.on('user-joined', syncUsers);
       client.on('user-left', syncUsers);
+      // Renew the token before it expires so long calls don't get dropped.
+      client.on('token-privilege-will-expire', async () => {
+        try {
+          const fresh = await tokenQuery.refetch();
+          const t = fresh.data?.token;
+          if (t) await client.renewToken(t);
+        } catch {}
+      });
 
-      await client.join(token.appId, token.channelName, token.token, token.uid);
+      if (!myUidRef.current) myUidRef.current = randomAgoraUid();
+      // Join with our own random uid — the wildcard token (uid 0) accepts any.
+      await client.join(token.appId, token.channelName, token.token, myUidRef.current);
+      // Announce our uid + name so peers (incl. those already in the call) can
+      // label our tile, and re-announce in case we joined first.
+      api.post(`/calls/${callId}/announce`, { agoraUid: myUidRef.current }).catch(() => {});
       const micTrack = await AgoraRTC.createMicrophoneAudioTrack();
       micTrackRef.current = micTrack;
       await client.publish([micTrack]);
@@ -279,6 +305,41 @@ export default function CallRoomPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tokenQuery.data?.token]);
+
+  // Learn each remote participant's identity (Agora uid → user) from the
+  // backend signaling so we can label tiles and bind remote video correctly.
+  useEffect(() => {
+    const s = getSocket();
+    if (!s) return;
+    const onPresence = (data: any) => {
+      if (!data || data.callId !== callId) return;
+      const uid = Number(data.agoraUid);
+      if (!uid || uid === myUidRef.current) return;
+      setUidToUser((prev) => ({
+        ...prev,
+        [String(uid)]: { userId: String(data.userId || ''), name: String(data.userName || 'Participant') },
+      }));
+    };
+    s.on('call.participant.joined', onPresence);
+    s.on('call.announce', onPresence);
+    return () => {
+      s.off('call.participant.joined', onPresence);
+      s.off('call.announce', onPresence);
+    };
+  }, [callId]);
+
+  // Bind remote video whenever the remote set changes (a tile's ref may mount
+  // after the user-published event fired).
+  useEffect(() => {
+    for (const u of remoteUsers) {
+      if (u.videoTrack) {
+        const el = remoteVideoRefs.current[String(u.uid)];
+        if (el) {
+          try { u.videoTrack.play(el); } catch {}
+        }
+      }
+    }
+  }, [remoteUsers]);
 
   async function toggleMute() {
     if (!micTrackRef.current) return;
@@ -472,15 +533,17 @@ export default function CallRoomPage() {
               {!localVideoActive && <div className="cr__video-placeholder"><Avatar name={me.name} src={me.avatarUrl} isClient={me.isClient} size={56} /></div>}
             </div>
           </div>
-          {otherParticipants.map((p: any) => {
-            const remoteUser = remoteUsers.find((u) => String(u.uid) === p.user.id);
-            const remoteHasVideo = !!remoteUser?.videoTrack;
+          {remoteUsers.map((u) => {
+            const key = String(u.uid);
+            const ident = uidToUser[key];
+            const remoteHasVideo = !!u.videoTrack;
+            const name = ident?.name || 'Participant';
             return (
-              <div key={`video-${p.user.id}`} className="cr__video-card">
-                <div className="cr__video-label">{p.user.name} {remoteHasVideo ? '· video live' : '· audio only'}</div>
-                <div ref={(el) => { remoteVideoRefs.current[p.user.id] = el; }} className={`cr__video-surface ${remoteHasVideo ? 'has-video' : ''}`}>
+              <div key={`video-${key}`} className="cr__video-card">
+                <div className="cr__video-label">{name} {remoteHasVideo ? '· video live' : '· audio only'}</div>
+                <div ref={(el) => { remoteVideoRefs.current[key] = el; }} className={`cr__video-surface ${remoteHasVideo ? 'has-video' : ''}`}>
                   {remoteHasVideo && <span className="cr__live-chip">Live video</span>}
-                  {!remoteHasVideo && <div className="cr__video-placeholder"><Avatar name={p.user.name} src={p.user.avatarUrl} isClient={p.user.isClient} size={56} /></div>}
+                  {!remoteHasVideo && <div className="cr__video-placeholder"><Avatar name={name} size={56} /></div>}
                 </div>
               </div>
             );
@@ -498,13 +561,20 @@ export default function CallRoomPage() {
               </div>
             </article>
             {otherParticipants.map((p: any) => {
-              const remoteJoined = remoteUsers.some((u) => String(u.uid) === p.user.id);
+              // A participant is live if any joined remote Agora uid maps to
+              // their userId (via the announce map).
+              const liveUidKey = Object.keys(uidToUser).find(
+                (k) => uidToUser[k].userId === p.user.id &&
+                  remoteUsers.some((u) => String(u.uid) === k),
+              );
+              const remoteJoined = !!liveUidKey;
+              const hasVideo = !!remoteUsers.find((u) => String(u.uid) === liveUidKey)?.videoTrack;
               return (
                 <article key={p.user.id} className="cr__person">
                   <Avatar name={p.user.name} src={p.user.avatarUrl} isClient={p.user.isClient} size={42} />
                   <div>
                     <UserName name={p.user.name} isClient={p.user.isClient} role={p.user.role} />
-                    <div className="cr__person-sub">{remoteJoined ? 'Live in room' : 'Waiting to join'}{remoteUsers.find((u) => String(u.uid) === p.user.id)?.videoTrack ? ' · video live' : ''}</div>
+                    <div className="cr__person-sub">{remoteJoined ? 'Live in room' : 'Waiting to join'}{hasVideo ? ' · video live' : ''}</div>
                   </div>
                   <span className={`cr__presence ${remoteJoined ? 'is-live' : ''}`}>
                     <Volume2 size={14} /> {remoteJoined ? 'Connected' : 'Pending'}
