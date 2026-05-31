@@ -25,3 +25,10 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+# record's Linux federated package resolves to an old 0.7.2 that is
+# API-incompatible with record_platform_interface 1.6.0 (compile error in the
+# kernel snapshot, even on macOS/Windows where Linux code is unused). Pin the
+# 1.x line which implements the current interface.
+dependency_overrides:
+  record_linux: ^1.0.0
