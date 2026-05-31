@@ -236,10 +236,26 @@ async function addParticipant({ callId, userIds, actor }) {
   const refreshed = await prisma.call.findUnique({ where: { id: callId }, include: callInclude });
   return {
     call: refreshed,
+    // Wildcard tokens so an invited user can also join from multiple devices,
+    // consistent with initiate()/tokenFor().
     tokens: Object.fromEntries(
-      safeUserIds.map((userId) => [userId, agora.generateRtcToken({ channelName: call.channelName, uid: userId })])
+      safeUserIds.map((userId) => [userId, agora.generateRtcToken({ channelName: call.channelName, wildcard: true })])
     ),
   };
+}
+
+// Atomically mark a still-RINGING call MISSED (the 60s no-answer timeout) and
+// post the "Missed call" chat event. Conditional updateMany guarantees we never
+// clobber a call that was answered in the race window.
+async function expireIfRinging({ callId }) {
+  const updated = await prisma.call.updateMany({
+    where: { id: callId, status: 'RINGING' },
+    data: { status: 'MISSED', endedAt: new Date() },
+  });
+  if (updated.count === 0) return null; // already answered / ended — no-op
+  const call = await prisma.call.findUnique({ where: { id: callId }, include: callInclude });
+  if (call) await postCallEventMessage({ call, kind: 'MISSED', actor: call.initiator });
+  return call;
 }
 
 async function setMuted({ callId, user, muted }) {
@@ -289,4 +305,5 @@ module.exports = {
   setMuted,
   history,
   screenShareToken,
+  expireIfRinging,
 };

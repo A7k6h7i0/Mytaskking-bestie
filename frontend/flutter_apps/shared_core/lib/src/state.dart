@@ -72,10 +72,14 @@ final dashboardProvider =
 final channelsProvider =
     FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
   // Re-fetch whenever a new chat message lands so the unread counters in the
-  // sidebar stay live without polling.
-  ref
+  // sidebar stay live without polling. The unsubscribe is registered with
+  // onDispose so the listener is removed when the provider rebuilds — without
+  // this, every invalidateSelf() leaked another handler (quadratic growth →
+  // refetch storms).
+  final unsub = ref
       .watch(realtimeProvider)
       .onAny('chat.message.created', ([_]) => ref.invalidateSelf());
+  ref.onDispose(unsub);
   return ref.watch(apiProvider).listChannels();
 });
 
@@ -84,21 +88,23 @@ final messagesProvider = FutureProvider.autoDispose
     .family<List<Map<String, dynamic>>, String>((ref, channelId) async {
   final api = ref.watch(apiProvider);
   final rt = ref.watch(realtimeProvider);
-  rt.onAny('chat.message.created', ([data]) {
+  // Register listeners with onDispose unsubscribes so a rebuild
+  // (invalidateSelf on each incoming message) doesn't leak duplicate handlers.
+  ref.onDispose(rt.onAny('chat.message.created', ([data]) {
     if (data is Map && data['channelId'] == channelId) {
       ref.invalidateSelf();
     }
-  });
-  rt.onAny('chat.message.receipt', ([data]) {
+  }));
+  ref.onDispose(rt.onAny('chat.message.receipt', ([data]) {
     if (data is Map) {
       ref.invalidateSelf();
     }
-  });
-  rt.onAny('chat.message.receipts.bulk', ([data]) {
+  }));
+  ref.onDispose(rt.onAny('chat.message.receipts.bulk', ([data]) {
     if (data is Map && data['channelId'] == channelId) {
       ref.invalidateSelf();
     }
-  });
+  }));
   final data = await api.listMessages(channelId);
   final items =
       (data['items'] as List? ?? const []).cast<Map<String, dynamic>>();

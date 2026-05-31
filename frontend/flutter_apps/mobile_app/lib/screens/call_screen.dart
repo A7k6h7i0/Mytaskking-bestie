@@ -118,6 +118,8 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   bool _muted = false;
   bool _cameraOff = false;
   CallAudioRoute _route = CallAudioRoute.earpiece;
+  // Peer Agora uids we've already seen announce — gates one-time re-announce.
+  final Set<int> _seenPeerUids = {};
   bool _sharing = false;
   bool _reconnecting = false;
   bool _recording = false;
@@ -191,12 +193,15 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       if (uid == _CallSession.myUid) return; // that's me
       final name = data['userName']?.toString();
       if (!mounted) return;
-      final isNew = !_remoteNames.containsKey(uid);
+      // Track seen peer uids separately from names — an announce can arrive
+      // with an empty name, and keying "is this new?" off the names map would
+      // make such a peer perpetually "new" and trigger a re-announce storm.
+      final isNew = _seenPeerUids.add(uid);
       setState(() {
         if (name != null && name.isNotEmpty) _remoteNames[uid] = name;
       });
-      // Bidirectional discovery: when someone new appears, re-announce
-      // myself so they learn my uid→name too (I may have joined first).
+      // Bidirectional discovery: when a genuinely new peer appears, re-announce
+      // myself once so they learn my uid→name too (I may have joined first).
       if (isNew) _announceSelf();
     }
 
@@ -468,6 +473,9 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     // one. Without this Agora throws -17 (already in channel).
     if (_CallSession.engine != null) {
       await _CallSession.teardown();
+      // teardown() clears onCallScreen; we're still on the call screen, so set
+      // it back or the "ongoing call" pill would wrongly show over this call.
+      _CallSession.onCallScreen = true;
     }
 
     // Track which step is in flight so the error message can identify the

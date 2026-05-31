@@ -213,9 +213,10 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     if (call['initiator']?['id'] == me?.id) return;
     if ((call['host'] as Map?)?['id'] == me?.id) return;
     setState(() => _pending = Map<String, dynamic>.from(data));
-    // Auto-miss after 45s if the user ignores it (matches backend RINGING TTL).
+    // Auto-decline shortly after the backend's 60s RINGING TTL so the server
+    // is the source of truth for "missed" and the two don't fight at 45s.
     _autoMiss?.cancel();
-    _autoMiss = Timer(const Duration(seconds: 45), _decline);
+    _autoMiss = Timer(const Duration(seconds: 62), _decline);
 
     // Buzz the device every second so the user notices even with the screen
     // off. Pair it with a looping synthesized ringtone (no asset needed —

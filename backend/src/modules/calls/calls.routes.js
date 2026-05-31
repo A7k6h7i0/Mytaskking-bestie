@@ -102,15 +102,12 @@ router.post(
     // in their chat history with a tap-to-call-back affordance.
     setTimeout(async () => {
       try {
-        const cur = await prisma.call.findUnique({ where: { id: result.call.id } });
-        if (!cur || cur.status !== 'RINGING') return;
-        const missed = await prisma.call.update({
-          where: { id: cur.id },
-          data: { status: 'MISSED', endedAt: new Date() },
-          include: { participants: true },
-        });
-        emitToCallParticipants(req.app.get('io'), missed, 'call.declined', { callId: cur.id, status: 'MISSED' });
-        emitToCallParticipants(req.app.get('io'), missed, 'call.ended', { callId: cur.id, status: 'MISSED' });
+        // Atomic: only marks MISSED if still RINGING (won't kill a call that
+        // was answered in the race window) and posts the "Missed call" event.
+        const missed = await service.expireIfRinging({ callId: result.call.id });
+        if (!missed) return;
+        emitToCallParticipants(req.app.get('io'), missed, 'call.declined', { callId: missed.id, status: 'MISSED' });
+        emitToCallParticipants(req.app.get('io'), missed, 'call.ended', { callId: missed.id, status: 'MISSED' });
       } catch (_) {/* job runner cleans up stragglers */}
     }, 60 * 1000);
     res.status(201).json({ ...result, mode });
@@ -154,14 +151,19 @@ router.post(
       where: { id: req.params.id },
       include: { participants: true },
     });
-    if (call) {
-      emitToCallParticipants(req.app.get('io'), call, 'call.announce', {
-        callId: call.id,
-        userId: req.user.id,
-        userName: req.body.userName || req.user.name,
-        agoraUid: Number(req.body.agoraUid),
-      });
-    }
+    if (!call) return res.json({ ok: true });
+    // Only an actual participant may announce on a call — otherwise any
+    // authenticated user could inject/relabel tiles in a call they aren't in.
+    const isParticipant = (call.participants || []).some((p) => p.userId === req.user.id);
+    if (!isParticipant) return res.status(403).json({ error: 'Not a participant' });
+    emitToCallParticipants(req.app.get('io'), call, 'call.announce', {
+      callId: call.id,
+      userId: req.user.id,
+      // Always use the authenticated user's real name — never trust a
+      // client-supplied display name for someone else's tile.
+      userName: req.user.name,
+      agoraUid: Number(req.body.agoraUid),
+    });
     res.json({ ok: true });
   })
 );

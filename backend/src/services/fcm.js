@@ -85,6 +85,29 @@ async function sendToTokens(tokens, { title, body, data }) {
     return message;
   });
   const result = await messaging.sendEach(messages);
+  // Prune tokens FCM reports as permanently dead (app uninstalled / token
+  // rotated) so we don't keep pushing to them forever and piling up failures.
+  try {
+    const dead = [];
+    result.responses.forEach((r, i) => {
+      const code = r.error?.code;
+      if (
+        code === 'messaging/registration-token-not-registered' ||
+        code === 'messaging/invalid-registration-token' ||
+        code === 'messaging/invalid-argument'
+      ) {
+        dead.push(tokens[i]);
+      }
+    });
+    if (dead.length) {
+      // Lazy-require to avoid a circular import at module load.
+      const prisma = require('../database/prisma');
+      await prisma.deviceToken.deleteMany({ where: { token: { in: dead } } });
+      logger.info({ pruned: dead.length }, 'fcm.dead_tokens_pruned');
+    }
+  } catch (err) {
+    logger.warn({ err: err.message }, 'fcm.prune_failed');
+  }
   return { sent: result.successCount, failed: result.failureCount, responses: result.responses };
 }
 

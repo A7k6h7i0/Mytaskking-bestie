@@ -132,22 +132,26 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     _markRead();
   }
 
+  Timer? _markReadDebounce;
   void _markRead() {
-    ref.read(apiProvider).markChannelRead(widget.channelId).then((_) {
-      if (mounted) ref.invalidate(channelsProvider);
-    }).catchError((_) {/* best-effort */});
+    // Debounced so a burst of incoming messages collapses into a single
+    // /read POST + one channel-list refresh instead of one per message.
+    _markReadDebounce?.cancel();
+    _markReadDebounce = Timer(const Duration(milliseconds: 800), () {
+      ref.read(apiProvider).markChannelRead(widget.channelId).then((_) {
+        if (mounted) ref.invalidate(channelsProvider);
+      }).catchError((_) {/* best-effort */});
+    });
   }
 
-  /// Live-append incoming messages while the chat is open. The messages
-  /// provider already invalidates on this event, but listening here too
-  /// guarantees the open conversation refreshes (and stays marked read)
-  /// without the user having to leave and re-enter.
+  /// Keep the conversation marked-read while it's open. The messagesProvider
+  /// already self-invalidates on `chat.message.created`, so we don't refetch
+  /// here (that was double work) — we only refresh the read state.
   void _listenForNewMessages() {
     final rt = ref.read(realtimeProvider);
     _newMsgUnsub = rt.onAny('chat.message.created', ([data]) {
       if (data is! Map || data['channelId'] != widget.channelId) return;
       if (!mounted) return;
-      ref.invalidate(messagesProvider(widget.channelId));
       _markRead();
     });
   }
@@ -193,6 +197,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     _draftDebounce?.cancel();
     _myTypingThrottle?.cancel();
     _receiptInvalidate?.cancel();
+    _markReadDebounce?.cancel();
     _presenceUnsub?.call();
     _newMsgUnsub?.call();
     // NB: we deliberately do NOT emit channel.leave — staying in the room lets

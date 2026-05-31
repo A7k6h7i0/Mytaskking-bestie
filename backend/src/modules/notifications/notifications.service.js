@@ -21,8 +21,13 @@ function emitNotification(io, userId, notification) {
 }
 
 async function notify({ userId, kind, title, body, data, io }) {
+  // Calls are time-critical — they always ring through, bypassing mute,
+  // channel-off and quiet-hours suppression.
+  const isUrgent = kind === 'CALL';
   // Respect the user's preferences before persisting or pushing.
-  const pref = await prisma.notificationPreference.findUnique({ where: { userId } }).catch(() => null);
+  const pref = isUrgent
+    ? null
+    : await prisma.notificationPreference.findUnique({ where: { userId } }).catch(() => null);
   if (pref) {
     if (pref.muteUntil && pref.muteUntil > new Date()) return null;
     const channelPref = (pref.channels || {})[categoryFor(kind)];

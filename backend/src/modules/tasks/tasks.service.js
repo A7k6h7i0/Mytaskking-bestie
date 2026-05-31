@@ -191,6 +191,13 @@ const scoring = require('../../services/scoring');
 
 /** Generic transition helper. Returns the updated row (with task + user). */
 async function _transition({ taskId, userId, state, data = {} }) {
+  // Guard first so a caller who isn't an assignee (admin/creator, or a stale
+  // client) gets a clean 403 instead of an opaque Prisma P2025 → 500.
+  const existing = await prisma.taskAssignee.findUnique({
+    where: { taskId_userId: { taskId, userId } },
+    select: { id: true },
+  });
+  if (!existing) throw Forbidden('You are not assigned to this task');
   return prisma.taskAssignee.update({
     where: { taskId_userId: { taskId, userId } },
     data: { state, ...data },
@@ -223,16 +230,23 @@ async function complete({ taskId, userId }) {
     data: { completedAt, score, scoreReason: reason },
   });
 
-  // If every assignee has marked complete, push the task into DONE so the
-  // creator's kanban reflects it without manual intervention.
-  const remaining = await prisma.taskAssignee.count({
-    where: { taskId, NOT: { state: 'COMPLETED' } },
+  // Push the task to DONE once everyone who still owes work has finished.
+  // DECLINED assignees count as "settled" — otherwise a task with one declined
+  // assignee could never auto-complete and would draw overdue reminders
+  // forever. We also require at least one COMPLETED so an all-declined task
+  // isn't silently marked DONE.
+  const pendingCount = await prisma.taskAssignee.count({
+    where: { taskId, state: { notIn: ['COMPLETED', 'DECLINED'] } },
   });
-  if (remaining === 0 && t.status !== 'DONE') {
+  const completedCount = await prisma.taskAssignee.count({
+    where: { taskId, state: 'COMPLETED' },
+  });
+  const allDone = pendingCount === 0 && completedCount > 0;
+  if (allDone && t.status !== 'DONE') {
     await prisma.task.update({ where: { id: taskId }, data: { status: 'DONE' } });
   }
   const autoPromotedTask = await promoteNextTaskForUser({ userId, excludingTaskId: taskId });
-  return { assignment: row, autoCompleted: remaining === 0, autoPromotedTask };
+  return { assignment: row, autoCompleted: allDone, autoPromotedTask };
 }
 
 const priorityWeight = { URGENT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
