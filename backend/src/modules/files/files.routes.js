@@ -11,6 +11,7 @@ const cloudinary = require('../../services/cloudinary');
 const r2 = require('../../services/r2');
 const fileAccess = require('../../services/fileAccess');
 const audit = require('../../services/audit');
+const logger = require('../../utils/logger');
 const { BadRequest, Forbidden } = require('../../utils/errors');
 
 const router = Router();
@@ -29,27 +30,11 @@ router.post(
     // Prefer Cloudinary for images (gives width/height + transforms), but fall
     // back to R2 when Cloudinary isn't configured — otherwise an image upload
     // 500'd ("Internal server error") on servers that only have R2 set up.
-    let asset;
-    if (isImage && cloudinary.isConfigured()) {
-      const result = await cloudinary.uploadBuffer(req.file.buffer, { folder: 'bestie/chat' });
-      asset = await prisma.fileAsset.create({
-        data: {
-          backend: 'CLOUDINARY',
-          url: result.secure_url,
-          key: result.public_id,
-          mimeType: req.file.mimetype,
-          size: req.file.size,
-          width: result.width || null,
-          height: result.height || null,
-          originalName: req.file.originalname,
-          uploadedById: req.user.id,
-        },
-      });
-    } else if (r2.isConfigured()) {
+    const uploadToR2 = async () => {
       const safeName = (req.file.originalname || 'file').replace(/[^\w.-]/g, '_');
       const key = `files/${Date.now()}-${safeName}`;
       const put = await r2.putBuffer({ buffer: req.file.buffer, key, contentType: req.file.mimetype });
-      asset = await prisma.fileAsset.create({
+      return prisma.fileAsset.create({
         data: {
           backend: 'R2',
           url: put.url,
@@ -60,6 +45,32 @@ router.post(
           uploadedById: req.user.id,
         },
       });
+    };
+
+    let asset;
+    if (isImage && cloudinary.isConfigured()) {
+      try {
+        const result = await cloudinary.uploadBuffer(req.file.buffer, { folder: 'bestie/chat' });
+        asset = await prisma.fileAsset.create({
+          data: {
+            backend: 'CLOUDINARY',
+            url: result.secure_url,
+            key: result.public_id,
+            mimeType: req.file.mimetype,
+            size: req.file.size,
+            width: result.width || null,
+            height: result.height || null,
+            originalName: req.file.originalname,
+            uploadedById: req.user.id,
+          },
+        });
+      } catch (err) {
+        logger.warn({ err: err.message, originalName: req.file.originalname }, 'files.upload.cloudinary_failed_falling_back_to_r2');
+        if (!r2.isConfigured()) throw err;
+        asset = await uploadToR2();
+      }
+    } else if (r2.isConfigured()) {
+      asset = await uploadToR2();
     } else {
       throw BadRequest(
         'File storage is not configured on the server. Set Cloudinary or R2 credentials.'

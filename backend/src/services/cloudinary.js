@@ -38,7 +38,11 @@ function signUploadParams({ folder = 'bestie' } = {}) {
 }
 
 function isConfigured() {
-  return !!config.cloudinary.cloudName;
+  return !!(
+    config.cloudinary.cloudName &&
+    config.cloudinary.apiKey &&
+    config.cloudinary.apiSecret
+  );
 }
 
 module.exports = { uploadBuffer, signUploadParams, isConfigured };
