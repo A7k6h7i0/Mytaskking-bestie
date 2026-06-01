@@ -10,6 +10,10 @@ class BestieTextField extends StatefulWidget {
   final TextInputType? keyboardType;
   final String? errorText;
   final void Function(String)? onChanged;
+  final void Function(String)? onSubmitted;
+  final TextInputAction? textInputAction;
+  final bool autofocus;
+  final FocusNode? focusNode;
 
   const BestieTextField({
     super.key,
@@ -21,6 +25,10 @@ class BestieTextField extends StatefulWidget {
     this.keyboardType,
     this.errorText,
     this.onChanged,
+    this.onSubmitted,
+    this.textInputAction,
+    this.autofocus = false,
+    this.focusNode,
   });
 
   @override
@@ -41,9 +49,13 @@ class _BestieTextFieldState extends State<BestieTextField> {
         const SizedBox(height: 6),
         TextField(
           controller: widget.controller,
+          focusNode: widget.focusNode,
           obscureText: _obscured,
           keyboardType: widget.keyboardType,
           onChanged: widget.onChanged,
+          onSubmitted: widget.onSubmitted,
+          textInputAction: widget.textInputAction,
+          autofocus: widget.autofocus,
           decoration: InputDecoration(
             hintText: widget.hint,
             errorText: widget.errorText,
