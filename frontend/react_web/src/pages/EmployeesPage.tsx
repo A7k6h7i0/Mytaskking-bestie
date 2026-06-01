@@ -18,6 +18,7 @@ export default function EmployeesPage() {
   const [showNew, setShowNew] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState('');
+  const [draftTitle, setDraftTitle] = useState('');
   const [form, setForm] = useState({ userId: '', password: '', name: '', role: 'EMPLOYEE', customTitle: '', email: '', supervisorIds: [] as string[] });
   const canCustomizeEmployeeName = user?.role === 'SUPER_ADMIN';
   const canManageEmployees = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
@@ -65,13 +66,14 @@ export default function EmployeesPage() {
   });
 
   const renameMut = useMutation({
-    mutationFn: async ({ id, name }: { id: string; name: string }) =>
-      (await api.patch(`/employees/${id}`, { name })).data,
+    mutationFn: async ({ id, name, customTitle }: { id: string; name: string; customTitle: string }) =>
+      (await api.patch(`/employees/${id}`, { name, customTitle })).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['employees'] });
       setEditingId(null);
       setDraftName('');
-      toast.success('Employee name updated');
+      setDraftTitle('');
+      toast.success('Employee updated');
     },
     onError: (err: any) => toast.error(err?.response?.data?.error?.message || 'Could not update employee name'),
   });
@@ -102,7 +104,7 @@ export default function EmployeesPage() {
           <Input label="User ID" value={form.userId} onChange={(e) => setForm({ ...form, userId: e.target.value })} />
           <Input label="Password" type="password" hint={passwordTooShort ? 'Password must be at least 8 characters.' : 'Use at least 8 characters.'} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
           <Input label="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          <Input label="Custom title (optional)" hint="Examples: MD, Director, Chairman" value={form.customTitle} onChange={(e) => setForm({ ...form, customTitle: e.target.value })} />
+          <Input label="Designation / title (optional)" hint="Examples: Flutter Developer, Backend Developer, MD, Director" value={form.customTitle} onChange={(e) => setForm({ ...form, customTitle: e.target.value })} />
           <Input label="Email (optional)" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
           <label className="pp__role">
             <span>Role</span>
@@ -163,7 +165,19 @@ export default function EmployeesPage() {
                 )}
               </span>
               <span className="pp__mono">{u.userId}</span>
-              <span><span className="pp__chip">{u.customTitle || u.role.replace(/_/g, ' ')}</span></span>
+              <span>
+                {isEditing ? (
+                  <input
+                    className="pp__inline-input"
+                    value={draftTitle}
+                    onChange={(e) => setDraftTitle(e.target.value)}
+                    placeholder="e.g. Flutter Developer"
+                    maxLength={120}
+                  />
+                ) : (
+                  <span className="pp__chip">{u.customTitle || u.role.replace(/_/g, ' ')}</span>
+                )}
+              </span>
               <span className={`pp__status pp__status--${u.status.toLowerCase()}`}>{u.status}</span>
               <span className="pp__actions">
                 <Button
@@ -187,16 +201,16 @@ export default function EmployeesPage() {
                     <>
                       <Button
                         size="sm"
-                        onClick={() => renameMut.mutate({ id: u.id, name: draftName.trim() })}
+                        onClick={() => renameMut.mutate({ id: u.id, name: draftName.trim(), customTitle: draftTitle.trim() })}
                         loading={renameMut.isPending}
-                        disabled={!draftName.trim() || draftName.trim() === u.name}
+                        disabled={!draftName.trim() || (draftName.trim() === u.name && draftTitle.trim() === (u.customTitle || ''))}
                       >
                         <Check size={14} /> Save
                       </Button>
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={() => { setEditingId(null); setDraftName(''); }}
+                        onClick={() => { setEditingId(null); setDraftName(''); setDraftTitle(''); }}
                       >
                         <X size={14} /> Cancel
                       </Button>
@@ -205,9 +219,9 @@ export default function EmployeesPage() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => { setEditingId(u.id); setDraftName(u.name); }}
+                      onClick={() => { setEditingId(u.id); setDraftName(u.name); setDraftTitle(u.customTitle || ''); }}
                     >
-                      <Pencil size={14} /> Rename
+                      <Pencil size={14} /> Edit
                     </Button>
                   )
                 )}

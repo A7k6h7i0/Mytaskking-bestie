@@ -101,6 +101,18 @@
 .ch__msg-meta { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); }
 .ch__msg--mine .ch__msg-meta { justify-content: flex-end; }
 .ch__msg-time { color: var(--c-text-faint); font-size: var(--fs-xs); }
+/* Admin-assigned designation tag (e.g. "Flutter Developer") next to a sender's
+   name in chat. */
+.ch__msg-tag {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--c-brand);
+  background: color-mix(in srgb, var(--c-brand) 12%, transparent);
+  padding: 1px 6px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
 .ch__ticks {
   color: color-mix(in srgb, currentColor 82%, transparent);
   flex: 0 0 auto;

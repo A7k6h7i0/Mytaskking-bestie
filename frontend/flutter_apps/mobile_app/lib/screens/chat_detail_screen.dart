@@ -2619,14 +2619,27 @@ class _MessageBubble extends ConsumerWidget {
                 if (!mine)
                   Padding(
                     padding: const EdgeInsets.only(left: 4, bottom: 2),
-                    child: BestieUserName(
-                      name: author['name'] ?? '',
-                      isClient: isClient,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: BestieTokens.fwBold,
-                        color: isClient ? c.client : c.brand,
-                      ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Flexible(
+                          child: BestieUserName(
+                            name: author['name'] ?? '',
+                            isClient: isClient,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: BestieTokens.fwBold,
+                              color: isClient ? c.client : c.brand,
+                            ),
+                          ),
+                        ),
+                        // Admin-assigned role/designation tag (e.g. "Flutter
+                        // Developer"). Only shown when set.
+                        if ((author['customTitle']?.toString() ?? '').trim().isNotEmpty) ...[
+                          const SizedBox(width: 6),
+                          _DesignationTag(label: author['customTitle'].toString()),
+                        ],
+                      ],
                     ),
                   ),
                 // Quoted "replying to X" preview inline at the top of the bubble.
@@ -3763,6 +3776,36 @@ class _ReplyComposerChip extends StatelessWidget {
 /// Inline quoted preview rendered inside a bubble that's a reply to another
 /// message. Tap doesn't currently scroll to original (TODO) but visually it
 /// already gives the same context users expect from WhatsApp threads.
+/// A small pill showing a person's admin-assigned designation (e.g. "Flutter
+/// Developer", "Backend Developer") next to their name in chat.
+class _DesignationTag extends StatelessWidget {
+  final String label;
+  const _DesignationTag({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: c.brand.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: 9.5,
+          fontWeight: BestieTokens.fwSemibold,
+          letterSpacing: BestieTokens.lsWide,
+          color: c.brand,
+        ),
+      ),
+    );
+  }
+}
+
 class _ReplyQuote extends StatelessWidget {
   final Map replyTo;
   final bool mine;

@@ -7,7 +7,7 @@ const notifications = require('../notifications/notifications.service');
 const cache = require('../../services/cache');
 
 const messageInclude = {
-  author: { select: { id: true, name: true, avatarUrl: true, role: true, isClient: true } },
+  author: { select: { id: true, name: true, avatarUrl: true, role: true, isClient: true, customTitle: true } },
   attachments: true,
   reactions: true,
   replyTo: { select: { id: true, body: true, authorId: true } },
@@ -191,7 +191,7 @@ async function listThread({ rootId, user, limit = 100 }) {
   const root = await prisma.message.findUnique({
     where: { id: rootId },
     include: {
-      author: { select: { id: true, name: true, avatarUrl: true, role: true, isClient: true } },
+      author: { select: { id: true, name: true, avatarUrl: true, role: true, isClient: true, customTitle: true } },
       attachments: true,
       reactions: true,
     },
@@ -209,7 +209,7 @@ async function listThread({ rootId, user, limit = 100 }) {
     orderBy: { createdAt: 'asc' },
     take: limit,
     include: {
-      author: { select: { id: true, name: true, avatarUrl: true, role: true, isClient: true } },
+      author: { select: { id: true, name: true, avatarUrl: true, role: true, isClient: true, customTitle: true } },
       attachments: true,
       reactions: true,
     },

@@ -46,7 +46,7 @@ type Message = {
   channelId: string;
   body: string | null;
   authorId: string;
-  author: { id: string; name: string; avatarUrl?: string | null; isClient: boolean; role: string };
+  author: { id: string; name: string; avatarUrl?: string | null; isClient: boolean; role: string; customTitle?: string | null };
   createdAt: string;
   status?: 'SENDING' | 'SENT' | 'DELIVERED' | 'SEEN' | 'FAILED';
   pinned: boolean;
@@ -599,6 +599,7 @@ export default function ChatPage() {
                   <div className="ch__msg-body">
                     <div className="ch__msg-meta">
                       <UserName name={m.author.name} isClient={m.author.isClient} role={m.author.role} />
+                      {m.authorId !== me.id && !!m.author.customTitle?.trim() && <span className="ch__msg-tag">{m.author.customTitle}</span>}
                       <span className="ch__msg-time">{dayjs(m.createdAt).format('HH:mm')}</span>
                       {m.authorId === me.id && <MessageTicks status={m.status || 'SENT'} />}
                     </div>
