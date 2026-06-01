@@ -10,12 +10,22 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import './people.css';
 
+const EMPLOYEE_DESIGNATIONS = [
+  'Frontend Developer',
+  'Backend Developer',
+  'Web Developer',
+  'Project Manager',
+  'Project Coordinator',
+  'Employee',
+];
+
 export default function EmployeesPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const [q, setQ] = useState('');
   const [showNew, setShowNew] = useState(false);
+  const [useCustomDesignation, setUseCustomDesignation] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState('');
   const [draftTitle, setDraftTitle] = useState('');
@@ -23,6 +33,7 @@ export default function EmployeesPage() {
   const canCustomizeEmployeeName = user?.role === 'SUPER_ADMIN';
   const canManageEmployees = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
   const passwordTooShort = form.password.length > 0 && form.password.length < 8;
+  const selectedDesignation = useCustomDesignation || (form.customTitle && !EMPLOYEE_DESIGNATIONS.includes(form.customTitle)) ? 'CUSTOM' : form.customTitle;
 
   const { data } = useQuery<{ items: any[] }>({
     queryKey: ['employees', q],
@@ -34,6 +45,7 @@ export default function EmployeesPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['employees'] });
       setShowNew(false);
+      setUseCustomDesignation(false);
       setForm({ userId: '', password: '', name: '', role: 'EMPLOYEE', customTitle: '', email: '', supervisorIds: [] });
       toast.success('Employee created');
     },
@@ -104,10 +116,28 @@ export default function EmployeesPage() {
           <Input label="User ID" value={form.userId} onChange={(e) => setForm({ ...form, userId: e.target.value })} />
           <Input label="Password" type="password" hint={passwordTooShort ? 'Password must be at least 8 characters.' : 'Use at least 8 characters.'} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
           <Input label="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          <Input label="Designation / title (optional)" hint="Examples: Flutter Developer, Backend Developer, MD, Director" value={form.customTitle} onChange={(e) => setForm({ ...form, customTitle: e.target.value })} />
+          <label className="pp__role">
+            <span>Designation / title</span>
+            <select
+              value={selectedDesignation}
+              onChange={(e) => {
+                setUseCustomDesignation(e.target.value === 'CUSTOM');
+                setForm({ ...form, customTitle: e.target.value === 'CUSTOM' ? '' : e.target.value });
+              }}
+            >
+              <option value="">Select employee designation</option>
+              {EMPLOYEE_DESIGNATIONS.map((designation) => (
+                <option key={designation} value={designation}>{designation}</option>
+              ))}
+              <option value="CUSTOM">Custom designation</option>
+            </select>
+          </label>
+          {selectedDesignation === 'CUSTOM' && (
+            <Input label="Custom designation (optional)" hint="Examples: Flutter Developer, MD, Director" value={form.customTitle} onChange={(e) => setForm({ ...form, customTitle: e.target.value })} />
+          )}
           <Input label="Email (optional)" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
           <label className="pp__role">
-            <span>Role</span>
+            <span>Access role</span>
             <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
               <option value="ADMIN">Admin</option>
               <option value="MANAGER">Manager</option>
