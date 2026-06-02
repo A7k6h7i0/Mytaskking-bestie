@@ -4,17 +4,20 @@
 .ws {
   display: grid;
   grid-template-columns: var(--sidebar-w) 1fr;
-  height: 100vh;
+  min-height: 100vh;
   background: var(--c-bg);
   isolation: isolate;
-  overflow: hidden;
+  overflow-x: hidden;
 }
 
 /* ---------- sidebar ---------- */
 .ws__sidebar {
-  position: relative;
+  position: sticky;
+  top: 0;
   display: flex;
   flex-direction: column;
+  height: 100vh;
+  max-height: 100vh;
   background: var(--c-surface);
   background-image:
     linear-gradient(180deg, color-mix(in srgb, var(--c-brand) 4%, var(--c-surface)) 0%, var(--c-surface) 28%),
@@ -231,6 +234,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 100vh;
   position: relative;
 }
 
@@ -265,7 +269,8 @@
 /* ---------- content area ---------- */
 .ws__content {
   flex: 1;
-  overflow: auto;
+  min-height: 0;
+  overflow: visible;
   padding: var(--s-5) var(--safe-pad);
   scroll-behavior: smooth;
 }
@@ -481,7 +486,8 @@
 @media (max-width: 920px) {
   .ws {
     grid-template-columns: 1fr;
-    height: 100dvh;
+    min-height: 100dvh;
+    overflow: visible;
   }
 
   .ws__sidebar {
@@ -490,6 +496,8 @@
     z-index: 79;
     width: min(86vw, 320px);
     max-width: 320px;
+    height: 100dvh;
+    max-height: 100dvh;
     padding-top: max(var(--s-4), env(safe-area-inset-top));
     transform: translateX(-105%);
     transition: transform var(--dur-medium) var(--ease-out), box-shadow var(--dur-medium) var(--ease);
@@ -549,7 +557,7 @@
 
   .ws__main {
     min-width: 0;
-    height: 100dvh;
+    min-height: 100dvh;
   }
 
   .ws__topbar {
@@ -596,6 +604,7 @@
   .ws__content {
     padding: 12px;
     overflow-x: hidden;
+    overflow-y: visible;
   }
 
   .ws__incoming-call {
