@@ -83,6 +83,10 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
             .setUsesChronometer(true)
             .setShowWhen(true)
             .setContentIntent(openPendingIntent)
+            // Ring full-screen like a real phone call even when the device is
+            // locked / screen-off (needs USE_FULL_SCREEN_INTENT, declared in
+            // the manifest, + CATEGORY_CALL above for Android 14 eligibility).
+            .setFullScreenIntent(openPendingIntent, true)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             builder.setTimeoutAfter(60_000)
@@ -256,6 +260,13 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
 
         fun createMessageNotificationChannel(context: Context) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+            // Explicit notification sound so chat messages audibly ring/chime
+            // (don't rely on per-OEM channel defaults).
+            val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            val attrs = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
             val channel = NotificationChannel(
                 MESSAGES_CHANNEL_ID,
                 "Messages",
@@ -263,6 +274,7 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
             ).apply {
                 description = "Chat messages and mentions"
                 enableVibration(true)
+                setSound(soundUri, attrs)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
             context.getSystemService(NotificationManager::class.java)

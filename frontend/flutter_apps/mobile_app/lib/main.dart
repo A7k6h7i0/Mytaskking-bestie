@@ -406,23 +406,32 @@ class _BestieAppState extends ConsumerState<BestieApp> {
   /// at join time as a fallback if the user declined here.
   Future<void> _requestStartupPermissions() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      if (prefs.getBool('perms.onboarded_v1') == true) return;
-      final toRequest = <Permission>[
-        Permission.notification,
-        Permission.microphone,
-        Permission.camera,
-      ];
-      // Android 13+ uses granular media perms; older versions use storage.
-      // Bluetooth (Android 12+) lets calls route to a paired headset.
-      if (Platform.isAndroid) {
-        toRequest.add(Permission.photos);
-        toRequest.add(Permission.bluetoothConnect);
+      // Notifications FIRST and on its own. Batching POST_NOTIFICATIONS with
+      // mic/camera/photos made some OEMs silently skip its dialog, and the
+      // old one-time flag then meant we never asked again — so the device got
+      // no push notifications or call rings at all. Ask every launch until the
+      // user explicitly grants or permanently denies it.
+      final notif = await Permission.notification.status;
+      if (!notif.isGranted && !notif.isPermanentlyDenied) {
+        await Permission.notification.request();
       }
-      // Request sequentially-batched; permission_handler shows the native
-      // dialogs one after another.
-      await toRequest.request();
-      await prefs.setBool('perms.onboarded_v1', true);
+
+      // The remaining permissions are a once-only onboarding batch.
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool('perms.onboarded_v1') != true) {
+        final toRequest = <Permission>[
+          Permission.microphone,
+          Permission.camera,
+        ];
+        // Android 13+ uses granular media perms; older versions use storage.
+        // Bluetooth (Android 12+) lets calls route to a paired headset.
+        if (Platform.isAndroid) {
+          toRequest.add(Permission.photos);
+          toRequest.add(Permission.bluetoothConnect);
+        }
+        await toRequest.request();
+        await prefs.setBool('perms.onboarded_v1', true);
+      }
     } catch (_) {/* best-effort — features re-prompt on first use */}
   }
 
