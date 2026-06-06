@@ -157,7 +157,8 @@ class ShellScreen extends ConsumerWidget {
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   crossAxisCount: 4,
-                  childAspectRatio: 0.95,
+                  mainAxisSpacing: 4,
+                  mainAxisExtent: 104,
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   children: [
                     for (final e in entries)
@@ -201,6 +202,8 @@ class ShellScreen extends ConsumerWidget {
           Icons.videocam_outlined, 'Meetings', '/meetings', c.brand, !isClient),
       _MoreEntry(Icons.history_rounded, 'Call history', '/calls', c.success,
           !isClient),
+      _MoreEntry(Icons.download_for_offline_outlined, 'Recordings',
+          '/recordings', c.accent, isAdmin),
       _MoreEntry(Icons.campaign_outlined, 'Announcements', '/announcements',
           c.accent, true),
       _MoreEntry(

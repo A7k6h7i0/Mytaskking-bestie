@@ -66,6 +66,7 @@ router.patch(
   requireAdmin,
   validate({
     body: Joi.object({
+      userId: Joi.string().trim().min(2).max(64),
       name: Joi.string().min(1).max(120),
       role: EmployeeRole,
       customTitle: Joi.string().max(120).allow('', null),

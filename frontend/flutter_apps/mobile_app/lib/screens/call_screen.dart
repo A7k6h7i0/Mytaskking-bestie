@@ -52,6 +52,13 @@ class CallSession {
   static String? activeMeetingSlug;
   static bool joined = false;
   static bool videoEnabled = false;
+  static bool muted = false;
+  static bool cameraOff = false;
+  static CallAudioRoute audioRoute = CallAudioRoute.earpiece;
+  static DateTime? connectedAt;
+  static bool recording = false;
+  static bool savingRecording = false;
+  static String? recordingPath;
   /// This device's randomly-chosen Agora uid for the active call. Random per
   /// device so the same account can join from two phones without colliding.
   static int? myUid;
@@ -63,6 +70,7 @@ class CallSession {
   static bool onCallScreen = false;
   static final Set<int> remoteUids = {};
   static final Map<int, String> remoteNames = {};
+  static final Map<int, bool> remoteMuted = {};
 
   /// Bumps whenever the session activates or deactivates so widgets
   /// outside the call screen (e.g. the "ongoing call" return pill) can
@@ -93,9 +101,18 @@ class CallSession {
     activeMeetingSlug = null;
     joined = false;
     videoEnabled = false;
+    myUid = null;
+    muted = false;
+    cameraOff = false;
+    audioRoute = CallAudioRoute.earpiece;
+    connectedAt = null;
+    recording = false;
+    savingRecording = false;
+    recordingPath = null;
     onCallScreen = false;
     remoteUids.clear();
     remoteNames.clear();
+    remoteMuted.clear();
     _ping();
   }
 }
@@ -103,7 +120,8 @@ class CallSession {
 // Backwards-compat alias for existing private references in this file.
 typedef _CallSession = CallSession;
 
-class _CallScreenState extends ConsumerState<CallScreen> {
+class _CallScreenState extends ConsumerState<CallScreen>
+    with WidgetsBindingObserver {
   RtcEngine? get _engine => _CallSession.engine;
   String? get _channelName => _CallSession.channelName;
   set _channelName(String? v) => _CallSession.channelName = v;
@@ -113,31 +131,41 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   set _videoEnabled(bool v) => _CallSession.videoEnabled = v;
   Set<int> get _remoteUids => _CallSession.remoteUids;
   Map<int, String> get _remoteNames => _CallSession.remoteNames;
+  Map<int, bool> get _remoteMuted => _CallSession.remoteMuted;
+  bool get _muted => _CallSession.muted;
+  set _muted(bool v) => _CallSession.muted = v;
+  bool get _cameraOff => _CallSession.cameraOff;
+  set _cameraOff(bool v) => _CallSession.cameraOff = v;
+  CallAudioRoute get _route => _CallSession.audioRoute;
+  set _route(CallAudioRoute v) => _CallSession.audioRoute = v;
+  bool get _recording => _CallSession.recording;
+  set _recording(bool v) => _CallSession.recording = v;
+  bool get _savingRecording => _CallSession.savingRecording;
+  set _savingRecording(bool v) => _CallSession.savingRecording = v;
+  String? get _recordingPath => _CallSession.recordingPath;
+  set _recordingPath(String? v) => _CallSession.recordingPath = v;
+  DateTime? get _connectedAt => _CallSession.connectedAt;
+  set _connectedAt(DateTime? v) => _CallSession.connectedAt = v;
 
   String _status = 'Preparing…';
-  bool _muted = false;
-  bool _cameraOff = false;
-  CallAudioRoute _route = CallAudioRoute.earpiece;
   // Peer Agora uids we've already seen announce — gates one-time re-announce.
   final Set<int> _seenPeerUids = {};
   bool _sharing = false;
   bool _reconnecting = false;
-  bool _recording = false;
-  bool _savingRecording = false;
-  String? _recordingPath;
   String? _error;
   Map<String, dynamic>? _callMeta;
   final List<void Function()> _callUnsubs = [];
   bool _remoteClosed = false;
   Timer? _timer;
+  Timer? _audioHealthTimer;
   Duration _elapsed = Duration.zero;
-  DateTime? _connectedAt;
 
   bool get _isVideo => _videoEnabled;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     if (!_CallSession.matches(widget.callId, widget.meetingSlug)) {
       _videoEnabled = widget.mode == 'video';
       // Voice calls default to earpiece (so Bluetooth/earpiece is used and the
@@ -155,17 +183,35 @@ class _CallScreenState extends ConsumerState<CallScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     for (final u in _callUnsubs) {
       u();
     }
     _callUnsubs.clear();
     _timer?.cancel();
+    _audioHealthTimer?.cancel();
     // Left the call screen — if the call is still live, the return pill should
     // reappear. (We do NOT tear the engine down here; only explicit Hang Up
     // ends the session, so the call keeps running in the background.)
     _CallSession.onCallScreen = false;
     _CallSession._ping();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!_CallSession.matches(widget.callId, widget.meetingSlug)) return;
+    if (state == AppLifecycleState.resumed) {
+      if (_connectedAt != null) _startTimer();
+      _reassertAudio();
+      _showOngoingCallNotification();
+    } else if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      // Reassert the media path and foreground service before the screen locks.
+      _reassertAudio();
+      _showOngoingCallNotification();
+    }
   }
 
   void _subscribeCallLifecycle() {
@@ -207,6 +253,14 @@ class _CallScreenState extends ConsumerState<CallScreen> {
 
     _callUnsubs.add(rt.onAny('call.participant.joined', onPresence));
     _callUnsubs.add(rt.onAny('call.announce', onPresence));
+    _callUnsubs.add(rt.onAny('call.participant.muted', ([data]) {
+      if (data is! Map || data['callId'] != callId) return;
+      final me = ref.read(authStoreProvider).user;
+      if (data['userId'] == me?.id) return;
+      // Agora's onUserMuteAudio callback supplies the per-device value. This
+      // socket event makes sure the call UI repaints immediately as well.
+      if (mounted) setState(() {});
+    }));
   }
 
   /// Tell the other call participants this device's real Agora uid + name so
@@ -238,13 +292,23 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   }
 
   void _startTimer() {
-    if (_connectedAt != null) return;
     _timer?.cancel();
-    _connectedAt = DateTime.now();
-    _elapsed = Duration.zero;
+    _connectedAt ??= DateTime.now();
+    void updateElapsed() {
+      final started = _connectedAt;
+      if (!mounted || started == null) return;
+      setState(() => _elapsed = DateTime.now().difference(started));
+    }
+    updateElapsed();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted) return;
-      setState(() => _elapsed = _elapsed + const Duration(seconds: 1));
+      updateElapsed();
+    });
+  }
+
+  void _startAudioHealthCheck() {
+    _audioHealthTimer?.cancel();
+    _audioHealthTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (_joined) _reassertAudio();
     });
   }
 
@@ -332,6 +396,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
         });
         _publishActiveCallState();
         _showOngoingCallNotification();
+        _startAudioHealthCheck();
       },
       onUserJoined: (conn, remoteUid, elapsed) {
         if (!mounted) return;
@@ -346,13 +411,18 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       },
       onUserOffline: (conn, remoteUid, reason) {
         if (!mounted) return;
-        setState(() => _status =
-            _connectedAt == null ? 'Ringing…' : 'Reconnecting…');
+        setState(() {
+          _reconnecting = _connectedAt != null;
+          _status = _connectedAt == null ? 'Ringing…' : 'Reconnecting…';
+        });
         // Do not remove the participant immediately. Agora also fires this
         // for temporary network drops; the backend call.ended event is the
         // source of truth for a real hang-up.
       },
       onUserMuteAudio: (conn, remoteUid, muted) {
+        if (mounted) {
+          setState(() => _remoteMuted[remoteUid] = muted);
+        }
         // Make sure we're subscribed to their audio when they unmute — guards
         // against the "no audio for a while then it comes back" dropouts.
         if (!muted) {
@@ -376,7 +446,9 @@ class _CallScreenState extends ConsumerState<CallScreen> {
         });
         // Audio engine often needs a nudge after a rejoin or the call stays
         // silent for both sides until something else wakes it.
+        if (_connectedAt != null) _startTimer();
         _reassertAudio();
+        _showOngoingCallNotification();
       },
       onConnectionStateChanged: (conn, state, reason) {
         if (!mounted) return;
@@ -390,7 +462,9 @@ class _CallScreenState extends ConsumerState<CallScreen> {
             _reconnecting = false;
             _status = _remoteUids.isEmpty ? 'Ringing…' : 'Connected';
           });
+          if (_connectedAt != null) _startTimer();
           _reassertAudio();
+          _showOngoingCallNotification();
         } else if (state == ConnectionStateType.connectionStateFailed) {
           setState(() {
             _reconnecting = true;
@@ -429,6 +503,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
           _status = 'Ended';
         });
         _timer?.cancel();
+        _audioHealthTimer?.cancel();
       },
     ));
   }
@@ -442,7 +517,12 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     try {
       await engine.enableAudio();
       await engine.muteAllRemoteAudioStreams(false);
-      await engine.muteLocalAudioStream(_muted);
+      if (_muted) {
+        await engine.muteLocalAudioStream(true);
+      } else {
+        await engine.enableLocalAudio(true);
+        await engine.muteLocalAudioStream(false);
+      }
       await _applyAudioRoute(_route);
       await engine.adjustPlaybackSignalVolume(160);
     } catch (_) {/* best-effort recovery */}
@@ -464,6 +544,10 @@ class _CallScreenState extends ConsumerState<CallScreen> {
         setState(() {
           _status = _joined ? 'Connected' : 'Connecting…';
         });
+        if (_connectedAt != null) _startTimer();
+        _startAudioHealthCheck();
+        _reassertAudio();
+        _showOngoingCallNotification();
       } finally {
         _booting = false;
       }
@@ -693,7 +777,16 @@ class _CallScreenState extends ConsumerState<CallScreen> {
 
   Future<void> _toggleMute() async {
     setState(() => _muted = !_muted);
+    await _engine?.enableLocalAudio(true);
     await _engine?.muteLocalAudioStream(_muted);
+    _CallSession._ping();
+    if (widget.callId != null) {
+      try {
+        await ref
+            .read(apiProvider)
+            .post('/calls/${widget.callId}/mute', body: {'muted': _muted});
+      } catch (_) {}
+    }
   }
 
   Future<void> _toggleCamera() async {
@@ -866,13 +959,13 @@ class _CallScreenState extends ConsumerState<CallScreen> {
             body: e.toString(), kind: BestieToastKind.error);
       }
     } finally {
-      if (mounted) setState(() => _savingRecording = false);
+      _savingRecording = false;
+      if (mounted) setState(() {});
     }
   }
 
   Future<void> _uploadRecording() async {
     final path = _recordingPath;
-    _recordingPath = null;
     if (path == null) return;
     final file = File(path);
     if (!await file.exists()) return;
@@ -894,6 +987,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       await api.post('/meetings/${widget.meetingSlug}/recording',
           body: {'fileId': fileId, 'url': url});
     }
+    _recordingPath = null;
     try {
       await file.delete();
     } catch (_) {}
@@ -923,7 +1017,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
           participants.add(_Participant(
               name: _remoteNames[uid] ?? 'Participant',
               role: 'In call',
-              muted: false,
+              muted: _remoteMuted[uid] == true,
               video: true));
         }
         return Container(
@@ -1112,11 +1206,47 @@ class _CallScreenState extends ConsumerState<CallScreen> {
 
         Positioned(
             top: topInset + 8, left: 8, right: 8, child: _header()),
+        if (_muteStatusText() != null)
+          Positioned(
+            top: topInset + 62,
+            left: 20,
+            right: 20,
+            child: IgnorePointer(
+              child: Center(
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.62),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.white24),
+                  ),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    const Icon(Icons.mic_off_rounded,
+                        color: Color(0xFFFBBF24), size: 15),
+                    const SizedBox(width: 7),
+                    Flexible(
+                      child: Text(
+                        _muteStatusText()!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: BestieTokens.fwSemibold,
+                        ),
+                      ),
+                    ),
+                  ]),
+                ),
+              ),
+            ),
+          ),
         // Network-trouble banner — keeps the call UI visible (never blanks)
         // and tells the user to check their connection while Agora reconnects.
         if (_reconnecting && _error == null)
           Positioned(
-            top: topInset + 64,
+            top: topInset + (_muteStatusText() == null ? 64 : 104),
             left: 16,
             right: 16,
             child: IgnorePointer(
@@ -1170,6 +1300,16 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   }
 
   bool get _isMeeting => widget.meetingSlug != null;
+
+  String? _muteStatusText() {
+    final labels = <String>[];
+    if (_muted) labels.add('You are muted');
+    for (final entry in _remoteMuted.entries) {
+      if (!entry.value) continue;
+      labels.add('${_remoteNames[entry.key] ?? 'Participant'} is muted');
+    }
+    return labels.isEmpty ? null : labels.join(' · ');
+  }
 
   /// Small translucent circle button used in both call + meeting headers.
   Widget _circleHeaderIcon(IconData icon, VoidCallback onTap, {String? tooltip}) {

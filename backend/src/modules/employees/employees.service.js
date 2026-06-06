@@ -179,6 +179,7 @@ async function update(id, input) {
     return sanitize(user);
   } catch (e) {
     if (e.code === 'P2025') throw NotFound('Employee not found');
+    if (e.code === 'P2002') throw Conflict('userId already in use');
     throw e;
   }
 }

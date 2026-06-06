@@ -25,6 +25,7 @@ import 'screens/settings_screen.dart';
 import 'screens/attendance_screen.dart';
 import 'screens/task_detail_screen.dart';
 import 'screens/reports_screen.dart';
+import 'screens/recordings_screen.dart';
 import 'state.dart' hide ThemeMode;
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -86,6 +87,8 @@ final routerProvider = Provider<GoRouter>((ref) {
           path: '/telecaller', builder: (_, __) => const TelecallerScreen()),
       GoRoute(path: '/settings', builder: (_, __) => const SettingsScreen()),
       GoRoute(path: '/reports', builder: (_, __) => const ReportsScreen()),
+      GoRoute(
+          path: '/recordings', builder: (_, __) => const RecordingsScreen()),
 
       // Chat detail lives OUTSIDE the shell so the bottom nav doesn't eat
       // composer + keyboard space. Back arrow returns to the chat list.

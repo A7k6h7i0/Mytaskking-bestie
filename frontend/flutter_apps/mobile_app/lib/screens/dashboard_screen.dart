@@ -404,8 +404,8 @@ class DashboardScreen extends ConsumerWidget {
           border: Border.all(color: BestieTokens.cBorder),
         ),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Container(
               width: 32,
@@ -415,7 +415,9 @@ class DashboardScreen extends ConsumerWidget {
                   borderRadius: BorderRadius.circular(8)),
               child: Icon(icon, size: 18, color: color),
             ),
+            const SizedBox(height: BestieTokens.s3),
             Column(
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(label,
@@ -484,7 +486,6 @@ class DashboardScreen extends ConsumerWidget {
           for (final child in children)
             SizedBox(
               width: tileWidth,
-              height: 112,
               child: child,
             ),
         ],

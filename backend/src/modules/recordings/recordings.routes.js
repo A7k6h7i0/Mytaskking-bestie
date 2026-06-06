@@ -4,8 +4,10 @@ const { Router } = require('express');
 const Joi = require('joi');
 const asyncHandler = require('../../utils/asyncHandler');
 const validate = require('../../middleware/validate');
-const { requireAuth, requireAdmin } = require('../../middleware/auth');
+const { requireAuth, requireAdmin, requireSuperAdmin } = require('../../middleware/auth');
 const prisma = require('../../database/prisma');
+const audit = require('../../services/audit');
+const { NotFound } = require('../../utils/errors');
 
 const router = Router();
 router.use(requireAuth, requireAdmin);
@@ -68,6 +70,40 @@ router.get(
     const pageItems = items.slice(start, start + pageSize);
 
     res.json({ items: pageItems, total, page, pageSize });
+  })
+);
+
+router.delete(
+  '/:source/:id',
+  requireSuperAdmin,
+  validate({
+    params: Joi.object({
+      source: Joi.string().valid('CALL', 'MEETING').required(),
+      id: Joi.string().required(),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    const { source, id } = req.params;
+    const result = source === 'CALL'
+      ? await prisma.call.updateMany({
+          where: { id, recordingUrl: { not: null } },
+          data: { recordingUrl: null },
+        })
+      : await prisma.meetingRoom.updateMany({
+          where: { id, recordingUrl: { not: null } },
+          data: { recordingUrl: null },
+        });
+
+    if (!result.count) throw NotFound('Recording not found');
+
+    audit.record({
+      kind: 'recording.deleted',
+      entity: source === 'CALL' ? 'call' : 'meeting',
+      entityId: id,
+      payload: { source },
+      req,
+    });
+    res.status(204).end();
   })
 );
 
