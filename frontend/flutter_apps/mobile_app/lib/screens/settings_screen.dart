@@ -112,6 +112,13 @@ class SettingsScreen extends ConsumerWidget {
               label: 'Call history',
               onTap: () => _openRoute(context, '/calls'),
             ),
+            if (user?.role == 'ADMIN' || user?.role == 'SUPER_ADMIN')
+              _SettingTile(
+                colors: c,
+                icon: Icons.download_for_offline_outlined,
+                label: 'Call recordings',
+                onTap: () => _openRoute(context, '/recordings'),
+              ),
             _SectionLabel('People', colors: c),
             if (!(user?.isClient ?? false))
               _SettingTile(

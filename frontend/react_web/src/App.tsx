@@ -21,6 +21,7 @@ import SessionsPage from '@/pages/SessionsPage';
 import AnalyticsPage from '@/pages/AnalyticsPage';
 import MeetingsPage from '@/pages/MeetingsPage';
 import MeetingJoinPage from '@/pages/MeetingJoinPage';
+import PrivacyPolicyPage from '@/pages/PrivacyPolicyPage';
 import RecordingsPage from '@/pages/RecordingsPage';
 import FlagsPage from '@/pages/FlagsPage';
 import PermissionsPage from '@/pages/PermissionsPage';
@@ -71,6 +72,8 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/meetings/join/:slug" element={<MeetingJoinPage />} />
+        <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+        <Route path="/privacy" element={<Navigate to="/privacy-policy" replace />} />
 
         <Route element={<RequireAuth><WorkspaceLayout /></RequireAuth>}>
           <Route index element={<Navigate to="/dashboard" replace />} />

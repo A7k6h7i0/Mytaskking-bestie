@@ -1,22 +1,24 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
+import '../active_call_state.dart';
+import '../router.dart';
 import 'call_screen.dart';
 
 /// Wraps a [child] and overlays a slim "Ongoing call — tap to return" pill
 /// at the top whenever there's a live [CallSession] and the user is NOT on
 /// the call screen itself. Lets the user pop out of /call/:id while keeping
 /// the audio playing and still have a one-tap way back in.
-class OngoingCallBar extends StatefulWidget {
+class OngoingCallBar extends ConsumerStatefulWidget {
   final Widget child;
   const OngoingCallBar({super.key, required this.child});
 
   @override
-  State<OngoingCallBar> createState() => _OngoingCallBarState();
+  ConsumerState<OngoingCallBar> createState() => _OngoingCallBarState();
 }
 
-class _OngoingCallBarState extends State<OngoingCallBar> {
+class _OngoingCallBarState extends ConsumerState<OngoingCallBar> {
   @override
   void initState() {
     super.initState();
@@ -48,13 +50,18 @@ class _OngoingCallBarState extends State<OngoingCallBar> {
           right: 12,
           child: _Pill(
             onTap: () {
+              final active = ActiveCallState.current.value;
+              if (active != null) {
+                ref.read(routerProvider).go(active.route);
+                return;
+              }
               final callId = CallSession.activeCallId;
               final slug = CallSession.activeMeetingSlug;
               final mode = CallSession.videoEnabled ? 'video' : 'voice';
               if (callId != null) {
-                GoRouter.of(context).go('/call/$callId?mode=$mode');
+                ref.read(routerProvider).go('/call/$callId?mode=$mode');
               } else if (slug != null) {
-                GoRouter.of(context).go('/meeting/$slug?mode=$mode');
+                ref.read(routerProvider).go('/meeting/$slug?mode=$mode');
               }
             },
           ),

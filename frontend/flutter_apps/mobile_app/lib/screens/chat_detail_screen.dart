@@ -3477,7 +3477,7 @@ class _MessageBubble extends ConsumerWidget {
 /// WhatsApp-style status indicator:
 ///   SENT       → single grey ✓
 ///   DELIVERED  → double grey ✓✓
-///   SEEN       → double blue ✓✓
+///   SEEN       → double light-yellow ✓✓
 ///   SENDING    → small clock
 ///   FAILED     → red exclamation
 class _StatusTicks extends StatelessWidget {
@@ -3486,7 +3486,7 @@ class _StatusTicks extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const seenBlue = Color(0xFF53BDEB); // matches WhatsApp's read-receipt blue
+    const seenYellow = Color(0xFFFFE082);
     final greyOnBrand = Colors.white.withOpacity(0.86);
 
     switch (status) {
@@ -3496,7 +3496,7 @@ class _StatusTicks extends StatelessWidget {
         return const Icon(Icons.error_outline_rounded,
             size: 12, color: Color(0xFFFFB4B4));
       case 'SEEN':
-        return const _DoubleTick(color: seenBlue);
+        return const _DoubleTick(color: seenYellow);
       case 'DELIVERED':
         return _DoubleTick(color: greyOnBrand);
       case 'SENT':

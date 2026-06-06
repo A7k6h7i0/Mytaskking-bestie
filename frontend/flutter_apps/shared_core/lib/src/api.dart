@@ -354,6 +354,26 @@ extension BestieApiExt on BestieApi {
         '/employees',
         query: {if (q != null) 'q': q},
       ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
+  Future<Map<String, dynamic>> createEmployee(Map<String, dynamic> data) =>
+      post('/employees', body: data);
+  Future<Map<String, dynamic>> updateEmployee(
+    String id,
+    Map<String, dynamic> data,
+  ) async {
+    final r = await dio.patch('/employees/$id', data: data);
+    return r.data as Map<String, dynamic>;
+  }
+  Future<void> deleteEmployee(String id) async {
+    await dio.delete('/employees/$id');
+  }
+  Future<Map<String, dynamic>> listRecordings({
+    int page = 1,
+    int pageSize = 50,
+  }) =>
+      get('/recordings', query: {'page': page, 'pageSize': pageSize});
+  Future<void> deleteRecording(String source, String id) async {
+    await dio.delete('/recordings/${source.toUpperCase()}/$id');
+  }
   Future<List<Map<String, dynamic>>> listClients({String? q}) => get(
         '/clients',
         query: {if (q != null) 'q': q},

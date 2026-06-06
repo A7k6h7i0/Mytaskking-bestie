@@ -1,7 +1,10 @@
-import { useQuery } from '@tanstack/react-query';
-import { Disc3, Phone, Video, Download } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Disc3, Phone, Video, Download, Trash2 } from 'lucide-react';
 import dayjs from 'dayjs';
 import { api } from '@/services/api';
+import { useAuthStore } from '@/store/auth';
+import { useConfirm } from '@/components/ui/ConfirmDialog';
+import { toast } from '@/components/Toast';
 import './calls.css';
 
 type Recording = {
@@ -16,10 +19,32 @@ type Recording = {
 };
 
 export default function RecordingsPage() {
+  const user = useAuthStore((s) => s.user);
+  const qc = useQueryClient();
+  const { confirm, ConfirmRenderer } = useConfirm();
   const { data, isLoading, isError } = useQuery<{ items: Recording[]; total: number }>({
     queryKey: ['recordings'],
     queryFn: async () => (await api.get('/recordings')).data,
   });
+  const deleteMut = useMutation({
+    mutationFn: async (recording: Recording) =>
+      api.delete(`/recordings/${recording.source}/${recording.id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['recordings'] });
+      toast.success('Recording deleted');
+    },
+    onError: () => toast.error('Could not delete recording'),
+  });
+
+  async function askDelete(recording: Recording) {
+    const ok = await confirm({
+      title: 'Delete recording?',
+      description: `This removes "${recording.title}" from the recordings list.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    });
+    if (ok) deleteMut.mutate(recording);
+  }
 
   return (
     <div className="cl">
@@ -56,6 +81,17 @@ export default function RecordingsPage() {
               >
                 <Download size={14} /> Download
               </a>
+              {user?.role === 'SUPER_ADMIN' && (
+                <button
+                  type="button"
+                  className="cl__delete"
+                  onClick={() => askDelete(r)}
+                  disabled={deleteMut.isPending}
+                  aria-label={`Delete ${r.title}`}
+                >
+                  <Trash2 size={14} /> Delete
+                </button>
+              )}
             </div>
           </article>
         ))}
@@ -69,6 +105,7 @@ export default function RecordingsPage() {
           </div>
         )}
       </div>
+      <ConfirmRenderer />
     </div>
   );
 }

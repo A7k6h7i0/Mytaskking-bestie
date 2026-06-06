@@ -1,0 +1,125 @@
+import './privacy-policy.css';
+
+const lastUpdated = 'June 1, 2026';
+
+export default function PrivacyPolicyPage() {
+  return (
+    <main className="privacy">
+      <section className="privacy__hero">
+        <div className="privacy__badge">MyTaskKing</div>
+        <h1>Privacy Policy</h1>
+        <p>
+          This Privacy Policy explains how MyTaskKing collects, uses, stores, and protects information
+          when you use our web, Android, iOS, Windows, and macOS applications.
+        </p>
+        <span>Last updated: {lastUpdated}</span>
+      </section>
+
+      <section className="privacy__card">
+        <h2>1. Information We Collect</h2>
+        <p>Depending on how your workspace is configured, MyTaskKing may collect the following information:</p>
+        <ul>
+          <li>Account details such as name, user ID, email address, role, designation, and profile information.</li>
+          <li>Work activity such as tasks, reports, attendance check-ins, lunch break times, logout reports, and calendar events.</li>
+          <li>Communication data such as chat messages, channel messages, mentions, call history, meeting room details, and shared files.</li>
+          <li>Uploaded content such as images, documents, voice notes, recordings, and other files you choose to share.</li>
+          <li>Device and technical information such as device type, platform, app version, IP address, browser, crash/debug information, and authentication/session data.</li>
+          <li>Notification identifiers such as Firebase Cloud Messaging device tokens used to send push notifications.</li>
+          <li>Microphone/audio data only when you choose to use calling, voice notes, speech-to-text, or audio features.</li>
+        </ul>
+      </section>
+
+      <section className="privacy__card">
+        <h2>2. How We Use Information</h2>
+        <p>We use collected information to provide and improve MyTaskKing services, including to:</p>
+        <ul>
+          <li>Create and manage user accounts, employee roles, clients, teams, and workspaces.</li>
+          <li>Deliver task management, attendance, reports, calendar, chat, file sharing, and meeting features.</li>
+          <li>Send work-related notifications, mentions, task updates, meeting alerts, and call alerts.</li>
+          <li>Authenticate users, protect accounts, prevent unauthorized access, and maintain audit/activity logs.</li>
+          <li>Store and display files or images uploaded by users in chats, tasks, meetings, or other workspace areas.</li>
+          <li>Improve app reliability, diagnose bugs, and maintain service performance.</li>
+        </ul>
+      </section>
+
+      <section className="privacy__card">
+        <h2>3. App Permissions</h2>
+        <p>MyTaskKing may request permissions only when needed for a feature:</p>
+        <ul>
+          <li>Microphone permission is used for voice calls, voice notes, speech-to-text, and audio features.</li>
+          <li>Camera and photo/file access may be used when you upload profile images, chat images, documents, or task attachments.</li>
+          <li>Notification permission is used to send push notifications for tasks, chats, calls, attendance, and meeting updates.</li>
+          <li>Network access is required to connect the app to MyTaskKing backend services.</li>
+        </ul>
+        <p>You can disable permissions in your device settings, but some app features may stop working.</p>
+      </section>
+
+      <section className="privacy__card">
+        <h2>4. Third-Party Services</h2>
+        <p>MyTaskKing may use trusted third-party providers to operate app features:</p>
+        <ul>
+          <li>Firebase is used for push notifications and related app messaging services.</li>
+          <li>Agora is used for real-time voice, call, and meeting features.</li>
+          <li>Cloudflare R2 and/or Cloudinary may be used to store uploaded files and images.</li>
+          <li>Google Gemini or other AI providers may be used when AI assistance features are enabled by the workspace.</li>
+        </ul>
+        <p>These providers process data only as needed to deliver the requested service features.</p>
+      </section>
+
+      <section className="privacy__card">
+        <h2>5. Data Sharing</h2>
+        <p>We do not sell personal information. Information may be shared only in the following cases:</p>
+        <ul>
+          <li>With users inside your authorized workspace as required for collaboration features.</li>
+          <li>With service providers who help operate hosting, storage, notifications, calling, analytics, or security.</li>
+          <li>When required by law, legal process, or to protect the rights, safety, and security of users or the service.</li>
+        </ul>
+      </section>
+
+      <section className="privacy__card">
+        <h2>6. Data Retention and Deletion</h2>
+        <p>
+          Workspace data is retained for as long as needed to provide the service, meet business requirements,
+          maintain security, or comply with legal obligations. Workspace administrators may delete users,
+          chats, tasks, calls, files, and related data according to their organization’s policies.
+        </p>
+        <p>
+          If you want your account or data deleted, contact your workspace administrator or email us using the
+          contact information below.
+        </p>
+      </section>
+
+      <section className="privacy__card">
+        <h2>7. Security</h2>
+        <p>
+          We use reasonable technical and organizational safeguards to protect information, including authenticated
+          API access, protected user sessions, role-based access controls, and secure storage practices. No internet
+          service can be guaranteed to be completely secure, but we work to protect your data responsibly.
+        </p>
+      </section>
+
+      <section className="privacy__card">
+        <h2>8. Children’s Privacy</h2>
+        <p>
+          MyTaskKing is intended for business and productivity use. It is not directed to children under 13 years of age,
+          and we do not knowingly collect personal information from children.
+        </p>
+      </section>
+
+      <section className="privacy__card">
+        <h2>9. Changes to This Policy</h2>
+        <p>
+          We may update this Privacy Policy from time to time. When we update it, we will revise the “Last updated” date
+          on this page. Continued use of MyTaskKing after changes means the updated policy applies.
+        </p>
+      </section>
+
+      <section className="privacy__card privacy__contact">
+        <h2>10. Contact Us</h2>
+        <p>If you have questions about this Privacy Policy or want to request data deletion, contact us at:</p>
+        <a href="mailto:support@mytaskking.com">support@mytaskking.com</a>
+        <p>Website: <a href="https://mytaskking.com">https://mytaskking.com</a></p>
+      </section>
+    </main>
+  );
+}

@@ -4,7 +4,9 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 
-html, body, #root { height: 100%; }
+html, body, #root {
+  min-height: 100%;
+}
 
 html {
   color-scheme: light;
@@ -32,6 +34,11 @@ body {
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
   overflow-x: hidden;
+  overflow-y: auto;
+}
+
+#root {
+  min-height: 100vh;
 }
 
 img,

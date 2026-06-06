@@ -11,6 +11,7 @@ export 'screens/chat_detail_screen.dart';
 export 'screens/tasks_screen.dart';
 export 'screens/task_actions_sheet.dart';
 export 'screens/reports_screen.dart';
+export 'screens/recordings_screen.dart';
 export 'screens/leaderboard_card.dart';
 export 'screens/meetings_screen.dart';
 export 'screens/notifications_screen.dart';
