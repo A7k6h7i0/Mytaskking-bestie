@@ -830,6 +830,12 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                 accent: c.accent,
                 onTap: () => Navigator.pop(ctx, 'gallery')),
             _ChooserTile(
+                icon: Icons.videocam_rounded,
+                label: 'Record video',
+                colors: c,
+                accent: c.brand,
+                onTap: () => Navigator.pop(ctx, 'video')),
+            _ChooserTile(
                 icon: Icons.description_rounded,
                 label: 'Document',
                 colors: c,
@@ -850,15 +856,25 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
       String? filename;
       String? mimeType;
 
-      if (kind == 'camera' || kind == 'gallery') {
+      if (kind == 'camera' || kind == 'gallery' || kind == 'video') {
         final picker = ImagePicker();
-        final source =
-            kind == 'camera' ? ImageSource.camera : ImageSource.gallery;
-        final x = await picker.pickImage(source: source, imageQuality: 85);
+        XFile? x;
+        if (kind == 'camera') {
+          x = await picker.pickImage(source: ImageSource.camera, imageQuality: 85);
+        } else if (kind == 'video') {
+          x = await picker.pickVideo(source: ImageSource.camera);
+        } else {
+          // Gallery: let the user pick a photo OR a video.
+          x = await picker.pickMedia(imageQuality: 85);
+        }
         if (x == null) return;
         bytes = await x.readAsBytes();
         filename = x.name;
-        mimeType = x.mimeType ?? 'image/jpeg';
+        // Trust the plugin's mime when present; otherwise infer from the
+        // file extension (covers videos picked from the gallery/camera).
+        mimeType = x.mimeType ??
+            _mimeFromExt(x.name.contains('.') ? x.name.split('.').last : null) ??
+            'application/octet-stream';
       } else {
         final res = await FilePicker.platform.pickFiles(withData: true);
         if (res == null || res.files.isEmpty) return;
@@ -896,10 +912,23 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
         return 'image/png';
       case 'gif':
         return 'image/gif';
+      case 'webp':
+        return 'image/webp';
+      case 'heic':
+        return 'image/heic';
       case 'pdf':
         return 'application/pdf';
       case 'mp4':
+      case 'm4v':
         return 'video/mp4';
+      case 'mov':
+        return 'video/quicktime';
+      case 'webm':
+        return 'video/webm';
+      case '3gp':
+        return 'video/3gpp';
+      case 'mkv':
+        return 'video/x-matroska';
       case 'mp3':
         return 'audio/mpeg';
       case 'wav':

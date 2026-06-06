@@ -30,6 +30,10 @@
 	<string>MyTaskKing uses your camera for video meetings.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>MyTaskKing uses your microphone for voice and video meetings.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>MyTaskKing lets you attach photos and videos from your library to chats.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>MyTaskKing saves photos and call recordings you choose to your library.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
