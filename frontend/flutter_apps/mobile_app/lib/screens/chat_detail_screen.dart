@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
@@ -983,6 +984,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
       // (voice or text — both available right here in the DM) instead of ringing.
       final busy = (res['targetPresence'] as Map?)?.cast<String, dynamic>();
       if (busy != null && ch == 'ONE_TO_ONE') {
+        // #4: speak a personalized availability announcement to the caller.
+        unawaited(_announceAvailability(_headerTitle(), busy));
         final proceed = await _showBusyCallSheet(busy);
         if (proceed != true) {
           // Cancel the ringing call; they'll leave a message in the chat.
@@ -998,6 +1001,27 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
         bestieToast(context, 'Could not start call',
             body: formatApiError(e), kind: BestieToastKind.error);
     }
+  }
+
+  /// #4: speak a personalized availability announcement to the caller, e.g.
+  /// "Ravi is currently in a meeting. Please wait while they respond."
+  Future<void> _announceAvailability(String name, Map<String, dynamic> presence) async {
+    final status = (presence['status'] ?? 'BUSY').toString();
+    final custom = (presence['customStatus'] ?? '').toString().trim();
+    final label = status == 'IN_MEETING'
+        ? 'currently in a meeting'
+        : status == 'INVISIBLE'
+            ? 'currently away'
+            : 'currently busy with work';
+    final text = custom.isNotEmpty
+        ? '$name says: $custom'
+        : '$name is $label. Please wait while they respond.';
+    try {
+      final tts = FlutterTts();
+      await tts.setSpeechRate(0.45);
+      await tts.setVolume(1.0);
+      await tts.speak(text);
+    } catch (_) {/* TTS is best-effort */}
   }
 
   /// Shown when the person you're calling is Busy / In a meeting. Returns true

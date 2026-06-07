@@ -1,6 +1,6 @@
 name: mytaskking_mobile
 description: MyTaskKing — Android + iOS mobile workspace.
-version: 1.0.0+9
+version: 1.0.0+10
 publish_to: "none"
 
 environment:
@@ -38,6 +38,8 @@ dependencies:
   flutter_ringtone_player: ^4.0.0+3
   # On-device speech recognition for the composer's "dictate" mic button.
   speech_to_text: ^7.0.0
+  # Text-to-speech for the incoming-call availability announcement (#4).
+  flutter_tts: ^4.2.0
 
 dependency_overrides:
   # record 5.x's federated linux implementation has a platform-interface
