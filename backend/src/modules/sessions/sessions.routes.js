@@ -22,6 +22,23 @@ router.get(
   asyncHandler(async (req, res) => res.json({ items: await service.listForUser(req.params.userId) }))
 );
 
+// Org-wide login/logout activity feed for admins (#2): every session with
+// login/logout timestamps, device, and IP. Filter by user and date range.
+router.get(
+  '/activity',
+  requireAdmin,
+  validate({
+    query: Joi.object({
+      userId: Joi.string().optional(),
+      from: Joi.date().iso().optional(),
+      to: Joi.date().iso().optional(),
+      page: Joi.number().integer().min(1).default(1),
+      pageSize: Joi.number().integer().min(1).max(100).default(50),
+    }),
+  }),
+  asyncHandler(async (req, res) => res.json(await service.listActivity(req.query)))
+);
+
 router.delete(
   '/:id',
   asyncHandler(async (req, res) => {

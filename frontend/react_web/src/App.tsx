@@ -24,6 +24,7 @@ import MeetingJoinPage from '@/pages/MeetingJoinPage';
 import PrivacyPolicyPage from '@/pages/PrivacyPolicyPage';
 import RecordingsPage from '@/pages/RecordingsPage';
 import TalkTimePage from '@/pages/TalkTimePage';
+import LoginActivityPage from '@/pages/LoginActivityPage';
 import FlagsPage from '@/pages/FlagsPage';
 import PermissionsPage from '@/pages/PermissionsPage';
 import { ToastHost } from '@/components/Toast';
@@ -114,6 +115,10 @@ export default function App() {
           <Route
             path="/talk-time"
             element={<RoleGate allow={['SUPER_ADMIN', 'ADMIN']}><TalkTimePage /></RoleGate>}
+          />
+          <Route
+            path="/login-activity"
+            element={<RoleGate allow={['SUPER_ADMIN', 'ADMIN']}><LoginActivityPage /></RoleGate>}
           />
           <Route
             path="/telecaller"

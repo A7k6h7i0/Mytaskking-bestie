@@ -97,6 +97,51 @@ async function listForUser(userId) {
   });
 }
 
+/**
+ * Org-wide login/logout activity for admins (#2). Returns sessions across all
+ * users with login (firstSeenAt) + logout (revokedAt) timestamps, device, ip,
+ * and whether the session is still active. Filterable by user and date range.
+ */
+async function listActivity({ userId, from, to, page = 1, pageSize = 50 } = {}) {
+  const where = {};
+  if (userId) where.userId = userId;
+  if (from || to) {
+    where.firstSeenAt = {};
+    if (from) where.firstSeenAt.gte = from;
+    if (to) where.firstSeenAt.lte = to;
+  }
+  const [total, rows] = await Promise.all([
+    prisma.session.count({ where }),
+    prisma.session.findMany({
+      where,
+      orderBy: { firstSeenAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+  ]);
+  // Session has no relation to User in the schema, so resolve names separately.
+  const userIds = Array.from(new Set(rows.map((r) => r.userId)));
+  const users = await prisma.user.findMany({
+    where: { id: { in: userIds } },
+    select: { id: true, name: true, role: true, avatarUrl: true, isClient: true, customTitle: true },
+  });
+  const byId = new Map(users.map((u) => [u.id, u]));
+  const items = rows.map((r) => ({
+    id: r.id,
+    user: byId.get(r.userId) || { id: r.userId, name: 'Unknown' },
+    status: r.status,
+    loginAt: r.firstSeenAt,
+    lastSeenAt: r.lastSeenAt,
+    logoutAt: r.revokedAt,
+    device: r.device,
+    platform: r.platform,
+    ip: r.ip,
+    city: r.city,
+    country: r.country,
+  }));
+  return { total, page, pageSize, items };
+}
+
 function parseUA(ua) {
   if (!ua) return { device: null, platform: null };
   const lower = ua.toLowerCase();
@@ -111,4 +156,4 @@ function parseUA(ua) {
   return { device, platform };
 }
 
-module.exports = { startSession, touchSession, revoke, revokeAll, listForUser };
+module.exports = { startSession, touchSession, revoke, revokeAll, listForUser, listActivity };

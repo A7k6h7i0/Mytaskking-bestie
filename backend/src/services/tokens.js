@@ -65,10 +65,22 @@ async function rotateRefreshToken(rawToken, { userAgent, ip } = {}) {
 
 async function revokeRefreshToken(rawToken) {
   const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+  const now = new Date();
+  // Find the row first so we can also close the linked session (login-activity
+  // log) — otherwise a logged-out session shows "Active" forever.
+  const row = await prisma.refreshToken.findUnique({ where: { tokenHash } });
   await prisma.refreshToken.updateMany({
     where: { tokenHash, revokedAt: null },
-    data: { revokedAt: new Date() },
+    data: { revokedAt: now },
   });
+  if (row) {
+    await prisma.session
+      .updateMany({
+        where: { refreshTokenId: row.id, revokedAt: null },
+        data: { revokedAt: now, status: 'REVOKED' },
+      })
+      .catch(() => {});
+  }
 }
 
 function parseTtl(ttl) {
