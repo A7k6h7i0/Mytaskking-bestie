@@ -153,6 +153,62 @@ async function join({ callId, user }) {
     .then(withAgoraParticipantUids);
 }
 
+/**
+ * #7 Call timer validation. Computes the call's talk duration two independent
+ * ways and reconciles them before finalizing the record:
+ *   1. call-level:  endedAt - startedAt
+ *   2. participant: max over participants of (leftAt|endedAt) - joinedAt
+ * If the call-level value is missing/invalid (no startedAt, negative, or wildly
+ * off the participant value), the participant value is used. startedAt is
+ * backfilled from the earliest join so the record is accurate. Returns the
+ * finalized duration in seconds and persists it.
+ */
+async function finalizeCallTiming(callId, endedAtInput) {
+  const call = await prisma.call.findUnique({
+    where: { id: callId },
+    include: { participants: { select: { joinedAt: true, leftAt: true } } },
+  });
+  if (!call) return 0;
+  const endedAt = endedAtInput || call.endedAt || new Date();
+  const joins = call.participants.map((p) => p.joinedAt).filter(Boolean).map((d) => new Date(d).getTime());
+  const earliestJoin = joins.length ? Math.min(...joins) : null;
+  const startedAt = call.startedAt ? new Date(call.startedAt).getTime() : earliestJoin;
+
+  // Primary (call-level) estimate.
+  let primary = startedAt != null ? Math.floor((new Date(endedAt).getTime() - startedAt) / 1000) : null;
+  // Cross-check (participant-level) estimate.
+  let participantMax = 0;
+  for (const p of call.participants) {
+    if (!p.joinedAt) continue;
+    const end = p.leftAt ? new Date(p.leftAt).getTime() : new Date(endedAt).getTime();
+    participantMax = Math.max(participantMax, Math.floor((end - new Date(p.joinedAt).getTime()) / 1000));
+  }
+  participantMax = Math.max(0, participantMax);
+
+  let duration;
+  if (primary == null || primary < 0) {
+    duration = participantMax; // call-level unusable → trust participants
+  } else if (participantMax > 0 && Math.abs(primary - participantMax) > 5) {
+    // The two disagree by more than 5s — re-check and prefer the participant
+    // measure (it reflects actual connected time, not ring time).
+    duration = Math.min(primary, participantMax + 2);
+  } else {
+    duration = primary;
+  }
+  duration = Math.max(0, duration);
+
+  await prisma.call.update({
+    where: { id: callId },
+    data: {
+      durationSeconds: duration,
+      ...(call.startedAt == null && earliestJoin != null
+        ? { startedAt: new Date(earliestJoin) }
+        : {}),
+    },
+  }).catch(() => {});
+  return duration;
+}
+
 async function leave({ callId, user }) {
   const before = await prisma.call.findUnique({ where: { id: callId }, include: callInclude });
   if (!before) throw NotFound('Call not found');
@@ -165,21 +221,23 @@ async function leave({ callId, user }) {
       where: { callId, leftAt: null },
       data: { leftAt: new Date() },
     });
-    const ended = await prisma.call.update({
+    await prisma.call.update({
       where: { id: callId },
       data: { status: 'ENDED', endedAt: new Date() },
-      include: callInclude,
     });
+    await finalizeCallTiming(callId);
+    const ended = await prisma.call.findUnique({ where: { id: callId }, include: callInclude });
     await postCallEventMessage({ call: ended, kind: 'ENDED', actor: user });
     return ended;
   }
   const remaining = await prisma.callParticipant.count({ where: { callId, leftAt: null } });
   if (remaining === 0) {
-    const ended = await prisma.call.update({
+    await prisma.call.update({
       where: { id: callId },
       data: { status: 'ENDED', endedAt: new Date() },
-      include: callInclude,
     });
+    await finalizeCallTiming(callId);
+    const ended = await prisma.call.findUnique({ where: { id: callId }, include: callInclude });
     await postCallEventMessage({ call: ended, kind: 'ENDED', actor: user });
   }
   return prisma.call.findUnique({ where: { id: callId }, include: callInclude });
@@ -201,18 +259,20 @@ async function decline({ callId, user }) {
       where: { callId, leftAt: null },
       data: { leftAt: new Date() },
     });
-    await prisma.call.update({ where: { id: callId }, data: { status: 'MISSED', endedAt: new Date() } });
+    // A missed (never-answered) call has no talk time.
+    await prisma.call.update({ where: { id: callId }, data: { status: 'MISSED', endedAt: new Date(), durationSeconds: 0 } });
     await postCallEventMessage({ call, kind: 'MISSED', actor: user });
   } else if (call.kind === 'ONE_TO_ONE') {
-    const ended = await prisma.call.update({
-      where: { id: callId },
-      data: { status: 'ENDED', endedAt: new Date() },
-      include: callInclude,
-    });
     await prisma.callParticipant.updateMany({
       where: { callId, leftAt: null },
       data: { leftAt: new Date() },
     });
+    await prisma.call.update({
+      where: { id: callId },
+      data: { status: 'ENDED', endedAt: new Date() },
+    });
+    await finalizeCallTiming(callId);
+    const ended = await prisma.call.findUnique({ where: { id: callId }, include: callInclude });
     await postCallEventMessage({ call: ended, kind: 'DECLINED', actor: user });
   } else {
     await postCallEventMessage({ call, kind: 'DECLINED', actor: user });
@@ -263,7 +323,7 @@ async function addParticipant({ callId, userIds, actor }) {
 async function expireIfRinging({ callId }) {
   const updated = await prisma.call.updateMany({
     where: { id: callId, status: 'RINGING' },
-    data: { status: 'MISSED', endedAt: new Date() },
+    data: { status: 'MISSED', endedAt: new Date(), durationSeconds: 0 },
   });
   if (updated.count === 0) return null; // already answered / ended — no-op
   const call = await prisma.call.findUnique({ where: { id: callId }, include: callInclude });

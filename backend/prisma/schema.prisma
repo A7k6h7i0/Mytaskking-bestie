@@ -459,6 +459,7 @@ model Call {
   participants  CallParticipant[]
   startedAt     DateTime?
   endedAt       DateTime?
+  durationSeconds Int?                                  // validated talk duration (#7)
   recordingUrl  String?
   createdAt     DateTime       @default(now())
 
