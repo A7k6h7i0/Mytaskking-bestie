@@ -12,6 +12,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../active_call_state.dart';
+import '../router.dart';
 import '../state.dart';
 
 const _callNotificationChannel = MethodChannel('mytaskking/call_notification');
@@ -1206,6 +1207,15 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
         Positioned(
             top: topInset + 8, left: 8, right: 8, child: _header()),
+        // Premium status chips (HD Voice / Network / Security) — voice calls
+        // only, matching the redesigned call screen.
+        if (!_isMeeting && !showingVideo)
+          Positioned(
+            top: topInset + 58,
+            left: 16,
+            right: 16,
+            child: IgnorePointer(child: _topChips()),
+          ),
         if (_muteStatusText() != null)
           Positioned(
             top: topInset + 62,
@@ -1366,6 +1376,46 @@ class _CallScreenState extends ConsumerState<CallScreen>
   /// on the right. Timer shown under the name once connected.
   Widget _callHeader() {
     final title = _callDisplayTitle();
+    // Voice calls use the premium center stage (name + timer there), so the
+    // header is minimal: minimize · "End-to-End Encrypted" · invite. Video
+    // calls keep the name + timer in the header (no center stage over video).
+    final showingVideo = _isVideo && _remoteUids.isNotEmpty;
+    if (!showingVideo) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+        child: Row(children: [
+          _circleHeaderIcon(Icons.keyboard_arrow_down_rounded, _minimize,
+              tooltip: 'Minimize'),
+          Expanded(
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('MyTaskKing',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: BestieTokens.fwBold,
+                      )),
+                  const SizedBox(height: 2),
+                  Row(mainAxisSize: MainAxisSize.min, children: const [
+                    Icon(Icons.lock_rounded, size: 11, color: Color(0xFF22C55E)),
+                    SizedBox(width: 4),
+                    Text('End-to-End Encrypted',
+                        style: TextStyle(
+                            color: Color(0xFF22C55E),
+                            fontSize: 11,
+                            fontWeight: BestieTokens.fwSemibold)),
+                  ]),
+                ]),
+          ),
+          _circleHeaderIcon(Icons.person_add_alt_1_rounded, _showInvite,
+              tooltip: 'Invite'),
+        ]),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
       child: Row(children: [
@@ -2083,29 +2133,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
           ),
         );
       }
-      // 1:1 call: WhatsApp-style single big avatar dead-center (name + timer
-      // live in the top header).
+      // 1:1 call: premium voice stage — waveform-ringed avatar + name +
+      // designation + ACTIVE CALL + timer, all centered.
       final remoteName = _remoteUids.isNotEmpty
           ? (_remoteNames[_remoteUids.first] ?? 'Participant')
-          : (_channelName ?? 'Connecting');
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 112, 20, 220),
-          child: Container(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.45),
-                  blurRadius: 40,
-                  spreadRadius: 4,
-                ),
-              ],
-            ),
-            child: BestieAvatar(name: remoteName, size: 200),
-          ),
-        ),
-      );
+          : (_callDisplayTitle());
+      return _voiceCallStage(remoteName);
     }
     if (_remoteUids.isEmpty) {
       return Center(
@@ -2289,8 +2322,354 @@ class _CallScreenState extends ConsumerState<CallScreen>
     );
   }
 
+  // ───────────────────────── Premium voice-call UI ─────────────────────────
+
+  /// The other party's designation (admin-set customTitle) / role, shown under
+  /// their name on the voice-call stage.
+  String? _callDisplaySubtitle() {
+    final me = ref.read(authStoreProvider).user;
+    final parts = (_callMeta?['call']?['participants'] as List?) ??
+        (_callMeta?['participants'] as List?) ??
+        const [];
+    for (final p in parts) {
+      if (p is! Map) continue;
+      if (p['userId'] == me?.id) continue;
+      final u = (p['user'] as Map?)?.cast<String, dynamic>();
+      final title = (u?['customTitle'] ?? '').toString().trim();
+      if (title.isNotEmpty) return title;
+      final role = (u?['role'] ?? '').toString().trim();
+      if (role.isNotEmpty) {
+        return role
+            .replaceAll('_', ' ')
+            .toLowerCase()
+            .split(' ')
+            .map((w) => w.isEmpty ? w : '${w[0].toUpperCase()}${w.substring(1)}')
+            .join(' ');
+      }
+    }
+    return null;
+  }
+
+  /// Centered premium stage: waveform-ringed avatar with a live status badge,
+  /// the caller's name + designation, and the ACTIVE CALL label + timer.
+  Widget _voiceCallStage(String remoteName) {
+    final subtitle = _callDisplaySubtitle();
+    final connected = _connectedAt != null;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 120, 24, 232),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 230,
+              height: 230,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  // Animated concentric rings + side equalizer bars.
+                  const _PulseRings(size: 230, active: true),
+                  Container(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF6D4BFF).withValues(alpha: 0.35),
+                          blurRadius: 40,
+                          spreadRadius: 2,
+                        ),
+                      ],
+                    ),
+                    child: BestieAvatar(name: remoteName, size: 150),
+                  ),
+                  // Small green "in call" badge bottom-right of the avatar.
+                  Positioned(
+                    right: 44,
+                    bottom: 44,
+                    child: Container(
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF22C55E),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: const Color(0xFF0B1220), width: 3),
+                      ),
+                      child: const Icon(Icons.call_rounded,
+                          color: Colors.white, size: 16),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 26),
+            Text(
+              remoteName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 30,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.5,
+              ),
+            ),
+            if (subtitle != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+            const SizedBox(height: 18),
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.graphic_eq_rounded,
+                  size: 15,
+                  color: connected
+                      ? const Color(0xFF22C55E)
+                      : Colors.white54),
+              const SizedBox(width: 6),
+              Text(
+                connected ? 'ACTIVE CALL' : _status.toUpperCase(),
+                style: TextStyle(
+                  color: connected ? const Color(0xFF22C55E) : Colors.white70,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.5,
+                ),
+              ),
+            ]),
+            const SizedBox(height: 8),
+            Text(
+              connected ? _formatElapsed(_elapsed) : '00:00',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 30,
+                fontWeight: FontWeight.w300,
+                letterSpacing: 2,
+                fontFeatures: [FontFeature.tabularFigures()],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Top status chips: HD Voice / Network / Security (AES-256).
+  Widget _topChips() {
+    final net = _reconnecting ? 'Reconnecting' : 'Excellent';
+    final netColor =
+        _reconnecting ? const Color(0xFFFBBF24) : const Color(0xFF22C55E);
+    return Row(children: [
+      Expanded(
+        child: _statChip(
+            Icons.graphic_eq_rounded, 'HD Voice', 'Crystal Clear',
+            const Color(0xFF60A5FA)),
+      ),
+      const SizedBox(width: 10),
+      Expanded(
+        child: _statChip(Icons.signal_cellular_alt_rounded, 'Network', net,
+            netColor),
+      ),
+      const SizedBox(width: 10),
+      Expanded(
+        child: _statChip(Icons.shield_outlined, 'Security', 'AES-256',
+            const Color(0xFFA78BFA)),
+      ),
+    ]);
+  }
+
+  Widget _statChip(IconData icon, String title, String sub, Color accent) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(icon, size: 16, color: accent),
+        const SizedBox(width: 7),
+        Flexible(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700)),
+              Text(sub,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white54, fontSize: 9.5)),
+            ],
+          ),
+        ),
+      ]),
+    );
+  }
+
+  bool _held = false;
+  Future<void> _toggleHold() async {
+    final engine = _engine;
+    if (engine == null) return;
+    final next = !_held;
+    try {
+      await engine.muteLocalAudioStream(next || _muted);
+      await engine.muteAllRemoteAudioStreams(next);
+      if (_isVideo) await engine.muteLocalVideoStream(next || _cameraOff);
+    } catch (_) {/* best-effort */}
+    if (mounted) setState(() => _held = next);
+  }
+
+  /// Premium 2-row control grid + bottom action bar, matching the redesign.
+  Widget _premiumCallControls() {
+    final routeActive = _route != CallAudioRoute.earpiece;
+    final bluetoothOn = _route == CallAudioRoute.bluetooth;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Row(children: [
+          _gridTile(Icons.mic_off_rounded, 'Mute',
+              active: _muted, onTap: _toggleMute),
+          _gridTile(_audioRouteIcon(_route), 'Speaker',
+              active: routeActive && !bluetoothOn, onTap: _cycleAudioRoute),
+          _gridTile(Icons.bluetooth_rounded, 'Bluetooth',
+              active: bluetoothOn, onTap: _cycleAudioRoute),
+          _gridTile(Icons.pause_rounded, 'Hold',
+              active: _held, onTap: _toggleHold),
+        ]),
+        const SizedBox(height: 10),
+        Row(children: [
+          _gridTile(
+              (!_videoEnabled || _cameraOff)
+                  ? Icons.videocam_off_rounded
+                  : Icons.videocam_rounded,
+              'Camera',
+              active: _videoEnabled && !_cameraOff,
+              onTap: _toggleCamera),
+          _gridTile(Icons.person_add_alt_1_rounded, 'Add',
+              onTap: _showInvite),
+          _gridTile(Icons.fiber_manual_record_rounded, 'Record',
+              active: _recording,
+              accent: const Color(0xFFEF4444),
+              onTap: _toggleRecord),
+          _gridTile(Icons.more_horiz_rounded, 'More', onTap: _showMore),
+        ]),
+        const SizedBox(height: 18),
+        // Bottom action bar: message · end · keypad placeholder.
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          _ctrlCircle(
+              icon: Icons.chat_bubble_outline_rounded,
+              onTap: _openCallChat,
+              size: 46,
+              iconSize: 20),
+          const SizedBox(width: 36),
+          _PressableCircle(
+            onTap: _hangup,
+            size: 72,
+            child: Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                color: const Color(0xFFEF4444),
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                      color: const Color(0xFFEF4444).withValues(alpha: 0.5),
+                      blurRadius: 24,
+                      spreadRadius: 1),
+                ],
+              ),
+              child: const Icon(Icons.call_end_rounded,
+                  color: Colors.white, size: 32),
+            ),
+          ),
+          const SizedBox(width: 36),
+          _ctrlCircle(
+              icon: Icons.more_vert_rounded,
+              onTap: _showMore,
+              size: 46,
+              iconSize: 20),
+        ]),
+      ]),
+    );
+  }
+
+  /// One rounded-card control in the premium grid.
+  Widget _gridTile(IconData icon, String label,
+      {bool active = false, Color? accent, required VoidCallback onTap}) {
+    final a = accent ?? const Color(0xFF60A5FA);
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 5),
+        child: _PressableCircle(
+          onTap: onTap,
+          size: 76,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            height: 76,
+            decoration: BoxDecoration(
+              color: active
+                  ? a.withValues(alpha: 0.18)
+                  : Colors.white.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: active
+                    ? a.withValues(alpha: 0.6)
+                    : Colors.white.withValues(alpha: 0.10),
+              ),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, color: active ? a : Colors.white, size: 22),
+                const SizedBox(height: 6),
+                Text(label,
+                    style: TextStyle(
+                        color: active ? a : Colors.white70,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Opens the call's chat channel (message button on the call screen).
+  void _openCallChat() {
+    final channelId = (_callMeta?['call']?['channelId'] ??
+            _callMeta?['channelId'])
+        ?.toString();
+    if (channelId == null || channelId.isEmpty) {
+      bestieToast(context, 'Chat opens after the call connects',
+          kind: BestieToastKind.info);
+      return;
+    }
+    _minimize();
+    ref.read(routerProvider).go('/chat/$channelId');
+  }
+
   Widget _controls() {
-    return _isMeeting ? _meetingControls() : _callControls();
+    if (_isMeeting) return _meetingControls();
+    // Premium grid for voice calls; keep the compact pill for video calls so
+    // it doesn't cover the video feed.
+    final showingVideo = _isVideo && _remoteUids.isNotEmpty;
+    return showingVideo ? _callControls() : _premiumCallControls();
   }
 
   /// WhatsApp call controls — one translucent rounded pill with 5 circles:
@@ -2478,6 +2857,80 @@ class _Participant {
 
 /// A circular control that scales down slightly while pressed for tactile
 /// feedback — used by every call/meeting control button.
+/// Concentric expanding rings behind the voice-call avatar — the "waveform"
+/// pulse from the redesign. Purely decorative; runs only while [active].
+class _PulseRings extends StatefulWidget {
+  final double size;
+  final bool active;
+  const _PulseRings({required this.size, this.active = true});
+
+  @override
+  State<_PulseRings> createState() => _PulseRingsState();
+}
+
+class _PulseRingsState extends State<_PulseRings>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 2600),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.active) _ctrl.repeat();
+  }
+
+  @override
+  void didUpdateWidget(covariant _PulseRings old) {
+    super.didUpdateWidget(old);
+    if (widget.active && !_ctrl.isAnimating) {
+      _ctrl.repeat();
+    } else if (!widget.active && _ctrl.isAnimating) {
+      _ctrl.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (_, __) {
+        return SizedBox(
+          width: widget.size,
+          height: widget.size,
+          child: Stack(alignment: Alignment.center, children: [
+            for (int i = 0; i < 3; i++) _ring((_ctrl.value + i / 3) % 1.0),
+          ]),
+        );
+      },
+    );
+  }
+
+  Widget _ring(double t) {
+    final size = widget.size * (0.62 + 0.38 * t);
+    final opacity = (1 - t).clamp(0.0, 1.0) * 0.5;
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: Color.lerp(const Color(0xFF6D4BFF), const Color(0xFF3AA1FF), t)!
+              .withValues(alpha: opacity),
+          width: 2,
+        ),
+      ),
+    );
+  }
+}
+
 class _PressableCircle extends StatefulWidget {
   final Widget child;
   final VoidCallback onTap;
