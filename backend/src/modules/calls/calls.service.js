@@ -94,8 +94,21 @@ async function initiate({ initiator, participantIds, kind = 'ONE_TO_ONE', channe
   const tokenForUser = () => agora.generateRtcToken({ channelName: call.channelName, wildcard: true });
   await postCallEventMessage({ call, kind: 'STARTED', actor: initiator });
 
+  // For a 1:1 call, surface the callee's availability so the caller can be
+  // offered to leave a voice/text message if they're busy (#5).
+  let targetPresence = null;
+  if (realKind === 'ONE_TO_ONE' && participantIds.length === 1) {
+    const presence = await prisma.userPresence
+      .findUnique({ where: { userId: participantIds[0] } })
+      .catch(() => null);
+    if (presence && ['BUSY', 'IN_MEETING', 'INVISIBLE'].includes(presence.status)) {
+      targetPresence = { status: presence.status, customStatus: presence.customStatus || null };
+    }
+  }
+
   return {
     call,
+    targetPresence,
     tokens: Object.fromEntries(all.map((uid) => [uid, tokenForUser(uid)])),
   };
 }

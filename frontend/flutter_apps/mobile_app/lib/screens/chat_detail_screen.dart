@@ -978,14 +978,99 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
           );
       final call = (res['call'] as Map?)?.cast<String, dynamic>() ?? res;
       final callId = call['id']?.toString();
-      if (callId != null && mounted) {
-        context.go('/call/$callId?mode=$kind');
+      if (callId == null || !mounted) return;
+      // #5: if the callee is busy / in a meeting, offer to leave a message
+      // (voice or text — both available right here in the DM) instead of ringing.
+      final busy = (res['targetPresence'] as Map?)?.cast<String, dynamic>();
+      if (busy != null && ch == 'ONE_TO_ONE') {
+        final proceed = await _showBusyCallSheet(busy);
+        if (proceed != true) {
+          // Cancel the ringing call; they'll leave a message in the chat.
+          try {
+            await ref.read(apiProvider).post('/calls/$callId/leave');
+          } catch (_) {/* best-effort */}
+          return;
+        }
       }
+      if (mounted) context.go('/call/$callId?mode=$kind');
     } catch (e) {
       if (mounted)
         bestieToast(context, 'Could not start call',
             body: formatApiError(e), kind: BestieToastKind.error);
     }
+  }
+
+  /// Shown when the person you're calling is Busy / In a meeting. Returns true
+  /// to call anyway, false/null to leave a message in the chat instead.
+  Future<bool?> _showBusyCallSheet(Map<String, dynamic> presence) {
+    final c = BestieColors.of(context);
+    final status = (presence['status'] ?? 'BUSY').toString();
+    final custom = (presence['customStatus'] ?? '').toString().trim();
+    final label = status == 'IN_MEETING'
+        ? 'in a meeting'
+        : status == 'INVISIBLE'
+            ? 'away'
+            : 'busy';
+    final name = _headerTitle();
+    return showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: c.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
+      ),
+      builder: (ctx) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Container(
+              width: 52, height: 52,
+              decoration: BoxDecoration(
+                color: c.warningSoft, shape: BoxShape.circle),
+              child: Icon(Icons.do_not_disturb_on_rounded,
+                  color: c.warning, size: 26),
+            ),
+            const SizedBox(height: 14),
+            Text('$name is $label',
+                style: TextStyle(
+                    color: c.text,
+                    fontSize: 18,
+                    fontWeight: BestieTokens.fwBold)),
+            const SizedBox(height: 6),
+            Text(
+              custom.isNotEmpty
+                  ? '"$custom"'
+                  : 'You can leave a voice or text message and they\'ll see it when they\'re free.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: c.textMuted, fontSize: 13.5, height: 1.4),
+            ),
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: () => Navigator.pop(ctx, false),
+                style: FilledButton.styleFrom(
+                  backgroundColor: c.brand,
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                ),
+                icon: const Icon(Icons.edit_rounded, size: 18),
+                label: const Text('Leave a message'),
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton.icon(
+                onPressed: () => Navigator.pop(ctx, true),
+                icon: Icon(Icons.call_rounded, size: 18, color: c.textSoft),
+                label: Text('Call anyway',
+                    style: TextStyle(color: c.textSoft)),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
   }
 
   String _headerTitle() {
