@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, MessageSquare, Pencil, Phone, Plus, Search, X } from 'lucide-react';
+import { Check, MessageSquare, Pencil, Phone, Plus, Search, Siren, X } from 'lucide-react';
 import { api } from '@/services/api';
 import { toast } from '@/components/Toast';
 import { useAuthStore } from '@/store/auth';
@@ -75,6 +75,13 @@ export default function EmployeesPage() {
       navigate(`/calls/live/${result.call.id}`);
     },
     onError: (err: any) => toast.error(err?.response?.data?.error?.message || 'Could not start call'),
+  });
+
+  const emergencyMut = useMutation({
+    mutationFn: async ({ targetId }: { targetId: string; targetName: string }) =>
+      (await api.post('/emergency/alert', { userId: targetId })).data,
+    onSuccess: (_r, vars) => toast.success(`Emergency alert sent to ${vars.targetName}`, 'They will be alerted immediately.'),
+    onError: (err: any) => toast.error(err?.response?.data?.error?.message || 'Could not send emergency alert'),
   });
 
   const renameMut = useMutation({
@@ -226,6 +233,21 @@ export default function EmployeesPage() {
                 >
                   <Phone size={14} /> Call
                 </Button>
+                {canManageEmployees && u.id !== user?.id && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      if (window.confirm(`Send an emergency siren alert to ${u.name}? Use this only for urgent escalations.`)) {
+                        emergencyMut.mutate({ targetId: u.id, targetName: u.name });
+                      }
+                    }}
+                    disabled={emergencyMut.isPending}
+                    title="Emergency siren alert"
+                  >
+                    <Siren size={14} /> Emergency
+                  </Button>
+                )}
                 {canCustomizeEmployeeName && (
                   isEditing ? (
                     <>

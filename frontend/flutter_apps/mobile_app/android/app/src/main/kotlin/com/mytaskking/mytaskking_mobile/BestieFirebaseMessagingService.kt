@@ -30,12 +30,51 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
             return
         }
 
+        if (type == "emergency.alert") {
+            if (isAppInForeground()) return
+            showEmergencyNotification(data)
+            wakeBriefly()
+            return
+        }
+
         if ((type == "chat.message" || kind == "CHAT" || kind == "MENTION") &&
             !data["channelId"].isNullOrBlank()
         ) {
             if (isAppInForeground()) return
             showMessageNotification(data)
         }
+    }
+
+    private fun showEmergencyNotification(data: Map<String, String>) {
+        createEmergencyNotificationChannel(this)
+        val fromName = data["fromName"] ?: "Admin"
+        val escalation = data["escalation"] == "1"
+        val title = if (escalation) "🚨 URGENT: response required" else "🚨 Emergency alert"
+        val body = data["message"]?.takeIf { it.isNotBlank() } ?: "$fromName needs your immediate attention"
+        val notificationId = notificationIdFor(data["alertId"] ?: body)
+        val openIntent = targetIntent(data, "emergency.alert", notificationId)
+        val openPendingIntent = PendingIntent.getActivity(
+            this,
+            notificationId,
+            openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val builder = notificationBuilder(EMERGENCY_CHANNEL_ID)
+            .setSmallIcon(applicationInfo.icon)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(Notification.BigTextStyle().bigText(body))
+            .setCategory(Notification.CATEGORY_ALARM)
+            .setPriority(Notification.PRIORITY_MAX)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM))
+            .setVibrate(longArrayOf(0, 800, 400, 800, 400, 800))
+            .setContentIntent(openPendingIntent)
+            .setFullScreenIntent(openPendingIntent, true)
+        getSystemService(NotificationManager::class.java)
+            .notify(notificationId, builder.build())
     }
 
     private fun showIncomingCallNotification(data: Map<String, String>, type: String) {
@@ -236,6 +275,30 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
     companion object {
         const val CALLS_CHANNEL_ID = "calls"
         private const val MESSAGES_CHANNEL_ID = "messages"
+        private const val EMERGENCY_CHANNEL_ID = "emergency"
+
+        fun createEmergencyNotificationChannel(context: Context) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+            val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+            val attrs = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            val channel = NotificationChannel(
+                EMERGENCY_CHANNEL_ID,
+                "Emergency alerts",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Urgent admin emergency sirens"
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 800, 400, 800, 400, 800)
+                setSound(alarmUri, attrs)
+                setBypassDnd(true)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            }
+            context.getSystemService(NotificationManager::class.java)
+                .createNotificationChannel(channel)
+        }
 
         fun createCallNotificationChannel(context: Context) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return

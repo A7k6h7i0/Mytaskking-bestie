@@ -34,7 +34,9 @@ class IncomingCallOverlay extends ConsumerStatefulWidget {
 class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     with WidgetsBindingObserver {
   Map<String, dynamic>? _pending;
+  Map<String, dynamic>? _emergency;
   Timer? _autoMiss;
+  Timer? _emergencyHaptic;
   StreamSubscription<Map<String, dynamic>>? _pushInviteSub;
   final List<void Function()> _unsubs = [];
   String? _lastUserId;
@@ -55,6 +57,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
   void dispose() {
     _autoMiss?.cancel();
     _hapticTimer?.cancel();
+    _emergencyHaptic?.cancel();
     _bannerTimer?.cancel();
     _pushInviteSub?.cancel();
     _ringtone.stop();
@@ -118,6 +121,9 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     // pill and it lingered as "tap to join". This always-mounted listener
     // guarantees the pill is cleared whenever the active call ends.
     _unsubs.add(rt.onAny('call.ended', ([data]) => _clearEndedOngoingCall(data)));
+    // Emergency siren (#11): admin-triggered loud alarm that blares until the
+    // recipient acknowledges. Also fired on escalation.
+    _unsubs.add(rt.onAny('emergency.alert', ([data]) => _onEmergency(data)));
     _unsubs.add(rt.onAny('call.participant.joined', ([data]) {
       // Only dismiss if *this* user joined the call from somewhere else
       // (e.g. accepted on another device). If we kill the ringer for any
@@ -140,6 +146,43 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     if (endedId == null || endedId.isEmpty || endedId == active.callId) {
       ActiveCallState.clear();
     }
+  }
+
+  /// Emergency siren (#11): blare a looping alarm + heavy haptics and show a
+  /// full-screen alert until the user acknowledges.
+  void _onEmergency(dynamic data) {
+    if (data is! Map) return;
+    if (!mounted) return;
+    setState(() => _emergency = Map<String, dynamic>.from(data));
+    HapticFeedback.heavyImpact();
+    _emergencyHaptic?.cancel();
+    _emergencyHaptic = Timer.periodic(const Duration(milliseconds: 900), (_) {
+      HapticFeedback.heavyImpact();
+    });
+    _playAlarm();
+  }
+
+  Future<void> _playAlarm() async {
+    try {
+      await _ringtone.play(
+        android: AndroidSounds.alarm,
+        ios: IosSounds.alarm,
+        looping: true,
+        volume: 1.0,
+        asAlarm: true, // plays even in silent mode
+      );
+    } catch (_) {/* best-effort */}
+  }
+
+  Future<void> _ackEmergency() async {
+    final id = _emergency?['alertId']?.toString();
+    _emergencyHaptic?.cancel();
+    _ringtone.stop();
+    if (mounted) setState(() => _emergency = null);
+    if (id == null) return;
+    try {
+      await ref.read(apiProvider).post('/emergency/$id/ack');
+    } catch (_) {/* server keeps the record either way */}
   }
 
   Timer? _hapticTimer;
@@ -424,7 +467,120 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
           onAccept: _accept,
           onDecline: _decline,
         )),
+      // Emergency siren sits above everything (incl. an active ringer).
+      if (_emergency != null)
+        Positioned.fill(
+            child: _EmergencyScreen(
+          payload: _emergency!,
+          onAck: _ackEmergency,
+        )),
     ]);
+  }
+}
+
+/// Full-screen blaring emergency alert. Stays until the user acknowledges.
+class _EmergencyScreen extends StatelessWidget {
+  final Map<String, dynamic> payload;
+  final VoidCallback onAck;
+  const _EmergencyScreen({required this.payload, required this.onAck});
+
+  @override
+  Widget build(BuildContext context) {
+    final fromName = (payload['fromName'] ?? 'Admin').toString();
+    final message = (payload['message'] ?? '').toString().trim();
+    final escalation = payload['escalation'] == true || payload['escalation'] == '1';
+    return Material(
+      color: const Color(0xFFB91C1C),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              const Spacer(),
+              _Pulse(
+                child: Container(
+                  width: 120,
+                  height: 120,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 3),
+                  ),
+                  child: const Icon(Icons.notifications_active_rounded,
+                      color: Colors.white, size: 60),
+                ),
+              ),
+              const SizedBox(height: 28),
+              Text(
+                escalation ? 'URGENT — RESPOND NOW' : 'EMERGENCY ALERT',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 26,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1.5,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                message.isNotEmpty ? message : '$fromName needs your immediate attention',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white, fontSize: 17, height: 1.4),
+              ),
+              const SizedBox(height: 8),
+              Text('From $fromName',
+                  style: const TextStyle(color: Colors.white70, fontSize: 13)),
+              const Spacer(),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: onAck,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: const Color(0xFFB91C1C),
+                    padding: const EdgeInsets.symmetric(vertical: 18),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
+                  ),
+                  child: const Text("I'M RESPONDING",
+                      style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, letterSpacing: 1)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _Pulse extends StatefulWidget {
+  final Widget child;
+  const _Pulse({required this.child});
+  @override
+  State<_Pulse> createState() => _PulseState();
+}
+
+class _PulseState extends State<_Pulse> with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 700),
+  )..repeat(reverse: true);
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ScaleTransition(
+      scale: Tween(begin: 0.92, end: 1.08)
+          .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut)),
+      child: widget.child,
+    );
   }
 }
 
