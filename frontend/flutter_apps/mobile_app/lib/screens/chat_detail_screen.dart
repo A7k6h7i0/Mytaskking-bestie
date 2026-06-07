@@ -588,7 +588,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
           attachmentIds != null && attachmentIds.isNotEmpty ? 'FILE' : 'TEXT',
       'body': body.isEmpty ? null : body,
       'status': 'SENDING',
-      'createdAt': DateTime.now().toIso8601String(),
+      'createdAt': DateTime.now().toUtc().toIso8601String(),
       'channelId': widget.channelId,
       'author': {
         'id': me.id,
@@ -3463,14 +3463,30 @@ class _MessageBubble extends ConsumerWidget {
   }
 
   String _formatTime(String? iso) {
-    final dt = DateTime.tryParse(iso ?? '');
-    if (dt == null) return '';
-    final local = dt.toLocal();
+    final local = _parseTimestampToLocal(iso);
+    if (local == null) return '';
     final h =
         local.hour > 12 ? local.hour - 12 : (local.hour == 0 ? 12 : local.hour);
     final m = local.minute.toString().padLeft(2, '0');
     final ampm = local.hour >= 12 ? 'PM' : 'AM';
     return '$h:$m $ampm';
+  }
+
+  /// Parses an ISO timestamp to local time. The backend stores UTC; if the
+  /// string carries no timezone (no trailing Z or ±hh:mm offset), Dart would
+  /// otherwise treat it as local and show the time off by the user's UTC
+  /// offset. Treat such bare timestamps as UTC before converting.
+  static DateTime? _parseTimestampToLocal(String? iso) {
+    if (iso == null || iso.isEmpty) return null;
+    var dt = DateTime.tryParse(iso);
+    if (dt == null) return null;
+    final hasTz =
+        iso.endsWith('Z') || RegExp(r'[+-]\d{2}:?\d{2}$').hasMatch(iso);
+    if (!dt.isUtc && !hasTz) {
+      dt = DateTime.utc(dt.year, dt.month, dt.day, dt.hour, dt.minute,
+          dt.second, dt.millisecond, dt.microsecond);
+    }
+    return dt.toLocal();
   }
 }
 

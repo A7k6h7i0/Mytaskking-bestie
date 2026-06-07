@@ -684,9 +684,13 @@ extension BestieApiExt on BestieApi {
   /// Mirrors `POST /calls/:id/participants` on the backend.
   Future<Map<String, dynamic>> addCallParticipants(
     String callId,
-    List<String> userIds,
-  ) =>
-      post('/calls/$callId/participants', body: {'userIds': userIds});
+    List<String> userIds, {
+    String? mode,
+  }) =>
+      post('/calls/$callId/participants', body: {
+        'userIds': userIds,
+        if (mode != null) 'mode': mode,
+      });
 
   // ---- file upload (multipart) ----
   /// Uploads [bytes] to `POST /files/upload` and returns the created file

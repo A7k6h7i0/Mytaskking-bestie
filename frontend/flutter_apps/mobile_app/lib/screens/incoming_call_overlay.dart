@@ -6,6 +6,7 @@ import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
+import '../active_call_state.dart';
 import '../router.dart';
 import '../state.dart';
 
@@ -109,7 +110,14 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
           data['callId'] == _pending!['call']?['id']) {
         _dismiss();
       }
+      _clearEndedOngoingCall(data);
     }));
+    // Global call-end cleanup. The CallScreen also handles call.ended, but it
+    // unsubscribes on dispose — so when the user backgrounds a call to the
+    // "ongoing call" pill and the call then ends remotely, nothing cleared the
+    // pill and it lingered as "tap to join". This always-mounted listener
+    // guarantees the pill is cleared whenever the active call ends.
+    _unsubs.add(rt.onAny('call.ended', ([data]) => _clearEndedOngoingCall(data)));
     _unsubs.add(rt.onAny('call.participant.joined', ([data]) {
       // Only dismiss if *this* user joined the call from somewhere else
       // (e.g. accepted on another device). If we kill the ringer for any
@@ -120,6 +128,18 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
       if (data['userId'] != userId) return;
       _dismiss();
     }));
+  }
+
+  /// Clears the "ongoing call" pill when the matching call ends, even if the
+  /// CallScreen widget is already disposed (user backgrounded to the pill).
+  void _clearEndedOngoingCall(dynamic data) {
+    if (data is! Map) return;
+    final endedId = data['callId']?.toString();
+    final active = ActiveCallState.current.value;
+    if (active == null) return;
+    if (endedId == null || endedId.isEmpty || endedId == active.callId) {
+      ActiveCallState.clear();
+    }
   }
 
   Timer? _hapticTimer;

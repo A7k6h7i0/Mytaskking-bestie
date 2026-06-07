@@ -208,6 +208,7 @@ router.post(
     body: Joi.object({
       userId: Joi.string(),
       userIds: Joi.array().items(Joi.string()).min(1),
+      mode: Joi.string().valid('VOICE', 'VIDEO'),
     }).or('userId', 'userIds'),
   }),
   asyncHandler(async (req, res) => {
@@ -217,6 +218,7 @@ router.post(
         ...((Array.isArray(req.body.userIds) ? req.body.userIds : [])),
       ])
     );
+    const mode = (req.body.mode || 'VIDEO').toUpperCase();
     const result = await service.addParticipant({
       callId: req.params.id,
       userIds,
@@ -225,9 +227,45 @@ router.post(
     for (const userId of userIds) {
       req.app.get('io')?.to(`user:${userId}`).emit('call.invited', {
         call: result.call,
+        mode,
         token: result.tokens[userId],
       });
     }
+    // Ring the newly-added people even when their app is backgrounded/killed —
+    // the socket-only `call.invited` above never reached them otherwise (the
+    // "added but no incoming call" bug). Mirrors the FCM push in /initiate.
+    prisma.deviceToken
+      .findMany({ where: { userId: { in: userIds } } })
+      .then(async (devices) => {
+        if (!devices.length) return null;
+        const byUser = new Map();
+        for (const device of devices) {
+          const tokens = byUser.get(device.userId) || [];
+          tokens.push(device.token);
+          byUser.set(device.userId, tokens);
+        }
+        await Promise.all(
+          Array.from(byUser.entries()).map(([userId, tokens]) =>
+            fcm.sendToTokens(tokens, {
+              title: `Incoming ${mode.toLowerCase()} call`,
+              body: `${req.user.name} is calling...`,
+              data: {
+                type: 'call.incoming',
+                callId: result.call.id,
+                mode,
+                fromName: req.user.name,
+                apiBaseUrl: notificationActions.publicApiBaseUrl(),
+                actionToken: notificationActions.signAction(
+                  { action: 'call.decline', userId, callId: result.call.id },
+                  '2m'
+                ),
+              },
+            })
+          )
+        );
+        return null;
+      })
+      .catch(() => {/* push is best-effort */});
     res.json(result);
   })
 );

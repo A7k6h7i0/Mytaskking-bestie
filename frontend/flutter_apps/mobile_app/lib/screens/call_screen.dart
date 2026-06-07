@@ -1681,7 +1681,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
                             : () async {
                                 try {
                                   await api.addCallParticipants(
-                                      callId, selected.toList());
+                                      callId, selected.toList(),
+                                      mode: widget.mode.toUpperCase());
                                   if (ctx.mounted) Navigator.pop(ctx);
                                   if (mounted)
                                     bestieToast(
