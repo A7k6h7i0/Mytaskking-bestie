@@ -39,6 +39,7 @@ const meetings = require('./meetings/meetings.routes');
 const workspace = require('./workspace/workspace.routes');
 const unfurl = require('./unfurl/unfurl.routes');
 const recordings = require('./recordings/recordings.routes');
+const emergency = require('./emergency/emergency.routes');
 
 module.exports = function buildRouter() {
   const router = Router();
@@ -75,6 +76,7 @@ module.exports = function buildRouter() {
   router.use('/workspace', workspace);
   router.use('/unfurl', unfurl);
   router.use('/recordings', recordings);
+  router.use('/emergency', emergency);
 
   // openapi serves /openapi.json + /docs at the root of /api/v1
   router.use('/', openapi);
