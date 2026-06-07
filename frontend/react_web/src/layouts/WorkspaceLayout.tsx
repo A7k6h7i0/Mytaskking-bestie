@@ -54,6 +54,7 @@ const NAV: NavItem[] = [
   { to: '/employees', label: 'Employees', icon: Users },
   { to: '/clients', label: 'Clients', icon: UserCog },
   { to: '/analytics', label: 'Analytics', icon: BarChart3 },
+  { to: '/talk-time', label: 'Talk time', icon: PhoneCall },
   { to: '/activity', label: 'Activity', icon: Activity },
   { to: '/automations', label: 'Automations', icon: Zap },
   { to: '/flags', label: 'Feature flags', icon: Flag },

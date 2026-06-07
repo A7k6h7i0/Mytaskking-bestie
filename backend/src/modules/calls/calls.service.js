@@ -295,6 +295,127 @@ async function screenShareToken({ callId, user }) {
   return { ...token, sharedBy: user.id };
 }
 
+// ───────────────────────────── Talk-time reports ─────────────────────────────
+
+/** Seconds a participant was actually connected on a call. 0 if never joined. */
+function _participantTalkSeconds(part, call, now) {
+  if (!part.joinedAt) return 0;
+  const end = part.leftAt || call.endedAt || now;
+  const ms = new Date(end).getTime() - new Date(part.joinedAt).getTime();
+  return Math.max(0, Math.floor(ms / 1000));
+}
+
+/** Individual talk-time totals for one user over [from, to]. */
+async function talkTimeForUser({ userId, from, to }) {
+  const now = new Date();
+  const parts = await prisma.callParticipant.findMany({
+    where: { userId, call: { createdAt: { gte: from, lte: to } } },
+    include: {
+      call: { select: { initiatorId: true, endedAt: true } },
+    },
+  });
+  let totalSeconds = 0;
+  let incomingSeconds = 0;
+  let outgoingSeconds = 0;
+  let calls = 0;
+  let missed = 0;
+  for (const p of parts) {
+    if (!p.joinedAt) {
+      missed += 1;
+      continue;
+    }
+    const sec = _participantTalkSeconds(p, p.call, now);
+    totalSeconds += sec;
+    calls += 1;
+    if (p.call.initiatorId === userId) {
+      outgoingSeconds += sec;
+    } else {
+      incomingSeconds += sec;
+    }
+  }
+  return {
+    userId,
+    from,
+    to,
+    totalSeconds,
+    incomingSeconds,
+    outgoingSeconds,
+    calls,
+    missed,
+    averageSeconds: calls ? Math.round(totalSeconds / calls) : 0,
+  };
+}
+
+/** Org-wide talk-time: per-employee rows, ranking, total and average. */
+async function talkTimeOrg({ from, to }) {
+  const now = new Date();
+  const parts = await prisma.callParticipant.findMany({
+    where: { call: { createdAt: { gte: from, lte: to } } },
+    include: {
+      call: { select: { initiatorId: true, endedAt: true } },
+      user: {
+        select: {
+          id: true,
+          name: true,
+          role: true,
+          avatarUrl: true,
+          isClient: true,
+          customTitle: true,
+          departmentId: true,
+        },
+      },
+    },
+  });
+  const byUser = new Map();
+  for (const p of parts) {
+    if (!p.user || p.user.isClient) continue; // employees only
+    const row = byUser.get(p.userId) || {
+      user: p.user,
+      totalSeconds: 0,
+      incomingSeconds: 0,
+      outgoingSeconds: 0,
+      calls: 0,
+      missed: 0,
+    };
+    if (!p.joinedAt) {
+      row.missed += 1;
+    } else {
+      const sec = _participantTalkSeconds(p, p.call, now);
+      row.totalSeconds += sec;
+      row.calls += 1;
+      if (p.call.initiatorId === p.userId) row.outgoingSeconds += sec;
+      else row.incomingSeconds += sec;
+    }
+    byUser.set(p.userId, row);
+  }
+  const rows = Array.from(byUser.values()).sort(
+    (a, b) => b.totalSeconds - a.totalSeconds
+  );
+  const totalCombinedSeconds = rows.reduce((s, r) => s + r.totalSeconds, 0);
+  return {
+    from,
+    to,
+    totalCombinedSeconds,
+    averageSeconds: rows.length
+      ? Math.round(totalCombinedSeconds / rows.length)
+      : 0,
+    employeeCount: rows.length,
+    employees: rows.map((r, i) => ({
+      rank: i + 1,
+      userId: r.user.id,
+      name: r.user.name,
+      role: r.user.role,
+      customTitle: r.user.customTitle,
+      avatarUrl: r.user.avatarUrl,
+      totalSeconds: r.totalSeconds,
+      incomingSeconds: r.incomingSeconds,
+      outgoingSeconds: r.outgoingSeconds,
+      calls: r.calls,
+      missed: r.missed,
+    })),
+  };
+}
+
 module.exports = {
   initiate,
   tokenFor,
@@ -306,4 +427,6 @@ module.exports = {
   history,
   screenShareToken,
   expireIfRinging,
+  talkTimeForUser,
+  talkTimeOrg,
 };

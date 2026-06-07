@@ -4,13 +4,23 @@ const { Router } = require('express');
 const Joi = require('joi');
 const asyncHandler = require('../../utils/asyncHandler');
 const validate = require('../../middleware/validate');
-const { requireAuth } = require('../../middleware/auth');
+const { requireAuth, requireAdmin } = require('../../middleware/auth');
 const service = require('./calls.service');
 const audit = require('../../services/audit');
 const fcm = require('../../services/fcm');
 const prisma = require('../../database/prisma');
 const agora = require('../../services/agora');
 const notificationActions = require('../../services/notificationActions');
+const { Forbidden } = require('../../utils/errors');
+
+// Date range for talk-time reports — defaults to the last 30 days.
+const talkTimeRange = {
+  query: Joi.object({
+    from: Joi.date().iso().default(() => new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)),
+    to: Joi.date().iso().default(() => new Date()),
+  }),
+};
+const isAdminRole = (user) => ['SUPER_ADMIN', 'ADMIN'].includes(user.role);
 
 const router = Router();
 router.use(requireAuth);
@@ -293,6 +303,36 @@ router.get(
     }),
   }),
   asyncHandler(async (req, res) => res.json(await service.history({ user: req.user, ...req.query })))
+);
+
+// ----- talk-time reports (#12) -----
+// Individual report for the signed-in user.
+router.get(
+  '/talk-time/me',
+  validate(talkTimeRange),
+  asyncHandler(async (req, res) =>
+    res.json(await service.talkTimeForUser({ userId: req.user.id, from: req.query.from, to: req.query.to })))
+);
+
+// Org-wide consolidated report (admins only): per-employee rows + ranking.
+router.get(
+  '/talk-time/org',
+  requireAdmin,
+  validate(talkTimeRange),
+  asyncHandler(async (req, res) =>
+    res.json(await service.talkTimeOrg({ from: req.query.from, to: req.query.to })))
+);
+
+// Individual report for a specific user — self, or any admin.
+router.get(
+  '/talk-time/user/:userId',
+  validate(talkTimeRange),
+  asyncHandler(async (req, res) => {
+    if (req.params.userId !== req.user.id && !isAdminRole(req.user)) {
+      throw Forbidden('You can only view your own talk-time report');
+    }
+    res.json(await service.talkTimeForUser({ userId: req.params.userId, from: req.query.from, to: req.query.to }));
+  })
 );
 
 // ----- recording -----
