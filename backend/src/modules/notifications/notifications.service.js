@@ -45,7 +45,17 @@ async function notify({ userId, kind, title, body, data, io }) {
   const notification = await prisma.notification.create({
     data: { userId, kind, title, body, data: data || null },
   });
+  // The in-app notification (DB row + this socket event) keeps the full content
+  // so the message is visible inside the app.
   emitNotification(io, userId, notification);
+
+  // Notification privacy: the push that lands on the lock screen / tray must NOT
+  // reveal message content. Chat + mentions show a generic alert only; the real
+  // text is read inside the app. Other kinds (task/system) keep their titles.
+  const isPrivateMessage = kind === 'CHAT' || kind === 'MENTION';
+  const pushTitle = isPrivateMessage ? 'New message received' : title;
+  const pushBody = isPrivateMessage ? 'Open MyTaskKing to view it' : body;
+
   const devices = await prisma.deviceToken.findMany({ where: { userId } });
   if (devices.length) {
     const basePushData = { kind, notificationId: notification.id, ...(data || {}) };
@@ -67,17 +77,17 @@ async function notify({ userId, kind, title, body, data, io }) {
       };
       await Promise.all([
         androidTokens.length
-          ? fcm.sendToTokens(androidTokens, { title, body, data: androidData }).catch(() => {})
+          ? fcm.sendToTokens(androidTokens, { title: pushTitle, body: pushBody, data: androidData }).catch(() => {})
           : null,
         otherTokens.length
-          ? fcm.sendToTokens(otherTokens, { title, body, data: commonData }).catch(() => {})
+          ? fcm.sendToTokens(otherTokens, { title: pushTitle, body: pushBody, data: commonData }).catch(() => {})
           : null,
       ]);
       return notification;
     }
     await fcm.sendToTokens(
       devices.map((d) => d.token),
-      { title, body, data: basePushData }
+      { title: pushTitle, body: pushBody, data: basePushData }
     ).catch(() => {});
   }
   return notification;
