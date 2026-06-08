@@ -1,9 +1,11 @@
-name: Build Android APK
+name: Build Android APK + AAB
 
-# Builds the Flutter mobile app's release APK.
+# Builds the Flutter mobile app's release APK and AAB (Play Store bundle).
 #  - Manual run (Actions tab → "Run workflow"), choosing universal or split ABIs
-#  - Automatically on a version tag (v*), which also attaches the APK to a Release
-#  - On pushes to main that touch the Flutter apps (artifact only)
+#  - Automatically on a version tag (v*), which also attaches both to a Release
+#  - On pushes to main that touch the Flutter apps (artifacts only)
+# Both are signed with the upload key when the ANDROID_KEYSTORE_* secrets are set;
+# otherwise they're debug-signed (fine for testing, not for Play Store).
 on:
   workflow_dispatch:
     inputs:
@@ -93,6 +95,12 @@ jobs:
               --dart-define=SOCKET_URL=$SOCKET_URL
           fi
 
+      - name: Build AAB (Play Store bundle)
+        run: |
+          flutter build appbundle --release \
+            --dart-define=API_URL=$API_URL \
+            --dart-define=SOCKET_URL=$SOCKET_URL
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
@@ -101,9 +109,19 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Attach APK to Release (tags only)
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mytaskking-aab-${{ github.ref_name }}
+          path: frontend/flutter_apps/mobile_app/build/app/outputs/bundle/release/*.aab
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach APK + AAB to Release (tags only)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: frontend/flutter_apps/mobile_app/build/app/outputs/flutter-apk/*.apk
+          files: |
+            frontend/flutter_apps/mobile_app/build/app/outputs/flutter-apk/*.apk
+            frontend/flutter_apps/mobile_app/build/app/outputs/bundle/release/*.aab
           fail_on_unmatched_files: true
