@@ -7,6 +7,7 @@ const tokens = require('../../services/tokens');
 const sessions = require('../../services/sessions');
 const cloudinary = require('../../services/cloudinary');
 const r2 = require('../../services/r2');
+const logger = require('../../utils/logger');
 
 const SELFIE_ROLES = new Set(['MANAGER', 'PROJECT_COORDINATOR_MANAGER', 'EMPLOYEE', 'TELECALLER']);
 
@@ -28,14 +29,7 @@ async function storeLoginSelfie({ user, selfieBase64, selfieMimeType }) {
   if (!buffer.length || buffer.length > 3 * 1024 * 1024) {
     throw BadRequest('Selfie must be a valid image smaller than 3 MB');
   }
-  if (cloudinary.isConfigured()) {
-    const result = await cloudinary.uploadBuffer(buffer, {
-      folder: `bestie/login-selfies/${user.id}`,
-      publicId: `login-${Date.now()}`,
-    });
-    return result.secure_url;
-  }
-  if (r2.isConfigured()) {
+  const uploadToR2 = async () => {
     const ext = selfieMimeType === 'image/png' ? 'png' : 'jpg';
     const put = await r2.putBuffer({
       buffer,
@@ -43,6 +37,23 @@ async function storeLoginSelfie({ user, selfieBase64, selfieMimeType }) {
       contentType: selfieMimeType || 'image/jpeg',
     });
     return put.url;
+  };
+
+  if (cloudinary.isConfigured()) {
+    try {
+      const result = await cloudinary.uploadBuffer(buffer, {
+        folder: `bestie/login-selfies/${user.id}`,
+        publicId: `login-${Date.now()}`,
+      });
+      return result.secure_url;
+    } catch (err) {
+      logger.warn({ err: err.message, userId: user.id }, 'auth.login_selfie.cloudinary_failed_falling_back_to_r2');
+      if (!r2.isConfigured()) throw err;
+      return uploadToR2();
+    }
+  }
+  if (r2.isConfigured()) {
+    return uploadToR2();
   }
   throw BadRequest('Selfie storage is not configured');
 }
