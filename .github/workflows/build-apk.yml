@@ -1,0 +1,109 @@
+name: Build Android APK
+
+# Builds the Flutter mobile app's release APK.
+#  - Manual run (Actions tab → "Run workflow"), choosing universal or split ABIs
+#  - Automatically on a version tag (v*), which also attaches the APK to a Release
+#  - On pushes to main that touch the Flutter apps (artifact only)
+on:
+  workflow_dispatch:
+    inputs:
+      split_per_abi:
+        description: "Build split-per-ABI APKs (smaller per-device) instead of one universal APK"
+        type: boolean
+        default: false
+  push:
+    tags:
+      - "v*"
+    branches:
+      - main
+    paths:
+      - "frontend/flutter_apps/**"
+      - ".github/workflows/build-apk.yml"
+
+concurrency:
+  group: build-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write # needed to attach the APK to a Release on tags
+
+env:
+  # Override these in repo Settings → Secrets and variables → Actions → Variables
+  # if your backend lives elsewhere. They fall back to production.
+  API_URL: ${{ vars.API_URL || 'https://mytaskking.com' }}
+  SOCKET_URL: ${{ vars.SOCKET_URL || 'https://mytaskking.com' }}
+  FLUTTER_VERSION: "3.41.9"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend/flutter_apps/mobile_app
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Configure release signing (optional)
+        working-directory: frontend/flutter_apps/mobile_app/android
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > upload-keystore.jks
+            cat > key.properties <<EOF
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyPassword=${ANDROID_KEY_PASSWORD:-$ANDROID_KEYSTORE_PASSWORD}
+          keyAlias=${ANDROID_KEY_ALIAS:-upload}
+          storeFile=upload-keystore.jks
+          EOF
+            echo "Release signing configured from secrets."
+          else
+            echo "No ANDROID_KEYSTORE_BASE64 secret set — building with debug signing (not for Play Store)."
+          fi
+
+      - name: Build APK
+        run: |
+          if [ "${{ github.event.inputs.split_per_abi }}" = "true" ]; then
+            flutter build apk --release --split-per-abi \
+              --dart-define=API_URL=$API_URL \
+              --dart-define=SOCKET_URL=$SOCKET_URL
+          else
+            flutter build apk --release \
+              --dart-define=API_URL=$API_URL \
+              --dart-define=SOCKET_URL=$SOCKET_URL
+          fi
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mytaskking-apk-${{ github.ref_name }}
+          path: frontend/flutter_apps/mobile_app/build/app/outputs/flutter-apk/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach APK to Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: frontend/flutter_apps/mobile_app/build/app/outputs/flutter-apk/*.apk
+          fail_on_unmatched_files: true
