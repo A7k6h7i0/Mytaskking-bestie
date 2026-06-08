@@ -74,7 +74,8 @@ class _RecordingsScreenState extends ConsumerState<RecordingsScreen> {
   @override
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
-    final canDelete = ref.watch(authStoreProvider).user?.role == 'SUPER_ADMIN';
+    final role = ref.watch(authStoreProvider).user?.role;
+    final canDelete = role == 'SUPER_ADMIN' || role == 'ADMIN';
     return Scaffold(
       backgroundColor: c.bg,
       appBar: AppBar(

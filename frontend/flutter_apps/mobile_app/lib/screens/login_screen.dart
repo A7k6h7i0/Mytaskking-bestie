@@ -1,6 +1,10 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../state.dart';
@@ -18,6 +22,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   bool _loading = false;
   bool _success = false;
   String? _error;
+  Uint8List? _selfie;
 
   @override
   void dispose() {
@@ -40,7 +45,27 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       _error = null;
     });
     try {
-      await ref.read(apiProvider).login(userId: userId, password: _password.text);
+      final api = ref.read(apiProvider);
+      final requiresSelfie = await api.loginRequiresSelfie(userId);
+      if (requiresSelfie && _selfie == null) {
+        final photo = await ImagePicker().pickImage(
+          source: ImageSource.camera,
+          preferredCameraDevice: CameraDevice.front,
+          imageQuality: 55,
+          maxWidth: 800,
+        );
+        if (photo == null) {
+          throw 'A live selfie is required for employee sign-in.';
+        }
+        _selfie = await photo.readAsBytes();
+        if (mounted) setState(() {});
+      }
+      await api.login(
+        userId: userId,
+        password: _password.text,
+        selfieBase64: _selfie == null ? null : base64Encode(_selfie!),
+        selfieMimeType: _selfie == null ? null : 'image/jpeg',
+      );
       setState(() => _success = true);
       await Future.delayed(const Duration(milliseconds: 700));
       if (mounted) context.go('/dashboard');
@@ -66,10 +91,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               const SizedBox(height: 16),
               Text('Welcome back',
                   style: TextStyle(
-                      fontSize: 22, fontWeight: FontWeight.w700, color: c.text)),
+                      fontSize: 22,
+                      fontWeight: FontWeight.w700,
+                      color: c.text)),
               const SizedBox(height: 4),
-              Text('Loading MyTaskKing…',
-                  style: TextStyle(color: c.textMuted)),
+              Text('Loading MyTaskKing…', style: TextStyle(color: c.textMuted)),
             ],
           ),
         ),
@@ -89,8 +115,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   constraints: const BoxConstraints(maxWidth: 400),
                   child: PopIn(
                     child: Container(
-                      padding: const EdgeInsets.fromLTRB(
-                          BestieTokens.s5, BestieTokens.s6, BestieTokens.s5, BestieTokens.s5),
+                      padding: const EdgeInsets.fromLTRB(BestieTokens.s5,
+                          BestieTokens.s6, BestieTokens.s5, BestieTokens.s5),
                       decoration: BoxDecoration(
                         color: c.surface,
                         borderRadius: BorderRadius.circular(BestieTokens.rXl),
@@ -143,8 +169,42 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 icon: Icons.person_outline,
                                 autofocus: true,
                                 textInputAction: TextInputAction.next,
-                                onSubmitted: (_) => _passwordFocus.requestFocus(),
+                                onSubmitted: (_) =>
+                                    _passwordFocus.requestFocus(),
                               ),
+                              if (_selfie != null) ...[
+                                const SizedBox(height: BestieTokens.s3),
+                                Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: c.brandSoft,
+                                    borderRadius:
+                                        BorderRadius.circular(BestieTokens.rMd),
+                                  ),
+                                  child: Row(children: [
+                                    ClipOval(
+                                      child: Image.memory(
+                                        _selfie!,
+                                        width: 42,
+                                        height: 42,
+                                        fit: BoxFit.cover,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        'Live login selfie ready',
+                                        style: TextStyle(
+                                          color: c.text,
+                                          fontWeight: BestieTokens.fwSemibold,
+                                        ),
+                                      ),
+                                    ),
+                                    Icon(Icons.verified_rounded,
+                                        color: c.success),
+                                  ]),
+                                ),
+                              ],
                               const SizedBox(height: BestieTokens.s3),
                               BestieTextField(
                                 label: 'Password',

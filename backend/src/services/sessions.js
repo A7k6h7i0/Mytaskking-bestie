@@ -14,7 +14,7 @@ const RISK_THRESHOLDS = {
   impossibleTravel: 50,
 };
 
-async function startSession({ user, refreshTokenRow, req }) {
+async function startSession({ user, refreshTokenRow, req, selfieUrl = null }) {
   const ip = req?.ip || null;
   const ua = req?.headers?.['user-agent'] || null;
   const { device, platform } = parseUA(ua);
@@ -37,7 +37,7 @@ async function startSession({ user, refreshTokenRow, req }) {
     data: {
       userId: user.id,
       refreshTokenId: refreshTokenRow?.id || null,
-      ip, userAgent: ua, device, platform,
+      ip, userAgent: ua, device, platform, selfieUrl,
       riskScore: Math.min(risk, 100),
     },
   });
@@ -90,11 +90,13 @@ async function revokeAll({ userId, exceptSessionId, actor, force }) {
   return { revoked: sessions.length };
 }
 
-async function listForUser(userId) {
-  return prisma.session.findMany({
+async function listForUser(userId, { includeSelfie = false } = {}) {
+  const rows = await prisma.session.findMany({
     where: { userId },
     orderBy: [{ status: 'asc' }, { lastSeenAt: 'desc' }],
   });
+  if (includeSelfie) return rows;
+  return rows.map(({ selfieUrl: _selfieUrl, ...row }) => row);
 }
 
 /**
@@ -102,7 +104,7 @@ async function listForUser(userId) {
  * users with login (firstSeenAt) + logout (revokedAt) timestamps, device, ip,
  * and whether the session is still active. Filterable by user and date range.
  */
-async function listActivity({ userId, from, to, page = 1, pageSize = 50 } = {}) {
+async function listActivity({ userId, from, to, page = 1, pageSize = 50, includeSelfie = false } = {}) {
   const where = {};
   if (userId) where.userId = userId;
   if (from || to) {
@@ -138,6 +140,7 @@ async function listActivity({ userId, from, to, page = 1, pageSize = 50 } = {}) 
     ip: r.ip,
     city: r.city,
     country: r.country,
+    ...(includeSelfie ? { selfieUrl: r.selfieUrl } : {}),
   }));
   return { total, page, pageSize, items };
 }

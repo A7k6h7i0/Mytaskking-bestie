@@ -47,14 +47,20 @@ router.get(
     const rows = await prisma.userPresence.findMany({ where: { userId: { in: ids } } });
     const users = await prisma.user.findMany({
       where: { id: { in: ids } },
-      select: { id: true, lastSeenAt: true },
+      select: { id: true, lastSeenAt: true, role: true },
     });
-    const lastSeenByUser = new Map(users.map((user) => [user.id, user.lastSeenAt]));
+    const lastSeenByUser = new Map(users.map((user) => [
+      user.id,
+      user.role === 'SUPER_ADMIN' ? null : user.lastSeenAt,
+    ]));
+    const roleByUser = new Map(users.map((user) => [user.id, user.role]));
     const rowByUser = new Map(rows.map((row) => [row.userId, row]));
     const items = await Promise.all(
       ids.map(async (userId) => ({
         ...(rowByUser.get(userId) || { userId, status: 'ACTIVE', customStatus: null, expiresAt: null }),
-        online: (await cache.get(`presence:online:${userId}`).catch(() => null)) === true,
+        online: roleByUser.get(userId) === 'SUPER_ADMIN'
+          ? false
+          : (await cache.get(`presence:online:${userId}`).catch(() => null)) === true,
         lastSeenAt: lastSeenByUser.get(userId) || null,
       }))
     );

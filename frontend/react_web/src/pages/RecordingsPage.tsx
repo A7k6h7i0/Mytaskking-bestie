@@ -81,7 +81,7 @@ export default function RecordingsPage() {
               >
                 <Download size={14} /> Download
               </a>
-              {user?.role === 'SUPER_ADMIN' && (
+              {(user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN') && (
                 <button
                   type="button"
                   className="cl__delete"

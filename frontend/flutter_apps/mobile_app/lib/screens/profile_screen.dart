@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -7,16 +8,117 @@ import 'package:mytaskking_core/mytaskking_core.dart' as core;
 import '../state.dart' hide ThemeMode;
 import 'leaderboard_card.dart';
 
-class ProfileScreen extends ConsumerWidget {
+class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends ConsumerState<ProfileScreen> {
+  bool _uploadingAvatar = false;
+  String _availability = 'ACTIVE';
+
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(_loadAvailability);
+  }
+
+  Future<void> _loadAvailability() async {
+    final user = ref.read(authStoreProvider).user;
+    if (user == null) return;
+    try {
+      final rows = await ref.read(apiProvider).presenceFor([user.id]);
+      if (rows.isEmpty || !mounted) return;
+      final status = (rows.first['status'] ?? 'ACTIVE').toString();
+      final custom =
+          (rows.first['customStatus'] ?? '').toString().toLowerCase();
+      final value = custom.contains('lunch')
+          ? 'LUNCH'
+          : custom.contains('leave')
+              ? 'LEAVE'
+              : status == 'BUSY'
+                  ? 'BUSY'
+                  : 'ACTIVE';
+      setState(() => _availability = value);
+    } catch (_) {}
+  }
+
+  Future<void> _pickAvatar() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
+        withData: true,
+      );
+      if (result == null ||
+          result.files.isEmpty ||
+          result.files.first.bytes == null) return;
+      final image = result.files.first;
+      setState(() => _uploadingAvatar = true);
+      final asset = await ref.read(apiProvider).uploadFile(
+            bytes: image.bytes!,
+            filename: image.name,
+            mimeType: _imageMimeType(image.extension),
+          );
+      final url = asset['url']?.toString();
+      if (url == null || url.isEmpty) throw 'Upload returned no image URL';
+      final response = await ref.read(apiProvider).updateMyAvatar(url);
+      await ref.read(authStoreProvider).updateUser(
+            Map<String, dynamic>.from(response['user'] as Map),
+          );
+      if (mounted)
+        bestieToast(context, 'Profile photo updated',
+            kind: BestieToastKind.success);
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not update profile photo',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    } finally {
+      if (mounted) setState(() => _uploadingAvatar = false);
+    }
+  }
+
+  String _imageMimeType(String? extension) =>
+      switch (extension?.toLowerCase()) {
+        'png' => 'image/png',
+        'gif' => 'image/gif',
+        'webp' => 'image/webp',
+        _ => 'image/jpeg',
+      };
+
+  Future<void> _setAvailability(String value) async {
+    final (status, customStatus) = switch (value) {
+      'BUSY' => ('BUSY', 'Busy'),
+      'LUNCH' => ('AWAY', 'Lunch time'),
+      'LEAVE' => ('AWAY', 'On leave'),
+      _ => ('ACTIVE', null),
+    };
+    setState(() => _availability = value);
+    ref.read(presenceStatusProvider.notifier).state = status;
+    try {
+      await ref
+          .read(apiProvider)
+          .setPresence(status: status, customStatus: customStatus);
+      ref
+          .read(realtimeProvider)
+          .updatePresence(status: status, customStatus: customStatus);
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not update status',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final user = ref.watch(authStoreProvider).user;
     final themeMode = ref.watch(themeModeProvider);
     final displayThemeMode =
         themeMode == core.ThemeMode.system ? core.ThemeMode.light : themeMode;
-    final presence = ref.watch(presenceStatusProvider);
     final sessions = ref.watch(mySessionsProvider);
 
     return Scaffold(
@@ -63,41 +165,44 @@ class ProfileScreen extends ConsumerWidget {
           ]),
         ),
 
+        ListTile(
+          leading: _uploadingAvatar
+              ? const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.add_a_photo_outlined),
+          title: const Text('Change profile photo'),
+          subtitle: const Text('Choose an image from your phone'),
+          onTap: _uploadingAvatar ? null : _pickAvatar,
+        ),
+
         // ----- score summary -----
         const MyScoreCard(),
 
         // ----- presence picker -----
-        _section(context, 'Presence', [
-          for (final s in const [
-            'ACTIVE',
-            'BUSY',
-            'IN_MEETING',
-            'AWAY',
-            'INVISIBLE'
-          ])
-            RadioListTile<String>(
-              value: s,
-              groupValue: presence,
-              title: Text(_presenceLabel(s)),
-              secondary: Container(
-                width: 10,
-                height: 10,
-                decoration: BoxDecoration(
-                    color: _presenceColor(s), shape: BoxShape.circle),
-              ),
-              onChanged: (v) async {
-                if (v == null) return;
-                ref.read(presenceStatusProvider.notifier).state = v;
-                try {
-                  await ref.read(apiProvider).setPresence(status: v);
-                  ref.read(realtimeProvider).updatePresence(status: v);
-                } catch (e) {
-                  if (context.mounted)
-                    bestieToast(context, 'Couldn\'t update',
-                        body: formatApiError(e), kind: BestieToastKind.error);
-                }
+        _section(context, 'Status', [
+          ListTile(
+            leading: Icon(Icons.radio_button_checked_rounded,
+                color: _availabilityColor(_availability)),
+            title: const Text('Availability'),
+            subtitle:
+                const Text('Callers will hear this status before calling.'),
+            trailing: DropdownButton<String>(
+              value: _availability,
+              underline: const SizedBox.shrink(),
+              items: const [
+                DropdownMenuItem(value: 'ACTIVE', child: Text('Available')),
+                DropdownMenuItem(value: 'BUSY', child: Text('Busy')),
+                DropdownMenuItem(value: 'LUNCH', child: Text('Lunch time')),
+                DropdownMenuItem(value: 'LEAVE', child: Text('Leave')),
+              ],
+              onChanged: (value) {
+                if (value != null) _setAvailability(value);
               },
             ),
+          ),
         ]),
 
         // ----- appearance -----
@@ -132,7 +237,8 @@ class ProfileScreen extends ConsumerWidget {
                 >= 1.15 => 'Larger',
                 _ => 'Default',
               },
-              style: const TextStyle(color: BestieTokens.cTextMuted, fontSize: 12),
+              style:
+                  const TextStyle(color: BestieTokens.cTextMuted, fontSize: 12),
             ),
             trailing: SizedBox(
               width: 220,
@@ -154,8 +260,7 @@ class ProfileScreen extends ConsumerWidget {
               style: TextStyle(color: BestieTokens.cTextMuted, fontSize: 12),
             ),
             value: ref.watch(reduceMotionProvider),
-            onChanged: (v) =>
-                ref.read(reduceMotionProvider.notifier).state = v,
+            onChanged: (v) => ref.read(reduceMotionProvider.notifier).state = v,
           ),
         ]),
 
@@ -273,21 +378,11 @@ class ProfileScreen extends ConsumerWidget {
     );
   }
 
-  String _presenceLabel(String s) => switch (s) {
-        'ACTIVE' => 'Active',
-        'BUSY' => 'Busy',
-        'IN_MEETING' => 'In a meeting',
-        'AWAY' => 'Away',
-        'INVISIBLE' => 'Invisible',
-        _ => s,
-      };
-
-  Color _presenceColor(String s) => switch (s) {
+  Color _availabilityColor(String s) => switch (s) {
         'ACTIVE' => BestieTokens.cSuccess,
         'BUSY' => BestieTokens.cDanger,
-        'IN_MEETING' => BestieTokens.cAccent,
-        'AWAY' => BestieTokens.cWarning,
-        'INVISIBLE' => BestieTokens.cTextFaint,
+        'LUNCH' => BestieTokens.cWarning,
+        'LEAVE' => BestieTokens.cAccent,
         _ => BestieTokens.cTextMuted,
       };
 

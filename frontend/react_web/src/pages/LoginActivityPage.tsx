@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import dayjs from 'dayjs';
-import { LogIn, Download, Monitor, Smartphone, Laptop, Globe } from 'lucide-react';
+import { LogIn, Download, Monitor, Smartphone, Laptop, Globe, Eye } from 'lucide-react';
 import { api } from '@/services/api';
+import { useAuthStore } from '@/store/auth';
 import { Avatar } from '@/components/ui/Avatar';
 import { UserName } from '@/components/ui/UserName';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -20,6 +21,7 @@ type ActivityRow = {
   ip: string | null;
   city: string | null;
   country: string | null;
+  selfieUrl?: string | null;
 };
 
 type ActivityResp = { total: number; page: number; pageSize: number; items: ActivityRow[] };
@@ -45,7 +47,7 @@ function platformIcon(p: string | null) {
 }
 
 function sessionDuration(r: ActivityRow): string {
-  const end = r.logoutAt ? dayjs(r.logoutAt) : dayjs(r.lastSeenAt);
+  const end = r.logoutAt ? dayjs(r.logoutAt) : dayjs();
   const mins = Math.max(0, end.diff(dayjs(r.loginAt), 'minute'));
   if (mins < 60) return `${mins}m`;
   const h = Math.floor(mins / 60);
@@ -54,6 +56,7 @@ function sessionDuration(r: ActivityRow): string {
 }
 
 export default function LoginActivityPage() {
+  const isSuperAdmin = useAuthStore((s) => s.user?.role === 'SUPER_ADMIN');
   const [from, setFrom] = useState(() => isoDay(new Date(Date.now() - 6 * 86400000)));
   const [to, setTo] = useState(() => isoDay(new Date()));
 
@@ -70,6 +73,7 @@ export default function LoginActivityPage() {
   function exportCsv() {
     if (!items.length) return;
     const header = ['Name', 'Designation', 'Login', 'Logout', 'Duration', 'Status', 'Platform', 'Device', 'IP'];
+    if (isSuperAdmin) header.push('Selfie');
     const rows = items.map((r) => [
       r.user.name,
       r.user.customTitle || r.user.role || '',
@@ -80,6 +84,7 @@ export default function LoginActivityPage() {
       r.platform || '',
       r.device || '',
       r.ip || '',
+      ...(isSuperAdmin ? [r.selfieUrl || ''] : []),
     ]);
     const csv = [header, ...rows]
       .map((row) => row.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
@@ -127,9 +132,10 @@ export default function LoginActivityPage() {
         ) : !items.length ? (
           <div className="la__empty">No login activity in this date range.</div>
         ) : (
-          <div className="la__table">
+          <div className={`la__table${isSuperAdmin ? ' la__table--selfie' : ''}`}>
             <div className="la__row la__row--head">
               <span>User</span><span>Login</span><span>Logout</span><span>Duration</span><span>Device</span><span>IP</span>
+              {isSuperAdmin && <span>Selfie</span>}
             </div>
             {items.map((r) => (
               <div key={r.id} className="la__row">
@@ -146,6 +152,18 @@ export default function LoginActivityPage() {
                 <span className="la__dur">{sessionDuration(r)}</span>
                 <span className="la__device">{platformIcon(r.platform)} {r.device || r.platform || '—'}</span>
                 <span className="la__ip">{r.ip || '—'}</span>
+                {isSuperAdmin && (
+                  <span className="la__selfie">
+                    {r.selfieUrl ? (
+                      <a href={r.selfieUrl} target="_blank" rel="noreferrer">
+                        <img src={r.selfieUrl} alt={`${r.user.name} login selfie`} />
+                        <Eye size={14} /> View
+                      </a>
+                    ) : (
+                      <span className="la__none">Not captured</span>
+                    )}
+                  </span>
+                )}
               </div>
             ))}
           </div>

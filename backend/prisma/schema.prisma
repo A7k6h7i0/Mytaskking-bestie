@@ -887,6 +887,7 @@ model Session {
   platform     String?                                  // "web" | "ios" | "android" | "windows" | "macos"
   country      String?
   city         String?
+  selfieUrl    String?
   riskScore    Int           @default(0)                // 0–100 — populated by suspicious-login heuristic
   firstSeenAt  DateTime      @default(now())
   lastSeenAt   DateTime      @default(now())

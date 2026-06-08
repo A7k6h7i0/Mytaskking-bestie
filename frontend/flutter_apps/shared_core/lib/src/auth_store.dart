@@ -68,6 +68,12 @@ class BestieAuthStore {
     _controller.add(_user);
   }
 
+  Future<void> updateUser(Map<String, dynamic> userJson) async {
+    _user = BestieUser.fromJson(userJson);
+    await _storage.write(key: _kUser, value: jsonEncode(userJson));
+    _controller.add(_user);
+  }
+
   Future<void> clear() async {
     _accessToken = null;
     _refreshToken = null;

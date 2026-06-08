@@ -11,6 +11,19 @@ const audit = require('../../services/audit');
 
 const router = Router();
 
+router.get(
+  '/login-requirements',
+  authLimiter,
+  validate({ query: Joi.object({ userId: Joi.string().trim().min(2).max(64).required() }) }),
+  asyncHandler(async (req, res) => {
+    const user = await require('../../database/prisma').user.findUnique({
+      where: { userId: req.query.userId },
+      select: { role: true, isClient: true },
+    });
+    res.json({ requiresSelfie: authService.requiresLoginSelfie(user) });
+  })
+);
+
 router.post(
   '/login',
   authLimiter,
@@ -18,6 +31,9 @@ router.post(
     body: Joi.object({
       userId: Joi.string().trim().min(2).max(64).required(),
       password: Joi.string().min(6).max(200).required(),
+      loginSource: Joi.string().valid('web', 'mobile').default('web'),
+      selfieBase64: Joi.string().max(4500000).allow('', null),
+      selfieMimeType: Joi.string().valid('image/jpeg', 'image/png').allow('', null),
     }),
   }),
   asyncHandler(async (req, res) => {
@@ -28,6 +44,9 @@ router.post(
         userAgent: req.headers['user-agent'],
         ip: req.ip,
         req,
+        loginSource: req.body.loginSource,
+        selfieBase64: req.body.selfieBase64,
+        selfieMimeType: req.body.selfieMimeType,
       });
       audit.record({ actorId: result.user.id, kind: 'auth.login', entity: 'user', entityId: result.user.id, req });
       res.json(result);
@@ -77,6 +96,31 @@ router.get(
   requireAuth,
   asyncHandler(async (req, res) => {
     res.json({ user: authService.sanitize(req.user) });
+  })
+);
+
+router.patch(
+  '/me',
+  requireAuth,
+  validate({
+    body: Joi.object({
+      avatarUrl: Joi.string().uri().allow('', null).required(),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    const user = await authService.updateProfile({
+      user: req.user,
+      avatarUrl: req.body.avatarUrl,
+    });
+    audit.record({
+      actorId: req.user.id,
+      kind: 'profile.updated',
+      entity: 'user',
+      entityId: req.user.id,
+      payload: { avatarUpdated: true },
+      req,
+    });
+    res.json({ user });
   })
 );
 

@@ -71,6 +71,11 @@ export default function EmployeesPage() {
       return { ...result.data, targetName };
     },
     onSuccess: (result) => {
+      if (result.targetPresence) {
+        const availability = result.targetPresence.customStatus || result.targetPresence.status || 'unavailable';
+        toast.info(`${result.targetName} is unavailable`, availability);
+        return;
+      }
       toast.success(`Calling ${result.targetName}`, 'Voice room is opening now.');
       navigate(`/calls/live/${result.call.id}`);
     },

@@ -4,11 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../active_call_state.dart';
 import '../router.dart';
 import '../state.dart';
+import 'call_screen.dart';
 
 final _incomingCallPushEvents =
     StreamController<Map<String, dynamic>>.broadcast();
@@ -41,6 +43,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
   final List<void Function()> _unsubs = [];
   String? _lastUserId;
   final _ringtone = FlutterRingtonePlayer();
+  final _tts = FlutterTts();
   bool _appResumed = true;
 
   @override
@@ -61,6 +64,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     _bannerTimer?.cancel();
     _pushInviteSub?.cancel();
     _ringtone.stop();
+    _tts.stop();
     for (final u in _unsubs) {
       u();
     }
@@ -95,6 +99,18 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     final rt = ref.read(realtimeProvider);
     _unsubs.add(rt.onAny('call.incoming', ([data]) => _onIncoming(data)));
     _unsubs.add(rt.onAny('call.invited', ([data]) => _onIncoming(data)));
+    _unsubs.add(rt.onAny('call.waiting', ([data]) {
+      if (data is! Map) return;
+      final caller = (data['callerName'] ?? 'Someone').toString();
+      _speak('$caller tried to call you while you are on another call.');
+      if (mounted) {
+        setState(() => _banner = {
+              'title': 'Call waiting',
+              'body': '$caller tried to call while you were busy.',
+              'kind': 'CALL',
+            });
+      }
+    }));
     // Meeting invites get the same ringer treatment as a call so the user
     // can Accept and land directly inside the meeting room.
     _unsubs
@@ -120,7 +136,8 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     // "ongoing call" pill and the call then ends remotely, nothing cleared the
     // pill and it lingered as "tap to join". This always-mounted listener
     // guarantees the pill is cleared whenever the active call ends.
-    _unsubs.add(rt.onAny('call.ended', ([data]) => _clearEndedOngoingCall(data)));
+    _unsubs
+        .add(rt.onAny('call.ended', ([data]) => _clearEndedOngoingCall(data)));
     // Emergency siren (#11): admin-triggered loud alarm that blares until the
     // recipient acknowledges. Also fired on escalation.
     _unsubs.add(rt.onAny('emergency.alert', ([data]) => _onEmergency(data)));
@@ -267,6 +284,21 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     final isSameMeeting =
         nextSlug != null && nextSlug.isNotEmpty && nextSlug == currentSlug;
     if (isSameCall || isSameMeeting) return;
+    if (CallSession.isActive && nextCallId != null && nextCallId.isNotEmpty) {
+      ref.read(apiProvider).post('/calls/$nextCallId/busy').catchError(
+            (_) => <String, dynamic>{},
+          );
+      final caller = (call['initiator']?['name'] ?? 'Someone').toString();
+      _speak('$caller tried to call you while you are on another call.');
+      if (mounted) {
+        setState(() => _banner = {
+              'title': 'Call waiting',
+              'body': '$caller tried to call while you were busy.',
+              'kind': 'CALL',
+            });
+      }
+      return;
+    }
     if (_pending != null) {
       _autoMiss?.cancel();
       _hapticTimer?.cancel();
@@ -291,16 +323,33 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
       HapticFeedback.heavyImpact();
     });
     _playRingtone();
+    final caller = (call['initiator']?['name'] ?? 'Someone').toString();
+    _speak('$caller is calling you. Please attend the call.');
+  }
+
+  Future<void> _speak(String text) async {
+    try {
+      await _tts.setLanguage('en-US');
+      await _tts.setPitch(1.12);
+      await _tts.setSpeechRate(0.43);
+      await _tts.speak(text);
+    } catch (_) {}
   }
 
   DateTime? _lastNotifChime;
   Map<String, dynamic>? _banner;
   Timer? _bannerTimer;
+  final Set<String> _shownNotificationIds = {};
 
   /// Fired on every realtime `notification.created` (task assigned, chat,
   /// mention, etc). Plays the chime AND shows a tappable in-app banner so the
   /// notification is actually visible while the app is open — not just audible.
   void _onNotification(dynamic data) {
+    if (data is Map) {
+      final id = data['id']?.toString();
+      if (id != null && id.isNotEmpty && !_shownNotificationIds.add(id)) return;
+      if (_shownNotificationIds.length > 200) _shownNotificationIds.clear();
+    }
     _playNotificationTone();
     if (!_appResumed || data is! Map) return;
     final title = (data['title'] ?? '').toString();
@@ -379,6 +428,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     _autoMiss?.cancel();
     _hapticTimer?.cancel();
     _ringtone.stop();
+    _tts.stop();
     if (mounted) setState(() => _pending = null);
   }
 
@@ -488,7 +538,8 @@ class _EmergencyScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final fromName = (payload['fromName'] ?? 'Admin').toString();
     final message = (payload['message'] ?? '').toString().trim();
-    final escalation = payload['escalation'] == true || payload['escalation'] == '1';
+    final escalation =
+        payload['escalation'] == true || payload['escalation'] == '1';
     return Material(
       color: const Color(0xFFB91C1C),
       child: SafeArea(
@@ -525,9 +576,12 @@ class _EmergencyScreen extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               Text(
-                message.isNotEmpty ? message : '$fromName needs your immediate attention',
+                message.isNotEmpty
+                    ? message
+                    : '$fromName needs your immediate attention',
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white, fontSize: 17, height: 1.4),
+                style: const TextStyle(
+                    color: Colors.white, fontSize: 17, height: 1.4),
               ),
               const SizedBox(height: 8),
               Text('From $fromName',
@@ -545,7 +599,10 @@ class _EmergencyScreen extends StatelessWidget {
                         borderRadius: BorderRadius.circular(16)),
                   ),
                   child: const Text("I'M RESPONDING",
-                      style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, letterSpacing: 1)),
+                      style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 1)),
                 ),
               ),
             ],
@@ -668,14 +725,16 @@ class _NotificationBanner extends StatelessWidget {
                           body,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: colors.textSoft, fontSize: 12),
+                          style:
+                              TextStyle(color: colors.textSoft, fontSize: 12),
                         ),
                       ],
                     ],
                   ),
                 ),
                 IconButton(
-                  icon: Icon(Icons.close_rounded, color: colors.textMuted, size: 18),
+                  icon: Icon(Icons.close_rounded,
+                      color: colors.textMuted, size: 18),
                   visualDensity: VisualDensity.compact,
                   onPressed: onDismiss,
                 ),
@@ -714,9 +773,7 @@ class _RingerScreen extends ConsumerWidget {
         (payload['meetingName'] ?? call['name'] ?? '').toString();
 
     final subtitle = isMeeting
-        ? (meetingName.isEmpty
-            ? 'Meeting invite'
-            : 'Meeting · $meetingName')
+        ? (meetingName.isEmpty ? 'Meeting invite' : 'Meeting · $meetingName')
         : (mode == 'VOICE' ? 'MyTaskKing voice call' : 'MyTaskKing video call');
     return Material(
       color: const Color(0xFF0B1220),

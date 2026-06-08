@@ -5,7 +5,9 @@ import 'dart:math';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:path_provider/path_provider.dart';
@@ -60,9 +62,11 @@ class CallSession {
   static bool recording = false;
   static bool savingRecording = false;
   static String? recordingPath;
+
   /// This device's randomly-chosen Agora uid for the active call. Random per
   /// device so the same account can join from two phones without colliding.
   static int? myUid;
+
   /// True while the live call screen (/call or /meeting) is mounted on top.
   /// The "ongoing call · tap to return" pill keys off this instead of the
   /// router location — reading GoRouterState from the app-level builder
@@ -160,6 +164,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
   Timer? _timer;
   Timer? _audioHealthTimer;
   Duration _elapsed = Duration.zero;
+  final _ringtone = FlutterRingtonePlayer();
+  final _tts = FlutterTts();
 
   bool get _isVideo => _videoEnabled;
 
@@ -191,6 +197,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
     _callUnsubs.clear();
     _timer?.cancel();
     _audioHealthTimer?.cancel();
+    _ringtone.stop();
+    _tts.stop();
     // Left the call screen — if the call is still live, the return pill should
     // reappear. (We do NOT tear the engine down here; only explicit Hang Up
     // ends the session, so the call keeps running in the background.)
@@ -228,6 +236,17 @@ class _CallScreenState extends ConsumerState<CallScreen>
     _callUnsubs.add(rt.onAny('call.ended', ([data]) {
       if (data is! Map || data['callId'] != callId) return;
       _endBecauseRemoteClosed();
+    }));
+    _callUnsubs.add(rt.onAny('call.busy', ([data]) {
+      if (data is! Map || data['callId'] != callId) return;
+      _ringtone.stop();
+      final name = (data['userName'] ?? 'The person').toString();
+      _speak('$name is currently on another call. Please leave a message.');
+      if (mounted) setState(() => _status = '$name is busy');
+    }));
+    _callUnsubs.add(rt.onAny('call.buzzer', ([data]) {
+      if (data is! Map || data['callId'] != callId) return;
+      _playEmergencyBuzzer(data['fromName']?.toString());
     }));
     // A participant (any device) announced its real Agora uid + name. We use
     // this to label the tile for that uid. Because each device announces its
@@ -271,11 +290,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final uid = _CallSession.myUid;
     if (callId == null || uid == null) return;
     final me = ref.read(authStoreProvider).user;
-    ref
-        .read(apiProvider)
-        .post('/calls/$callId/announce',
-            body: {'agoraUid': uid, 'userName': me?.name ?? ''})
-        .catchError((_) => <String, dynamic>{});
+    ref.read(apiProvider).post('/calls/$callId/announce', body: {
+      'agoraUid': uid,
+      'userName': me?.name ?? ''
+    }).catchError((_) => <String, dynamic>{});
   }
 
   Future<void> _endBecauseRemoteClosed() async {
@@ -300,6 +318,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       if (!mounted || started == null) return;
       setState(() => _elapsed = DateTime.now().difference(started));
     }
+
     updateElapsed();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       updateElapsed();
@@ -375,6 +394,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
       } catch (_) {}
     }
     await _CallSession.teardown();
+    await _ringtone.stop();
+    await _tts.stop();
     _connectedAt = null;
     ActiveCallState.clear();
     await _hideOngoingCallNotification();
@@ -398,6 +419,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
         _publishActiveCallState();
         _showOngoingCallNotification();
         _startAudioHealthCheck();
+        if (_remoteUids.isEmpty && !_isMeeting) _playRingback();
       },
       onUserJoined: (conn, remoteUid, elapsed) {
         if (!mounted) return;
@@ -406,6 +428,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
           _reconnecting = false;
         });
         _markRemoteConnected();
+        _ringtone.stop();
         _reassertAudio();
         _publishActiveCallState();
         _showOngoingCallNotification();
@@ -507,6 +530,60 @@ class _CallScreenState extends ConsumerState<CallScreen>
         _audioHealthTimer?.cancel();
       },
     ));
+  }
+
+  Future<void> _playRingback() async {
+    try {
+      await _ringtone.play(
+        android: AndroidSounds.ringtone,
+        ios: IosSounds.electronic,
+        looping: true,
+        volume: 0.75,
+        asAlarm: false,
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _speak(String text) async {
+    try {
+      await _tts.setLanguage('en-US');
+      await _tts.setPitch(1.12);
+      await _tts.setSpeechRate(0.43);
+      await _tts.speak(text);
+    } catch (_) {}
+  }
+
+  Future<void> _playEmergencyBuzzer(String? fromName) async {
+    try {
+      await _ringtone.play(
+        android: AndroidSounds.alarm,
+        ios: IosSounds.alarm,
+        looping: false,
+        volume: 1.0,
+        asAlarm: true,
+      );
+      if (mounted) {
+        bestieToast(context, 'Emergency buzzer',
+            body: '${fromName ?? 'A participant'} sent an emergency alert.',
+            kind: BestieToastKind.warning);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _sendEmergencyBuzzer() async {
+    final callId = widget.callId;
+    if (callId == null) return;
+    try {
+      await ref.read(apiProvider).post('/calls/$callId/buzzer');
+      if (mounted)
+        bestieToast(context, 'Emergency buzzer sent',
+            kind: BestieToastKind.warning);
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not send buzzer',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    }
   }
 
   /// Re-enable + re-route audio after a (re)connect. Without this the call can
@@ -686,9 +763,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
       // return a fixed uid, which we honor.
       step = 'join-channel';
       final serverUid = uidRaw is int ? uidRaw : int.tryParse('$uidRaw') ?? 0;
-      final uid = serverUid > 0
-          ? serverUid
-          : (1 + Random().nextInt(2147483646));
+      final uid =
+          serverUid > 0 ? serverUid : (1 + Random().nextInt(2147483646));
       _CallSession.myUid = uid;
       await engine.joinChannel(
         token: token,
@@ -715,8 +791,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
         try {
           // Tell the server our real per-device uid so it broadcasts the right
           // uid→name mapping to the other participants' tiles.
-          await ref.read(apiProvider).post('/calls/${widget.callId}/join',
-              body: {'agoraUid': uid});
+          await ref
+              .read(apiProvider)
+              .post('/calls/${widget.callId}/join', body: {'agoraUid': uid});
         } catch (_) {}
         // Announce again over the socket once we're in — covers participants
         // who were already in the call before us.
@@ -1129,7 +1206,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [Color(0xFF18222E), Color(0xFF0B1118), Color(0xFF05080C)],
+                  colors: [
+                    Color(0xFF062B61),
+                    Color(0xFF061A38),
+                    Color(0xFF020817)
+                  ],
                   stops: [0.0, 0.55, 1.0],
                 ),
               ),
@@ -1140,7 +1221,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
         // Top scrim for header legibility over video.
         if (showingVideo)
           Positioned(
-            top: 0, left: 0, right: 0,
+            top: 0,
+            left: 0,
+            right: 0,
             child: IgnorePointer(
               child: Container(
                 height: topInset + 110,
@@ -1148,7 +1231,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
-                    colors: [Colors.black.withOpacity(0.55), Colors.transparent],
+                    colors: [
+                      Colors.black.withOpacity(0.55),
+                      Colors.transparent
+                    ],
                   ),
                 ),
               ),
@@ -1157,7 +1243,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
         // Bottom scrim for control legibility over video.
         if (showingVideo)
           Positioned(
-            bottom: 0, left: 0, right: 0,
+            bottom: 0,
+            left: 0,
+            right: 0,
             child: IgnorePointer(
               child: Container(
                 height: bottomInset + 160,
@@ -1184,7 +1272,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
               child: Container(
                 clipBehavior: Clip.antiAlias,
                 decoration: BoxDecoration(
-                  border: Border.all(color: Colors.white.withOpacity(0.2), width: 1),
+                  border: Border.all(
+                      color: Colors.white.withOpacity(0.2), width: 1),
                   borderRadius: BorderRadius.circular(18),
                   boxShadow: [
                     BoxShadow(
@@ -1205,9 +1294,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
             ),
           ),
 
-        Positioned(
-            top: topInset + 8, left: 8, right: 8, child: _header()),
-        // Premium status chips (HD Voice / Network / Security) — voice calls
+        Positioned(top: topInset + 8, left: 8, right: 8, child: _header()),
+        // Premium status chips (HD Voice / Network / Secure calling) — voice calls
         // only, matching the redesigned call screen.
         if (!_isMeeting && !showingVideo)
           Positioned(
@@ -1269,7 +1357,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
                 ),
                 child: Row(mainAxisSize: MainAxisSize.min, children: const [
                   SizedBox(
-                    width: 14, height: 14,
+                    width: 14,
+                    height: 14,
                     child: CircularProgressIndicator(
                         strokeWidth: 2,
                         valueColor: AlwaysStoppedAnimation(Colors.white)),
@@ -1322,7 +1411,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   /// Small translucent circle button used in both call + meeting headers.
-  Widget _circleHeaderIcon(IconData icon, VoidCallback onTap, {String? tooltip}) {
+  Widget _circleHeaderIcon(IconData icon, VoidCallback onTap,
+      {String? tooltip}) {
     return Tooltip(
       message: tooltip ?? '',
       child: GestureDetector(
@@ -1377,7 +1467,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   Widget _callHeader() {
     final title = _callDisplayTitle();
     // Voice calls use the premium center stage (name + timer there), so the
-    // header is minimal: minimize · "End-to-End Encrypted" · invite. Video
+    // header is minimal: minimize · verified MyTaskKing brand · invite. Video
     // calls keep the name + timer in the header (no center stage over video).
     final showingVideo = _isVideo && _remoteUids.isNotEmpty;
     if (!showingVideo) {
@@ -1391,23 +1481,18 @@ class _CallScreenState extends ConsumerState<CallScreen>
                 crossAxisAlignment: CrossAxisAlignment.center,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text('MyTaskKing',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 15,
-                        fontWeight: BestieTokens.fwBold,
-                      )),
-                  const SizedBox(height: 2),
-                  Row(mainAxisSize: MainAxisSize.min, children: const [
-                    Icon(Icons.lock_rounded, size: 11, color: Color(0xFF22C55E)),
-                    SizedBox(width: 4),
-                    Text('End-to-End Encrypted',
+                  const Row(mainAxisSize: MainAxisSize.min, children: [
+                    Text('MyTaskKing',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                            color: Color(0xFF22C55E),
-                            fontSize: 11,
-                            fontWeight: BestieTokens.fwSemibold)),
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: BestieTokens.fwBold,
+                        )),
+                    SizedBox(width: 5),
+                    Icon(Icons.verified_rounded,
+                        color: Color(0xFF38BDF8), size: 17),
                   ]),
                 ]),
           ),
@@ -1422,7 +1507,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
         _circleHeaderIcon(Icons.close_fullscreen_rounded, _minimize,
             tooltip: 'Minimize'),
         Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.center, children: [
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.center, children: [
             Text(title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -1441,9 +1527,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
               if (_recording) ...[
                 const SizedBox(width: 8),
                 Container(
-                  width: 7, height: 7,
+                  width: 7,
+                  height: 7,
                   decoration: const BoxDecoration(
-                    color: Color(0xFFEF4444), shape: BoxShape.circle,
+                    color: Color(0xFFEF4444),
+                    shape: BoxShape.circle,
                   ),
                 ),
               ],
@@ -1468,7 +1556,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
             tooltip: 'Minimize'),
         const SizedBox(width: 10),
         Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -1486,9 +1575,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
               if (_recording) ...[
                 const SizedBox(width: 8),
                 Container(
-                  width: 7, height: 7,
+                  width: 7,
+                  height: 7,
                   decoration: const BoxDecoration(
-                    color: Color(0xFFEF4444), shape: BoxShape.circle,
+                    color: Color(0xFFEF4444),
+                    shape: BoxShape.circle,
                   ),
                 ),
               ],
@@ -1601,8 +1692,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
         // show them in two sections.
         final results = await Future.wait([
           api.listEmployees(q: q.isEmpty ? null : q),
-          api.listClients(q: q.isEmpty ? null : q).catchError(
-              (_) => <Map<String, dynamic>>[]),
+          api
+              .listClients(q: q.isEmpty ? null : q)
+              .catchError((_) => <Map<String, dynamic>>[]),
         ]);
         if (mounted)
           set(() {
@@ -1712,8 +1804,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
                                   controller: sc,
                                   children: [
                                     ..._inviteSection(
-                                        ctx, c, 'Organization members',
-                                        members, selected, set),
+                                        ctx,
+                                        c,
+                                        'Organization members',
+                                        members,
+                                        selected,
+                                        set),
                                     ..._inviteSection(ctx, c, 'Clients',
                                         clients, selected, set),
                                   ],
@@ -2104,8 +2200,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
         return Center(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(20, 112, 20, 220),
-            child: Column(
-                mainAxisAlignment: MainAxisAlignment.center, children: [
+            child:
+                Column(mainAxisAlignment: MainAxisAlignment.center, children: [
               _voiceParticipantsGrid(),
               const SizedBox(height: 24),
               _participantsStrip(showTimer: false),
@@ -2123,8 +2219,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
         return Center(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(20, 112, 20, 220),
-            child: Column(
-                mainAxisAlignment: MainAxisAlignment.center, children: [
+            child:
+                Column(mainAxisAlignment: MainAxisAlignment.center, children: [
               _voiceParticipantsGrid(),
               const SizedBox(height: 18),
               Text(_connectedAt == null ? _status : _formatElapsed(_elapsed),
@@ -2188,9 +2284,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
   Widget _participantsStrip({bool showTimer = true}) {
     // One entry per live remote stream (so the same account on two devices
     // reads as two participants), labelled from the announce map.
-    final names = _remoteUids
-        .map((uid) => _remoteNames[uid] ?? 'Participant')
-        .toList();
+    final names =
+        _remoteUids.map((uid) => _remoteNames[uid] ?? 'Participant').toList();
     final label = names.isEmpty ? 'Waiting for others' : names.join(', ');
     return Container(
       constraints: const BoxConstraints(maxWidth: 320),
@@ -2291,8 +2386,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
     double size = 52,
     double iconSize = 22,
   }) {
-    final Color bg = background ??
-        (active ? Colors.white : Colors.white.withOpacity(0.14));
+    final Color bg =
+        background ?? (active ? Colors.white : Colors.white.withOpacity(0.14));
     final Color fg = iconColor ??
         (background != null
             ? Colors.white
@@ -2343,9 +2438,24 @@ class _CallScreenState extends ConsumerState<CallScreen>
             .replaceAll('_', ' ')
             .toLowerCase()
             .split(' ')
-            .map((w) => w.isEmpty ? w : '${w[0].toUpperCase()}${w.substring(1)}')
+            .map(
+                (w) => w.isEmpty ? w : '${w[0].toUpperCase()}${w.substring(1)}')
             .join(' ');
       }
+    }
+    return null;
+  }
+
+  String? _callDisplayAvatarUrl() {
+    final me = ref.read(authStoreProvider).user;
+    final parts = (_callMeta?['call']?['participants'] as List?) ??
+        (_callMeta?['participants'] as List?) ??
+        const [];
+    for (final p in parts) {
+      if (p is! Map || p['userId'] == me?.id) continue;
+      final user = (p['user'] as Map?)?.cast<String, dynamic>();
+      final url = user?['avatarUrl']?.toString();
+      if (url != null && url.isNotEmpty) return url;
     }
     return null;
   }
@@ -2375,13 +2485,18 @@ class _CallScreenState extends ConsumerState<CallScreen>
                       shape: BoxShape.circle,
                       boxShadow: [
                         BoxShadow(
-                          color: const Color(0xFF6D4BFF).withValues(alpha: 0.35),
+                          color:
+                              const Color(0xFF38BDF8).withValues(alpha: 0.38),
                           blurRadius: 40,
                           spreadRadius: 2,
                         ),
                       ],
                     ),
-                    child: BestieAvatar(name: remoteName, size: 150),
+                    child: BestieAvatar(
+                      name: remoteName,
+                      imageUrl: _callDisplayAvatarUrl(),
+                      size: 150,
+                    ),
                   ),
                   // Small green "in call" badge bottom-right of the avatar.
                   Positioned(
@@ -2393,7 +2508,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
                       decoration: BoxDecoration(
                         color: const Color(0xFF22C55E),
                         shape: BoxShape.circle,
-                        border: Border.all(color: const Color(0xFF0B1220), width: 3),
+                        border: Border.all(
+                            color: const Color(0xFF0B1220), width: 3),
                       ),
                       child: const Icon(Icons.call_rounded,
                           color: Colors.white, size: 16),
@@ -2432,9 +2548,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
             Row(mainAxisSize: MainAxisSize.min, children: [
               Icon(Icons.graphic_eq_rounded,
                   size: 15,
-                  color: connected
-                      ? const Color(0xFF22C55E)
-                      : Colors.white54),
+                  color: connected ? const Color(0xFF22C55E) : Colors.white54),
               const SizedBox(width: 6),
               Text(
                 connected ? 'ACTIVE CALL' : _status.toUpperCase(),
@@ -2463,26 +2577,25 @@ class _CallScreenState extends ConsumerState<CallScreen>
     );
   }
 
-  /// Top status chips: HD Voice / Network / Security (AES-256).
+  /// Top status chips: HD Voice / Network / Secure calling.
   Widget _topChips() {
     final net = _reconnecting ? 'Reconnecting' : 'Excellent';
     final netColor =
         _reconnecting ? const Color(0xFFFBBF24) : const Color(0xFF22C55E);
     return Row(children: [
       Expanded(
-        child: _statChip(
-            Icons.graphic_eq_rounded, 'HD Voice', 'Crystal Clear',
+        child: _statChip(Icons.graphic_eq_rounded, 'HD Voice', 'Crystal Clear',
             const Color(0xFF60A5FA)),
       ),
       const SizedBox(width: 10),
       Expanded(
-        child: _statChip(Icons.signal_cellular_alt_rounded, 'Network', net,
-            netColor),
+        child: _statChip(
+            Icons.signal_cellular_alt_rounded, 'Network', net, netColor),
       ),
       const SizedBox(width: 10),
       Expanded(
-        child: _statChip(Icons.shield_outlined, 'Security', 'AES-256',
-            const Color(0xFFA78BFA)),
+        child: _statChip(Icons.shield_outlined, 'Secure calling', 'Connected',
+            const Color(0xFF38BDF8)),
       ),
     ]);
   }
@@ -2560,13 +2673,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
               'Camera',
               active: _videoEnabled && !_cameraOff,
               onTap: _toggleCamera),
-          _gridTile(Icons.person_add_alt_1_rounded, 'Add',
-              onTap: _showInvite),
+          _gridTile(Icons.person_add_alt_1_rounded, 'Add', onTap: _showInvite),
           _gridTile(Icons.fiber_manual_record_rounded, 'Record',
               active: _recording,
               accent: const Color(0xFFEF4444),
               onTap: _toggleRecord),
-          _gridTile(Icons.more_horiz_rounded, 'More', onTap: _showMore),
+          _gridTile(Icons.campaign_rounded, 'Buzzer',
+              accent: const Color(0xFFFBBF24), onTap: _sendEmergencyBuzzer),
         ]),
         const SizedBox(height: 18),
         // Bottom action bar: message · end · keypad placeholder.
@@ -2599,8 +2712,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
           ),
           const SizedBox(width: 36),
           _ctrlCircle(
-              icon: Icons.more_vert_rounded,
-              onTap: _showMore,
+              icon: Icons.dialpad_rounded,
+              onTap: () => bestieToast(context, 'Keypad ready'),
               size: 46,
               iconSize: 20),
         ]),
@@ -2631,6 +2744,14 @@ class _CallScreenState extends ConsumerState<CallScreen>
                     ? a.withValues(alpha: 0.6)
                     : Colors.white.withValues(alpha: 0.10),
               ),
+              boxShadow: [
+                BoxShadow(
+                  color: a.withValues(alpha: active ? 0.42 : 0.20),
+                  blurRadius: active ? 24 : 16,
+                  spreadRadius: active ? 2 : 0,
+                  offset: const Offset(0, 8),
+                ),
+              ],
             ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -2652,9 +2773,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   /// Opens the call's chat channel (message button on the call screen).
   void _openCallChat() {
-    final channelId = (_callMeta?['call']?['channelId'] ??
-            _callMeta?['channelId'])
-        ?.toString();
+    final channelId =
+        (_callMeta?['call']?['channelId'] ?? _callMeta?['channelId'])
+            ?.toString();
     if (channelId == null || channelId.isEmpty) {
       bestieToast(context, 'Chat opens after the call connects',
           kind: BestieToastKind.info);
@@ -2686,8 +2807,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
           border: Border.all(color: Colors.white.withOpacity(0.08)),
         ),
         child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
-          _ctrlCircle(
-              icon: Icons.more_horiz_rounded, onTap: _showMore),
+          _ctrlCircle(icon: Icons.more_horiz_rounded, onTap: _showMore),
           _ctrlCircle(
             icon: (!_videoEnabled || _cameraOff)
                 ? Icons.videocam_off_rounded
@@ -2749,8 +2869,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
           ),
           _ctrlCircle(
             icon: Icons.front_hand_outlined,
-            onTap: () => bestieToast(context, 'Hand raised',
-                kind: BestieToastKind.info),
+            onTap: () =>
+                bestieToast(context, 'Hand raised', kind: BestieToastKind.info),
           ),
           _ctrlCircle(
             icon: Icons.more_vert_rounded,
@@ -2788,6 +2908,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
             },
           );
         }
+
         return Container(
           decoration: BoxDecoration(
             color: c.surface,
@@ -2922,8 +3043,9 @@ class _PulseRingsState extends State<_PulseRings>
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         border: Border.all(
-          color: Color.lerp(const Color(0xFF6D4BFF), const Color(0xFF3AA1FF), t)!
-              .withValues(alpha: opacity),
+          color:
+              Color.lerp(const Color(0xFF0759E6), const Color(0xFF38BDF8), t)!
+                  .withValues(alpha: opacity),
           width: 2,
         ),
       ),

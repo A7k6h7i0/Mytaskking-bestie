@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
@@ -44,7 +45,10 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
   }
 
   Future<void> _loadMore() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final res = await ref
           .read(apiProvider)
@@ -60,7 +64,10 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() { _error = e; _loading = false; });
+      setState(() {
+        _error = e;
+        _loading = false;
+      });
     }
   }
 
@@ -109,16 +116,18 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
                                 padding: EdgeInsets.symmetric(vertical: 12),
                                 child: Center(
                                   child: SizedBox(
-                                    width: 16, height: 16,
-                                    child:
-                                        CircularProgressIndicator(strokeWidth: 2),
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2),
                                   ),
                                 ),
                               );
                             }
                             if (!_hasMore) {
                               return Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 12),
                                 child: Center(
                                   child: Text('End of history',
                                       style: TextStyle(
@@ -144,8 +153,11 @@ class _CallRow extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final me = ref.read(authStoreProvider).user;
-    final initiator = (call['initiator'] as Map?)?.cast<String, dynamic>() ?? const {};
-    final participants = (call['participants'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+    final initiator =
+        (call['initiator'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final participants =
+        (call['participants'] as List?)?.cast<Map<String, dynamic>>() ??
+            const [];
     final outgoing = initiator['id'] == me?.id;
 
     // Pick a "header" person — for outgoing calls the first non-me participant;
@@ -167,10 +179,10 @@ class _CallRow extends ConsumerWidget {
     final isVideo = mode == 'VIDEO';
 
     final Color statusColor = switch (status) {
-      'MISSED'  => colors.danger,
+      'MISSED' => colors.danger,
       'RINGING' => colors.warning,
-      'ACTIVE'  => colors.success,
-      _         => colors.textMuted,
+      'ACTIVE' => colors.success,
+      _ => colors.textMuted,
     };
 
     return ListTile(
@@ -180,8 +192,11 @@ class _CallRow extends ConsumerWidget {
         isClient: isClient,
         size: 40,
       ),
-      title: BestieUserName(name: name, isClient: isClient,
-          style: TextStyle(fontWeight: BestieTokens.fwSemibold, color: colors.text)),
+      title: BestieUserName(
+          name: name,
+          isClient: isClient,
+          style: TextStyle(
+              fontWeight: BestieTokens.fwSemibold, color: colors.text)),
       subtitle: Row(children: [
         Icon(
           outgoing ? Icons.call_made_rounded : Icons.call_received_rounded,
@@ -195,14 +210,17 @@ class _CallRow extends ConsumerWidget {
         ),
       ]),
       trailing: IconButton(
-        icon: Icon(isVideo ? Icons.videocam_outlined : Icons.call_outlined, color: colors.brand),
+        icon: Icon(isVideo ? Icons.videocam_outlined : Icons.call_outlined,
+            color: colors.brand),
         tooltip: isVideo ? 'Video call back' : 'Call back',
-        onPressed: () => _ringBack(context, ref, header['id'] as String?, mode),
+        onPressed: () =>
+            _ringBack(context, ref, header['id'] as String?, name, mode),
       ),
     );
   }
 
-  Future<void> _ringBack(BuildContext context, WidgetRef ref, String? userId, String mode) async {
+  Future<void> _ringBack(BuildContext context, WidgetRef ref, String? userId,
+      String name, String mode) async {
     if (userId == null) return;
     try {
       final res = await ref.read(apiProvider).initiateCall(
@@ -212,13 +230,37 @@ class _CallRow extends ConsumerWidget {
         // doesn't surprise the recipient with a video Accept button.
         mode: mode.toUpperCase() == 'VOICE' ? 'VOICE' : 'VIDEO',
       );
+      final availability =
+          (res['targetPresence'] as Map?)?.cast<String, dynamic>();
+      if (availability != null) {
+        final custom = (availability['customStatus'] ?? '').toString().trim();
+        final status = (availability['status'] ?? 'BUSY').toString();
+        final label = status == 'ON_CALL'
+            ? 'on another call'
+            : custom.toLowerCase().contains('lunch')
+                ? 'at lunch'
+                : custom.toLowerCase().contains('leave')
+                    ? 'on leave'
+                    : 'busy';
+        try {
+          final tts = FlutterTts();
+          await tts.setSpeechRate(0.43);
+          await tts.speak('$name is $label. Please leave a message.');
+        } catch (_) {}
+        if (context.mounted) {
+          bestieToast(context, '$name is unavailable',
+              body: label, kind: BestieToastKind.warning);
+        }
+        return;
+      }
       final id = ((res['call'] as Map?)?['id'] ?? res['id'])?.toString();
       if (id != null && context.mounted) {
         context.go('/call/$id?mode=${mode.toLowerCase()}');
       }
     } catch (e) {
-      if (context.mounted) bestieToast(context, 'Could not call',
-          body: formatApiError(e), kind: BestieToastKind.error);
+      if (context.mounted)
+        bestieToast(context, 'Could not call',
+            body: formatApiError(e), kind: BestieToastKind.error);
     }
   }
 }

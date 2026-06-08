@@ -25,7 +25,8 @@ async function withOnlineMembers(channel) {
         ...member,
         user: {
           ...member.user,
-          online: online === true,
+          online: member.user.role === 'SUPER_ADMIN' ? false : online === true,
+          lastSeenAt: member.user.role === 'SUPER_ADMIN' ? null : member.user.lastSeenAt,
         },
       };
     })

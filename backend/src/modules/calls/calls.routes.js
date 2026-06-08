@@ -60,6 +60,23 @@ router.post(
       req,
     });
     const io = req.app.get('io');
+    if (result.suppressRinging) {
+      if (result.targetPresence?.status === 'ON_CALL') {
+        for (const participantId of req.body.participantIds) {
+          io?.to(`user:${participantId}`).emit('call.waiting', {
+            callId: result.call.id,
+            callerName: req.user.name,
+            callerId: req.user.id,
+          });
+        }
+      }
+      const missed = await service.expireIfRinging({ callId: result.call.id });
+      return res.status(200).json({
+        ...result,
+        call: missed || result.call,
+        mode,
+      });
+    }
     for (const p of result.call.participants) {
       io?.to(`user:${p.userId}`).emit('call.incoming', {
         call: result.call,
@@ -210,6 +227,47 @@ router.post('/:id/decline', asyncHandler(async (req, res) => {
     });
   }
   res.json(call);
+}));
+
+router.post('/:id/busy', asyncHandler(async (req, res) => {
+  const call = await prisma.call.findUnique({
+    where: { id: req.params.id },
+    include: { participants: true },
+  });
+  if (!call || !(call.participants || []).some((p) => p.userId === req.user.id)) {
+    return res.status(404).json({ error: 'Call not found' });
+  }
+  req.app.get('io')?.to(`user:${call.initiatorId}`).emit('call.busy', {
+    callId: call.id,
+    userId: req.user.id,
+    userName: req.user.name,
+    status: 'ON_CALL',
+  });
+  const ended = await service.expireIfRinging({ callId: call.id });
+  if (ended) emitToCallParticipants(req.app.get('io'), ended, 'call.ended', { callId: ended.id, status: ended.status });
+  res.json({ ok: true });
+}));
+
+router.post('/:id/buzzer', asyncHandler(async (req, res) => {
+  const call = await prisma.call.findUnique({
+    where: { id: req.params.id },
+    include: { participants: true },
+  });
+  if (!call || !(call.participants || []).some((p) => p.userId === req.user.id)) {
+    return res.status(404).json({ error: 'Call not found' });
+  }
+  const setting = await prisma.workspaceSetting.findUnique({
+    where: { scope_key: { scope: 'calls', key: 'emergencyBuzzerEnabled' } },
+  });
+  if (setting?.value === false) return res.status(403).json({ error: 'Emergency buzzer is disabled' });
+  for (const participant of call.participants || []) {
+    if (participant.userId === req.user.id) continue;
+    req.app.get('io')?.to(`user:${participant.userId}`).emit('call.buzzer', {
+      callId: call.id,
+      fromName: req.user.name,
+    });
+  }
+  res.json({ ok: true });
 }));
 
 router.post(

@@ -52,13 +52,22 @@ async function rotateRefreshToken(rawToken, { userAgent, ip } = {}) {
     return null;
   }
 
+  const previousSession = await prisma.session.findUnique({
+    where: { refreshTokenId: existing.id },
+    select: { selfieUrl: true },
+  }).catch(() => null);
   await prisma.refreshToken.update({
     where: { id: existing.id },
     data: { revokedAt: new Date() },
   });
+  await prisma.session.updateMany({
+    where: { refreshTokenId: existing.id, status: 'ACTIVE' },
+    data: { status: 'EXPIRED', revokedAt: new Date() },
+  }).catch(() => {});
 
   return issueRefreshToken(existing.user, { userAgent, ip }).then((issued) => ({
     user: existing.user,
+    previousSelfieUrl: previousSession?.selfieUrl || null,
     ...issued,
   }));
 }

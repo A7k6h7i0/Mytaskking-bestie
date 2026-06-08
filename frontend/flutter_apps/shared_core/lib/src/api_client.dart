@@ -94,10 +94,18 @@ class BestieApi {
   Future<Map<String, dynamic>> login({
     required String userId,
     required String password,
+    String? selfieBase64,
+    String? selfieMimeType,
   }) async {
     final r = await dio.post(
       '/auth/login',
-      data: {'userId': userId, 'password': password},
+      data: {
+        'userId': userId,
+        'password': password,
+        'loginSource': 'mobile',
+        if (selfieBase64 != null) 'selfieBase64': selfieBase64,
+        if (selfieMimeType != null) 'selfieMimeType': selfieMimeType,
+      },
     );
     await auth.setSession(
       accessToken: r.data['accessToken'],
@@ -105,6 +113,14 @@ class BestieApi {
       userJson: r.data['user'] as Map<String, dynamic>,
     );
     return r.data as Map<String, dynamic>;
+  }
+
+  Future<bool> loginRequiresSelfie(String userId) async {
+    final r = await dio.get(
+      '/auth/login-requirements',
+      queryParameters: {'userId': userId},
+    );
+    return r.data['requiresSelfie'] == true;
   }
 
   Future<void> logout() async {

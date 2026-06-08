@@ -9,8 +9,49 @@ import '../state.dart' hide ThemeMode;
 /// App-level settings with a light/dark theme toggle and links to the rest of
 /// the workspace. Secondary screens open with push so Android back returns here
 /// instead of closing the app.
-class SettingsScreen extends ConsumerWidget {
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
+
+  @override
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  bool _buzzerEnabled = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBuzzerSetting();
+  }
+
+  Future<void> _loadBuzzerSetting() async {
+    try {
+      final data = await ref.read(apiProvider).settingsScope(scope: 'calls');
+      final calls = (data['calls'] as Map?)?.cast<String, dynamic>();
+      if (mounted && calls?['emergencyBuzzerEnabled'] is bool) {
+        setState(
+            () => _buzzerEnabled = calls!['emergencyBuzzerEnabled'] as bool);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _toggleBuzzer() async {
+    final next = !_buzzerEnabled;
+    try {
+      await ref.read(apiProvider).setSetting(
+            scope: 'calls',
+            key: 'emergencyBuzzerEnabled',
+            value: next,
+          );
+      if (mounted) setState(() => _buzzerEnabled = next);
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not update buzzer setting',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    }
+  }
 
   Future<bool> _handleBack(BuildContext context) async {
     final router = GoRouter.of(context);
@@ -24,7 +65,7 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final c = BestieColors.of(context);
     final mode = ref.watch(themeModeProvider);
     final displayMode =
@@ -119,6 +160,14 @@ class SettingsScreen extends ConsumerWidget {
                 label: 'Call recordings',
                 onTap: () => _openRoute(context, '/recordings'),
               ),
+            if (user?.role == 'SUPER_ADMIN')
+              _SettingTile(
+                colors: c,
+                icon: Icons.campaign_rounded,
+                label:
+                    'Emergency buzzer: ${_buzzerEnabled ? 'enabled' : 'disabled'}',
+                onTap: _toggleBuzzer,
+              ),
             _SectionLabel('People', colors: c),
             if (!(user?.isClient ?? false))
               _SettingTile(
@@ -164,7 +213,8 @@ class SettingsScreen extends ConsumerWidget {
                   confirmLabel: 'Sign out',
                 );
                 if (!ok) return;
-                await ref.read(authStoreProvider).clear();
+                await ref.read(apiProvider).logout();
+                if (context.mounted) context.go('/login');
               },
             ),
             const SizedBox(height: 32),

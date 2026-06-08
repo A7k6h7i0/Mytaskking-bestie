@@ -50,6 +50,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
   final _scroll = ScrollController();
   bool _sending = false;
   bool _attaching = false;
+  double? _uploadProgress;
   Map<String, dynamic>? _channel;
   // Tracks which incoming messages we've already receipted in this session so
   // we don't spam the backend on every rebuild / scroll.
@@ -731,6 +732,10 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
             bytes: bytes,
             filename: 'voice-note-${DateTime.now().millisecondsSinceEpoch}.m4a',
             mimeType: 'audio/mp4',
+            onProgress: (sent, total) {
+              if (mounted && total > 0)
+                setState(() => _uploadProgress = sent / total);
+            },
           );
       final id = asset['id']?.toString();
       if (id == null) throw 'Upload returned no asset id';
@@ -749,7 +754,11 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
         bestieToast(context, 'Could not send voice note',
             body: formatApiError(e), kind: BestieToastKind.error);
     } finally {
-      if (mounted) setState(() => _attaching = false);
+      if (mounted)
+        setState(() {
+          _attaching = false;
+          _uploadProgress = null;
+        });
     }
   }
 
@@ -861,7 +870,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
         final picker = ImagePicker();
         XFile? x;
         if (kind == 'camera') {
-          x = await picker.pickImage(source: ImageSource.camera, imageQuality: 85);
+          x = await picker.pickImage(
+              source: ImageSource.camera, imageQuality: 85);
         } else if (kind == 'video') {
           x = await picker.pickVideo(source: ImageSource.camera);
         } else {
@@ -874,7 +884,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
         // Trust the plugin's mime when present; otherwise infer from the
         // file extension (covers videos picked from the gallery/camera).
         mimeType = x.mimeType ??
-            _mimeFromExt(x.name.contains('.') ? x.name.split('.').last : null) ??
+            _mimeFromExt(
+                x.name.contains('.') ? x.name.split('.').last : null) ??
             'application/octet-stream';
       } else {
         final res = await FilePicker.platform.pickFiles(withData: true);
@@ -890,6 +901,10 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
             bytes: bytes,
             filename: filename,
             mimeType: mimeType,
+            onProgress: (sent, total) {
+              if (mounted && total > 0)
+                setState(() => _uploadProgress = sent / total);
+            },
           );
       final assetId = asset['id']?.toString();
       if (assetId == null)
@@ -900,7 +915,11 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
         bestieToast(context, 'Attachment failed',
             body: formatApiError(e), kind: BestieToastKind.error);
     } finally {
-      if (mounted) setState(() => _attaching = false);
+      if (mounted)
+        setState(() {
+          _attaching = false;
+          _uploadProgress = null;
+        });
     }
   }
 
@@ -986,14 +1005,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
       if (busy != null && ch == 'ONE_TO_ONE') {
         // #4: speak a personalized availability announcement to the caller.
         unawaited(_announceAvailability(_headerTitle(), busy));
-        final proceed = await _showBusyCallSheet(busy);
-        if (proceed != true) {
-          // Cancel the ringing call; they'll leave a message in the chat.
-          try {
-            await ref.read(apiProvider).post('/calls/$callId/leave');
-          } catch (_) {/* best-effort */}
-          return;
-        }
+        await _showBusyCallSheet(busy);
+        return;
       }
       if (mounted) context.go('/call/$callId?mode=$kind');
     } catch (e) {
@@ -1005,17 +1018,22 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
 
   /// #4: speak a personalized availability announcement to the caller, e.g.
   /// "Ravi is currently in a meeting. Please wait while they respond."
-  Future<void> _announceAvailability(String name, Map<String, dynamic> presence) async {
+  Future<void> _announceAvailability(
+      String name, Map<String, dynamic> presence) async {
     final status = (presence['status'] ?? 'BUSY').toString();
     final custom = (presence['customStatus'] ?? '').toString().trim();
     final label = status == 'IN_MEETING'
         ? 'currently in a meeting'
-        : status == 'INVISIBLE'
-            ? 'currently away'
-            : 'currently busy with work';
-    final text = custom.isNotEmpty
-        ? '$name says: $custom'
-        : '$name is $label. Please wait while they respond.';
+        : status == 'ON_CALL'
+            ? 'currently on another call'
+            : custom.toLowerCase().contains('lunch')
+                ? 'currently at lunch'
+                : custom.toLowerCase().contains('leave')
+                    ? 'currently on leave'
+                    : status == 'INVISIBLE'
+                        ? 'currently away'
+                        : 'currently busy with work';
+    final text = '$name is $label. Please leave a message.';
     try {
       final tts = FlutterTts();
       await tts.setSpeechRate(0.45);
@@ -1024,23 +1042,30 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     } catch (_) {/* TTS is best-effort */}
   }
 
-  /// Shown when the person you're calling is Busy / In a meeting. Returns true
-  /// to call anyway, false/null to leave a message in the chat instead.
-  Future<bool?> _showBusyCallSheet(Map<String, dynamic> presence) {
+  /// Shown when the person cannot receive a call. The server suppresses the
+  /// second ringer, so this flow intentionally offers messaging only.
+  Future<void> _showBusyCallSheet(Map<String, dynamic> presence) {
     final c = BestieColors.of(context);
     final status = (presence['status'] ?? 'BUSY').toString();
     final custom = (presence['customStatus'] ?? '').toString().trim();
     final label = status == 'IN_MEETING'
         ? 'in a meeting'
-        : status == 'INVISIBLE'
-            ? 'away'
-            : 'busy';
+        : status == 'ON_CALL'
+            ? 'on another call'
+            : custom.toLowerCase().contains('lunch')
+                ? 'at lunch'
+                : custom.toLowerCase().contains('leave')
+                    ? 'on leave'
+                    : status == 'INVISIBLE'
+                        ? 'away'
+                        : 'busy';
     final name = _headerTitle();
-    return showModalBottomSheet<bool>(
+    return showModalBottomSheet<void>(
       context: context,
       backgroundColor: c.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
+        borderRadius:
+            BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
       ),
       builder: (ctx) => SafeArea(
         top: false,
@@ -1048,9 +1073,10 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
           padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Container(
-              width: 52, height: 52,
-              decoration: BoxDecoration(
-                color: c.warningSoft, shape: BoxShape.circle),
+              width: 52,
+              height: 52,
+              decoration:
+                  BoxDecoration(color: c.warningSoft, shape: BoxShape.circle),
               child: Icon(Icons.do_not_disturb_on_rounded,
                   color: c.warning, size: 26),
             ),
@@ -1072,23 +1098,13 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                onPressed: () => Navigator.pop(ctx, false),
+                onPressed: () => Navigator.pop(ctx),
                 style: FilledButton.styleFrom(
                   backgroundColor: c.brand,
                   padding: const EdgeInsets.symmetric(vertical: 13),
                 ),
                 icon: const Icon(Icons.edit_rounded, size: 18),
                 label: const Text('Leave a message'),
-              ),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: TextButton.icon(
-                onPressed: () => Navigator.pop(ctx, true),
-                icon: Icon(Icons.call_rounded, size: 18, color: c.textSoft),
-                label: Text('Call anyway',
-                    style: TextStyle(color: c.textSoft)),
               ),
             ),
           ]),
@@ -1956,6 +1972,20 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
             colors: colors,
             onCancel: () => setState(() => _replyingTo = null),
           ),
+        if (_uploadProgress != null)
+          Container(
+            color: colors.surface,
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(
+                'Sharing file ${(_uploadProgress! * 100).clamp(1, 100).round()}%',
+                style: TextStyle(color: colors.textMuted, fontSize: 11),
+              ),
+              const SizedBox(height: 5),
+              LinearProgressIndicator(value: _uploadProgress, minHeight: 5),
+            ]),
+          ),
         _Composer(
           colors: colors,
           controller: _composer,
@@ -2773,9 +2803,12 @@ class _MessageBubble extends ConsumerWidget {
                         ),
                         // Admin-assigned role/designation tag (e.g. "Flutter
                         // Developer"). Only shown when set.
-                        if ((author['customTitle']?.toString() ?? '').trim().isNotEmpty) ...[
+                        if ((author['customTitle']?.toString() ?? '')
+                            .trim()
+                            .isNotEmpty) ...[
                           const SizedBox(width: 6),
-                          _DesignationTag(label: author['customTitle'].toString()),
+                          _DesignationTag(
+                              label: author['customTitle'].toString()),
                         ],
                       ],
                     ),

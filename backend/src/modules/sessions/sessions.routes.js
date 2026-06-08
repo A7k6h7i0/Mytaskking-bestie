@@ -19,7 +19,9 @@ router.get(
 router.get(
   '/users/:userId',
   requireAdmin,
-  asyncHandler(async (req, res) => res.json({ items: await service.listForUser(req.params.userId) }))
+  asyncHandler(async (req, res) => res.json({
+    items: await service.listForUser(req.params.userId, { includeSelfie: req.user.role === 'SUPER_ADMIN' }),
+  }))
 );
 
 // Org-wide login/logout activity feed for admins (#2): every session with
@@ -36,7 +38,10 @@ router.get(
       pageSize: Joi.number().integer().min(1).max(100).default(50),
     }),
   }),
-  asyncHandler(async (req, res) => res.json(await service.listActivity(req.query)))
+  asyncHandler(async (req, res) => res.json(await service.listActivity({
+    ...req.query,
+    includeSelfie: req.user.role === 'SUPER_ADMIN',
+  })))
 );
 
 router.delete(

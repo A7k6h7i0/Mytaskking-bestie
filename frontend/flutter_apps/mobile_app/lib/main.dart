@@ -152,7 +152,8 @@ Future<void> _wirePushNotifications(
       showIncomingCallFromPush(message.data);
       return;
     }
-    unawaited(_showForegroundNotification(message));
+    // Realtime already shows the in-app banner while foregrounded. Rendering
+    // the same FCM payload locally here produced two alerts for one message.
   });
 }
 
@@ -313,7 +314,9 @@ Future<void> _snoozeNotificationChannel(Map<String, dynamic> data) async {
     final raw = prefs.getString('chat.muted_until_v2');
     final cur = <String, dynamic>{};
     if (raw != null && raw.isNotEmpty) {
-      try { cur.addAll(jsonDecode(raw) as Map<String, dynamic>); } catch (_) {}
+      try {
+        cur.addAll(jsonDecode(raw) as Map<String, dynamic>);
+      } catch (_) {}
     }
     cur[channelId] =
         DateTime.now().add(const Duration(hours: 1)).toIso8601String();
@@ -395,7 +398,8 @@ class _BestieAppState extends ConsumerState<BestieApp> {
   void initState() {
     super.initState();
     _wirePushDeepLinks();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _requestStartupPermissions());
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => _requestStartupPermissions());
   }
 
   /// Ask for the permissions the app needs up front, once, on first launch —

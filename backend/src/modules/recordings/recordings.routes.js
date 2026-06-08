@@ -4,7 +4,7 @@ const { Router } = require('express');
 const Joi = require('joi');
 const asyncHandler = require('../../utils/asyncHandler');
 const validate = require('../../middleware/validate');
-const { requireAuth, requireAdmin, requireSuperAdmin } = require('../../middleware/auth');
+const { requireAuth, requireAdmin } = require('../../middleware/auth');
 const prisma = require('../../database/prisma');
 const audit = require('../../services/audit');
 const { NotFound } = require('../../utils/errors');
@@ -75,7 +75,6 @@ router.get(
 
 router.delete(
   '/:source/:id',
-  requireSuperAdmin,
   validate({
     params: Joi.object({
       source: Joi.string().valid('CALL', 'MEETING').required(),

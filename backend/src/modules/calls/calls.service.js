@@ -6,8 +6,8 @@ const { NotFound, Forbidden, BadRequest } = require('../../utils/errors');
 const agora = require('../../services/agora');
 
 const callInclude = {
-  participants: { include: { user: { select: { id: true, name: true, avatarUrl: true, role: true, isClient: true } } } },
-  initiator: { select: { id: true, name: true, avatarUrl: true } },
+  participants: { include: { user: { select: { id: true, name: true, avatarUrl: true, role: true, customTitle: true, isClient: true } } } },
+  initiator: { select: { id: true, name: true, avatarUrl: true, role: true, customTitle: true } },
 };
 
 function makeChannelName() {
@@ -75,6 +75,25 @@ async function postCallEventMessage({ call, kind, actor }) {
 async function initiate({ initiator, participantIds, kind = 'ONE_TO_ONE', channelId = null }) {
   if (!participantIds || participantIds.length === 0) throw BadRequest('Need at least one participant');
   const realKind = participantIds.length > 1 ? 'GROUP' : kind;
+  let targetPresence = null;
+  if (realKind === 'ONE_TO_ONE' && participantIds.length === 1) {
+    const targetId = participantIds[0];
+    const [presence, activeCall] = await Promise.all([
+      prisma.userPresence.findUnique({ where: { userId: targetId } }).catch(() => null),
+      prisma.call.findFirst({
+        where: {
+          status: { in: ['RINGING', 'ACTIVE'] },
+          participants: { some: { userId: targetId, leftAt: null } },
+        },
+        select: { id: true },
+      }).catch(() => null),
+    ]);
+    if (activeCall) {
+      targetPresence = { status: 'ON_CALL', customStatus: 'Currently on another call' };
+    } else if (presence && ['BUSY', 'IN_MEETING', 'INVISIBLE', 'AWAY'].includes(presence.status)) {
+      targetPresence = { status: presence.status, customStatus: presence.customStatus || null };
+    }
+  }
 
   const all = Array.from(new Set([initiator.id, ...participantIds]));
   const call = await prisma.call.create({
@@ -92,23 +111,12 @@ async function initiate({ initiator, participantIds, kind = 'ONE_TO_ONE', channe
   // Wildcard tokens: each device picks its own random uid at join time so the
   // same account can be in the call from multiple devices without colliding.
   const tokenForUser = () => agora.generateRtcToken({ channelName: call.channelName, wildcard: true });
-  await postCallEventMessage({ call, kind: 'STARTED', actor: initiator });
-
-  // For a 1:1 call, surface the callee's availability so the caller can be
-  // offered to leave a voice/text message if they're busy (#5).
-  let targetPresence = null;
-  if (realKind === 'ONE_TO_ONE' && participantIds.length === 1) {
-    const presence = await prisma.userPresence
-      .findUnique({ where: { userId: participantIds[0] } })
-      .catch(() => null);
-    if (presence && ['BUSY', 'IN_MEETING', 'INVISIBLE'].includes(presence.status)) {
-      targetPresence = { status: presence.status, customStatus: presence.customStatus || null };
-    }
-  }
+  if (!targetPresence) await postCallEventMessage({ call, kind: 'STARTED', actor: initiator });
 
   return {
     call,
     targetPresence,
+    suppressRinging: !!targetPresence,
     tokens: Object.fromEntries(all.map((uid) => [uid, tokenForUser(uid)])),
   };
 }
