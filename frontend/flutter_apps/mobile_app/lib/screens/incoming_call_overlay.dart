@@ -47,7 +47,6 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
   final _customRingtone = AudioPlayer();
   final _tts = FlutterTts();
   bool _appResumed = true;
-  String? _ringingSoundUrl;
 
   @override
   void initState() {
@@ -476,19 +475,6 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
 
   Future<void> _playRingtone() async {
     try {
-      if (_ringingSoundUrl == null) {
-        final settings =
-            await ref.read(apiProvider).settingsScope(scope: 'calls');
-        final calls = (settings['calls'] as Map?)?.cast<String, dynamic>();
-        _ringingSoundUrl = calls?['ringingSoundUrl']?.toString();
-      }
-      final url = _ringingSoundUrl;
-      if (url != null && url.isNotEmpty) {
-        await _ringtone.stop();
-        await _customRingtone.setReleaseMode(ReleaseMode.loop);
-        await _customRingtone.play(UrlSource(url), volume: 1);
-        return;
-      }
       // Loop the *device's* default ringtone — what the user expects, vs
       // a generic synth tone. flutter_ringtone_player wraps RingtoneManager
       // on Android and AudioServicesPlay on iOS so it respects volume +

@@ -559,6 +559,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       final url = _ringingSoundUrl;
       if (url != null && url.isNotEmpty) {
         await _ringtone.stop();
+        await _tonePlayer.setAudioContext(_ringbackAudioContext(_route));
         await _tonePlayer.setReleaseMode(ReleaseMode.loop);
         await _tonePlayer.play(UrlSource(url), volume: 0.9);
         return;
@@ -972,8 +973,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
       CallAudioRoute.speaker => CallAudioRoute.bluetooth,
       CallAudioRoute.bluetooth => CallAudioRoute.earpiece,
     };
+    if (mounted) {
+      setState(() => _route = next);
+    } else {
+      _route = next;
+    }
     await _applyAudioRoute(next);
-    if (mounted) setState(() => _route = next);
     if (mounted) {
       bestieToast(context, _audioRouteLabel(next), kind: BestieToastKind.info);
     }
@@ -991,6 +996,19 @@ class _CallScreenState extends ConsumerState<CallScreen>
         CallAudioRoute.bluetooth => Icons.bluetooth_audio_rounded,
       };
 
+  AudioContext _ringbackAudioContext(CallAudioRoute route) {
+    final audioRoute = switch (route) {
+      CallAudioRoute.earpiece => AudioContextConfigRoute.earpiece,
+      CallAudioRoute.speaker => AudioContextConfigRoute.speaker,
+      CallAudioRoute.bluetooth => AudioContextConfigRoute.system,
+    };
+    return AudioContextConfig(
+      route: audioRoute,
+      focus: AudioContextConfigFocus.mixWithOthers,
+      stayAwake: true,
+    ).build();
+  }
+
   Future<void> _applyAudioRoute(CallAudioRoute r) async {
     final engine = _engine;
     if (engine == null) return;
@@ -1003,6 +1021,32 @@ class _CallScreenState extends ConsumerState<CallScreen>
     } catch (_) {}
     try {
       await engine.setEnableSpeakerphone(speaker);
+    } catch (_) {}
+    // If the caller is still waiting for the other side to answer, re-start
+    // the ringback after a route change so the tone follows speaker/Bluetooth
+    // instead of getting dropped by the audio-session switch.
+    if (_joined &&
+        _remoteUids.isEmpty &&
+        !_isMeeting &&
+        !_remoteClosed &&
+        mounted) {
+      await _restartRingbackForRouteChange();
+    }
+  }
+
+  Future<void> _restartRingbackForRouteChange() async {
+    try {
+      await _ringtone.stop();
+      await _tonePlayer.stop();
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      if (!mounted ||
+          !_joined ||
+          _remoteUids.isNotEmpty ||
+          _isMeeting ||
+          _remoteClosed) {
+        return;
+      }
+      await _playRingback();
     } catch (_) {}
   }
 
@@ -2526,27 +2570,40 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final connected = _connectedAt != null;
     return LayoutBuilder(
       builder: (context, constraints) {
-        final compact = constraints.maxHeight < 720;
+        final compact = constraints.maxHeight < 760;
+        final veryCompact = constraints.maxHeight < 660;
+        final topPadding = veryCompact ? 54.0 : (compact ? 72.0 : 106.0);
+        final bottomPadding = veryCompact ? 190.0 : (compact ? 238.0 : 294.0);
+        final profileHeight = max(
+          200.0,
+          min(
+            290.0,
+            constraints.maxHeight - topPadding - bottomPadding - 155,
+          ),
+        );
         return Padding(
           padding: EdgeInsets.fromLTRB(
-            18,
-            compact ? 104 : 116,
-            18,
-            compact ? 286 : 310,
+            0,
+            topPadding,
+            0,
+            bottomPadding,
           ),
           child: Center(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: SizedBox(
-                width: 350,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              SizedBox(
+                width: constraints.maxWidth,
+                height: profileHeight,
+                child: _NeonMeshAvatar(
+                  name: remoteName,
+                  imageUrl: _callDisplayAvatarUrl(),
+                  connected: connected,
+                  size: constraints.maxWidth,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  _NeonMeshAvatar(
-                    name: remoteName,
-                    imageUrl: _callDisplayAvatarUrl(),
-                    connected: connected,
-                    size: 224,
-                  ),
-                  const SizedBox(height: 20),
                   Text(
                     remoteName,
                     maxLines: 1,
@@ -2554,74 +2611,73 @@ class _CallScreenState extends ConsumerState<CallScreen>
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                       color: Colors.white,
-                      fontSize: 28,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -0.5,
+                      fontSize: 26,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.5,
                       shadows: [
-                        Shadow(color: Color(0x6600D9FF), blurRadius: 18),
+                        Shadow(color: Color(0x6600CFFF), blurRadius: 14),
                       ],
                     ),
                   ),
-                  if (subtitle != null) ...[
-                    const SizedBox(height: 5),
-                    Text(
-                      subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFFC7D2EB),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
+                  const SizedBox(height: 5),
+                  Text(
+                    subtitle ?? 'Senior Product Manager',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Color(0xFFC7D2EB),
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
                     ),
-                  ],
-                  const SizedBox(height: 4),
+                  ),
+                  const SizedBox(height: 3),
                   Text(
                     _headOfficeName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
                     style: const TextStyle(
-                      color: Color(0xFF7F9EC9),
-                      fontSize: 12,
-                      letterSpacing: 0.7,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Row(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.graphic_eq_rounded,
-                        size: 15,
-                        color: connected
-                            ? const Color(0xFF3CFF9A)
-                            : Colors.white54),
-                    const SizedBox(width: 6),
-                    Text(
-                      connected ? 'ACTIVE CALL' : _status.toUpperCase(),
-                      style: TextStyle(
-                        color: connected
-                            ? const Color(0xFF3CFF9A)
-                            : _status.toLowerCase().contains('ring')
-                                ? const Color(0xFFFFB020)
-                                : const Color(0xFFFF5B6E),
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 1.6,
-                      ),
-                    ),
-                  ]),
-                  const SizedBox(height: 6),
-                  Text(
-                    connected ? _formatElapsed(_elapsed) : '00:00',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 27,
-                      fontWeight: FontWeight.w300,
-                      letterSpacing: 2,
-                      fontFeatures: [FontFeature.tabularFigures()],
+                      color: Color(0xFF7894BC),
+                      fontSize: 13,
+                      letterSpacing: 0.5,
                     ),
                   ),
                 ]),
               ),
-            ),
+              const SizedBox(height: 12),
+              Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.graphic_eq_rounded,
+                    size: 15,
+                    color:
+                        connected ? const Color(0xFF3CFF9A) : Colors.white54),
+                const SizedBox(width: 6),
+                Text(
+                  connected ? 'ACTIVE CALL' : _status.toUpperCase(),
+                  style: TextStyle(
+                    color: connected
+                        ? const Color(0xFF3CFF9A)
+                        : _status.toLowerCase().contains('ring')
+                            ? const Color(0xFFFFB020)
+                            : const Color(0xFFFF5B6E),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.6,
+                  ),
+                ),
+              ]),
+              const SizedBox(height: 6),
+              Text(
+                connected ? _formatElapsed(_elapsed) : '00:00',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 27,
+                  fontWeight: FontWeight.w300,
+                  letterSpacing: 2,
+                  fontFeatures: [FontFeature.tabularFigures()],
+                ),
+              ),
+            ]),
           ),
         );
       },
@@ -2838,8 +2894,6 @@ class _CallScreenState extends ConsumerState<CallScreen>
               active: _muted, onTap: _toggleMute),
           _gridTile(_audioRouteIcon(_route), 'Speaker',
               active: routeActive && !bluetoothOn, onTap: _cycleAudioRoute),
-          _gridTile(Icons.bluetooth_rounded, 'Bluetooth',
-              active: bluetoothOn, onTap: _cycleAudioRoute),
           _gridTile(Icons.pause_rounded, 'Hold',
               active: _held, onTap: _toggleHold),
         ]),
@@ -3204,10 +3258,56 @@ class _FuturisticCallBackdropState extends State<_FuturisticCallBackdrop>
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  Color(0xFF020A1C),
-                  Color(0xFF061E45),
-                  Color(0xFF020713),
+                  Color(0xFF03132F),
+                  Color(0xFF092F64),
+                  Color(0xFF041630),
+                  Color(0xFF010816),
                 ],
+                stops: [0, 0.38, 0.72, 1],
+              ),
+            ),
+          ),
+        ),
+        Positioned.fill(
+          child: Transform.translate(
+            offset: Offset(
+              sin(_controller.value * pi * 2) * 38,
+              cos(_controller.value * pi * 2) * 24,
+            ),
+            child: const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: Alignment(-0.72, -0.46),
+                  radius: 0.88,
+                  colors: [
+                    Color(0x8A176ED0),
+                    Color(0x4D0C4895),
+                    Color(0x0005152E),
+                  ],
+                  stops: [0, 0.48, 1],
+                ),
+              ),
+            ),
+          ),
+        ),
+        Positioned.fill(
+          child: Transform.translate(
+            offset: Offset(
+              cos((_controller.value + 0.28) * pi * 2) * 44,
+              sin((_controller.value + 0.28) * pi * 2) * 30,
+            ),
+            child: const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: Alignment(0.82, 0.42),
+                  radius: 0.92,
+                  colors: [
+                    Color(0x701AA9E8),
+                    Color(0x40115BA8),
+                    Color(0x0005152E),
+                  ],
+                  stops: [0, 0.52, 1],
+                ),
               ),
             ),
           ),
@@ -3245,8 +3345,8 @@ class _FuturisticCallBackdropState extends State<_FuturisticCallBackdrop>
               gradient: RadialGradient(
                 center: Alignment(0, -0.05),
                 radius: 1.35,
-                colors: [Color(0x00030A18), Color(0xD9020713)],
-                stops: [0.22, 1],
+                colors: [Color(0x00030A18), Color(0xB8010717)],
+                stops: [0.28, 1],
               ),
             ),
           ),
@@ -3276,7 +3376,7 @@ class _NeonMeshAvatarState extends State<_NeonMeshAvatar>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller = AnimationController(
     vsync: this,
-    duration: const Duration(seconds: 7),
+    duration: const Duration(seconds: 8),
   )..repeat();
 
   @override
@@ -3287,123 +3387,239 @@ class _NeonMeshAvatarState extends State<_NeonMeshAvatar>
 
   @override
   Widget build(BuildContext context) {
+    final avatarSize = min(widget.size, 160.0).toDouble();
     return AnimatedBuilder(
       animation: _controller,
-      builder: (context, _) => SizedBox(
-        width: widget.size,
-        height: widget.size,
-        child: Stack(alignment: Alignment.center, children: [
-          CustomPaint(
-            size: Size.square(widget.size),
-            painter: _ProfileMeshPainter(progress: _controller.value),
-          ),
-          Container(
-            width: widget.size * 0.72,
-            height: widget.size * 0.72,
-            padding: const EdgeInsets.all(3),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: const LinearGradient(
-                colors: [Color(0xFF00F2FF), Color(0xFF1677FF)],
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF00E5FF).withValues(alpha: 0.60),
-                  blurRadius: 24,
+      builder: (context, _) {
+        return SizedBox(
+          width: widget.size,
+          height: 390,
+          child: Stack(
+            clipBehavior: Clip.none,
+            fit: StackFit.expand,
+            children: [
+              Positioned.fill(
+                child: CustomPaint(
+                  painter: _ProfileWavePainter(progress: _controller.value),
                 ),
-                BoxShadow(
-                  color: const Color(0xFF006CFF).withValues(alpha: 0.48),
-                  blurRadius: 52,
-                  spreadRadius: 2,
-                ),
-              ],
-            ),
-            child: Container(
-              padding: const EdgeInsets.all(4),
-              decoration: const BoxDecoration(
-                color: Color(0xFF030A18),
-                shape: BoxShape.circle,
               ),
-              child: BestieAvatar(
-                name: widget.name,
-                imageUrl: widget.imageUrl,
-                size: widget.size * 0.62,
-              ),
-            ),
-          ),
-          Positioned(
-            right: widget.size * 0.17,
-            bottom: widget.size * 0.16,
-            child: Container(
-              width: widget.size * 0.16,
-              height: widget.size * 0.16,
-              decoration: BoxDecoration(
-                color: widget.connected
-                    ? const Color(0xFF22E879)
-                    : const Color(0xFFFFA928),
-                shape: BoxShape.circle,
-                border: Border.all(color: const Color(0xFF030A18), width: 3),
-                boxShadow: [
-                  BoxShadow(
-                    color: (widget.connected
-                            ? const Color(0xFF22E879)
-                            : const Color(0xFFFFA928))
-                        .withValues(alpha: 0.70),
-                    blurRadius: 16,
+              Align(
+                alignment: const Alignment(0, -0.18),
+                child: SizedBox(
+                  width: 184,
+                  height: 184,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Transform.rotate(
+                        angle: _controller.value * pi * 2,
+                        child: Container(
+                          width: 178,
+                          height: 178,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: const SweepGradient(
+                              colors: [
+                                Color(0xFF00F2FF),
+                                Color(0xFF1677FF),
+                                Color(0xFFFF00EA),
+                                Color(0xFF7B00FF),
+                                Color(0xFF00F2FF),
+                              ],
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF00F2FF)
+                                    .withValues(alpha: 0.88),
+                                blurRadius: 32,
+                                spreadRadius: 4,
+                              ),
+                              BoxShadow(
+                                color: const Color(0xFFFF00EA)
+                                    .withValues(alpha: 0.72),
+                                blurRadius: 52,
+                                spreadRadius: 5,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      Container(
+                        width: 166,
+                        height: 166,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.18),
+                            width: 1,
+                          ),
+                        ),
+                        child: ClipOval(
+                          child: BestieAvatar(
+                            name: widget.name,
+                            imageUrl: widget.imageUrl,
+                            size: avatarSize,
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        right: 7,
+                        bottom: 7,
+                        child: Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            color: widget.connected
+                                ? const Color(0xFF12D15E)
+                                : const Color(0xFF22C55E),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: const Color(0xFF071426),
+                              width: 3,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF12D15E)
+                                    .withValues(alpha: 0.8),
+                                blurRadius: 20,
+                              ),
+                            ],
+                          ),
+                          child: const Icon(Icons.call_rounded,
+                              color: Colors.white, size: 17),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
-              child:
-                  const Icon(Icons.call_rounded, color: Colors.white, size: 15),
-            ),
+            ],
           ),
-        ]),
-      ),
+        );
+      },
     );
   }
 }
 
-class _ProfileMeshPainter extends CustomPainter {
+class _ProfileWavePainter extends CustomPainter {
   final double progress;
-  const _ProfileMeshPainter({required this.progress});
+  const _ProfileWavePainter({required this.progress});
 
   @override
   void paint(Canvas canvas, Size size) {
-    final center = size.center(Offset.zero);
-    final pulse = 1 + sin(progress * pi * 2) * 0.035;
-    final radius = size.shortestSide * 0.47 * pulse;
-    final paint = Paint()
+    final topEdge = size.height * 0.10;
+    final bottomEdge = size.height * 0.70;
+    final centerX = size.width * 0.50;
+    final blurPaint = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.1
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
-    for (var i = 0; i < 18; i++) {
-      final t = i / 17;
-      paint.color = Color.lerp(
-        const Color(0xFF00F2FF),
-        const Color(0xFF2864FF),
-        t,
-      )!
-          .withValues(alpha: 0.24 + (1 - t) * 0.34);
-      final angle = progress * pi * 2 + t * pi;
-      final path = Path()
-        ..moveTo(center.dx - radius, center.dy + sin(angle) * radius * 0.55)
-        ..quadraticBezierTo(
-          center.dx,
-          center.dy + cos(angle * 1.7) * radius * 0.82,
-          center.dx + radius,
-          center.dy + sin(angle + pi) * radius * 0.55,
-        );
-      canvas.drawPath(path, paint);
+      ..strokeCap = StrokeCap.round
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
+    final crispPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    const horizontalLineCount = 38;
+    const verticalLineCount = 34;
+    const horizontalAmplitude = 18.0;
+
+    double horizontalY(double x, double baseY, double phase) {
+      final position = x / size.width;
+      return baseY +
+          sin(position * pi * 2 + phase) * horizontalAmplitude +
+          sin(position * pi * 3 - phase * 0.65) * 5;
     }
-    paint
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8)
-      ..color = const Color(0xFF00D9FF).withValues(alpha: 0.28)
-      ..strokeWidth = 2;
-    canvas.drawCircle(center, radius * 0.76, paint);
+
+    Path horizontalPath(
+      double startX,
+      double endX,
+      double baseY,
+      double phase,
+    ) {
+      const segments = 28;
+      final path = Path()..moveTo(startX, horizontalY(startX, baseY, phase));
+      for (var step = 1; step <= segments; step++) {
+        final x = startX + (endX - startX) * step / segments;
+        path.lineTo(x, horizontalY(x, baseY, phase));
+      }
+      return path;
+    }
+
+    for (var i = 0; i < horizontalLineCount; i++) {
+      final t = i / (horizontalLineCount - 1);
+      final phase = progress * pi * 2 + t * pi * 1.30;
+      final y = topEdge + (bottomEdge - topEdge) * t;
+      final leftPath = horizontalPath(0, centerX, y, phase);
+      final rightPath = horizontalPath(size.width, centerX, y, phase);
+
+      const leftColor = Color(0xFFFF00EA);
+      const rightColor = Color(0xFF00CFFF);
+
+      blurPaint
+        ..strokeWidth = 2.1
+        ..color = leftColor.withValues(alpha: 0.36);
+      canvas.drawPath(leftPath, blurPaint);
+      blurPaint.color = rightColor.withValues(alpha: 0.40);
+      canvas.drawPath(rightPath, blurPaint);
+
+      crispPaint
+        ..strokeWidth = 0.95
+        ..color = leftColor.withValues(alpha: 0.70);
+      canvas.drawPath(leftPath, crispPaint);
+      crispPaint.color = rightColor.withValues(alpha: 0.76);
+      canvas.drawPath(rightPath, crispPaint);
+    }
+
+    final topPhase = progress * pi * 2;
+    final bottomPhase = progress * pi * 2 + pi * 1.30;
+    final meshBounds = Path()..moveTo(0, horizontalY(0, topEdge, topPhase));
+    const boundarySegments = 56;
+    for (var step = 1; step <= boundarySegments; step++) {
+      final x = size.width * step / boundarySegments;
+      meshBounds.lineTo(x, horizontalY(x, topEdge, topPhase));
+    }
+    for (var step = boundarySegments; step >= 0; step--) {
+      final x = size.width * step / boundarySegments;
+      meshBounds.lineTo(x, horizontalY(x, bottomEdge, bottomPhase));
+    }
+    meshBounds.close();
+
+    canvas.save();
+    canvas.clipPath(meshBounds);
+    for (var i = 0; i < verticalLineCount; i++) {
+      final t = i / (verticalLineCount - 1);
+      final phase = progress * pi * 2 + t * pi * 1.20;
+      final x = size.width * t;
+      final verticalTop = horizontalY(x, topEdge, topPhase);
+      final verticalBottom = horizontalY(x, bottomEdge, bottomPhase);
+      final verticalPath = Path()
+        ..moveTo(x, verticalTop)
+        ..cubicTo(
+          x - 30 - sin(phase) * 13,
+          verticalTop + (verticalBottom - verticalTop) * 0.32,
+          x + 34 + cos(phase) * 13,
+          verticalTop + (verticalBottom - verticalTop) * 0.68,
+          x + sin(phase) * 3,
+          verticalBottom,
+        );
+
+      final color =
+          x <= centerX ? const Color(0xFFFF00EA) : const Color(0xFF00CFFF);
+
+      blurPaint
+        ..strokeWidth = 2.0
+        ..color = color.withValues(alpha: 0.34);
+      canvas.drawPath(verticalPath, blurPaint);
+
+      crispPaint
+        ..strokeWidth = 0.90
+        ..color = color.withValues(alpha: 0.68);
+      canvas.drawPath(verticalPath, crispPaint);
+    }
+    canvas.restore();
   }
 
   @override
-  bool shouldRepaint(covariant _ProfileMeshPainter oldDelegate) =>
+  bool shouldRepaint(covariant _ProfileWavePainter oldDelegate) =>
       oldDelegate.progress != progress;
 }
 
