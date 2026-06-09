@@ -1165,13 +1165,70 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     return (other['user'] as Map?)?.cast<String, dynamic>();
   }
 
+  bool get _canManageDmUser {
+    final me = ref.read(authStoreProvider).user;
+    final other = _dmOtherUser();
+    return _channel?['kind'] == 'DM' &&
+        (me?.role == 'ADMIN' || me?.role == 'SUPER_ADMIN') &&
+        other != null &&
+        other['isClient'] != true &&
+        other['role'] != 'SUPER_ADMIN';
+  }
+
+  Future<void> _toggleDmBlock() async {
+    final other = _dmOtherUser();
+    final id = other?['id']?.toString();
+    if (other == null || id == null || id.isEmpty) return;
+    final blocked = other['status'] == 'SUSPENDED';
+    final verb = blocked ? 'Unblock' : 'Block';
+    final ok = await bestieConfirm(
+      context,
+      title: '$verb ${other['name'] ?? 'this employee'}?',
+      description: blocked
+          ? 'They will be able to sign in and use the workspace again.'
+          : 'They will be signed out and unable to use the workspace until unblocked.',
+      confirmLabel: verb,
+      dangerous: !blocked,
+    );
+    if (!ok) return;
+    try {
+      final updated = await ref.read(apiProvider).updateEmployee(
+        id,
+        {'status': blocked ? 'ACTIVE' : 'SUSPENDED'},
+      );
+      if (!mounted || _channel == null) return;
+      final members =
+          (_channel!['members'] as List?)?.cast<Map<String, dynamic>>() ??
+              const [];
+      setState(() {
+        _channel = {
+          ..._channel!,
+          'members': members
+              .map((member) => member['userId'] == id
+                  ? {...member, 'user': updated}
+                  : member)
+              .toList(),
+        };
+      });
+      bestieToast(context, blocked ? 'Employee unblocked' : 'Employee blocked',
+          kind: BestieToastKind.success);
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not ${verb.toLowerCase()} employee',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    }
+  }
+
   /// "last seen today at 9:23 AM" / "yesterday at 7:12 PM" / "Wed at 4:01 PM"
   /// / "12 Mar at 2:30 PM" — the user explicitly asked for the exact time
   /// rather than relative "X hours ago" copy.
   String _lastSeenLabel(String? iso) {
-    final dt = DateTime.tryParse(iso ?? '')?.toLocal();
+    final parsed = DateTime.tryParse(iso ?? '');
+    final dt = parsed?.toUtc().add(const Duration(hours: 5, minutes: 30));
     if (dt == null) return 'Offline';
-    final now = DateTime.now();
+    final now =
+        DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
     final today = DateTime(now.year, now.month, now.day);
     final seenDay = DateTime(dt.year, dt.month, dt.day);
     final daysAgo = today.difference(seenDay).inDays;
@@ -1713,6 +1770,18 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
             tooltip: 'Video call',
             onPressed: () => _startCall(kind: 'video'),
           ),
+          if (_canManageDmUser)
+            IconButton(
+              icon: Icon(
+                _dmOtherUser()?['status'] == 'SUSPENDED'
+                    ? Icons.lock_open_rounded
+                    : Icons.block_rounded,
+              ),
+              tooltip: _dmOtherUser()?['status'] == 'SUSPENDED'
+                  ? 'Unblock employee'
+                  : 'Block employee',
+              onPressed: _toggleDmBlock,
+            ),
           IconButton(
             icon: const Icon(Icons.info_outline_rounded),
             tooltip: 'Channel info',

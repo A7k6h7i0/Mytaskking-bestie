@@ -110,7 +110,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       );
       setState(() => _success = true);
       await Future.delayed(const Duration(milliseconds: 700));
-      if (mounted) context.go('/dashboard');
+      if (mounted) context.go('/chat');
     } catch (e) {
       setState(() => _error = formatApiError(e));
     } finally {

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
@@ -165,8 +166,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
   Timer? _audioHealthTimer;
   Duration _elapsed = Duration.zero;
   final _ringtone = FlutterRingtonePlayer();
+  final _tonePlayer = AudioPlayer();
   final _tts = FlutterTts();
   String _headOfficeName = 'HQ India';
+  String? _ringingSoundUrl;
+  String? _buzzerSoundUrl;
 
   bool get _isVideo => _videoEnabled;
   bool get _isCallInitiator {
@@ -203,6 +207,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     _timer?.cancel();
     _audioHealthTimer?.cancel();
     _ringtone.stop();
+    _tonePlayer.dispose();
     _tts.stop();
     // Left the call screen — if the call is still live, the return pill should
     // reappear. (We do NOT tear the engine down here; only explicit Hang Up
@@ -245,6 +250,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     _callUnsubs.add(rt.onAny('call.busy', ([data]) {
       if (data is! Map || data['callId'] != callId) return;
       _ringtone.stop();
+      _tonePlayer.stop();
       final name = (data['userName'] ?? 'The person').toString();
       _speak('$name is currently on another call. Please leave a message.');
       if (mounted) setState(() => _status = '$name is busy');
@@ -257,7 +263,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
     }));
     _callUnsubs.add(rt.onAny('call.buzzer', ([data]) {
       if (data is! Map || data['callId'] != callId) return;
-      _playEmergencyBuzzer(data['fromName']?.toString());
+      _playEmergencyBuzzer(
+        data['fromName']?.toString(),
+        data['audioUrl']?.toString(),
+      );
     }));
     // A participant (any device) announced its real Agora uid + name. We use
     // this to label the tile for that uid. Because each device announces its
@@ -406,6 +415,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     }
     await _CallSession.teardown();
     await _ringtone.stop();
+    await _tonePlayer.stop();
     await _tts.stop();
     _connectedAt = null;
     ActiveCallState.clear();
@@ -440,6 +450,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
         });
         _markRemoteConnected();
         _ringtone.stop();
+        _tonePlayer.stop();
         _reassertAudio();
         _publishActiveCallState();
         _showOngoingCallNotification();
@@ -545,6 +556,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   Future<void> _playRingback() async {
     try {
+      final url = _ringingSoundUrl;
+      if (url != null && url.isNotEmpty) {
+        await _ringtone.stop();
+        await _tonePlayer.setReleaseMode(ReleaseMode.loop);
+        await _tonePlayer.play(UrlSource(url), volume: 0.9);
+        return;
+      }
       await _ringtone.play(
         android: AndroidSounds.ringtone,
         ios: IosSounds.electronic,
@@ -564,15 +582,23 @@ class _CallScreenState extends ConsumerState<CallScreen>
     } catch (_) {}
   }
 
-  Future<void> _playEmergencyBuzzer(String? fromName) async {
+  Future<void> _playEmergencyBuzzer(String? fromName,
+      [String? eventAudioUrl]) async {
     try {
-      await _ringtone.play(
-        android: AndroidSounds.alarm,
-        ios: IosSounds.alarm,
-        looping: false,
-        volume: 1.0,
-        asAlarm: true,
-      );
+      final url =
+          eventAudioUrl?.isNotEmpty == true ? eventAudioUrl : _buzzerSoundUrl;
+      if (url != null && url.isNotEmpty) {
+        await _tonePlayer.setReleaseMode(ReleaseMode.release);
+        await _tonePlayer.play(UrlSource(url), volume: 1);
+      } else {
+        await _ringtone.play(
+          android: AndroidSounds.alarm,
+          ios: IosSounds.alarm,
+          looping: false,
+          volume: 1.0,
+          asAlarm: true,
+        );
+      }
       if (mounted) {
         bestieToast(context, 'Emergency buzzer',
             body: '${fromName ?? 'A participant'} sent an emergency alert.',
@@ -685,6 +711,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
             await ref.read(apiProvider).settingsScope(scope: 'calls');
         final calls = (settings['calls'] as Map?)?.cast<String, dynamic>();
         _headOfficeName = (calls?['headOfficeName'] ?? 'HQ India').toString();
+        _ringingSoundUrl = calls?['ringingSoundUrl']?.toString();
+        _buzzerSoundUrl = calls?['emergencyBuzzerSoundUrl']?.toString();
       } catch (_) {}
       final appId = tokenResp['appId']?.toString();
       final token = tokenResp['token']?.toString();
@@ -2496,135 +2524,107 @@ class _CallScreenState extends ConsumerState<CallScreen>
   Widget _voiceCallStage(String remoteName) {
     final subtitle = _callDisplaySubtitle();
     final connected = _connectedAt != null;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 120, 24, 232),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            SizedBox(
-              width: 230,
-              height: 230,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  // Animated concentric rings + side equalizer bars.
-                  const _PulseRings(size: 230, active: true),
-                  Container(
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFF00F2FF).withValues(alpha: 0.5),
-                          blurRadius: 28,
-                          spreadRadius: 2,
-                        ),
-                        BoxShadow(
-                          color:
-                              const Color(0xFFFF00EA).withValues(alpha: 0.38),
-                          blurRadius: 52,
-                          spreadRadius: 3,
-                        ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxHeight < 720;
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+            18,
+            compact ? 104 : 116,
+            18,
+            compact ? 286 : 310,
+          ),
+          child: Center(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: SizedBox(
+                width: 350,
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  _NeonMeshAvatar(
+                    name: remoteName,
+                    imageUrl: _callDisplayAvatarUrl(),
+                    connected: connected,
+                    size: 224,
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    remoteName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 28,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.5,
+                      shadows: [
+                        Shadow(color: Color(0x6600D9FF), blurRadius: 18),
                       ],
                     ),
-                    child: BestieAvatar(
-                      name: remoteName,
-                      imageUrl: _callDisplayAvatarUrl(),
-                      size: 150,
-                    ),
                   ),
-                  // Small green "in call" badge bottom-right of the avatar.
-                  Positioned(
-                    right: 44,
-                    bottom: 44,
-                    child: Container(
-                      width: 34,
-                      height: 34,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF22C55E),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                            color: const Color(0xFF0B1220), width: 3),
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 5),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFFC7D2EB),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
                       ),
-                      child: const Icon(Icons.call_rounded,
-                          color: Colors.white, size: 16),
+                    ),
+                  ],
+                  const SizedBox(height: 4),
+                  Text(
+                    _headOfficeName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF7F9EC9),
+                      fontSize: 12,
+                      letterSpacing: 0.7,
                     ),
                   ),
-                ],
+                  const SizedBox(height: 14),
+                  Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.graphic_eq_rounded,
+                        size: 15,
+                        color: connected
+                            ? const Color(0xFF3CFF9A)
+                            : Colors.white54),
+                    const SizedBox(width: 6),
+                    Text(
+                      connected ? 'ACTIVE CALL' : _status.toUpperCase(),
+                      style: TextStyle(
+                        color: connected
+                            ? const Color(0xFF3CFF9A)
+                            : _status.toLowerCase().contains('ring')
+                                ? const Color(0xFFFFB020)
+                                : const Color(0xFFFF5B6E),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.6,
+                      ),
+                    ),
+                  ]),
+                  const SizedBox(height: 6),
+                  Text(
+                    connected ? _formatElapsed(_elapsed) : '00:00',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 27,
+                      fontWeight: FontWeight.w300,
+                      letterSpacing: 2,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ]),
               ),
             ),
-            const SizedBox(height: 26),
-            Text(
-              remoteName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 30,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.5,
-              ),
-            ),
-            if (subtitle != null) ...[
-              const SizedBox(height: 6),
-              Text(
-                subtitle,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-            const SizedBox(height: 5),
-            Text(
-              _headOfficeName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Color(0xFF76839E),
-                fontSize: 13,
-                letterSpacing: 0.5,
-              ),
-            ),
-            const SizedBox(height: 18),
-            Row(mainAxisSize: MainAxisSize.min, children: [
-              Icon(Icons.graphic_eq_rounded,
-                  size: 15,
-                  color: connected ? const Color(0xFF22C55E) : Colors.white54),
-              const SizedBox(width: 6),
-              Text(
-                connected ? 'ACTIVE CALL' : _status.toUpperCase(),
-                style: TextStyle(
-                  color: connected
-                      ? const Color(0xFF22C55E)
-                      : _status.toLowerCase().contains('ring')
-                          ? const Color(0xFFF59E0B)
-                          : const Color(0xFFEF4444),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 1.5,
-                ),
-              ),
-            ]),
-            const SizedBox(height: 8),
-            Text(
-              connected ? _formatElapsed(_elapsed) : '00:00',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 30,
-                fontWeight: FontWeight.w300,
-                letterSpacing: 2,
-                fontFeatures: [FontFeature.tabularFigures()],
-              ),
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -2911,22 +2911,22 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final a = accent ?? const Color(0xFF60A5FA);
     return Expanded(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 5),
-        child: _PressableCircle(
+        padding: const EdgeInsets.symmetric(horizontal: 3),
+        child: InkWell(
           onTap: onTap,
-          size: 76,
+          borderRadius: BorderRadius.circular(16),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
-            height: 76,
+            height: 64,
             decoration: BoxDecoration(
               color: active
                   ? a.withValues(alpha: 0.18)
-                  : Colors.white.withValues(alpha: 0.06),
-              borderRadius: BorderRadius.circular(18),
+                  : const Color(0xFF0C2854).withValues(alpha: 0.82),
+              borderRadius: BorderRadius.circular(16),
               border: Border.all(
                 color: active
                     ? a.withValues(alpha: 0.6)
-                    : Colors.white.withValues(alpha: 0.10),
+                    : const Color(0xFF53C8FF).withValues(alpha: 0.18),
               ),
               boxShadow: [
                 BoxShadow(
@@ -2943,13 +2943,20 @@ class _CallScreenState extends ConsumerState<CallScreen>
                 if (label == 'Record' && active)
                   _RecordingPulse(child: Icon(icon, color: a, size: 22))
                 else
-                  Icon(icon, color: active ? a : Colors.white, size: 22),
-                const SizedBox(height: 6),
-                Text(label,
-                    style: TextStyle(
-                        color: active ? a : Colors.white70,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600)),
+                  Icon(icon, color: active ? a : Colors.white, size: 19),
+                const SizedBox(height: 4),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(label,
+                        maxLines: 1,
+                        style: TextStyle(
+                            color: active ? a : Colors.white70,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600)),
+                  ),
+                ),
               ],
             ),
           ),
@@ -3163,125 +3170,280 @@ class _Participant {
       required this.video});
 }
 
-/// A circular control that scales down slightly while pressed for tactile
-/// feedback — used by every call/meeting control button.
-/// Concentric expanding rings behind the voice-call avatar — the "waveform"
-/// pulse from the redesign. Purely decorative; runs only while [active].
-class _PulseRings extends StatefulWidget {
-  final double size;
-  final bool active;
-  const _PulseRings({required this.size, this.active = true});
+/// Animated smoky blue background for the native cyberpunk call screen.
+class _FuturisticCallBackdrop extends StatefulWidget {
+  const _FuturisticCallBackdrop();
 
   @override
-  State<_PulseRings> createState() => _PulseRingsState();
+  State<_FuturisticCallBackdrop> createState() =>
+      _FuturisticCallBackdropState();
 }
 
-class _PulseRingsState extends State<_PulseRings>
+class _FuturisticCallBackdropState extends State<_FuturisticCallBackdrop>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl = AnimationController(
+  late final AnimationController _controller = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 2600),
-  );
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.active) _ctrl.repeat();
-  }
-
-  @override
-  void didUpdateWidget(covariant _PulseRings old) {
-    super.didUpdateWidget(old);
-    if (widget.active && !_ctrl.isAnimating) {
-      _ctrl.repeat();
-    } else if (!widget.active && _ctrl.isAnimating) {
-      _ctrl.stop();
-    }
-  }
+    duration: const Duration(seconds: 10),
+  )..repeat();
 
   @override
   void dispose() {
-    _ctrl.dispose();
+    _controller.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: _ctrl,
-      builder: (_, __) {
-        return SizedBox(
-          width: widget.size,
-          height: widget.size,
-          child: Stack(alignment: Alignment.center, children: [
-            for (int i = 0; i < 3; i++) _ring((_ctrl.value + i / 3) % 1.0),
-          ]),
-        );
-      },
+      animation: _controller,
+      builder: (context, _) => Stack(children: [
+        const Positioned.fill(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFF020A1C),
+                  Color(0xFF061E45),
+                  Color(0xFF020713),
+                ],
+              ),
+            ),
+          ),
+        ),
+        Positioned.fill(
+          child: CustomPaint(
+            painter: _CyberMeshPainter(progress: _controller.value),
+          ),
+        ),
+        const Positioned.fill(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: Alignment(0.75, -0.25),
+                radius: 1.15,
+                colors: [Color(0x7014B8FF), Color(0x00030A18)],
+              ),
+            ),
+          ),
+        ),
+        const Positioned.fill(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: Alignment(-0.9, 0.35),
+                radius: 1.2,
+                colors: [Color(0x4D006CFF), Color(0x00030A18)],
+              ),
+            ),
+          ),
+        ),
+        const Positioned.fill(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: Alignment(0, -0.05),
+                radius: 1.35,
+                colors: [Color(0x00030A18), Color(0xD9020713)],
+                stops: [0.22, 1],
+              ),
+            ),
+          ),
+        ),
+      ]),
     );
   }
+}
 
-  Widget _ring(double t) {
-    final size = widget.size * (0.62 + 0.38 * t);
-    final opacity = (1 - t).clamp(0.0, 1.0) * 0.5;
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(
-          color:
-              Color.lerp(const Color(0xFFFF00EA), const Color(0xFF00F2FF), t)!
-                  .withValues(alpha: opacity),
-          width: 2,
-        ),
+class _NeonMeshAvatar extends StatefulWidget {
+  final String name;
+  final String? imageUrl;
+  final bool connected;
+  final double size;
+  const _NeonMeshAvatar({
+    required this.name,
+    required this.imageUrl,
+    required this.connected,
+    required this.size,
+  });
+
+  @override
+  State<_NeonMeshAvatar> createState() => _NeonMeshAvatarState();
+}
+
+class _NeonMeshAvatarState extends State<_NeonMeshAvatar>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 7),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) => SizedBox(
+        width: widget.size,
+        height: widget.size,
+        child: Stack(alignment: Alignment.center, children: [
+          CustomPaint(
+            size: Size.square(widget.size),
+            painter: _ProfileMeshPainter(progress: _controller.value),
+          ),
+          Container(
+            width: widget.size * 0.72,
+            height: widget.size * 0.72,
+            padding: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: const LinearGradient(
+                colors: [Color(0xFF00F2FF), Color(0xFF1677FF)],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF00E5FF).withValues(alpha: 0.60),
+                  blurRadius: 24,
+                ),
+                BoxShadow(
+                  color: const Color(0xFF006CFF).withValues(alpha: 0.48),
+                  blurRadius: 52,
+                  spreadRadius: 2,
+                ),
+              ],
+            ),
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: const BoxDecoration(
+                color: Color(0xFF030A18),
+                shape: BoxShape.circle,
+              ),
+              child: BestieAvatar(
+                name: widget.name,
+                imageUrl: widget.imageUrl,
+                size: widget.size * 0.62,
+              ),
+            ),
+          ),
+          Positioned(
+            right: widget.size * 0.17,
+            bottom: widget.size * 0.16,
+            child: Container(
+              width: widget.size * 0.16,
+              height: widget.size * 0.16,
+              decoration: BoxDecoration(
+                color: widget.connected
+                    ? const Color(0xFF22E879)
+                    : const Color(0xFFFFA928),
+                shape: BoxShape.circle,
+                border: Border.all(color: const Color(0xFF030A18), width: 3),
+                boxShadow: [
+                  BoxShadow(
+                    color: (widget.connected
+                            ? const Color(0xFF22E879)
+                            : const Color(0xFFFFA928))
+                        .withValues(alpha: 0.70),
+                    blurRadius: 16,
+                  ),
+                ],
+              ),
+              child:
+                  const Icon(Icons.call_rounded, color: Colors.white, size: 15),
+            ),
+          ),
+        ]),
       ),
     );
   }
 }
 
-class _FuturisticCallBackdrop extends StatelessWidget {
-  const _FuturisticCallBackdrop();
+class _ProfileMeshPainter extends CustomPainter {
+  final double progress;
+  const _ProfileMeshPainter({required this.progress});
 
   @override
-  Widget build(BuildContext context) {
-    return Stack(children: const [
-      Positioned.fill(
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: RadialGradient(
-              center: Alignment(-1.15, -0.05),
-              radius: 1.2,
-              colors: [Color(0x66FF00EA), Color(0x0003060C)],
-            ),
-          ),
-        ),
-      ),
-      Positioned.fill(
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: RadialGradient(
-              center: Alignment(1.15, -0.05),
-              radius: 1.2,
-              colors: [Color(0x6600F2FF), Color(0x0003060C)],
-            ),
-          ),
-        ),
-      ),
-      Positioned.fill(
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: RadialGradient(
-              center: Alignment(0, -0.15),
-              radius: 1.25,
-              colors: [Color(0x0003060C), Color(0xFF03060C)],
-              stops: [0.08, 1],
-            ),
-          ),
-        ),
-      ),
-    ]);
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final pulse = 1 + sin(progress * pi * 2) * 0.035;
+    final radius = size.shortestSide * 0.47 * pulse;
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.1
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
+    for (var i = 0; i < 18; i++) {
+      final t = i / 17;
+      paint.color = Color.lerp(
+        const Color(0xFF00F2FF),
+        const Color(0xFF2864FF),
+        t,
+      )!
+          .withValues(alpha: 0.24 + (1 - t) * 0.34);
+      final angle = progress * pi * 2 + t * pi;
+      final path = Path()
+        ..moveTo(center.dx - radius, center.dy + sin(angle) * radius * 0.55)
+        ..quadraticBezierTo(
+          center.dx,
+          center.dy + cos(angle * 1.7) * radius * 0.82,
+          center.dx + radius,
+          center.dy + sin(angle + pi) * radius * 0.55,
+        );
+      canvas.drawPath(path, paint);
+    }
+    paint
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8)
+      ..color = const Color(0xFF00D9FF).withValues(alpha: 0.28)
+      ..strokeWidth = 2;
+    canvas.drawCircle(center, radius * 0.76, paint);
   }
+
+  @override
+  bool shouldRepaint(covariant _ProfileMeshPainter oldDelegate) =>
+      oldDelegate.progress != progress;
+}
+
+class _CyberMeshPainter extends CustomPainter {
+  final double progress;
+  const _CyberMeshPainter({required this.progress});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.8
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2);
+    for (var i = 0; i < 16; i++) {
+      final t = i / 15;
+      paint.color = Color.lerp(
+        const Color(0xFF00E5FF),
+        const Color(0xFF125BFF),
+        t,
+      )!
+          .withValues(alpha: 0.08 + (1 - t) * 0.12);
+      final y = size.height * (0.1 + t * 0.82);
+      final wave = sin(progress * pi * 2 + t * 4) * 24;
+      final path = Path()
+        ..moveTo(-20, y + wave)
+        ..cubicTo(
+          size.width * 0.28,
+          y - 46 - wave,
+          size.width * 0.72,
+          y + 46 + wave,
+          size.width + 20,
+          y - wave,
+        );
+      canvas.drawPath(path, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _CyberMeshPainter oldDelegate) =>
+      oldDelegate.progress != progress;
 }
 
 class _RecordingPulse extends StatefulWidget {

@@ -17,7 +17,11 @@ function makeChannelName() {
 }
 
 function fmtTime(date = new Date()) {
-  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  return date.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'Asia/Kolkata',
+  });
 }
 
 function fmtDuration(ms) {

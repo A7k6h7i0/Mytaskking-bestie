@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
@@ -43,8 +44,10 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
   final List<void Function()> _unsubs = [];
   String? _lastUserId;
   final _ringtone = FlutterRingtonePlayer();
+  final _customRingtone = AudioPlayer();
   final _tts = FlutterTts();
   bool _appResumed = true;
+  String? _ringingSoundUrl;
 
   @override
   void initState() {
@@ -64,6 +67,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     _bannerTimer?.cancel();
     _pushInviteSub?.cancel();
     _ringtone.stop();
+    _customRingtone.dispose();
     _tts.stop();
     for (final u in _unsubs) {
       u();
@@ -79,6 +83,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
       _autoMiss?.cancel();
       _hapticTimer?.cancel();
       _ringtone.stop();
+      _customRingtone.stop();
       if (mounted && _pending != null) setState(() => _pending = null);
     }
   }
@@ -100,11 +105,13 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     _unsubs.add(rt.onAny('call.incoming', ([data]) => _onIncoming(data)));
     _unsubs.add(rt.onAny('call.invited', ([data]) => _onIncoming(data)));
     _unsubs.add(rt.onAny('call.waiting', ([data]) => _onWaiting(data)));
+    _unsubs.add(rt.onAny('call.buzzer', ([data]) => _onCallBuzzer(data)));
     _unsubs.add(rt.onAny('call.waiting.accepted', ([data]) {
       if (data is! Map) return;
       final callId = (data['call'] as Map?)?['id']?.toString();
       if (callId == null || callId.isEmpty) return;
       _ringtone.stop();
+      _customRingtone.stop();
       _speak('Your call was accepted. Joining the conference.');
       ref.read(routerProvider).go(
           '/call/$callId?mode=${(data['mode'] ?? 'VOICE').toString().toLowerCase()}');
@@ -112,6 +119,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     _unsubs.add(rt.onAny('call.waiting.rejected', ([data]) {
       if (data is! Map || !mounted) return;
       _ringtone.stop();
+      _customRingtone.stop();
       final name = (data['userName'] ?? 'The person').toString();
       _speak('$name rejected the waiting call.');
       setState(() => _banner = {
@@ -188,6 +196,41 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     _playAlarm();
   }
 
+  Future<void> _onCallBuzzer(dynamic data) async {
+    if (data is! Map) return;
+    if (CallSession.onCallScreen) return;
+    HapticFeedback.heavyImpact();
+    try {
+      var url = data['audioUrl']?.toString();
+      if (url == null || url.isEmpty) {
+        final settings =
+            await ref.read(apiProvider).settingsScope(scope: 'calls');
+        final calls = (settings['calls'] as Map?)?.cast<String, dynamic>();
+        url = calls?['emergencyBuzzerSoundUrl']?.toString();
+      }
+      if (url != null && url.isNotEmpty) {
+        await _customRingtone.setReleaseMode(ReleaseMode.release);
+        await _customRingtone.play(UrlSource(url), volume: 1);
+      } else {
+        await _ringtone.play(
+          android: AndroidSounds.alarm,
+          ios: IosSounds.alarm,
+          looping: false,
+          volume: 1,
+          asAlarm: true,
+        );
+      }
+      if (mounted) {
+        setState(() => _banner = {
+              'title': 'Emergency buzzer',
+              'body':
+                  '${data['fromName'] ?? 'A participant'} needs your attention.',
+              'kind': 'CALL',
+            });
+      }
+    } catch (_) {}
+  }
+
   Future<void> _playAlarm() async {
     try {
       await _ringtone.play(
@@ -204,6 +247,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     final id = _emergency?['alertId']?.toString();
     _emergencyHaptic?.cancel();
     _ringtone.stop();
+    _customRingtone.stop();
     if (mounted) setState(() => _emergency = null);
     if (id == null) return;
     try {
@@ -301,6 +345,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
       _autoMiss?.cancel();
       _hapticTimer?.cancel();
       _ringtone.stop();
+      _customRingtone.stop();
     }
     // Don't ring myself for outbound calls / meetings I'm hosting.
     if (call['initiator']?['id'] == me?.id) return;
@@ -431,6 +476,19 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
 
   Future<void> _playRingtone() async {
     try {
+      if (_ringingSoundUrl == null) {
+        final settings =
+            await ref.read(apiProvider).settingsScope(scope: 'calls');
+        final calls = (settings['calls'] as Map?)?.cast<String, dynamic>();
+        _ringingSoundUrl = calls?['ringingSoundUrl']?.toString();
+      }
+      final url = _ringingSoundUrl;
+      if (url != null && url.isNotEmpty) {
+        await _ringtone.stop();
+        await _customRingtone.setReleaseMode(ReleaseMode.loop);
+        await _customRingtone.play(UrlSource(url), volume: 1);
+        return;
+      }
       // Loop the *device's* default ringtone — what the user expects, vs
       // a generic synth tone. flutter_ringtone_player wraps RingtoneManager
       // on Android and AudioServicesPlay on iOS so it respects volume +
@@ -449,6 +507,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     _autoMiss?.cancel();
     _hapticTimer?.cancel();
     _ringtone.stop();
+    _customRingtone.stop();
     _tts.stop();
     if (mounted) setState(() => _pending = null);
   }
@@ -501,6 +560,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     _autoMiss?.cancel();
     _hapticTimer?.cancel();
     _ringtone.stop();
+    _customRingtone.stop();
     final target = meetingSlug != null
         ? '/meeting/$meetingSlug?mode=$mode'
         : '/call/$callId?mode=$mode';

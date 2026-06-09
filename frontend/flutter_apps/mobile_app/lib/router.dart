@@ -32,13 +32,13 @@ final routerProvider = Provider<GoRouter>((ref) {
   final auth = ref.watch(authStoreProvider);
 
   return GoRouter(
-    initialLocation: auth.accessToken == null ? '/login' : '/dashboard',
+    initialLocation: auth.accessToken == null ? '/login' : '/chat',
     refreshListenable: _AuthListenable(auth),
     redirect: (ctx, state) {
       final logged = auth.accessToken != null;
       final loginPath = state.matchedLocation == '/login';
       if (!logged && !loginPath) return '/login';
-      if (logged && loginPath) return '/dashboard';
+      if (logged && loginPath) return '/chat';
       return null;
     },
     routes: [

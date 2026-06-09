@@ -57,8 +57,8 @@ class ShellScreen extends ConsumerWidget {
   Future<bool> _handleShellBack(BuildContext context, String location) async {
     final router = GoRouter.of(context);
     if (router.canPop()) return true;
-    if (location == '/dashboard') return true;
-    context.go('/dashboard');
+    if (location == '/chat') return true;
+    context.go('/chat');
     return false;
   }
 

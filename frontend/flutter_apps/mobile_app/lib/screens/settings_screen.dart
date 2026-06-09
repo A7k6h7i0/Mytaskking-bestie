@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -19,6 +20,9 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _buzzerEnabled = true;
   String _headOfficeName = 'HQ India';
+  String? _buzzerSoundUrl;
+  String? _ringingSoundUrl;
+  String? _uploadingSound;
 
   @override
   void initState() {
@@ -30,15 +34,61 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     try {
       final data = await ref.read(apiProvider).settingsScope(scope: 'calls');
       final calls = (data['calls'] as Map?)?.cast<String, dynamic>();
-      if (mounted && calls?['emergencyBuzzerEnabled'] is bool) {
+      if (mounted && calls != null) {
         setState(() {
-          _buzzerEnabled = calls!['emergencyBuzzerEnabled'] as bool;
+          _buzzerEnabled = calls['emergencyBuzzerEnabled'] is bool
+              ? calls['emergencyBuzzerEnabled'] as bool
+              : true;
           _headOfficeName = (calls['headOfficeName'] ?? 'HQ India').toString();
+          _buzzerSoundUrl = calls['emergencyBuzzerSoundUrl']?.toString();
+          _ringingSoundUrl = calls['ringingSoundUrl']?.toString();
         });
-      } else if (mounted && calls?['headOfficeName'] != null) {
-        setState(() => _headOfficeName = calls!['headOfficeName'].toString());
       }
     } catch (_) {}
+  }
+
+  Future<void> _uploadCallSound({
+    required String key,
+    required String label,
+  }) async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['mp3'],
+        allowMultiple: false,
+        withData: true,
+      );
+      if (result == null ||
+          result.files.isEmpty ||
+          result.files.first.bytes == null) {
+        return;
+      }
+      final file = result.files.first;
+      setState(() => _uploadingSound = key);
+      final asset = await ref.read(apiProvider).uploadFile(
+            bytes: file.bytes!,
+            filename: file.name,
+            mimeType: 'audio/mpeg',
+          );
+      final url = asset['url']?.toString();
+      if (url == null || url.isEmpty) throw 'Upload returned no audio URL';
+      await ref
+          .read(apiProvider)
+          .setSetting(scope: 'calls', key: key, value: url);
+      if (!mounted) return;
+      setState(() {
+        if (key == 'emergencyBuzzerSoundUrl') _buzzerSoundUrl = url;
+        if (key == 'ringingSoundUrl') _ringingSoundUrl = url;
+      });
+      bestieToast(context, '$label updated', kind: BestieToastKind.success);
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not upload $label',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    } finally {
+      if (mounted) setState(() => _uploadingSound = null);
+    }
   }
 
   Future<void> _editHeadOffice() async {
@@ -92,7 +142,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Future<bool> _handleBack(BuildContext context) async {
     final router = GoRouter.of(context);
     if (router.canPop()) return true;
-    context.go('/dashboard');
+    context.go('/chat');
     return false;
   }
 
@@ -196,13 +246,37 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 label: 'Call recordings',
                 onTap: () => _openRoute(context, '/recordings'),
               ),
-            if (user?.role == 'SUPER_ADMIN')
+            if (user?.role == 'ADMIN' || user?.role == 'SUPER_ADMIN')
               _SettingTile(
                 colors: c,
                 icon: Icons.campaign_rounded,
                 label:
                     'Emergency buzzer: ${_buzzerEnabled ? 'enabled' : 'disabled'}',
                 onTap: _toggleBuzzer,
+              ),
+            if (user?.role == 'ADMIN' || user?.role == 'SUPER_ADMIN')
+              _SettingTile(
+                colors: c,
+                icon: Icons.warning_amber_rounded,
+                label: _uploadingSound == 'emergencyBuzzerSoundUrl'
+                    ? 'Uploading emergency buzzer MP3...'
+                    : 'Emergency buzzer sound: ${_buzzerSoundUrl == null ? 'default alarm' : 'custom MP3'}',
+                onTap: () => _uploadCallSound(
+                  key: 'emergencyBuzzerSoundUrl',
+                  label: 'emergency buzzer sound',
+                ),
+              ),
+            if (user?.role == 'ADMIN' || user?.role == 'SUPER_ADMIN')
+              _SettingTile(
+                colors: c,
+                icon: Icons.music_note_rounded,
+                label: _uploadingSound == 'ringingSoundUrl'
+                    ? 'Uploading ringing MP3...'
+                    : 'Ringing sound: ${_ringingSoundUrl == null ? 'device default' : 'custom MP3'}',
+                onTap: () => _uploadCallSound(
+                  key: 'ringingSoundUrl',
+                  label: 'ringing sound',
+                ),
               ),
             if (user?.role == 'ADMIN' || user?.role == 'SUPER_ADMIN')
               _SettingTile(

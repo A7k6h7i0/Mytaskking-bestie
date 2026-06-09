@@ -299,15 +299,21 @@ router.post('/:id/buzzer', asyncHandler(async (req, res) => {
   if (!call || !(call.participants || []).some((p) => p.userId === req.user.id)) {
     return res.status(404).json({ error: 'Call not found' });
   }
-  const setting = await prisma.workspaceSetting.findUnique({
-    where: { scope_key: { scope: 'calls', key: 'emergencyBuzzerEnabled' } },
-  });
-  if (setting?.value === false) return res.status(403).json({ error: 'Emergency buzzer is disabled' });
+  const [enabledSetting, soundSetting] = await Promise.all([
+    prisma.workspaceSetting.findUnique({
+      where: { scope_key: { scope: 'calls', key: 'emergencyBuzzerEnabled' } },
+    }),
+    prisma.workspaceSetting.findUnique({
+      where: { scope_key: { scope: 'calls', key: 'emergencyBuzzerSoundUrl' } },
+    }),
+  ]);
+  if (enabledSetting?.value === false) return res.status(403).json({ error: 'Emergency buzzer is disabled' });
   for (const participant of call.participants || []) {
     if (participant.userId === req.user.id) continue;
     req.app.get('io')?.to(`user:${participant.userId}`).emit('call.buzzer', {
       callId: call.id,
       fromName: req.user.name,
+      audioUrl: typeof soundSetting?.value === 'string' ? soundSetting.value : null,
     });
   }
   res.json({ ok: true });

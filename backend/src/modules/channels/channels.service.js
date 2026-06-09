@@ -12,6 +12,7 @@ const memberUserSelect = {
   customTitle: true,
   avatarUrl: true,
   isClient: true,
+  status: true,
   lastSeenAt: true,
 };
 
