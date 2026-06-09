@@ -14,7 +14,15 @@ const RISK_THRESHOLDS = {
   impossibleTravel: 50,
 };
 
-async function startSession({ user, refreshTokenRow, req, selfieUrl = null }) {
+async function startSession({
+  user,
+  refreshTokenRow,
+  req,
+  selfieUrl = null,
+  latitude = null,
+  longitude = null,
+  address = null,
+}) {
   const ip = req?.ip || null;
   const ua = req?.headers?.['user-agent'] || null;
   const { device, platform } = parseUA(ua);
@@ -38,6 +46,7 @@ async function startSession({ user, refreshTokenRow, req, selfieUrl = null }) {
       userId: user.id,
       refreshTokenId: refreshTokenRow?.id || null,
       ip, userAgent: ua, device, platform, selfieUrl,
+      latitude, longitude, address: address || null,
       riskScore: Math.min(risk, 100),
     },
   });
@@ -140,7 +149,12 @@ async function listActivity({ userId, from, to, page = 1, pageSize = 50, include
     ip: r.ip,
     city: r.city,
     country: r.country,
-    ...(includeSelfie ? { selfieUrl: r.selfieUrl } : {}),
+    ...(includeSelfie ? {
+      selfieUrl: r.selfieUrl,
+      latitude: r.latitude,
+      longitude: r.longitude,
+      address: r.address,
+    } : {}),
   }));
   return { total, page, pageSize, items };
 }

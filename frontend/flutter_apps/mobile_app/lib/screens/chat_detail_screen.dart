@@ -779,12 +779,14 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
   /// between them. `previous` is null at the conversation's first message.
   bool _shouldShowDateDivider(
       Map<String, dynamic> current, Map<String, dynamic>? previous) {
-    final ts =
-        DateTime.tryParse(current['createdAt']?.toString() ?? '')?.toLocal();
+    DateTime? indiaTime(dynamic value) =>
+        DateTime.tryParse(value?.toString() ?? '')
+            ?.toUtc()
+            .add(const Duration(hours: 5, minutes: 30));
+    final ts = indiaTime(current['createdAt']);
     if (ts == null) return false;
     if (previous == null) return true;
-    final prev =
-        DateTime.tryParse(previous['createdAt']?.toString() ?? '')?.toLocal();
+    final prev = indiaTime(previous['createdAt']);
     if (prev == null) return true;
     return ts.year != prev.year || ts.month != prev.month || ts.day != prev.day;
   }
@@ -1003,6 +1005,15 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
       // (voice or text — both available right here in the DM) instead of ringing.
       final busy = (res['targetPresence'] as Map?)?.cast<String, dynamic>();
       if (busy != null && ch == 'ONE_TO_ONE') {
+        if (busy['status'] == 'ON_CALL' && res['waiting'] == true) {
+          if (mounted) {
+            bestieToast(context, 'Call waiting',
+                body:
+                    '${_headerTitle()} can accept and add you to the current call.',
+                kind: BestieToastKind.info);
+          }
+          return;
+        }
         // #4: speak a personalized availability announcement to the caller.
         unawaited(_announceAvailability(_headerTitle(), busy));
         await _showBusyCallSheet(busy);
@@ -1036,7 +1047,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     final text = '$name is $label. Please leave a message.';
     try {
       final tts = FlutterTts();
-      await tts.setSpeechRate(0.45);
+      await tts.setSpeechRate(0.36);
       await tts.setVolume(1.0);
       await tts.speak(text);
     } catch (_) {/* TTS is best-effort */}
@@ -3628,7 +3639,7 @@ class _MessageBubble extends ConsumerWidget {
       dt = DateTime.utc(dt.year, dt.month, dt.day, dt.hour, dt.minute,
           dt.second, dt.millisecond, dt.microsecond);
     }
-    return dt.toLocal();
+    return dt.toUtc().add(const Duration(hours: 5, minutes: 30));
   }
 }
 
@@ -4104,9 +4115,11 @@ class _DateDivider extends StatelessWidget {
   }
 
   String _labelFor(String? iso) {
-    final dt = DateTime.tryParse(iso ?? '')?.toLocal();
+    final parsed = DateTime.tryParse(iso ?? '');
+    final dt = parsed?.toUtc().add(const Duration(hours: 5, minutes: 30));
     if (dt == null) return '';
-    final now = DateTime.now();
+    final now =
+        DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
     final today = DateTime(now.year, now.month, now.day);
     final theirDay = DateTime(dt.year, dt.month, dt.day);
     final diff = today.difference(theirDay).inDays;

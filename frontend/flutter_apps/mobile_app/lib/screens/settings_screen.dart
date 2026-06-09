@@ -18,6 +18,7 @@ class SettingsScreen extends ConsumerStatefulWidget {
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _buzzerEnabled = true;
+  String _headOfficeName = 'HQ India';
 
   @override
   void initState() {
@@ -30,10 +31,45 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final data = await ref.read(apiProvider).settingsScope(scope: 'calls');
       final calls = (data['calls'] as Map?)?.cast<String, dynamic>();
       if (mounted && calls?['emergencyBuzzerEnabled'] is bool) {
-        setState(
-            () => _buzzerEnabled = calls!['emergencyBuzzerEnabled'] as bool);
+        setState(() {
+          _buzzerEnabled = calls!['emergencyBuzzerEnabled'] as bool;
+          _headOfficeName = (calls['headOfficeName'] ?? 'HQ India').toString();
+        });
+      } else if (mounted && calls?['headOfficeName'] != null) {
+        setState(() => _headOfficeName = calls!['headOfficeName'].toString());
       }
     } catch (_) {}
+  }
+
+  Future<void> _editHeadOffice() async {
+    final controller = TextEditingController(text: _headOfficeName);
+    final value = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Head office name'),
+        content:
+            TextField(controller: controller, autofocus: true, maxLength: 80),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+              child: const Text('Save')),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (value == null || value.isEmpty) return;
+    try {
+      await ref
+          .read(apiProvider)
+          .setSetting(scope: 'calls', key: 'headOfficeName', value: value);
+      if (mounted) setState(() => _headOfficeName = value);
+    } catch (e) {
+      if (mounted)
+        bestieToast(context, 'Could not update head office',
+            body: formatApiError(e), kind: BestieToastKind.error);
+    }
   }
 
   Future<void> _toggleBuzzer() async {
@@ -167,6 +203,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 label:
                     'Emergency buzzer: ${_buzzerEnabled ? 'enabled' : 'disabled'}',
                 onTap: _toggleBuzzer,
+              ),
+            if (user?.role == 'ADMIN' || user?.role == 'SUPER_ADMIN')
+              _SettingTile(
+                colors: c,
+                icon: Icons.business_rounded,
+                label: 'Head office: $_headOfficeName',
+                onTap: _editHeadOffice,
               ),
             _SectionLabel('People', colors: c),
             if (!(user?.isClient ?? false))

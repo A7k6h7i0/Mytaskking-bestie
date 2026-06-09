@@ -22,6 +22,9 @@ type ActivityRow = {
   city: string | null;
   country: string | null;
   selfieUrl?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  address?: string | null;
 };
 
 type ActivityResp = { total: number; page: number; pageSize: number; items: ActivityRow[] };
@@ -56,7 +59,7 @@ function sessionDuration(r: ActivityRow): string {
 }
 
 export default function LoginActivityPage() {
-  const isSuperAdmin = useAuthStore((s) => s.user?.role === 'SUPER_ADMIN');
+  const canViewEvidence = useAuthStore((s) => ['SUPER_ADMIN', 'ADMIN'].includes(s.user?.role || ''));
   const [from, setFrom] = useState(() => isoDay(new Date(Date.now() - 6 * 86400000)));
   const [to, setTo] = useState(() => isoDay(new Date()));
 
@@ -73,7 +76,7 @@ export default function LoginActivityPage() {
   function exportCsv() {
     if (!items.length) return;
     const header = ['Name', 'Designation', 'Login', 'Logout', 'Duration', 'Status', 'Platform', 'Device', 'IP'];
-    if (isSuperAdmin) header.push('Selfie');
+    if (canViewEvidence) header.push('Location', 'Latitude', 'Longitude', 'Selfie');
     const rows = items.map((r) => [
       r.user.name,
       r.user.customTitle || r.user.role || '',
@@ -84,7 +87,7 @@ export default function LoginActivityPage() {
       r.platform || '',
       r.device || '',
       r.ip || '',
-      ...(isSuperAdmin ? [r.selfieUrl || ''] : []),
+      ...(canViewEvidence ? [r.address || '', r.latitude ?? '', r.longitude ?? '', r.selfieUrl || ''] : []),
     ]);
     const csv = [header, ...rows]
       .map((row) => row.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
@@ -132,10 +135,10 @@ export default function LoginActivityPage() {
         ) : !items.length ? (
           <div className="la__empty">No login activity in this date range.</div>
         ) : (
-          <div className={`la__table${isSuperAdmin ? ' la__table--selfie' : ''}`}>
+          <div className={`la__table${canViewEvidence ? ' la__table--evidence' : ''}`}>
             <div className="la__row la__row--head">
               <span>User</span><span>Login</span><span>Logout</span><span>Duration</span><span>Device</span><span>IP</span>
-              {isSuperAdmin && <span>Selfie</span>}
+              {canViewEvidence && <><span>Location</span><span>Selfie</span></>}
             </div>
             {items.map((r) => (
               <div key={r.id} className="la__row">
@@ -152,7 +155,12 @@ export default function LoginActivityPage() {
                 <span className="la__dur">{sessionDuration(r)}</span>
                 <span className="la__device">{platformIcon(r.platform)} {r.device || r.platform || '—'}</span>
                 <span className="la__ip">{r.ip || '—'}</span>
-                {isSuperAdmin && (
+                {canViewEvidence && (
+                  <span className="la__location" title={r.address || undefined}>
+                    {r.address || (r.latitude != null && r.longitude != null ? `${r.latitude.toFixed(5)}, ${r.longitude.toFixed(5)}` : 'Not captured')}
+                  </span>
+                )}
+                {canViewEvidence && (
                   <span className="la__selfie">
                     {r.selfieUrl ? (
                       <a href={r.selfieUrl} target="_blank" rel="noreferrer">

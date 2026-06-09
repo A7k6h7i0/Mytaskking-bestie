@@ -26,6 +26,7 @@ dependencies:
   flutter_local_notifications: ^17.2.4
   shared_preferences: ^2.3.2
   image_picker: ^1.1.2
+  camera: ^0.11.0+2
   file_picker: ^8.1.4
   dio: ^5.7.0
   record: ^5.2.0
@@ -40,6 +41,8 @@ dependencies:
   speech_to_text: ^7.0.0
   # Text-to-speech for the incoming-call availability announcement (#4).
   flutter_tts: ^4.2.0
+  geolocator: ^13.0.2
+  geocoding: ^3.0.0
 
 dependency_overrides:
   # record 5.x's federated linux implementation has a platform-interface

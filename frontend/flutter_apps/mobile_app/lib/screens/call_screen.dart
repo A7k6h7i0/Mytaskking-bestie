@@ -166,8 +166,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
   Duration _elapsed = Duration.zero;
   final _ringtone = FlutterRingtonePlayer();
   final _tts = FlutterTts();
+  String _headOfficeName = 'HQ India';
 
   bool get _isVideo => _videoEnabled;
+  bool get _isCallInitiator {
+    final call = (_callMeta?['call'] as Map?)?.cast<String, dynamic>();
+    return call?['initiatorId'] == ref.read(authStoreProvider).user?.id;
+  }
 
   @override
   void initState() {
@@ -243,6 +248,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
       final name = (data['userName'] ?? 'The person').toString();
       _speak('$name is currently on another call. Please leave a message.');
       if (mounted) setState(() => _status = '$name is busy');
+    }));
+    _callUnsubs.add(rt.onAny('call.transferred', ([data]) {
+      if (data is! Map || data['callId'] != callId) return;
+      final from = (data['fromName'] ?? 'A participant').toString();
+      final to = (data['toName'] ?? 'another person').toString();
+      _speak('$from transferred the call to $to.');
     }));
     _callUnsubs.add(rt.onAny('call.buzzer', ([data]) {
       if (data is! Map || data['callId'] != callId) return;
@@ -547,8 +558,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
   Future<void> _speak(String text) async {
     try {
       await _tts.setLanguage('en-US');
-      await _tts.setPitch(1.12);
-      await _tts.setSpeechRate(0.43);
+      await _tts.setPitch(1.02);
+      await _tts.setSpeechRate(0.36);
       await _tts.speak(text);
     } catch (_) {}
   }
@@ -669,6 +680,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
       setState(() => _status = _isMeeting ? 'Joining…' : 'Calling…');
       final tokenResp = await _fetchToken();
       _callMeta = tokenResp;
+      try {
+        final settings =
+            await ref.read(apiProvider).settingsScope(scope: 'calls');
+        final calls = (settings['calls'] as Map?)?.cast<String, dynamic>();
+        _headOfficeName = (calls?['headOfficeName'] ?? 'HQ India').toString();
+      } catch (_) {}
       final appId = tokenResp['appId']?.toString();
       final token = tokenResp['token']?.toString();
       final channel = tokenResp['channelName']?.toString();
@@ -1193,208 +1210,202 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final bottomInset = MediaQuery.of(context).padding.bottom;
     final topInset = MediaQuery.of(context).padding.top;
     final showingVideo = _isVideo && _remoteUids.isNotEmpty;
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(children: [
-        // Depth backdrop — a soft vertical gradient so voice calls aren't a
-        // flat black void (WhatsApp does the same). Hidden once real remote
-        // video fills the screen.
-        if (!showingVideo)
-          const Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Color(0xFF062B61),
-                    Color(0xFF061A38),
-                    Color(0xFF020817)
-                  ],
-                  stops: [0.0, 0.55, 1.0],
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _minimize();
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: Stack(children: [
+          // Depth backdrop — a soft vertical gradient so voice calls aren't a
+          // flat black void (WhatsApp does the same). Hidden once real remote
+          // video fills the screen.
+          if (!showingVideo)
+            const Positioned.fill(child: _FuturisticCallBackdrop()),
+          Positioned.fill(child: _remoteSurface()),
+
+          // Top scrim for header legibility over video.
+          if (showingVideo)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: IgnorePointer(
+                child: Container(
+                  height: topInset + 110,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.black.withOpacity(0.55),
+                        Colors.transparent
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
-          ),
-        Positioned.fill(child: _remoteSurface()),
+          // Bottom scrim for control legibility over video.
+          if (showingVideo)
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: IgnorePointer(
+                child: Container(
+                  height: bottomInset + 160,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.bottomCenter,
+                      end: Alignment.topCenter,
+                      colors: [
+                        Colors.black.withOpacity(0.6),
+                        Colors.transparent
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
 
-        // Top scrim for header legibility over video.
-        if (showingVideo)
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: IgnorePointer(
-              child: Container(
-                height: topInset + 110,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.black.withOpacity(0.55),
-                      Colors.transparent
+          // Self-view PiP — rounded, shadowed, tap to flip camera.
+          if (_isVideo && _joined && !_cameraOff)
+            Positioned(
+              right: 14,
+              top: topInset + 64,
+              width: 104,
+              height: 150,
+              child: GestureDetector(
+                onTap: _flipCamera,
+                child: Container(
+                  clipBehavior: Clip.antiAlias,
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                        color: Colors.white.withOpacity(0.2), width: 1),
+                    borderRadius: BorderRadius.circular(18),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.4),
+                        blurRadius: 16,
+                        offset: const Offset(0, 6),
+                      ),
                     ],
                   ),
+                  child: _engine != null
+                      ? AgoraVideoView(
+                          controller: VideoViewController(
+                          rtcEngine: _engine!,
+                          canvas: const VideoCanvas(uid: 0),
+                        ))
+                      : const SizedBox.shrink(),
                 ),
               ),
             ),
-          ),
-        // Bottom scrim for control legibility over video.
-        if (showingVideo)
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            child: IgnorePointer(
-              child: Container(
-                height: bottomInset + 160,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.bottomCenter,
-                    end: Alignment.topCenter,
-                    colors: [Colors.black.withOpacity(0.6), Colors.transparent],
+
+          Positioned(top: topInset + 8, left: 8, right: 8, child: _header()),
+          // Premium status chips (HD Voice / Network / Secure calling) — voice calls
+          // only, matching the redesigned call screen.
+          if (!_isMeeting && !showingVideo)
+            Positioned(
+              top: topInset + 58,
+              left: 16,
+              right: 16,
+              child: IgnorePointer(child: _topChips()),
+            ),
+          if (_muteStatusText() != null)
+            Positioned(
+              top: topInset + 62,
+              left: 20,
+              right: 20,
+              child: IgnorePointer(
+                child: Center(
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.62),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.white24),
+                    ),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Icon(Icons.mic_off_rounded,
+                          color: Color(0xFFFBBF24), size: 15),
+                      const SizedBox(width: 7),
+                      Flexible(
+                        child: Text(
+                          _muteStatusText()!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: BestieTokens.fwSemibold,
+                          ),
+                        ),
+                      ),
+                    ]),
                   ),
                 ),
               ),
             ),
-          ),
-
-        // Self-view PiP — rounded, shadowed, tap to flip camera.
-        if (_isVideo && _joined && !_cameraOff)
-          Positioned(
-            right: 14,
-            top: topInset + 64,
-            width: 104,
-            height: 150,
-            child: GestureDetector(
-              onTap: _flipCamera,
-              child: Container(
-                clipBehavior: Clip.antiAlias,
-                decoration: BoxDecoration(
-                  border: Border.all(
-                      color: Colors.white.withOpacity(0.2), width: 1),
-                  borderRadius: BorderRadius.circular(18),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.4),
-                      blurRadius: 16,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
-                ),
-                child: _engine != null
-                    ? AgoraVideoView(
-                        controller: VideoViewController(
-                        rtcEngine: _engine!,
-                        canvas: const VideoCanvas(uid: 0),
-                      ))
-                    : const SizedBox.shrink(),
-              ),
-            ),
-          ),
-
-        Positioned(top: topInset + 8, left: 8, right: 8, child: _header()),
-        // Premium status chips (HD Voice / Network / Secure calling) — voice calls
-        // only, matching the redesigned call screen.
-        if (!_isMeeting && !showingVideo)
-          Positioned(
-            top: topInset + 58,
-            left: 16,
-            right: 16,
-            child: IgnorePointer(child: _topChips()),
-          ),
-        if (_muteStatusText() != null)
-          Positioned(
-            top: topInset + 62,
-            left: 20,
-            right: 20,
-            child: IgnorePointer(
-              child: Center(
+          // Network-trouble banner — keeps the call UI visible (never blanks)
+          // and tells the user to check their connection while Agora reconnects.
+          if (_reconnecting && _error == null)
+            Positioned(
+              top: topInset + (_muteStatusText() == null ? 64 : 104),
+              left: 16,
+              right: 16,
+              child: IgnorePointer(
                 child: Container(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.62),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.white24),
+                    color: const Color(0xFFB45309).withOpacity(0.95),
+                    borderRadius: BorderRadius.circular(14),
                   ),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    const Icon(Icons.mic_off_rounded,
-                        color: Color(0xFFFBBF24), size: 15),
-                    const SizedBox(width: 7),
-                    Flexible(
+                  child: Row(mainAxisSize: MainAxisSize.min, children: const [
+                    SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation(Colors.white)),
+                    ),
+                    SizedBox(width: 10),
+                    Expanded(
                       child: Text(
-                        _muteStatusText()!,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: BestieTokens.fwSemibold,
-                        ),
+                        'Reconnecting… check your internet connection',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 12.5,
+                            fontWeight: BestieTokens.fwSemibold),
                       ),
                     ),
                   ]),
                 ),
               ),
             ),
-          ),
-        // Network-trouble banner — keeps the call UI visible (never blanks)
-        // and tells the user to check their connection while Agora reconnects.
-        if (_reconnecting && _error == null)
+          // Controls fade + slide up on entrance.
           Positioned(
-            top: topInset + (_muteStatusText() == null ? 64 : 104),
-            left: 16,
-            right: 16,
-            child: IgnorePointer(
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFB45309).withOpacity(0.95),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Row(mainAxisSize: MainAxisSize.min, children: const [
-                  SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation(Colors.white)),
-                  ),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Reconnecting… check your internet connection',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 12.5,
-                          fontWeight: BestieTokens.fwSemibold),
-                    ),
-                  ),
-                ]),
+            bottom: 22 + bottomInset,
+            left: 0,
+            right: 0,
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: 1),
+              duration: const Duration(milliseconds: 320),
+              curve: Curves.easeOutCubic,
+              builder: (ctx, v, child) => Opacity(
+                opacity: v,
+                child: Transform.translate(
+                    offset: Offset(0, (1 - v) * 24), child: child),
               ),
+              child: _controls(),
             ),
           ),
-        // Controls fade + slide up on entrance.
-        Positioned(
-          bottom: 22 + bottomInset,
-          left: 0,
-          right: 0,
-          child: TweenAnimationBuilder<double>(
-            tween: Tween(begin: 0, end: 1),
-            duration: const Duration(milliseconds: 320),
-            curve: Curves.easeOutCubic,
-            builder: (ctx, v, child) => Opacity(
-              opacity: v,
-              child: Transform.translate(
-                  offset: Offset(0, (1 - v) * 24), child: child),
-            ),
-            child: _controls(),
-          ),
-        ),
-      ]),
+        ]),
+      ),
     );
   }
 
@@ -1438,6 +1449,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
   /// group), never the raw Agora channel id ("call_wSEPLkpXr").
   String _callDisplayTitle() {
     final me = ref.read(authStoreProvider).user;
+    final call = (_callMeta?['call'] as Map?)?.cast<String, dynamic>();
+    final initiator = (call?['initiator'] as Map?)?.cast<String, dynamic>();
+    if (call?['kind'] == 'GROUP' && initiator?['id'] != me?.id) {
+      final mainCaller = (initiator?['name'] ?? '').toString().trim();
+      if (mainCaller.isNotEmpty) return mainCaller;
+    }
     // Prefer the invited participants from the call metadata.
     final parts = (_callMeta?['call']?['participants'] as List?) ??
         (_callMeta?['participants'] as List?) ??
@@ -2423,6 +2440,14 @@ class _CallScreenState extends ConsumerState<CallScreen>
   /// their name on the voice-call stage.
   String? _callDisplaySubtitle() {
     final me = ref.read(authStoreProvider).user;
+    final call = (_callMeta?['call'] as Map?)?.cast<String, dynamic>();
+    final initiator = (call?['initiator'] as Map?)?.cast<String, dynamic>();
+    if (call?['kind'] == 'GROUP' && initiator?['id'] != me?.id) {
+      final title = (initiator?['customTitle'] ?? initiator?['role'] ?? '')
+          .toString()
+          .trim();
+      if (title.isNotEmpty) return title.replaceAll('_', ' ');
+    }
     final parts = (_callMeta?['call']?['participants'] as List?) ??
         (_callMeta?['participants'] as List?) ??
         const [];
@@ -2448,6 +2473,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   String? _callDisplayAvatarUrl() {
     final me = ref.read(authStoreProvider).user;
+    final call = (_callMeta?['call'] as Map?)?.cast<String, dynamic>();
+    final initiator = (call?['initiator'] as Map?)?.cast<String, dynamic>();
+    if (call?['kind'] == 'GROUP' && initiator?['id'] != me?.id) {
+      final url = initiator?['avatarUrl']?.toString();
+      if (url != null && url.isNotEmpty) return url;
+    }
     final parts = (_callMeta?['call']?['participants'] as List?) ??
         (_callMeta?['participants'] as List?) ??
         const [];
@@ -2485,10 +2516,15 @@ class _CallScreenState extends ConsumerState<CallScreen>
                       shape: BoxShape.circle,
                       boxShadow: [
                         BoxShadow(
-                          color:
-                              const Color(0xFF38BDF8).withValues(alpha: 0.38),
-                          blurRadius: 40,
+                          color: const Color(0xFF00F2FF).withValues(alpha: 0.5),
+                          blurRadius: 28,
                           spreadRadius: 2,
+                        ),
+                        BoxShadow(
+                          color:
+                              const Color(0xFFFF00EA).withValues(alpha: 0.38),
+                          blurRadius: 52,
+                          spreadRadius: 3,
                         ),
                       ],
                     ),
@@ -2544,6 +2580,17 @@ class _CallScreenState extends ConsumerState<CallScreen>
                 ),
               ),
             ],
+            const SizedBox(height: 5),
+            Text(
+              _headOfficeName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Color(0xFF76839E),
+                fontSize: 13,
+                letterSpacing: 0.5,
+              ),
+            ),
             const SizedBox(height: 18),
             Row(mainAxisSize: MainAxisSize.min, children: [
               Icon(Icons.graphic_eq_rounded,
@@ -2553,7 +2600,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
               Text(
                 connected ? 'ACTIVE CALL' : _status.toUpperCase(),
                 style: TextStyle(
-                  color: connected ? const Color(0xFF22C55E) : Colors.white70,
+                  color: connected
+                      ? const Color(0xFF22C55E)
+                      : _status.toLowerCase().contains('ring')
+                          ? const Color(0xFFF59E0B)
+                          : const Color(0xFFEF4444),
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 1.5,
@@ -2647,6 +2698,134 @@ class _CallScreenState extends ConsumerState<CallScreen>
     if (mounted) setState(() => _held = next);
   }
 
+  Future<void> _showCallNotes() async {
+    final callId = widget.callId;
+    if (callId == null) return;
+    final initial =
+        (_callMeta?['call']?['notes'] ?? _callMeta?['notes'] ?? '').toString();
+    final controller = TextEditingController(text: initial);
+    final notes = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Call notes'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          minLines: 5,
+          maxLines: 10,
+          maxLength: 4000,
+          decoration: const InputDecoration(
+            hintText: 'Write notes for this call...',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, controller.text),
+              child: const Text('Save')),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (notes == null) return;
+    try {
+      final updated = await ref
+          .read(apiProvider)
+          .dio
+          .patch('/calls/$callId/notes', data: {'notes': notes});
+      if (_callMeta != null) _callMeta!['call'] = updated.data;
+      if (mounted) {
+        bestieToast(context, 'Call notes saved', kind: BestieToastKind.success);
+      }
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not save notes',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    }
+  }
+
+  Future<void> _showTransfer() async {
+    final callId = widget.callId;
+    if (callId == null) return;
+    try {
+      final me = ref.read(authStoreProvider).user;
+      final people = (await ref.read(apiProvider).listEmployees())
+          .where((u) => u['id'] != me?.id)
+          .toList();
+      if (!mounted) return;
+      final target = await showModalBottomSheet<Map<String, dynamic>>(
+        context: context,
+        backgroundColor: Colors.transparent,
+        builder: (ctx) {
+          final c = BestieColors.of(ctx);
+          return Container(
+            constraints: const BoxConstraints(maxHeight: 520),
+            decoration: BoxDecoration(
+              color: c.surface,
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Padding(
+                padding: const EdgeInsets.all(18),
+                child: Text('Transfer call to',
+                    style: TextStyle(
+                        color: c.text,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800)),
+              ),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    for (final user in people)
+                      ListTile(
+                        leading: BestieAvatar(
+                          name: (user['name'] ?? 'User').toString(),
+                          imageUrl: user['avatarUrl']?.toString(),
+                          size: 38,
+                        ),
+                        title: Text((user['name'] ?? 'User').toString()),
+                        subtitle: Text(
+                            (user['customTitle'] ?? user['role'] ?? '')
+                                .toString()
+                                .replaceAll('_', ' ')),
+                        onTap: () => Navigator.pop(ctx, user),
+                      ),
+                  ],
+                ),
+              ),
+            ]),
+          );
+        },
+      );
+      if (target == null) return;
+      await ref.read(apiProvider).post('/calls/$callId/transfer', body: {
+        'targetUserId': target['id'],
+        'mode': widget.mode.toUpperCase(),
+      });
+      await _speak(
+          '${me?.name ?? 'A participant'} transferred the call to ${target['name']}.');
+      await _teardown();
+      if (mounted) context.go('/chat');
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not transfer call',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    }
+  }
+
+  void _openVoiceMail() {
+    bestieToast(context, 'Voice mail',
+        body: 'Opening the call chat so you can record a voice message.',
+        kind: BestieToastKind.info);
+    _openCallChat();
+  }
+
   /// Premium 2-row control grid + bottom action bar, matching the redesign.
   Widget _premiumCallControls() {
     final routeActive = _route != CallAudioRoute.earpiece;
@@ -2666,18 +2845,21 @@ class _CallScreenState extends ConsumerState<CallScreen>
         ]),
         const SizedBox(height: 10),
         Row(children: [
-          _gridTile(
-              (!_videoEnabled || _cameraOff)
-                  ? Icons.videocam_off_rounded
-                  : Icons.videocam_rounded,
-              'Camera',
-              active: _videoEnabled && !_cameraOff,
-              onTap: _toggleCamera),
+          _gridTile(Icons.voicemail_rounded, 'Voice Mail',
+              onTap: _openVoiceMail),
+          _gridTile(Icons.swap_calls_rounded, 'Transfer', onTap: _showTransfer),
           _gridTile(Icons.person_add_alt_1_rounded, 'Add', onTap: _showInvite),
-          _gridTile(Icons.fiber_manual_record_rounded, 'Record',
-              active: _recording,
-              accent: const Color(0xFFEF4444),
-              onTap: _toggleRecord),
+          if (_isCallInitiator)
+            _gridTile(Icons.fiber_manual_record_rounded, 'Record',
+                active: _recording,
+                accent: const Color(0xFFEF4444),
+                onTap: _toggleRecord),
+        ]),
+        const SizedBox(height: 10),
+        Row(children: [
+          _gridTile(Icons.dialpad_rounded, 'Keyboard',
+              onTap: () => bestieToast(context, 'Keypad ready')),
+          _gridTile(Icons.note_alt_outlined, 'Notes', onTap: _showCallNotes),
           _gridTile(Icons.campaign_rounded, 'Buzzer',
               accent: const Color(0xFFFBBF24), onTap: _sendEmergencyBuzzer),
         ]),
@@ -2712,8 +2894,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
           ),
           const SizedBox(width: 36),
           _ctrlCircle(
-              icon: Icons.dialpad_rounded,
-              onTap: () => bestieToast(context, 'Keypad ready'),
+              icon: (!_videoEnabled || _cameraOff)
+                  ? Icons.videocam_off_rounded
+                  : Icons.videocam_rounded,
+              onTap: _toggleCamera,
               size: 46,
               iconSize: 20),
         ]),
@@ -2756,7 +2940,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(icon, color: active ? a : Colors.white, size: 22),
+                if (label == 'Record' && active)
+                  _RecordingPulse(child: Icon(icon, color: a, size: 22))
+                else
+                  Icon(icon, color: active ? a : Colors.white, size: 22),
                 const SizedBox(height: 6),
                 Text(label,
                     style: TextStyle(
@@ -3044,13 +3231,85 @@ class _PulseRingsState extends State<_PulseRings>
         shape: BoxShape.circle,
         border: Border.all(
           color:
-              Color.lerp(const Color(0xFF0759E6), const Color(0xFF38BDF8), t)!
+              Color.lerp(const Color(0xFFFF00EA), const Color(0xFF00F2FF), t)!
                   .withValues(alpha: opacity),
           width: 2,
         ),
       ),
     );
   }
+}
+
+class _FuturisticCallBackdrop extends StatelessWidget {
+  const _FuturisticCallBackdrop();
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(children: const [
+      Positioned.fill(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: RadialGradient(
+              center: Alignment(-1.15, -0.05),
+              radius: 1.2,
+              colors: [Color(0x66FF00EA), Color(0x0003060C)],
+            ),
+          ),
+        ),
+      ),
+      Positioned.fill(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: RadialGradient(
+              center: Alignment(1.15, -0.05),
+              radius: 1.2,
+              colors: [Color(0x6600F2FF), Color(0x0003060C)],
+            ),
+          ),
+        ),
+      ),
+      Positioned.fill(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: RadialGradient(
+              center: Alignment(0, -0.15),
+              radius: 1.25,
+              colors: [Color(0x0003060C), Color(0xFF03060C)],
+              stops: [0.08, 1],
+            ),
+          ),
+        ),
+      ),
+    ]);
+  }
+}
+
+class _RecordingPulse extends StatefulWidget {
+  final Widget child;
+  const _RecordingPulse({required this.child});
+
+  @override
+  State<_RecordingPulse> createState() => _RecordingPulseState();
+}
+
+class _RecordingPulseState extends State<_RecordingPulse>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 700),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => FadeTransition(
+        opacity: Tween<double>(begin: 0.25, end: 1).animate(_controller),
+        child: widget.child,
+      );
 }
 
 class _PressableCircle extends StatefulWidget {

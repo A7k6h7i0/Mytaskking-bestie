@@ -58,7 +58,19 @@ async function storeLoginSelfie({ user, selfieBase64, selfieMimeType }) {
   throw BadRequest('Selfie storage is not configured');
 }
 
-async function login({ userId, password, userAgent, ip, req, loginSource, selfieBase64, selfieMimeType }) {
+async function login({
+  userId,
+  password,
+  userAgent,
+  ip,
+  req,
+  loginSource,
+  selfieBase64,
+  selfieMimeType,
+  latitude,
+  longitude,
+  address,
+}) {
   const user = await prisma.user.findUnique({ where: { userId } });
   if (!user) throw Unauthorized('Invalid credentials');
   if (user.status === 'SUSPENDED') throw Unauthorized('Account suspended');
@@ -78,7 +90,15 @@ async function login({ userId, password, userAgent, ip, req, loginSource, selfie
   const { token: refreshToken, expiresAt, row } = await tokens.issueRefreshToken(user, { userAgent, ip });
 
   await prisma.user.update({ where: { id: user.id }, data: { lastSeenAt: new Date() } });
-  const session = await sessions.startSession({ user, refreshTokenRow: row, req, selfieUrl }).catch(() => null);
+  const session = await sessions.startSession({
+    user,
+    refreshTokenRow: row,
+    req,
+    selfieUrl,
+    latitude,
+    longitude,
+    address,
+  }).catch(() => null);
 
   return {
     user: sanitize(user),
@@ -104,6 +124,9 @@ async function refresh({ refreshToken, userAgent, ip, req }) {
       refreshTokenRow: rotated.row,
       req,
       selfieUrl: rotated.previousSelfieUrl,
+      latitude: rotated.previousLocation?.latitude,
+      longitude: rotated.previousLocation?.longitude,
+      address: rotated.previousLocation?.address,
     })
     .catch(() => null);
 

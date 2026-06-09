@@ -54,7 +54,7 @@ async function rotateRefreshToken(rawToken, { userAgent, ip } = {}) {
 
   const previousSession = await prisma.session.findUnique({
     where: { refreshTokenId: existing.id },
-    select: { selfieUrl: true },
+    select: { selfieUrl: true, latitude: true, longitude: true, address: true },
   }).catch(() => null);
   await prisma.refreshToken.update({
     where: { id: existing.id },
@@ -68,6 +68,13 @@ async function rotateRefreshToken(rawToken, { userAgent, ip } = {}) {
   return issueRefreshToken(existing.user, { userAgent, ip }).then((issued) => ({
     user: existing.user,
     previousSelfieUrl: previousSession?.selfieUrl || null,
+    previousLocation: previousSession
+      ? {
+          latitude: previousSession.latitude,
+          longitude: previousSession.longitude,
+          address: previousSession.address,
+        }
+      : null,
     ...issued,
   }));
 }

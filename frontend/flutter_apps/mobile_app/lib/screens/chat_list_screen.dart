@@ -21,7 +21,9 @@ final _mutedUntilProvider =
   final out = <String, DateTime?>{};
   // Forward-compat: import any old boolean-set entries as "forever".
   final legacy = prefs.getStringList(_kMutedKey) ?? const [];
-  for (final id in legacy) { out[id] = null; }
+  for (final id in legacy) {
+    out[id] = null;
+  }
   final raw = prefs.getString(_kMutedUntilKey);
   if (raw != null && raw.isNotEmpty) {
     try {
@@ -126,7 +128,9 @@ class _TypingChannelsNotifier extends StateNotifier<Set<String>> {
 
   @override
   void dispose() {
-    for (final t in _timers.values) { t.cancel(); }
+    for (final t in _timers.values) {
+      t.cancel();
+    }
     _unsub?.call();
     super.dispose();
   }
@@ -197,7 +201,8 @@ class ChatListScreen extends ConsumerWidget {
 
             for (final c in items) {
               final kind = (c['kind'] ?? 'GROUP').toString();
-              final isClientChannel = c['isClientChannel'] == true || kind == 'CLIENT';
+              final isClientChannel =
+                  c['isClientChannel'] == true || kind == 'CLIENT';
               if (isClientChannel) {
                 clientChannels.add(c);
               } else if (kind == 'DM') {
@@ -226,10 +231,12 @@ class ChatListScreen extends ConsumerWidget {
                   title: 'Groups',
                   icon: Icons.groups_outlined,
                   count: groups.length,
-                  emptyHint: 'Create a group to chat with multiple teammates at once.',
+                  emptyHint:
+                      'Create a group to chat with multiple teammates at once.',
                   children: [
                     for (final c in groups)
-                      _ChatTile(channel: c, kind: 'GROUP', currentUserId: me?.id),
+                      _ChatTile(
+                          channel: c, kind: 'GROUP', currentUserId: me?.id),
                   ],
                 ),
                 _Section(
@@ -239,7 +246,8 @@ class ChatListScreen extends ConsumerWidget {
                   emptyHint: 'External client threads will appear here.',
                   children: [
                     for (final c in clientChannels)
-                      _ChatTile(channel: c, kind: 'CLIENT', currentUserId: me?.id),
+                      _ChatTile(
+                          channel: c, kind: 'CLIENT', currentUserId: me?.id),
                   ],
                 ),
               ],
@@ -264,8 +272,10 @@ class ChatListScreen extends ConsumerWidget {
     if (me == null) return;
     final unreadIds = channels
         .where((c) {
-          final members = (c['members'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
-          final mine = members.firstWhere((m) => m['userId'] == me.id, orElse: () => const {});
+          final members =
+              (c['members'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+          final mine = members.firstWhere((m) => m['userId'] == me.id,
+              orElse: () => const {});
           return mine.isNotEmpty && mine['lastReadAt'] == null;
         })
         .map((c) => c['id'] as String)
@@ -278,11 +288,14 @@ class ChatListScreen extends ConsumerWidget {
     // mark-read endpoint trips the global rate limiter (429). One at a
     // time with a tiny pause is still nearly instant for normal inboxes.
     for (final id in unreadIds) {
-      try { await api.markChannelRead(id); } catch (_) {}
+      try {
+        await api.markChannelRead(id);
+      } catch (_) {}
     }
     ref.invalidate(channelsProvider);
     if (context.mounted) {
-      bestieToast(context, 'Marked ${unreadIds.length} chat${unreadIds.length == 1 ? '' : 's'} read',
+      bestieToast(context,
+          'Marked ${unreadIds.length} chat${unreadIds.length == 1 ? '' : 's'} read',
           kind: BestieToastKind.success);
     }
   }
@@ -293,14 +306,48 @@ class ChatListScreen extends ConsumerWidget {
     final channel = await showBestieNewChatSheet(
       context,
       currentUserId: me?.id,
-      fetchEmployees: (q) => api.listEmployees(q: q.trim().isEmpty ? null : q.trim()),
+      fetchEmployees: (q) =>
+          api.listEmployees(q: q.trim().isEmpty ? null : q.trim()),
       onStartDm: (otherId) async {
         final ch = await api.createChannel(kind: 'DM', memberIds: [otherId]);
         return ch;
       },
       onStartGroup: (name, memberIds) async {
-        final ch = await api.createChannel(kind: 'GROUP', name: name, memberIds: memberIds);
+        final ch = await api.createChannel(
+            kind: 'GROUP', name: name, memberIds: memberIds);
         return ch;
+      },
+      onStartCall: (user, mode) async {
+        final res = await api.initiateCall(
+          participantIds: [user['id'].toString()],
+          kind: 'ONE_TO_ONE',
+          mode: mode == 'voice' ? 'VOICE' : 'VIDEO',
+        );
+        final presence =
+            (res['targetPresence'] as Map?)?.cast<String, dynamic>();
+        if (presence != null &&
+            !(presence['status'] == 'ON_CALL' && res['waiting'] == true)) {
+          if (context.mounted) {
+            bestieToast(context, '${user['name']} is unavailable',
+                body:
+                    (presence['customStatus'] ?? presence['status']).toString(),
+                kind: BestieToastKind.warning);
+          }
+          return;
+        }
+        final id = (res['call'] as Map?)?['id']?.toString();
+        if (presence?['status'] == 'ON_CALL' && res['waiting'] == true) {
+          if (context.mounted) {
+            bestieToast(context, 'Call waiting',
+                body:
+                    '${user['name']} can accept and add you to the current call.',
+                kind: BestieToastKind.info);
+          }
+          return;
+        }
+        if (id != null && context.mounted) {
+          context.go('/call/$id?mode=$mode');
+        }
       },
     );
     if (channel != null && context.mounted) {
@@ -358,9 +405,12 @@ class _Section extends StatelessWidget {
                   color: c.surface2,
                   borderRadius: BorderRadius.circular(BestieTokens.rPill),
                 ),
-                child: Text('$count', style: TextStyle(
-                  fontSize: 10, color: c.textSoft, fontWeight: BestieTokens.fwBold,
-                )),
+                child: Text('$count',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: c.textSoft,
+                      fontWeight: BestieTokens.fwBold,
+                    )),
               ),
             ],
           ]),
@@ -368,7 +418,8 @@ class _Section extends StatelessWidget {
         if (children.isEmpty)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
-            child: Text(emptyHint, style: TextStyle(color: c.textFaint, fontSize: 12)),
+            child: Text(emptyHint,
+                style: TextStyle(color: c.textFaint, fontSize: 12)),
           )
         else
           ...children,
@@ -382,12 +433,14 @@ class _ChatTile extends ConsumerWidget {
   final String kind;
   final String? currentUserId;
 
-  const _ChatTile({required this.channel, required this.kind, required this.currentUserId});
+  const _ChatTile(
+      {required this.channel, required this.kind, required this.currentUserId});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = BestieColors.of(context);
-    final members = (channel['members'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+    final members =
+        (channel['members'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
     // Unread is driven by the backend's unreadCount, which already EXCLUDES
     // the current user's own messages — so sending a message yourself never
     // lights up an unread badge. (The old `lastReadAt == null` check did,
@@ -413,7 +466,8 @@ class _ChatTile extends ConsumerWidget {
 
     // Prefer the last message body as the preview line — what WhatsApp /
     // Telegram show. Falls back to the member count.
-    final lastMessage = (channel['lastMessage'] as Map?)?.cast<String, dynamic>();
+    final lastMessage =
+        (channel['lastMessage'] as Map?)?.cast<String, dynamic>();
     final lastBody = (lastMessage?['body'] ?? '').toString();
     final lastKind = (lastMessage?['kind'] ?? 'TEXT').toString();
     final hasLast = lastMessage != null;
@@ -421,16 +475,17 @@ class _ChatTile extends ConsumerWidget {
     // bubble for the tap-to-join affordance — strip it from the list preview
     // so it doesn't leak ("Call ended · 12:07 PM · 14m|call:cmpsam…").
     final callPipe = lastBody.indexOf('|call:');
-    final cleanBody = callPipe >= 0 ? lastBody.substring(0, callPipe) : lastBody;
+    final cleanBody =
+        callPipe >= 0 ? lastBody.substring(0, callPipe) : lastBody;
     String previewLine;
     if (hasLast) {
       final base = switch (lastKind) {
-        'IMAGE'      => '📷 Photo',
-        'FILE'       => '📎 File',
+        'IMAGE' => '📷 Photo',
+        'FILE' => '📎 File',
         'VOICE_NOTE' => '🎙️ Voice note',
         'CALL_EVENT' => cleanBody.isEmpty ? '📞 Call' : cleanBody,
-        'SYSTEM'     => cleanBody,
-        _            => cleanBody.isEmpty ? '' : cleanBody,
+        'SYSTEM' => cleanBody,
+        _ => cleanBody.isEmpty ? '' : cleanBody,
       };
       // WhatsApp-style sender prefix: "You: " for your own last message, and
       // "Name: " for someone else's in a group. DMs from the other person show
@@ -451,9 +506,10 @@ class _ChatTile extends ConsumerWidget {
       }
     } else {
       previewLine = switch (kind) {
-        'DM'     => 'Direct message',
-        'CLIENT' => '${members.length} member${members.length == 1 ? '' : 's'} · client',
-        _        => '${members.length} member${members.length == 1 ? '' : 's'}',
+        'DM' => 'Direct message',
+        'CLIENT' =>
+          '${members.length} member${members.length == 1 ? '' : 's'} · client',
+        _ => '${members.length} member${members.length == 1 ? '' : 's'}',
       };
     }
     final timeLine = BestieTime.shortRelative(
@@ -464,8 +520,12 @@ class _ChatTile extends ConsumerWidget {
     final isTyping =
         ref.watch(typingChannelsProvider).contains(channel['id']?.toString());
 
-    final muted = ref.watch(_mutedChannelsProvider).asData?.value
-            .contains(channel['id'] as String) ?? false;
+    final muted = ref
+            .watch(_mutedChannelsProvider)
+            .asData
+            ?.value
+            .contains(channel['id'] as String) ??
+        false;
 
     return Material(
       color: Colors.transparent,
@@ -483,13 +543,16 @@ class _ChatTile extends ConsumerWidget {
                     size: 44,
                   )
                 : Container(
-                    width: 44, height: 44,
+                    width: 44,
+                    height: 44,
                     decoration: BoxDecoration(
                       color: isClient ? c.clientSoft : c.brandSoft,
                       borderRadius: BorderRadius.circular(BestieTokens.rMd),
                     ),
                     child: Icon(
-                      kind == 'CLIENT' ? Icons.business_center_outlined : Icons.groups_outlined,
+                      kind == 'CLIENT'
+                          ? Icons.business_center_outlined
+                          : Icons.groups_outlined,
                       color: isClient ? c.client : c.brandStrong,
                       size: 22,
                     ),
@@ -508,7 +571,9 @@ class _ChatTile extends ConsumerWidget {
                         isClient: isClient,
                         style: TextStyle(
                           fontSize: 15,
-                          fontWeight: unread ? BestieTokens.fwBold : BestieTokens.fwSemibold,
+                          fontWeight: unread
+                              ? BestieTokens.fwBold
+                              : BestieTokens.fwSemibold,
                           color: c.text,
                           letterSpacing: BestieTokens.lsSnug,
                         ),
@@ -516,7 +581,8 @@ class _ChatTile extends ConsumerWidget {
                     ),
                     if (muted) ...[
                       const SizedBox(width: 6),
-                      Icon(Icons.volume_off_rounded, size: 13, color: c.textMuted),
+                      Icon(Icons.volume_off_rounded,
+                          size: 13, color: c.textMuted),
                     ],
                   ]),
                   const SizedBox(height: 3),
@@ -569,7 +635,8 @@ class _ChatTile extends ConsumerWidget {
                 const SizedBox(height: 6),
                 if (unread)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                     constraints: const BoxConstraints(minWidth: 18),
                     decoration: BoxDecoration(
                       color: muted ? c.textMuted : c.brand,
@@ -605,16 +672,19 @@ class _ChatTile extends ConsumerWidget {
       context: context,
       backgroundColor: c.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
+        borderRadius:
+            BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
       ),
       builder: (ctx) => SafeArea(
         top: false,
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Container(
-            width: 40, height: 4,
+            width: 40,
+            height: 4,
             margin: const EdgeInsets.symmetric(vertical: 10),
             decoration: BoxDecoration(
-              color: c.borderStrong, borderRadius: BorderRadius.circular(BestieTokens.rPill),
+              color: c.borderStrong,
+              borderRadius: BorderRadius.circular(BestieTokens.rPill),
             ),
           ),
           ListTile(
@@ -645,11 +715,14 @@ class _ChatTile extends ConsumerWidget {
             onTap: () async {
               Navigator.pop(ctx);
               try {
-                await ref.read(apiProvider).markChannelRead(channel['id'] as String);
+                await ref
+                    .read(apiProvider)
+                    .markChannelRead(channel['id'] as String);
                 ref.invalidate(channelsProvider);
               } catch (e) {
-                if (context.mounted) bestieToast(context, 'Could not mark read',
-                    body: formatApiError(e), kind: BestieToastKind.error);
+                if (context.mounted)
+                  bestieToast(context, 'Could not mark read',
+                      body: formatApiError(e), kind: BestieToastKind.error);
               }
             },
           ),
@@ -679,7 +752,8 @@ class _ChatTile extends ConsumerWidget {
         top: false,
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Container(
-            width: 40, height: 4,
+            width: 40,
+            height: 4,
             margin: const EdgeInsets.symmetric(vertical: 10),
             decoration: BoxDecoration(
               color: c.borderStrong,
@@ -704,9 +778,8 @@ class _ChatTile extends ConsumerWidget {
               trailing: Icon(Icons.chevron_right_rounded, color: c.textFaint),
               onTap: () async {
                 Navigator.pop(ctx);
-                final until = opt.$2 == null
-                    ? null
-                    : DateTime.now().add(opt.$2!);
+                final until =
+                    opt.$2 == null ? null : DateTime.now().add(opt.$2!);
                 await _writeMutedUntil(channelId, until);
                 ref.invalidate(_mutedUntilProvider);
                 ref.invalidate(_mutedChannelsProvider);

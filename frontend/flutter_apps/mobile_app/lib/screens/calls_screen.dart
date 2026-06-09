@@ -209,14 +209,66 @@ class _CallRow extends ConsumerWidget {
           style: TextStyle(color: statusColor, fontSize: 12),
         ),
       ]),
-      trailing: IconButton(
-        icon: Icon(isVideo ? Icons.videocam_outlined : Icons.call_outlined,
-            color: colors.brand),
-        tooltip: isVideo ? 'Video call back' : 'Call back',
-        onPressed: () =>
-            _ringBack(context, ref, header['id'] as String?, name, mode),
+      trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+        IconButton(
+          icon: Icon(Icons.note_alt_outlined,
+              color: (call['notes'] ?? '').toString().trim().isNotEmpty
+                  ? colors.warning
+                  : colors.textMuted),
+          tooltip: 'Call notes',
+          onPressed: () => _editNotes(context, ref),
+        ),
+        IconButton(
+          icon: Icon(isVideo ? Icons.videocam_outlined : Icons.call_outlined,
+              color: colors.brand),
+          tooltip: isVideo ? 'Video call back' : 'Call back',
+          onPressed: () =>
+              _ringBack(context, ref, header['id'] as String?, name, mode),
+        ),
+      ]),
+    );
+  }
+
+  Future<void> _editNotes(BuildContext context, WidgetRef ref) async {
+    final id = call['id']?.toString();
+    if (id == null) return;
+    final controller =
+        TextEditingController(text: (call['notes'] ?? '').toString());
+    final notes = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Call notes'),
+        content: TextField(
+          controller: controller,
+          minLines: 5,
+          maxLines: 10,
+          maxLength: 4000,
+          decoration: const InputDecoration(border: OutlineInputBorder()),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, controller.text),
+              child: const Text('Save')),
+        ],
       ),
     );
+    controller.dispose();
+    if (notes == null) return;
+    try {
+      await ref
+          .read(apiProvider)
+          .dio
+          .patch('/calls/$id/notes', data: {'notes': notes});
+      call['notes'] = notes;
+      if (context.mounted)
+        bestieToast(context, 'Call notes saved', kind: BestieToastKind.success);
+    } catch (e) {
+      if (context.mounted)
+        bestieToast(context, 'Could not save notes',
+            body: formatApiError(e), kind: BestieToastKind.error);
+    }
   }
 
   Future<void> _ringBack(BuildContext context, WidgetRef ref, String? userId,
@@ -242,9 +294,17 @@ class _CallRow extends ConsumerWidget {
                 : custom.toLowerCase().contains('leave')
                     ? 'on leave'
                     : 'busy';
+        if (status == 'ON_CALL' && res['waiting'] == true) {
+          if (context.mounted) {
+            bestieToast(context, 'Call waiting',
+                body: '$name can accept and add you to the current call.',
+                kind: BestieToastKind.info);
+          }
+          return;
+        }
         try {
           final tts = FlutterTts();
-          await tts.setSpeechRate(0.43);
+          await tts.setSpeechRate(0.36);
           await tts.speak('$name is $label. Please leave a message.');
         } catch (_) {}
         if (context.mounted) {

@@ -65,10 +65,22 @@ router.post(
         for (const participantId of req.body.participantIds) {
           io?.to(`user:${participantId}`).emit('call.waiting', {
             callId: result.call.id,
+            call: result.call,
+            mode,
             callerName: req.user.name,
             callerId: req.user.id,
+            activeCallId: result.targetPresence.activeCallId,
           });
         }
+        setTimeout(async () => {
+          const expired = await service.expireIfRinging({ callId: result.call.id }).catch(() => null);
+          if (!expired) return;
+          io?.to(`user:${result.call.initiatorId}`).emit('call.waiting.rejected', {
+            waitingCallId: result.call.id,
+            userName: 'Call waiting timeout',
+          });
+        }, 90 * 1000);
+        return res.status(202).json({ ...result, mode, waiting: true });
       }
       const missed = await service.expireIfRinging({ callId: result.call.id });
       return res.status(200).json({
@@ -248,6 +260,37 @@ router.post('/:id/busy', asyncHandler(async (req, res) => {
   res.json({ ok: true });
 }));
 
+router.post('/:id/waiting/accept', asyncHandler(async (req, res) => {
+  const result = await service.acceptWaitingCall({ waitingCallId: req.params.id, user: req.user });
+  for (const userId of result.addedUserIds) {
+    req.app.get('io')?.to(`user:${userId}`).emit('call.waiting.accepted', {
+      waitingCallId: result.waitingCallId,
+      call: result.activeCall,
+      mode: req.body?.mode || 'VOICE',
+      token: result.tokens[userId],
+    });
+  }
+  emitToCallParticipants(req.app.get('io'), result.activeCall, 'call.participants.updated', {
+    callId: result.activeCall.id,
+    call: result.activeCall,
+  });
+  res.json(result);
+}));
+
+router.post('/:id/waiting/reject', asyncHandler(async (req, res) => {
+  const result = await service.rejectWaitingCall({ waitingCallId: req.params.id, user: req.user });
+  req.app.get('io')?.to(`user:${result.call.initiatorId}`).emit('call.waiting.rejected', {
+    waitingCallId: result.waitingCallId,
+    userId: req.user.id,
+    userName: req.user.name,
+  });
+  emitToCallParticipants(req.app.get('io'), result.call, 'call.ended', {
+    callId: result.waitingCallId,
+    status: result.call.status,
+  });
+  res.json(result);
+}));
+
 router.post('/:id/buzzer', asyncHandler(async (req, res) => {
   const call = await prisma.call.findUnique({
     where: { id: req.params.id },
@@ -335,6 +378,63 @@ router.post(
       })
       .catch(() => {/* push is best-effort */});
     res.json(result);
+  })
+);
+
+router.post(
+  '/:id/transfer',
+  validate({ body: Joi.object({ targetUserId: Joi.string().required(), mode: Joi.string().valid('VOICE', 'VIDEO') }) }),
+  asyncHandler(async (req, res) => {
+    const result = await service.transfer({
+      callId: req.params.id,
+      targetUserId: req.body.targetUserId,
+      actor: req.user,
+    });
+    const mode = req.body.mode || 'VOICE';
+    req.app.get('io')?.to(`user:${result.targetUserId}`).emit('call.invited', {
+      call: result.call,
+      mode,
+      token: result.tokens[result.targetUserId],
+      transfer: true,
+    });
+    prisma.deviceToken
+      .findMany({ where: { userId: result.targetUserId } })
+      .then((devices) => {
+        if (!devices.length) return null;
+        return fcm.sendToTokens(devices.map((d) => d.token), {
+          title: `Transferred ${mode.toLowerCase()} call`,
+          body: `${req.user.name} transferred a call to you`,
+          data: {
+            type: 'call.incoming',
+            callId: result.call.id,
+            mode,
+            fromName: req.user.name,
+            apiBaseUrl: notificationActions.publicApiBaseUrl(),
+            actionToken: notificationActions.signAction(
+              { action: 'call.decline', userId: result.targetUserId, callId: result.call.id },
+              '2m'
+            ),
+          },
+        });
+      })
+      .catch(() => {});
+    emitToCallParticipants(req.app.get('io'), result.call, 'call.transferred', {
+      callId: result.call.id,
+      fromUserId: req.user.id,
+      fromName: req.user.name,
+      toUserId: result.targetUserId,
+      toName: result.targetName,
+    });
+    res.json(result);
+  })
+);
+
+router.patch(
+  '/:id/notes',
+  validate({ body: Joi.object({ notes: Joi.string().max(4000).allow('', null).required() }) }),
+  asyncHandler(async (req, res) => {
+    const call = await service.updateNotes({ callId: req.params.id, notes: req.body.notes, user: req.user });
+    res.json(call);
   })
 );
 

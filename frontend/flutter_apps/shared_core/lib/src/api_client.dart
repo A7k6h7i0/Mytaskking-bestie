@@ -96,6 +96,9 @@ class BestieApi {
     required String password,
     String? selfieBase64,
     String? selfieMimeType,
+    double? latitude,
+    double? longitude,
+    String? address,
   }) async {
     final r = await dio.post(
       '/auth/login',
@@ -105,6 +108,9 @@ class BestieApi {
         'loginSource': 'mobile',
         if (selfieBase64 != null) 'selfieBase64': selfieBase64,
         if (selfieMimeType != null) 'selfieMimeType': selfieMimeType,
+        if (latitude != null) 'latitude': latitude,
+        if (longitude != null) 'longitude': longitude,
+        if (address != null) 'address': address,
       },
     );
     await auth.setSession(

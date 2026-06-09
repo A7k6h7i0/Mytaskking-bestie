@@ -34,6 +34,9 @@ router.post(
       loginSource: Joi.string().valid('web', 'mobile').default('web'),
       selfieBase64: Joi.string().max(4500000).allow('', null),
       selfieMimeType: Joi.string().valid('image/jpeg', 'image/png').allow('', null),
+      latitude: Joi.number().min(-90).max(90).allow(null),
+      longitude: Joi.number().min(-180).max(180).allow(null),
+      address: Joi.string().max(500).allow('', null),
     }),
   }),
   asyncHandler(async (req, res) => {
@@ -47,6 +50,9 @@ router.post(
         loginSource: req.body.loginSource,
         selfieBase64: req.body.selfieBase64,
         selfieMimeType: req.body.selfieMimeType,
+        latitude: req.body.latitude,
+        longitude: req.body.longitude,
+        address: req.body.address,
       });
       audit.record({ actorId: result.user.id, kind: 'auth.login', entity: 'user', entityId: result.user.id, req });
       res.json(result);

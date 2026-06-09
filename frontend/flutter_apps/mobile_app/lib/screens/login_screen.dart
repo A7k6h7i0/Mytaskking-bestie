@@ -4,10 +4,12 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:geocoding/geocoding.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../state.dart';
+import 'front_selfie_capture.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -47,24 +49,64 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     try {
       final api = ref.read(apiProvider);
       final requiresSelfie = await api.loginRequiresSelfie(userId);
+      if (!mounted) return;
       if (requiresSelfie && _selfie == null) {
-        final photo = await ImagePicker().pickImage(
-          source: ImageSource.camera,
-          preferredCameraDevice: CameraDevice.front,
-          imageQuality: 55,
-          maxWidth: 800,
+        final photo = await Navigator.of(context).push<Uint8List>(
+          MaterialPageRoute(builder: (_) => const FrontSelfieCapture()),
         );
         if (photo == null) {
           throw 'A live selfie is required for employee sign-in.';
         }
-        _selfie = await photo.readAsBytes();
+        _selfie = photo;
         if (mounted) setState(() {});
+      }
+      double? latitude;
+      double? longitude;
+      String? address;
+      if (requiresSelfie) {
+        final enabled = await Geolocator.isLocationServiceEnabled();
+        if (!enabled) throw 'Turn on location to complete employee sign-in.';
+        var permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.denied) {
+          permission = await Geolocator.requestPermission();
+        }
+        if (permission == LocationPermission.denied ||
+            permission == LocationPermission.deniedForever) {
+          throw 'Location permission is required for employee sign-in.';
+        }
+        final position = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            timeLimit: Duration(seconds: 15),
+          ),
+        );
+        latitude = position.latitude;
+        longitude = position.longitude;
+        try {
+          final places = await placemarkFromCoordinates(latitude, longitude);
+          if (places.isNotEmpty) {
+            final p = places.first;
+            address = [
+              p.subLocality,
+              p.locality,
+              p.subAdministrativeArea,
+              p.administrativeArea,
+              p.postalCode,
+              p.country,
+            ].where((v) => v != null && v.trim().isNotEmpty).join(', ');
+          }
+        } catch (_) {
+          address = '$latitude, $longitude';
+        }
       }
       await api.login(
         userId: userId,
         password: _password.text,
         selfieBase64: _selfie == null ? null : base64Encode(_selfie!),
         selfieMimeType: _selfie == null ? null : 'image/jpeg',
+        latitude: latitude,
+        longitude: longitude,
+        address: address,
       );
       setState(() => _success = true);
       await Future.delayed(const Duration(milliseconds: 700));

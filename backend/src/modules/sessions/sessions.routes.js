@@ -20,7 +20,7 @@ router.get(
   '/users/:userId',
   requireAdmin,
   asyncHandler(async (req, res) => res.json({
-    items: await service.listForUser(req.params.userId, { includeSelfie: req.user.role === 'SUPER_ADMIN' }),
+    items: await service.listForUser(req.params.userId, { includeSelfie: ['SUPER_ADMIN', 'ADMIN'].includes(req.user.role) }),
   }))
 );
 
@@ -40,7 +40,7 @@ router.get(
   }),
   asyncHandler(async (req, res) => res.json(await service.listActivity({
     ...req.query,
-    includeSelfie: req.user.role === 'SUPER_ADMIN',
+    includeSelfie: ['SUPER_ADMIN', 'ADMIN'].includes(req.user.role),
   })))
 );
 

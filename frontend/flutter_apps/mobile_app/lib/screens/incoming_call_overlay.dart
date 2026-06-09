@@ -99,17 +99,26 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     final rt = ref.read(realtimeProvider);
     _unsubs.add(rt.onAny('call.incoming', ([data]) => _onIncoming(data)));
     _unsubs.add(rt.onAny('call.invited', ([data]) => _onIncoming(data)));
-    _unsubs.add(rt.onAny('call.waiting', ([data]) {
+    _unsubs.add(rt.onAny('call.waiting', ([data]) => _onWaiting(data)));
+    _unsubs.add(rt.onAny('call.waiting.accepted', ([data]) {
       if (data is! Map) return;
-      final caller = (data['callerName'] ?? 'Someone').toString();
-      _speak('$caller tried to call you while you are on another call.');
-      if (mounted) {
-        setState(() => _banner = {
-              'title': 'Call waiting',
-              'body': '$caller tried to call while you were busy.',
-              'kind': 'CALL',
-            });
-      }
+      final callId = (data['call'] as Map?)?['id']?.toString();
+      if (callId == null || callId.isEmpty) return;
+      _ringtone.stop();
+      _speak('Your call was accepted. Joining the conference.');
+      ref.read(routerProvider).go(
+          '/call/$callId?mode=${(data['mode'] ?? 'VOICE').toString().toLowerCase()}');
+    }));
+    _unsubs.add(rt.onAny('call.waiting.rejected', ([data]) {
+      if (data is! Map || !mounted) return;
+      _ringtone.stop();
+      final name = (data['userName'] ?? 'The person').toString();
+      _speak('$name rejected the waiting call.');
+      setState(() => _banner = {
+            'title': 'Call declined',
+            'body': '$name could not accept your waiting call.',
+            'kind': 'CALL',
+          });
     }));
     // Meeting invites get the same ringer treatment as a call so the user
     // can Accept and land directly inside the meeting room.
@@ -285,18 +294,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
         nextSlug != null && nextSlug.isNotEmpty && nextSlug == currentSlug;
     if (isSameCall || isSameMeeting) return;
     if (CallSession.isActive && nextCallId != null && nextCallId.isNotEmpty) {
-      ref.read(apiProvider).post('/calls/$nextCallId/busy').catchError(
-            (_) => <String, dynamic>{},
-          );
-      final caller = (call['initiator']?['name'] ?? 'Someone').toString();
-      _speak('$caller tried to call you while you are on another call.');
-      if (mounted) {
-        setState(() => _banner = {
-              'title': 'Call waiting',
-              'body': '$caller tried to call while you were busy.',
-              'kind': 'CALL',
-            });
-      }
+      _onWaiting({...Map<String, dynamic>.from(data), 'waiting': true});
       return;
     }
     if (_pending != null) {
@@ -327,11 +325,34 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     _speak('$caller is calling you. Please attend the call.');
   }
 
+  void _onWaiting(dynamic data) {
+    if (data is! Map || !mounted) return;
+    final call = (data['call'] as Map?)?.cast<String, dynamic>();
+    final callId = data['callId']?.toString() ?? call?['id']?.toString();
+    if (callId == null || callId.isEmpty) return;
+    final caller =
+        (data['callerName'] ?? call?['initiator']?['name'] ?? 'Someone')
+            .toString();
+    setState(() => _pending = {
+          ...Map<String, dynamic>.from(data),
+          'waiting': true,
+          'call': call ??
+              {
+                'id': callId,
+                'kind': 'ONE_TO_ONE',
+                'initiator': {'id': data['callerId'], 'name': caller},
+              },
+        });
+    _playRingtone();
+    _speak(
+        '$caller is calling. Accept to add them to your current call, or reject the call.');
+  }
+
   Future<void> _speak(String text) async {
     try {
       await _tts.setLanguage('en-US');
-      await _tts.setPitch(1.12);
-      await _tts.setSpeechRate(0.43);
+      await _tts.setPitch(1.02);
+      await _tts.setSpeechRate(0.36);
       await _tts.speak(text);
     } catch (_) {}
   }
@@ -434,10 +455,13 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
 
   Future<void> _decline() async {
     final id = _pending?['call']?['id']?.toString();
+    final waiting = _pending?['waiting'] == true;
     _dismiss();
     if (id == null) return;
     try {
-      await ref.read(apiProvider).post('/calls/$id/decline');
+      await ref
+          .read(apiProvider)
+          .post(waiting ? '/calls/$id/waiting/reject' : '/calls/$id/decline');
     } catch (_) {/* server still records timeout */}
   }
 
@@ -445,8 +469,27 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     final meetingSlug = _pending?['meetingSlug']?.toString();
     final callId = _pending?['call']?['id']?.toString();
     final mode = _modeFor(_pending);
+    final waiting = _pending?['waiting'] == true;
     if (meetingSlug == null && callId == null) {
       _dismiss();
+      return;
+    }
+    if (waiting && callId != null) {
+      _dismiss();
+      try {
+        await ref.read(apiProvider).post('/calls/$callId/waiting/accept',
+            body: {'mode': mode.toUpperCase()});
+        if (mounted) {
+          bestieToast(context, 'Caller added',
+              body: 'The waiting caller can now join this conference.',
+              kind: BestieToastKind.success);
+        }
+      } catch (e) {
+        if (mounted) {
+          bestieToast(context, 'Could not accept waiting call',
+              body: formatApiError(e), kind: BestieToastKind.error);
+        }
+      }
       return;
     }
     // Stop the ringtone + haptic immediately so the user gets instant

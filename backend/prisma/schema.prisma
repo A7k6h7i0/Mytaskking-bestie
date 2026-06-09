@@ -461,6 +461,7 @@ model Call {
   endedAt       DateTime?
   durationSeconds Int?                                  // validated talk duration (#7)
   recordingUrl  String?
+  notes         String?
   createdAt     DateTime       @default(now())
 
   @@index([initiatorId])
@@ -888,6 +889,9 @@ model Session {
   country      String?
   city         String?
   selfieUrl    String?
+  latitude     Float?
+  longitude    Float?
+  address      String?
   riskScore    Int           @default(0)                // 0–100 — populated by suspicious-login heuristic
   firstSeenAt  DateTime      @default(now())
   lastSeenAt   DateTime      @default(now())

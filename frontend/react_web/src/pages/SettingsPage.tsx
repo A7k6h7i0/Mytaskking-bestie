@@ -40,6 +40,9 @@ export default function SettingsPage() {
     checkOutHour: settings?.attendance?.checkOutHour ?? 18,
     minRequiredWords: settings?.attendance?.minRequiredWords ?? 100,
   });
+  const [calls, setCalls] = useState({
+    headOfficeName: settings?.calls?.headOfficeName ?? 'HQ India',
+  });
 
   useEffect(() => {
     if (!settings) return;
@@ -60,6 +63,7 @@ export default function SettingsPage() {
       checkOutHour: settings?.attendance?.checkOutHour ?? 18,
       minRequiredWords: settings?.attendance?.minRequiredWords ?? 100,
     });
+    setCalls({ headOfficeName: settings?.calls?.headOfficeName ?? 'HQ India' });
   }, [settings]);
 
   const saveMut = useMutation({
@@ -159,6 +163,19 @@ export default function SettingsPage() {
         {isAdmin && (
           <Button onClick={() => Object.entries(branding).forEach(([k, v]) => saveMut.mutate({ scope: 'branding', key: k, value: v }))}>
             Save branding
+          </Button>
+        )}
+      </section>
+
+      <section className="st__section">
+        <h2>Calling</h2>
+        <p className="st__subtle">This head-office label appears below the caller's designation.</p>
+        <div className="st__grid">
+          <Input label="Head office name" value={calls.headOfficeName} onChange={(e) => setCalls({ headOfficeName: e.target.value })} />
+        </div>
+        {isAdmin && (
+          <Button onClick={() => saveMut.mutate({ scope: 'calls', key: 'headOfficeName', value: calls.headOfficeName.trim() || 'HQ India' })}>
+            Save calling settings
           </Button>
         )}
       </section>
