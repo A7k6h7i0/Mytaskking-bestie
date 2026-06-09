@@ -347,7 +347,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   void _startAudioHealthCheck() {
     _audioHealthTimer?.cancel();
-    _audioHealthTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+    _audioHealthTimer = Timer.periodic(const Duration(seconds: 20), (_) {
       if (_joined) _reassertAudio();
     });
   }
@@ -3269,47 +3269,8 @@ class _FuturisticCallBackdropState extends State<_FuturisticCallBackdrop>
           ),
         ),
         Positioned.fill(
-          child: Transform.translate(
-            offset: Offset(
-              sin(_controller.value * pi * 2) * 38,
-              cos(_controller.value * pi * 2) * 24,
-            ),
-            child: const DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  center: Alignment(-0.72, -0.46),
-                  radius: 0.88,
-                  colors: [
-                    Color(0x8A176ED0),
-                    Color(0x4D0C4895),
-                    Color(0x0005152E),
-                  ],
-                  stops: [0, 0.48, 1],
-                ),
-              ),
-            ),
-          ),
-        ),
-        Positioned.fill(
-          child: Transform.translate(
-            offset: Offset(
-              cos((_controller.value + 0.28) * pi * 2) * 44,
-              sin((_controller.value + 0.28) * pi * 2) * 30,
-            ),
-            child: const DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  center: Alignment(0.82, 0.42),
-                  radius: 0.92,
-                  colors: [
-                    Color(0x701AA9E8),
-                    Color(0x40115BA8),
-                    Color(0x0005152E),
-                  ],
-                  stops: [0, 0.52, 1],
-                ),
-              ),
-            ),
+          child: CustomPaint(
+            painter: _SmokeBackdropPainter(progress: _controller.value),
           ),
         ),
         Positioned.fill(
@@ -3334,7 +3295,7 @@ class _FuturisticCallBackdropState extends State<_FuturisticCallBackdrop>
               gradient: RadialGradient(
                 center: Alignment(-0.9, 0.35),
                 radius: 1.2,
-                colors: [Color(0x4D006CFF), Color(0x00030A18)],
+                colors: [Color(0x5CCC166F), Color(0x00030A18)],
               ),
             ),
           ),
@@ -3354,6 +3315,66 @@ class _FuturisticCallBackdropState extends State<_FuturisticCallBackdrop>
       ]),
     );
   }
+}
+
+class _SmokeBackdropPainter extends CustomPainter {
+  final double progress;
+  const _SmokeBackdropPainter({required this.progress});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final phase = progress * pi * 2;
+    void cloud(Offset center, double radius, Color color, double blur) {
+      canvas.drawCircle(
+        center,
+        radius,
+        Paint()
+          ..color = color
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, blur),
+      );
+    }
+
+    cloud(
+      Offset(
+        size.width * 0.12 + sin(phase) * 18,
+        size.height * 0.24 + cos(phase * 0.72) * 22,
+      ),
+      size.shortestSide * 0.42,
+      const Color(0x493A56E8),
+      72,
+    );
+    cloud(
+      Offset(
+        size.width * 0.18 + cos(phase * 0.8) * 20,
+        size.height * 0.72 + sin(phase * 0.62) * 24,
+      ),
+      size.shortestSide * 0.38,
+      const Color(0x4ACC176F),
+      80,
+    );
+    cloud(
+      Offset(
+        size.width * 0.88 + cos(phase * 0.7) * 22,
+        size.height * 0.36 + sin(phase * 0.76) * 20,
+      ),
+      size.shortestSide * 0.44,
+      const Color(0x45118DFF),
+      82,
+    );
+    cloud(
+      Offset(
+        size.width * 0.76 + sin(phase * 0.58) * 18,
+        size.height * 0.86 + cos(phase * 0.68) * 20,
+      ),
+      size.shortestSide * 0.34,
+      const Color(0x3E8B1B7D),
+      74,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _SmokeBackdropPainter oldDelegate) =>
+      oldDelegate.progress != progress;
 }
 
 class _NeonMeshAvatar extends StatefulWidget {

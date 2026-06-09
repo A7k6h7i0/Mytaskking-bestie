@@ -11,8 +11,13 @@ const chatService = require('../modules/chat/chat.service');
 
 const presence = new Map(); // userId -> Set<socketId>
 
-function broadcastPresence(io, userId, online, lastSeenAt = new Date()) {
-  io.emit('presence.update', { userId, online, lastSeenAt });
+function broadcastPresence(io, userId, role, online, lastSeenAt = new Date()) {
+  const payload = { userId, online, lastSeenAt };
+  if (['ADMIN', 'SUPER_ADMIN'].includes(role)) {
+    io.to('role:ADMIN').to('role:SUPER_ADMIN').emit('presence.update', payload);
+    return;
+  }
+  io.emit('presence.update', payload);
 }
 
 module.exports = function initSockets(server) {
@@ -57,11 +62,12 @@ module.exports = function initSockets(server) {
     monitoring.trackSocketConnect();
     const userId = socket.user.id;
     socket.join(`user:${userId}`);
+    socket.join(`role:${socket.user.role}`);
 
     const connectedAt = new Date();
     if (!presence.has(userId)) {
       presence.set(userId, new Set());
-      broadcastPresence(io, userId, true, connectedAt);
+      broadcastPresence(io, userId, socket.user.role, true, connectedAt);
       cache.set(`presence:online:${userId}`, true).catch(() => {});
     }
     presence.get(userId).add(socket.id);
@@ -105,7 +111,10 @@ module.exports = function initSockets(server) {
     // Lightweight client-driven presence status — persisted by REST, but the
     // realtime burst goes here so peers see status changes immediately.
     socket.on('presence.set', ({ status, customStatus }) => {
-      io.emit('presence.status', {
+      const room = ['ADMIN', 'SUPER_ADMIN'].includes(socket.user.role)
+        ? io.to('role:ADMIN').to('role:SUPER_ADMIN')
+        : io;
+      room.emit('presence.status', {
         userId,
         status: status || 'ACTIVE',
         customStatus: customStatus || null,
@@ -158,7 +167,7 @@ module.exports = function initSockets(server) {
         if (set.size === 0) {
           presence.delete(userId);
           const lastSeenAt = new Date();
-          broadcastPresence(io, userId, false, lastSeenAt);
+          broadcastPresence(io, userId, socket.user.role, false, lastSeenAt);
           prisma.user.update({ where: { id: userId }, data: { lastSeenAt } }).catch(() => {});
           cache.del(`presence:online:${userId}`).catch(() => {});
         }

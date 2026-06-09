@@ -16,18 +16,21 @@ const memberUserSelect = {
   lastSeenAt: true,
 };
 
-async function withOnlineMembers(channel) {
+async function withOnlineMembers(channel, viewer) {
   if (!channel?.members?.length) return channel;
+  const viewerCanSeeAdminPresence = ['ADMIN', 'SUPER_ADMIN'].includes(viewer?.role);
   const members = await Promise.all(
     channel.members.map(async (member) => {
       if (!member.user) return member;
       const online = await cache.get(`presence:online:${member.user.id}`).catch(() => null);
+      const hidePresence =
+        !viewerCanSeeAdminPresence && ['ADMIN', 'SUPER_ADMIN'].includes(member.user.role);
       return {
         ...member,
         user: {
           ...member.user,
-          online: member.user.role === 'SUPER_ADMIN' ? false : online === true,
-          lastSeenAt: member.user.role === 'SUPER_ADMIN' ? null : member.user.lastSeenAt,
+          online: hidePresence ? false : online === true,
+          lastSeenAt: hidePresence ? null : member.user.lastSeenAt,
         },
       };
     })
@@ -87,7 +90,7 @@ async function listForUser(user) {
         },
       });
       const { messages, ...rest } = channel;
-      return withOnlineMembers({ ...rest, lastMessage: messages[0] || null, unreadCount });
+      return withOnlineMembers({ ...rest, lastMessage: messages[0] || null, unreadCount }, user);
     })
   );
 }
@@ -230,7 +233,7 @@ async function getById(id, user) {
   if (!channel.members.some((m) => m.userId === user.id) && !['SUPER_ADMIN', 'ADMIN'].includes(user.role)) {
     throw Forbidden('Not a member of this channel');
   }
-  return withOnlineMembers(channel);
+  return withOnlineMembers(channel, user);
 }
 
 async function addMembers(channelId, memberIds, actor) {

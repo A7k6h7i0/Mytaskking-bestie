@@ -135,9 +135,14 @@ export default function ChatPage() {
   const directPeerPresence = directPeer
     ? presenceByUser[directPeer.id] || { online: directPeer.online === true, lastSeenAt: directPeer.lastSeenAt }
     : null;
+  const hideDirectPeerPresence = !['ADMIN', 'SUPER_ADMIN'].includes(me.role)
+    && !!directPeer
+    && ['ADMIN', 'SUPER_ADMIN'].includes(directPeer.role);
   const activeTitle = active?.name || directPeer?.name || 'Direct message';
   const activeSubtitle = active?.kind === 'DM' && directPeer
-    ? directPeerPresence?.online
+    ? hideDirectPeerPresence
+      ? ''
+      : directPeerPresence?.online
       ? 'Online'
       : lastSeenLabel(directPeerPresence?.lastSeenAt)
     : active

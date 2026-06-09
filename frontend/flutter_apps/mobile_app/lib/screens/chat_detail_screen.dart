@@ -972,6 +972,15 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
           body: 'Loading channel info…', kind: BestieToastKind.info);
       return;
     }
+    if (!_canStartCalls) {
+      bestieToast(
+        context,
+        'Calling unavailable',
+        body: 'Only admins can start calls with administrators.',
+        kind: BestieToastKind.warning,
+      );
+      return;
+    }
     final me = ref.read(authStoreProvider).user;
     final members =
         (_channel!['members'] as List?)?.cast<Map<String, dynamic>>() ??
@@ -1143,6 +1152,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     switch (kind) {
       case 'DM':
         final other = _dmOtherUser();
+        if (_hideOtherPresence) return '';
         if (other?['online'] == true) return 'Online';
         return _lastSeenLabel(other?['lastSeenAt']?.toString());
       case 'CLIENT':
@@ -1163,6 +1173,29 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
       orElse: () => const {},
     );
     return (other['user'] as Map?)?.cast<String, dynamic>();
+  }
+
+  bool get _viewerIsAdmin {
+    final role = ref.read(authStoreProvider).user?.role;
+    return role == 'ADMIN' || role == 'SUPER_ADMIN';
+  }
+
+  bool get _hideOtherPresence {
+    final role = _dmOtherUser()?['role']?.toString();
+    return !_viewerIsAdmin && (role == 'ADMIN' || role == 'SUPER_ADMIN');
+  }
+
+  bool get _canStartCalls {
+    if (_viewerIsAdmin) return true;
+    final members =
+        (_channel?['members'] as List?)?.cast<Map<String, dynamic>>() ??
+            const [];
+    final me = ref.read(authStoreProvider).user;
+    return !members.any((member) {
+      if (member['userId'] == me?.id) return false;
+      final role = (member['user'] as Map?)?['role']?.toString();
+      return role == 'ADMIN' || role == 'SUPER_ADMIN';
+    });
   }
 
   bool get _canManageDmUser {
@@ -1760,16 +1793,18 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
               });
             },
           ),
-          IconButton(
-            icon: const Icon(Icons.call_outlined),
-            tooltip: 'Voice call',
-            onPressed: () => _startCall(kind: 'voice'),
-          ),
-          IconButton(
-            icon: const Icon(Icons.videocam_outlined),
-            tooltip: 'Video call',
-            onPressed: () => _startCall(kind: 'video'),
-          ),
+          if (_canStartCalls)
+            IconButton(
+              icon: const Icon(Icons.call_outlined),
+              tooltip: 'Voice call',
+              onPressed: () => _startCall(kind: 'voice'),
+            ),
+          if (_canStartCalls)
+            IconButton(
+              icon: const Icon(Icons.videocam_outlined),
+              tooltip: 'Video call',
+              onPressed: () => _startCall(kind: 'video'),
+            ),
           if (_canManageDmUser)
             IconButton(
               icon: Icon(

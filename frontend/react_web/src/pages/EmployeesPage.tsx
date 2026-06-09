@@ -32,6 +32,7 @@ export default function EmployeesPage() {
   const [form, setForm] = useState({ userId: '', password: '', name: '', role: 'EMPLOYEE', customTitle: '', email: '', supervisorIds: [] as string[] });
   const canCustomizeEmployeeName = user?.role === 'SUPER_ADMIN';
   const canManageEmployees = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
+  const viewerCanCallAdmins = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
   const passwordTooShort = form.password.length > 0 && form.password.length < 8;
   const selectedDesignation = useCustomDesignation || (form.customTitle && !EMPLOYEE_DESIGNATIONS.includes(form.customTitle)) ? 'CUSTOM' : form.customTitle;
 
@@ -230,14 +231,16 @@ export default function EmployeesPage() {
                 >
                   <MessageSquare size={14} /> Message
                 </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => startCallMut.mutate({ targetId: u.id, targetName: u.name })}
-                  disabled={startCallMut.isPending || u.id === user?.id}
-                >
-                  <Phone size={14} /> Call
-                </Button>
+                {(viewerCanCallAdmins || (u.role !== 'ADMIN' && u.role !== 'SUPER_ADMIN')) && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => startCallMut.mutate({ targetId: u.id, targetName: u.name })}
+                    disabled={startCallMut.isPending || u.id === user?.id}
+                  >
+                    <Phone size={14} /> Call
+                  </Button>
+                )}
                 {canManageEmployees && u.id !== user?.id && (
                   <Button
                     size="sm"

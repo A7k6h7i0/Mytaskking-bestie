@@ -50,6 +50,11 @@ class MainActivity : FlutterActivity() {
                             .cancel(CallForegroundService.NOTIFICATION_ID)
                         result.success(null)
                     }
+                    "cancelIncoming" -> {
+                        @Suppress("UNCHECKED_CAST")
+                        cancelIncomingNotification(call.arguments as? Map<String, Any?>)
+                        result.success(null)
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -108,6 +113,15 @@ class MainActivity : FlutterActivity() {
         if (intent == null || !intent.hasExtra("notificationId")) return
         val id = intent.getIntExtra("notificationId", -1)
         if (id != -1) getSystemService(NotificationManager::class.java).cancel(id)
+    }
+
+    private fun cancelIncomingNotification(args: Map<String, Any?>?) {
+        val key = args?.get("callId")?.toString()?.takeIf { it.isNotBlank() }
+            ?: args?.get("meetingSlug")?.toString()?.takeIf { it.isNotBlank() }
+            ?: return
+        getSystemService(NotificationManager::class.java).cancel(
+            BestieFirebaseMessagingService.notificationIdFor(key)
+        )
     }
 
     private fun startCallForegroundService(args: Map<String, Any?>?) {

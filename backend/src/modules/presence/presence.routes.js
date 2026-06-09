@@ -28,7 +28,11 @@ router.put(
       update: req.body,
       create: { userId: req.user.id, ...req.body },
     });
-    req.app.get('io')?.emit('presence.status', {
+    const io = req.app.get('io');
+    const audience = ['ADMIN', 'SUPER_ADMIN'].includes(req.user.role)
+      ? io?.to('role:ADMIN').to('role:SUPER_ADMIN')
+      : io;
+    audience?.emit('presence.status', {
       userId: req.user.id,
       status: row.status,
       customStatus: row.customStatus,
@@ -44,6 +48,7 @@ router.get(
   }),
   asyncHandler(async (req, res) => {
     const ids = req.query.userIds.split(',').filter(Boolean);
+    const viewerCanSeeAdminPresence = ['ADMIN', 'SUPER_ADMIN'].includes(req.user.role);
     const rows = await prisma.userPresence.findMany({ where: { userId: { in: ids } } });
     const users = await prisma.user.findMany({
       where: { id: { in: ids } },
@@ -51,14 +56,16 @@ router.get(
     });
     const lastSeenByUser = new Map(users.map((user) => [
       user.id,
-      user.role === 'SUPER_ADMIN' ? null : user.lastSeenAt,
+      !viewerCanSeeAdminPresence && ['ADMIN', 'SUPER_ADMIN'].includes(user.role)
+        ? null
+        : user.lastSeenAt,
     ]));
     const roleByUser = new Map(users.map((user) => [user.id, user.role]));
     const rowByUser = new Map(rows.map((row) => [row.userId, row]));
     const items = await Promise.all(
       ids.map(async (userId) => ({
         ...(rowByUser.get(userId) || { userId, status: 'ACTIVE', customStatus: null, expiresAt: null }),
-        online: roleByUser.get(userId) === 'SUPER_ADMIN'
+        online: !viewerCanSeeAdminPresence && ['ADMIN', 'SUPER_ADMIN'].includes(roleByUser.get(userId))
           ? false
           : (await cache.get(`presence:online:${userId}`).catch(() => null)) === true,
         lastSeenAt: lastSeenByUser.get(userId) || null,

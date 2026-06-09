@@ -177,6 +177,10 @@ class _CallRow extends ConsumerWidget {
     final kind = (call['kind'] ?? 'ONE_TO_ONE').toString();
     final mode = (call['mode'] ?? 'VIDEO').toString();
     final isVideo = mode == 'VIDEO';
+    final viewerIsAdmin = me?.role == 'ADMIN' || me?.role == 'SUPER_ADMIN';
+    final targetIsAdmin =
+        header['role'] == 'ADMIN' || header['role'] == 'SUPER_ADMIN';
+    final canCallBack = viewerIsAdmin || !targetIsAdmin;
 
     final Color statusColor = switch (status) {
       'MISSED' => colors.danger,
@@ -218,13 +222,14 @@ class _CallRow extends ConsumerWidget {
           tooltip: 'Call notes',
           onPressed: () => _editNotes(context, ref),
         ),
-        IconButton(
-          icon: Icon(isVideo ? Icons.videocam_outlined : Icons.call_outlined,
-              color: colors.brand),
-          tooltip: isVideo ? 'Video call back' : 'Call back',
-          onPressed: () =>
-              _ringBack(context, ref, header['id'] as String?, name, mode),
-        ),
+        if (canCallBack)
+          IconButton(
+            icon: Icon(isVideo ? Icons.videocam_outlined : Icons.call_outlined,
+                color: colors.brand),
+            tooltip: isVideo ? 'Video call back' : 'Call back',
+            onPressed: () =>
+                _ringBack(context, ref, header['id'] as String?, name, mode),
+          ),
       ]),
     );
   }

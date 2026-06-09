@@ -15,6 +15,8 @@ import 'call_screen.dart';
 
 final _incomingCallPushEvents =
     StreamController<Map<String, dynamic>>.broadcast();
+const _nativeCallNotificationChannel =
+    MethodChannel('mytaskking/call_notification');
 
 void showIncomingCallFromPush(Map<String, dynamic> data) {
   _incomingCallPushEvents.add(data);
@@ -47,6 +49,9 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
   final _customRingtone = AudioPlayer();
   final _tts = FlutterTts();
   bool _appResumed = true;
+  String? _acceptedCallId;
+  String? _acceptedMeetingSlug;
+  DateTime? _acceptedAt;
 
   @override
   void initState() {
@@ -328,6 +333,26 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     if (call == null) return;
     final nextCallId = call['id']?.toString();
     final nextSlug = data['meetingSlug']?.toString();
+    final acceptedRecently = _acceptedAt != null &&
+        DateTime.now().difference(_acceptedAt!) < const Duration(minutes: 2);
+    final isAcceptedCall = acceptedRecently &&
+        nextCallId != null &&
+        nextCallId.isNotEmpty &&
+        nextCallId == _acceptedCallId;
+    final isAcceptedMeeting = acceptedRecently &&
+        nextSlug != null &&
+        nextSlug.isNotEmpty &&
+        nextSlug == _acceptedMeetingSlug;
+    if (isAcceptedCall ||
+        isAcceptedMeeting ||
+        CallSession.matches(nextCallId, nextSlug)) {
+      _stopIncomingAlert();
+      _cancelNativeIncomingNotification(
+        callId: nextCallId,
+        meetingSlug: nextSlug,
+      );
+      return;
+    }
     final currentCallId = _pending?['call']?['id']?.toString();
     final currentSlug = _pending?['meetingSlug']?.toString();
     final isSameCall = nextCallId != null &&
@@ -490,17 +515,35 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
   }
 
   void _dismiss() {
+    _stopIncomingAlert();
+    if (mounted) setState(() => _pending = null);
+  }
+
+  void _stopIncomingAlert() {
     _autoMiss?.cancel();
     _hapticTimer?.cancel();
     _ringtone.stop();
     _customRingtone.stop();
     _tts.stop();
-    if (mounted) setState(() => _pending = null);
+  }
+
+  Future<void> _cancelNativeIncomingNotification({
+    String? callId,
+    String? meetingSlug,
+  }) async {
+    try {
+      await _nativeCallNotificationChannel.invokeMethod('cancelIncoming', {
+        'callId': callId,
+        'meetingSlug': meetingSlug,
+      });
+    } catch (_) {/* best effort on non-Android platforms */}
   }
 
   Future<void> _decline() async {
     final id = _pending?['call']?['id']?.toString();
+    final meetingSlug = _pending?['meetingSlug']?.toString();
     final waiting = _pending?['waiting'] == true;
+    _cancelNativeIncomingNotification(callId: id, meetingSlug: meetingSlug);
     _dismiss();
     if (id == null) return;
     try {
@@ -520,6 +563,9 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
       return;
     }
     if (waiting && callId != null) {
+      _acceptedCallId = callId;
+      _acceptedAt = DateTime.now();
+      _cancelNativeIncomingNotification(callId: callId);
       _dismiss();
       try {
         await ref.read(apiProvider).post('/calls/$callId/waiting/accept',
@@ -543,10 +589,14 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     // screen. Tearing the overlay down *before* navigation has occasionally
     // left the user back on /chat — this ordering is the bullet-proof
     // version.
-    _autoMiss?.cancel();
-    _hapticTimer?.cancel();
-    _ringtone.stop();
-    _customRingtone.stop();
+    _acceptedCallId = callId;
+    _acceptedMeetingSlug = meetingSlug;
+    _acceptedAt = DateTime.now();
+    _stopIncomingAlert();
+    _cancelNativeIncomingNotification(
+      callId: callId,
+      meetingSlug: meetingSlug,
+    );
     final target = meetingSlug != null
         ? '/meeting/$meetingSlug?mode=$mode'
         : '/call/$callId?mode=$mode';

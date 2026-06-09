@@ -318,6 +318,20 @@ class ChatListScreen extends ConsumerWidget {
         return ch;
       },
       onStartCall: (user, mode) async {
+        final targetRole = user['role']?.toString();
+        final viewerIsAdmin = me?.role == 'ADMIN' || me?.role == 'SUPER_ADMIN';
+        if (!viewerIsAdmin &&
+            (targetRole == 'ADMIN' || targetRole == 'SUPER_ADMIN')) {
+          if (context.mounted) {
+            bestieToast(
+              context,
+              'Calling unavailable',
+              body: 'Only admins can start calls with administrators.',
+              kind: BestieToastKind.warning,
+            );
+          }
+          return;
+        }
         final res = await api.initiateCall(
           participantIds: [user['id'].toString()],
           kind: 'ONE_TO_ONE',

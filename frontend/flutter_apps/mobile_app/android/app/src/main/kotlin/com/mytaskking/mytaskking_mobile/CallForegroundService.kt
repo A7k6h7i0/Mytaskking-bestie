@@ -9,9 +9,11 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.net.wifi.WifiManager
 
 class CallForegroundService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
@@ -21,14 +23,34 @@ class CallForegroundService : Service() {
 
         createChannel()
         acquireWakeLock()
+        acquireWifiLock()
         startForeground(NOTIFICATION_ID, buildNotification(intent))
-        return START_NOT_STICKY
+        return START_STICKY
     }
 
     override fun onDestroy() {
         if (wakeLock?.isHeld == true) wakeLock?.release()
         wakeLock = null
+        if (wifiLock?.isHeld == true) wifiLock?.release()
+        wifiLock = null
         super.onDestroy()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun acquireWifiLock() {
+        if (wifiLock?.isHeld == true) return
+        try {
+            val wifi = applicationContext.getSystemService(WifiManager::class.java)
+            wifiLock = wifi.createWifiLock(
+                WifiManager.WIFI_MODE_FULL_HIGH_PERF,
+                "mytaskking:active_call_wifi"
+            ).apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+        } catch (_: Exception) {
+            wifiLock = null
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

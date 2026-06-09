@@ -80,6 +80,18 @@ async function postCallEventMessage({ call, kind, actor }) {
 
 async function initiate({ initiator, participantIds, kind = 'ONE_TO_ONE', channelId = null }) {
   if (!participantIds || participantIds.length === 0) throw BadRequest('Need at least one participant');
+  const uniqueParticipantIds = [...new Set(participantIds.filter(Boolean))];
+  if (!['ADMIN', 'SUPER_ADMIN'].includes(initiator.role)) {
+    const protectedTargets = await prisma.user.count({
+      where: {
+        id: { in: uniqueParticipantIds },
+        role: { in: ['ADMIN', 'SUPER_ADMIN'] },
+      },
+    });
+    if (protectedTargets > 0) {
+      throw Forbidden('Only admins can call administrators');
+    }
+  }
   const realKind = participantIds.length > 1 ? 'GROUP' : kind;
   let targetPresence = null;
   if (realKind === 'ONE_TO_ONE' && participantIds.length === 1) {
@@ -428,10 +440,18 @@ async function rejectWaitingCall({ waitingCallId, user }) {
 
 async function transfer({ callId, targetUserId, actor }) {
   if (targetUserId === actor.id) throw BadRequest('Choose another person');
-  const [result, target] = await Promise.all([
-    addParticipant({ callId, userIds: [targetUserId], actor }),
-    prisma.user.findUnique({ where: { id: targetUserId }, select: { id: true, name: true } }),
-  ]);
+  const target = await prisma.user.findUnique({
+    where: { id: targetUserId },
+    select: { id: true, name: true, role: true },
+  });
+  if (!target) throw NotFound('Target user not found');
+  if (
+    !['ADMIN', 'SUPER_ADMIN'].includes(actor.role) &&
+    ['ADMIN', 'SUPER_ADMIN'].includes(target.role)
+  ) {
+    throw Forbidden('Only admins can transfer calls to administrators');
+  }
+  const result = await addParticipant({ callId, userIds: [targetUserId], actor });
   return {
     ...result,
     targetUserId,

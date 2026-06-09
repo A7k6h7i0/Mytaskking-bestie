@@ -231,10 +231,6 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
         }
     }
 
-    private fun notificationIdFor(value: String): Int {
-        return value.hashCode().let { if (it == Int.MIN_VALUE) 1 else kotlin.math.abs(it) }
-    }
-
     private fun mutablePendingIntentFlag(): Int {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             PendingIntent.FLAG_MUTABLE
@@ -276,6 +272,10 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
         const val CALLS_CHANNEL_ID = "calls"
         private const val MESSAGES_CHANNEL_ID = "messages"
         private const val EMERGENCY_CHANNEL_ID = "emergency"
+
+        fun notificationIdFor(value: String): Int {
+            return value.hashCode().let { if (it == Int.MIN_VALUE) 1 else kotlin.math.abs(it) }
+        }
 
         fun createEmergencyNotificationChannel(context: Context) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
