@@ -555,6 +555,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   Future<void> _playRingback() async {
+    if (!_isCallInitiator || _isMeeting) return;
     try {
       final url = _ringingSoundUrl;
       if (url != null && url.isNotEmpty) {
@@ -1046,6 +1047,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
           _remoteClosed) {
         return;
       }
+      if (!_isCallInitiator) return;
       await _playRingback();
     } catch (_) {}
   }
