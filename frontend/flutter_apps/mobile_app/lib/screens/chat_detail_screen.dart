@@ -1015,6 +1015,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
       final busy = (res['targetPresence'] as Map?)?.cast<String, dynamic>();
       if (busy != null && ch == 'ONE_TO_ONE') {
         if (busy['status'] == 'ON_CALL' && res['waiting'] == true) {
+          unawaited(_announceAvailability(_headerTitle(), busy));
           if (mounted) {
             bestieToast(context, 'Call waiting',
                 body:
@@ -1042,9 +1043,11 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
       String name, Map<String, dynamic> presence) async {
     final status = (presence['status'] ?? 'BUSY').toString();
     final custom = (presence['customStatus'] ?? '').toString().trim();
+    final callBusy =
+        status == 'ON_CALL' || custom.toLowerCase().contains('another call');
     final label = status == 'IN_MEETING'
         ? 'currently in a meeting'
-        : status == 'ON_CALL'
+        : callBusy
             ? 'currently on another call'
             : custom.toLowerCase().contains('lunch')
                 ? 'currently at lunch'
@@ -1053,7 +1056,9 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                     : status == 'INVISIBLE'
                         ? 'currently away'
                         : 'currently busy with work';
-    final text = '$name is $label. Please leave a message.';
+    final text = callBusy
+        ? '$name is $label. Please call again later.'
+        : '$name is $label. Please leave a message.';
     try {
       final tts = FlutterTts();
       await tts.setSpeechRate(0.36);
@@ -2055,10 +2060,13 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                       ? _UnreadDivider(count: _unreadAtOpen, colors: colors)
                       : null;
 
+                  // Items inside a reversed ListView keep their normal child
+                  // order. Put dividers before the bubble so the first message
+                  // of a new day appears below "Today", not above it.
                   final extras = <Widget>[
-                    bubble,
-                    if (unreadDivider != null) unreadDivider,
                     if (divider != null) divider,
+                    if (unreadDivider != null) unreadDivider,
+                    bubble,
                   ];
                   if (extras.length == 1) return bubble;
                   return Column(

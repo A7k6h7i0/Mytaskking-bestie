@@ -17,8 +17,11 @@ import 'package:permission_handler/permission_handler.dart';
 import '../active_call_state.dart';
 import '../router.dart';
 import '../state.dart';
+import '../widgets/call_screen_design.dart';
 
 const _callNotificationChannel = MethodChannel('mytaskking/call_notification');
+const _kPremiumControlGridWidth = 354.0;
+const _kPremiumControlColumnGap = 10.0;
 
 /// Live audio/video call view powered by Agora RTC.
 ///
@@ -239,9 +242,14 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final rt = ref.read(realtimeProvider);
     _callUnsubs.add(rt.onAny('call.declined', ([data]) {
       if (data is! Map || data['callId'] != callId) return;
-      final me = ref.read(authStoreProvider).user;
-      if (data['userId'] == me?.id) return;
-      _endBecauseRemoteClosed();
+      // `call.ended` is the authoritative terminal event. A decline inside a
+      // group call removes only that participant and must not tear down every
+      // other participant's live session.
+      final status = data['status']?.toString();
+      if (status == 'ENDED' || status == 'MISSED') {
+        _ringtone.stop();
+        _tonePlayer.stop();
+      }
     }));
     _callUnsubs.add(rt.onAny('call.ended', ([data]) {
       if (data is! Map || data['callId'] != callId) return;
@@ -985,6 +993,31 @@ class _CallScreenState extends ConsumerState<CallScreen>
     }
   }
 
+  Future<void> _setAudioRoute(CallAudioRoute route) async {
+    final next = _route == route ? CallAudioRoute.earpiece : route;
+    if (mounted) {
+      setState(() => _route = next);
+    } else {
+      _route = next;
+    }
+    await _applyAudioRoute(next);
+    if (mounted) {
+      bestieToast(
+        context,
+        _audioRouteLabel(next),
+        kind: BestieToastKind.info,
+      );
+    }
+  }
+
+  Future<void> _toggleSpeakerRoute() async {
+    await _setAudioRoute(CallAudioRoute.speaker);
+  }
+
+  Future<void> _toggleBluetoothRoute() async {
+    await _setAudioRoute(CallAudioRoute.bluetooth);
+  }
+
   String _audioRouteLabel(CallAudioRoute r) => switch (r) {
         CallAudioRoute.earpiece => 'Earpiece',
         CallAudioRoute.speaker => 'Speaker',
@@ -1284,6 +1317,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final bottomInset = MediaQuery.of(context).padding.bottom;
     final topInset = MediaQuery.of(context).padding.top;
     final showingVideo = _isVideo && _remoteUids.isNotEmpty;
+    final useExactVoicePrototype =
+        !_isMeeting && !showingVideo && _remoteUids.length <= 1;
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
@@ -1291,194 +1326,377 @@ class _CallScreenState extends ConsumerState<CallScreen>
       },
       child: Scaffold(
         backgroundColor: Colors.black,
-        body: Stack(children: [
-          // Depth backdrop — a soft vertical gradient so voice calls aren't a
-          // flat black void (WhatsApp does the same). Hidden once real remote
-          // video fills the screen.
-          if (!showingVideo)
-            const Positioned.fill(child: _FuturisticCallBackdrop()),
-          Positioned.fill(child: _remoteSurface()),
+        body: useExactVoicePrototype
+            ? _exactPrototypeVoiceBody()
+            : Stack(children: [
+                // Depth backdrop — a soft vertical gradient so voice calls aren't a
+                // flat black void (WhatsApp does the same). Hidden once real remote
+                // video fills the screen.
+                if (!showingVideo)
+                  const Positioned.fill(child: _FuturisticCallBackdrop()),
+                Positioned.fill(child: _remoteSurface()),
 
-          // Top scrim for header legibility over video.
-          if (showingVideo)
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: IgnorePointer(
-                child: Container(
-                  height: topInset + 110,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.black.withOpacity(0.55),
-                        Colors.transparent
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          // Bottom scrim for control legibility over video.
-          if (showingVideo)
-            Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
-              child: IgnorePointer(
-                child: Container(
-                  height: bottomInset + 160,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.bottomCenter,
-                      end: Alignment.topCenter,
-                      colors: [
-                        Colors.black.withOpacity(0.6),
-                        Colors.transparent
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-
-          // Self-view PiP — rounded, shadowed, tap to flip camera.
-          if (_isVideo && _joined && !_cameraOff)
-            Positioned(
-              right: 14,
-              top: topInset + 64,
-              width: 104,
-              height: 150,
-              child: GestureDetector(
-                onTap: _flipCamera,
-                child: Container(
-                  clipBehavior: Clip.antiAlias,
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                        color: Colors.white.withOpacity(0.2), width: 1),
-                    borderRadius: BorderRadius.circular(18),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.4),
-                        blurRadius: 16,
-                        offset: const Offset(0, 6),
-                      ),
-                    ],
-                  ),
-                  child: _engine != null
-                      ? AgoraVideoView(
-                          controller: VideoViewController(
-                          rtcEngine: _engine!,
-                          canvas: const VideoCanvas(uid: 0),
-                        ))
-                      : const SizedBox.shrink(),
-                ),
-              ),
-            ),
-
-          Positioned(top: topInset + 8, left: 8, right: 8, child: _header()),
-          // Premium status chips (HD Voice / Network / Secure calling) — voice calls
-          // only, matching the redesigned call screen.
-          if (!_isMeeting && !showingVideo)
-            Positioned(
-              top: topInset + 58,
-              left: 16,
-              right: 16,
-              child: IgnorePointer(child: _topChips()),
-            ),
-          if (_muteStatusText() != null)
-            Positioned(
-              top: topInset + 62,
-              left: 20,
-              right: 20,
-              child: IgnorePointer(
-                child: Center(
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.62),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.white24),
-                    ),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      const Icon(Icons.mic_off_rounded,
-                          color: Color(0xFFFBBF24), size: 15),
-                      const SizedBox(width: 7),
-                      Flexible(
-                        child: Text(
-                          _muteStatusText()!,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: BestieTokens.fwSemibold,
+                // Top scrim for header legibility over video.
+                if (showingVideo)
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: IgnorePointer(
+                      child: Container(
+                        height: topInset + 110,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.black.withOpacity(0.55),
+                              Colors.transparent
+                            ],
                           ),
                         ),
                       ),
-                    ]),
-                  ),
-                ),
-              ),
-            ),
-          // Network-trouble banner — keeps the call UI visible (never blanks)
-          // and tells the user to check their connection while Agora reconnects.
-          if (_reconnecting && _error == null)
-            Positioned(
-              top: topInset + (_muteStatusText() == null ? 64 : 104),
-              left: 16,
-              right: 16,
-              child: IgnorePointer(
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFB45309).withOpacity(0.95),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: const [
-                    SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation(Colors.white)),
                     ),
-                    SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Reconnecting… check your internet connection',
-                        style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 12.5,
-                            fontWeight: BestieTokens.fwSemibold),
+                  ),
+                // Bottom scrim for control legibility over video.
+                if (showingVideo)
+                  Positioned(
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    child: IgnorePointer(
+                      child: Container(
+                        height: bottomInset + 160,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.bottomCenter,
+                            end: Alignment.topCenter,
+                            colors: [
+                              Colors.black.withOpacity(0.6),
+                              Colors.transparent
+                            ],
+                          ),
+                        ),
                       ),
                     ),
-                  ]),
+                  ),
+
+                // Self-view PiP — rounded, shadowed, tap to flip camera.
+                if (_isVideo && _joined && !_cameraOff)
+                  Positioned(
+                    right: 14,
+                    top: topInset + 64,
+                    width: 104,
+                    height: 150,
+                    child: GestureDetector(
+                      onTap: _flipCamera,
+                      child: Container(
+                        clipBehavior: Clip.antiAlias,
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                              color: Colors.white.withOpacity(0.2), width: 1),
+                          borderRadius: BorderRadius.circular(18),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.4),
+                              blurRadius: 16,
+                              offset: const Offset(0, 6),
+                            ),
+                          ],
+                        ),
+                        child: _engine != null
+                            ? AgoraVideoView(
+                                controller: VideoViewController(
+                                rtcEngine: _engine!,
+                                canvas: const VideoCanvas(uid: 0),
+                              ))
+                            : const SizedBox.shrink(),
+                      ),
+                    ),
+                  ),
+
+                Positioned(
+                    top: topInset + 8, left: 8, right: 8, child: _header()),
+                // Premium status chips (HD Voice / Network / Secure calling) — voice calls
+                // only, matching the redesigned call screen.
+                if (!_isMeeting && !showingVideo)
+                  Positioned(
+                    top: topInset + 58,
+                    left: 16,
+                    right: 16,
+                    child: IgnorePointer(child: _topChips()),
+                  ),
+                if (_muteStatusText() != null)
+                  Positioned(
+                    top: topInset + 62,
+                    left: 20,
+                    right: 20,
+                    child: IgnorePointer(
+                      child: Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 7),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.62),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: Colors.white24),
+                          ),
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                            const Icon(Icons.mic_off_rounded,
+                                color: Color(0xFFFBBF24), size: 15),
+                            const SizedBox(width: 7),
+                            Flexible(
+                              child: Text(
+                                _muteStatusText()!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: BestieTokens.fwSemibold,
+                                ),
+                              ),
+                            ),
+                          ]),
+                        ),
+                      ),
+                    ),
+                  ),
+                // Network-trouble banner — keeps the call UI visible (never blanks)
+                // and tells the user to check their connection while Agora reconnects.
+                if (_reconnecting && _error == null)
+                  Positioned(
+                    top: topInset + (_muteStatusText() == null ? 64 : 104),
+                    left: 16,
+                    right: 16,
+                    child: IgnorePointer(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFB45309).withOpacity(0.95),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: const [
+                              SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor:
+                                        AlwaysStoppedAnimation(Colors.white)),
+                              ),
+                              SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  'Reconnecting… check your internet connection',
+                                  style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 12.5,
+                                      fontWeight: BestieTokens.fwSemibold),
+                                ),
+                              ),
+                            ]),
+                      ),
+                    ),
+                  ),
+                // Controls fade + slide up on entrance.
+                Positioned(
+                  bottom: 22 + bottomInset,
+                  left: 0,
+                  right: 0,
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween(begin: 0, end: 1),
+                    duration: const Duration(milliseconds: 320),
+                    curve: Curves.easeOutCubic,
+                    builder: (ctx, v, child) => Opacity(
+                      opacity: v,
+                      child: Transform.translate(
+                          offset: Offset(0, (1 - v) * 24), child: child),
+                    ),
+                    child: _controls(),
+                  ),
+                ),
+              ]),
+      ),
+    );
+  }
+
+  Widget _exactPrototypeVoiceBody() {
+    final remoteName = _remoteUids.isNotEmpty
+        ? (_remoteNames[_remoteUids.first] ?? 'Participant')
+        : _callDisplayTitle();
+    final subtitle = _callDisplaySubtitle() ?? 'Senior Product Manager';
+    final timerLine = _connectedAt != null ? _formatElapsed(_elapsed) : _status;
+    final timerColor = _connectedAt != null
+        ? CallScreenUiColors.neonGreen
+        : _status.toLowerCase().contains('ring')
+            ? const Color(0xFFFFB020)
+            : CallScreenUiColors.textPrimary;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Container(
+          width: constraints.maxWidth,
+          height: constraints.maxHeight,
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                CallScreenUiColors.backgroundTop,
+                CallScreenUiColors.backgroundMid,
+                CallScreenUiColors.backgroundBottom,
+              ],
+              stops: [0.0, 0.45, 1.0],
+            ),
+          ),
+          child: Center(
+            child: FittedBox(
+              fit: BoxFit.contain,
+              child: SizedBox(
+                width: 390,
+                height: 844,
+                child: SafeArea(
+                  bottom: false,
+                  child: Column(
+                    children: [
+                      _callHeader(),
+                      const SizedBox(height: 12),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: _topChips(),
+                      ),
+                      if (_muteStatusText() != null) ...[
+                        const SizedBox(height: 8),
+                        _prototypeMuteBanner(_muteStatusText()!),
+                      ],
+                      if (_reconnecting && _error == null) ...[
+                        const SizedBox(height: 8),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 16),
+                          child: _PrototypeReconnectBanner(),
+                        ),
+                      ],
+                      const SizedBox(height: 6),
+                      Text(
+                        timerLine,
+                        style: TextStyle(
+                          color: timerColor,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 1.5,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      _CallUiAvatarStage(
+                        name: remoteName,
+                        imageUrl: _callDisplayAvatarUrl(),
+                        connected: _connectedAt != null,
+                        height: 218,
+                      ),
+                      const SizedBox(height: 3),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Column(
+                          children: [
+                            Text(
+                              remoteName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: CallScreenUiColors.textPrimary,
+                                fontSize: 26,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: -0.3,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              subtitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: CallScreenUiColors.textSecondary,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w400,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _headOfficeName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: CallScreenUiColors.textMuted,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w400,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Expanded(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.center,
+                          child: SizedBox(
+                            width: _kPremiumControlGridWidth,
+                            child: _premiumCallControlsCore(),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+                  ),
                 ),
               ),
             ),
-          // Controls fade + slide up on entrance.
-          Positioned(
-            bottom: 22 + bottomInset,
-            left: 0,
-            right: 0,
-            child: TweenAnimationBuilder<double>(
-              tween: Tween(begin: 0, end: 1),
-              duration: const Duration(milliseconds: 320),
-              curve: Curves.easeOutCubic,
-              builder: (ctx, v, child) => Opacity(
-                opacity: v,
-                child: Transform.translate(
-                    offset: Offset(0, (1 - v) * 24), child: child),
-              ),
-              child: _controls(),
-            ),
           ),
-        ]),
+        );
+      },
+    );
+  }
+
+  Widget _prototypeMuteBanner(String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.62),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.white24),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(
+              Icons.mic_off_rounded,
+              color: Color(0xFFFBBF24),
+              size: 15,
+            ),
+            const SizedBox(width: 7),
+            Flexible(
+              child: Text(
+                text,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: BestieTokens.fwSemibold,
+                ),
+              ),
+            ),
+          ]),
+        ),
       ),
     );
   }
@@ -1510,6 +1728,68 @@ class _CallScreenState extends ConsumerState<CallScreen>
             shape: BoxShape.circle,
           ),
           child: Icon(icon, color: Colors.white, size: 20),
+        ),
+      ),
+    );
+  }
+
+  Widget _callHeaderGlassButton({
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: CallUiGlassContainer(
+          borderRadius: 12,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          child: SizedBox(
+            width: 34,
+            height: 18,
+            child: Center(
+              child: Icon(
+                icon,
+                color: CallScreenUiColors.textPrimary,
+                size: 18,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _callHeaderParticipantsButton() {
+    final count = max(1, 1 + _remoteUids.length);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: _showParticipants,
+        borderRadius: BorderRadius.circular(12),
+        child: CallUiGlassContainer(
+          borderRadius: 12,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.group_outlined,
+                color: CallScreenUiColors.textPrimary,
+                size: 18,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                '$count',
+                style: const TextStyle(
+                  color: CallScreenUiColors.textPrimary,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1563,32 +1843,36 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final showingVideo = _isVideo && _remoteUids.isNotEmpty;
     if (!showingVideo) {
       return Padding(
-        padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
         child: Row(children: [
-          _circleHeaderIcon(Icons.keyboard_arrow_down_rounded, _minimize,
-              tooltip: 'Minimize'),
+          _callHeaderGlassButton(
+            icon: Icons.keyboard_arrow_down_rounded,
+            onTap: _minimize,
+          ),
           Expanded(
             child: Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const Row(mainAxisSize: MainAxisSize.min, children: [
+                    CallUiBrandLogo(size: 34),
+                    SizedBox(width: 6),
                     Text('MyTaskKing',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontWeight: BestieTokens.fwBold,
+                          color: CallScreenUiColors.textPrimary,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: -0.2,
                         )),
                     SizedBox(width: 5),
                     Icon(Icons.verified_rounded,
-                        color: Color(0xFF38BDF8), size: 17),
+                        color: CallScreenUiColors.verifiedBlue, size: 16),
                   ]),
                 ]),
           ),
-          _circleHeaderIcon(Icons.person_add_alt_1_rounded, _showInvite,
-              tooltip: 'Invite'),
+          _callHeaderParticipantsButton(),
         ]),
       );
     }
@@ -2570,116 +2854,90 @@ class _CallScreenState extends ConsumerState<CallScreen>
   Widget _voiceCallStage(String remoteName) {
     final subtitle = _callDisplaySubtitle();
     final connected = _connectedAt != null;
+    final statusText = connected ? _formatElapsed(_elapsed) : _status;
+    final statusColor = connected
+        ? CallScreenUiColors.neonGreen
+        : _status.toLowerCase().contains('ring')
+            ? const Color(0xFFFFB020)
+            : CallScreenUiColors.textPrimary;
     return LayoutBuilder(
       builder: (context, constraints) {
-        final compact = constraints.maxHeight < 760;
-        final veryCompact = constraints.maxHeight < 660;
-        final topPadding = veryCompact ? 54.0 : (compact ? 72.0 : 106.0);
-        final bottomPadding = veryCompact ? 190.0 : (compact ? 238.0 : 294.0);
-        final profileHeight = max(
-          200.0,
-          min(
-            290.0,
-            constraints.maxHeight - topPadding - bottomPadding - 155,
-          ),
-        );
+        final compact =
+            constraints.maxHeight < 760 || constraints.maxWidth < 380;
+        final profileHeight = compact ? 198.0 : 218.0;
+        final topPadding = compact ? 120.0 : 132.0;
+        final bottomPadding = compact ? 208.0 : 236.0;
         return Padding(
           padding: EdgeInsets.fromLTRB(
-            0,
+            16,
             topPadding,
-            0,
+            16,
             bottomPadding,
           ),
           child: Center(
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              SizedBox(
-                width: constraints.maxWidth,
-                height: profileHeight,
-                child: _NeonMeshAvatar(
-                  name: remoteName,
-                  imageUrl: _callDisplayAvatarUrl(),
-                  connected: connected,
-                  size: constraints.maxWidth,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  Text(
-                    remoteName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 26,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.5,
-                      shadows: [
-                        Shadow(color: Color(0x6600CFFF), blurRadius: 14),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    subtitle ?? 'Senior Product Manager',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Color(0xFFC7D2EB),
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    _headOfficeName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Color(0xFF7894BC),
-                      fontSize: 13,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ]),
-              ),
-              const SizedBox(height: 12),
-              Row(mainAxisSize: MainAxisSize.min, children: [
-                Icon(Icons.graphic_eq_rounded,
-                    size: 15,
-                    color:
-                        connected ? const Color(0xFF3CFF9A) : Colors.white54),
-                const SizedBox(width: 6),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 390),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
                 Text(
-                  connected ? 'ACTIVE CALL' : _status.toUpperCase(),
+                  statusText,
                   style: TextStyle(
-                    color: connected
-                        ? const Color(0xFF3CFF9A)
-                        : _status.toLowerCase().contains('ring')
-                            ? const Color(0xFFFFB020)
-                            : const Color(0xFFFF5B6E),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1.6,
+                    color: statusColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1.5,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  height: profileHeight,
+                  child: _CallUiAvatarStage(
+                    name: remoteName,
+                    imageUrl: _callDisplayAvatarUrl(),
+                    connected: connected,
+                    height: profileHeight,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  remoteName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: CallScreenUiColors.textPrimary,
+                    fontSize: 26,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle ?? 'Senior Product Manager',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: CallScreenUiColors.textSecondary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _headOfficeName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: CallScreenUiColors.textMuted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w400,
                   ),
                 ),
               ]),
-              const SizedBox(height: 6),
-              Text(
-                connected ? _formatElapsed(_elapsed) : '00:00',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 27,
-                  fontWeight: FontWeight.w300,
-                  letterSpacing: 2,
-                  fontFeatures: [FontFeature.tabularFigures()],
-                ),
-              ),
-            ]),
+            ),
           ),
         );
       },
@@ -2690,36 +2948,44 @@ class _CallScreenState extends ConsumerState<CallScreen>
   Widget _topChips() {
     final net = _reconnecting ? 'Reconnecting' : 'Excellent';
     final netColor =
-        _reconnecting ? const Color(0xFFFBBF24) : const Color(0xFF22C55E);
+        _reconnecting ? const Color(0xFFFBBF24) : CallScreenUiColors.neonGreen;
     return Row(children: [
       Expanded(
-        child: _statChip(Icons.graphic_eq_rounded, 'HD Voice', 'Crystal Clear',
-            const Color(0xFF60A5FA)),
+        child: _statChip(
+          Icons.graphic_eq_rounded,
+          'HD Voice',
+          'Crystal Clear',
+          CallScreenUiColors.neonBlue,
+        ),
       ),
       const SizedBox(width: 10),
       Expanded(
         child: _statChip(
-            Icons.signal_cellular_alt_rounded, 'Network', net, netColor),
+          Icons.signal_cellular_alt_rounded,
+          'Network',
+          net,
+          netColor,
+        ),
       ),
       const SizedBox(width: 10),
       Expanded(
-        child: _statChip(Icons.shield_outlined, 'Secure calling', 'Connected',
-            const Color(0xFF38BDF8)),
+        child: _statChip(
+          Icons.shield_outlined,
+          'Secure calling',
+          'Connected',
+          CallScreenUiColors.textPrimary,
+        ),
       ),
     ]);
   }
 
   Widget _statChip(IconData icon, String title, String sub, Color accent) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
-      ),
+    return CallUiGlassContainer(
+      borderRadius: 14,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Icon(icon, size: 16, color: accent),
-        const SizedBox(width: 7),
+        Icon(icon, size: 22, color: accent),
+        const SizedBox(width: 8),
         Flexible(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -2729,13 +2995,18 @@ class _CallScreenState extends ConsumerState<CallScreen>
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700)),
+                    color: CallScreenUiColors.textPrimary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  )),
               Text(sub,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.white54, fontSize: 9.5)),
+                  style: const TextStyle(
+                    color: CallScreenUiColors.textMuted,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w400,
+                  )),
             ],
           ),
         ),
@@ -2886,138 +3157,205 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   /// Premium 2-row control grid + bottom action bar, matching the redesign.
   Widget _premiumCallControls() {
-    final routeActive = _route != CallAudioRoute.earpiece;
-    final bluetoothOn = _route == CallAudioRoute.bluetooth;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Row(children: [
-          _gridTile(Icons.mic_off_rounded, 'Mute',
-              active: _muted, onTap: _toggleMute),
-          _gridTile(_audioRouteIcon(_route), 'Speaker',
-              active: routeActive && !bluetoothOn, onTap: _cycleAudioRoute),
-          _gridTile(Icons.pause_rounded, 'Hold',
-              active: _held, onTap: _toggleHold),
-        ]),
-        const SizedBox(height: 10),
-        Row(children: [
-          _gridTile(Icons.voicemail_rounded, 'Voice Mail',
-              onTap: _openVoiceMail),
-          _gridTile(Icons.swap_calls_rounded, 'Transfer', onTap: _showTransfer),
-          _gridTile(Icons.person_add_alt_1_rounded, 'Add', onTap: _showInvite),
-          if (_isCallInitiator)
-            _gridTile(Icons.fiber_manual_record_rounded, 'Record',
-                active: _recording,
-                accent: const Color(0xFFEF4444),
-                onTap: _toggleRecord),
-        ]),
-        const SizedBox(height: 10),
-        Row(children: [
-          _gridTile(Icons.dialpad_rounded, 'Keyboard',
-              onTap: () => bestieToast(context, 'Keypad ready')),
-          _gridTile(Icons.note_alt_outlined, 'Notes', onTap: _showCallNotes),
-          _gridTile(Icons.campaign_rounded, 'Buzzer',
-              accent: const Color(0xFFFBBF24), onTap: _sendEmergencyBuzzer),
-        ]),
-        const SizedBox(height: 18),
-        // Bottom action bar: message · end · keypad placeholder.
-        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          _ctrlCircle(
-              icon: Icons.chat_bubble_outline_rounded,
-              onTap: _openCallChat,
-              size: 46,
-              iconSize: 20),
-          const SizedBox(width: 36),
-          _PressableCircle(
-            onTap: _hangup,
-            size: 72,
-            child: Container(
-              width: 72,
-              height: 72,
-              decoration: BoxDecoration(
-                color: const Color(0xFFEF4444),
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                      color: const Color(0xFFEF4444).withValues(alpha: 0.5),
-                      blurRadius: 24,
-                      spreadRadius: 1),
-                ],
-              ),
-              child: const Icon(Icons.call_end_rounded,
-                  color: Colors.white, size: 32),
-            ),
-          ),
-          const SizedBox(width: 36),
-          _ctrlCircle(
-              icon: (!_videoEnabled || _cameraOff)
-                  ? Icons.videocam_off_rounded
-                  : Icons.videocam_rounded,
-              onTap: _toggleCamera,
-              size: 46,
-              iconSize: 20),
-        ]),
-      ]),
+      padding: const EdgeInsets.symmetric(horizontal: 18),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.center,
+        child: SizedBox(
+          width: _kPremiumControlGridWidth,
+          child: _premiumCallControlsCore(),
+        ),
+      ),
     );
   }
 
-  /// One rounded-card control in the premium grid.
-  Widget _gridTile(IconData icon, String label,
-      {bool active = false, Color? accent, required VoidCallback onTap}) {
-    final a = accent ?? const Color(0xFF60A5FA);
-    return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 3),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(16),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            height: 64,
-            decoration: BoxDecoration(
-              color: active
-                  ? a.withValues(alpha: 0.18)
-                  : const Color(0xFF0C2854).withValues(alpha: 0.82),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: active
-                    ? a.withValues(alpha: 0.6)
-                    : const Color(0xFF53C8FF).withValues(alpha: 0.18),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: a.withValues(alpha: active ? 0.42 : 0.20),
-                  blurRadius: active ? 24 : 16,
-                  spreadRadius: active ? 2 : 0,
-                  offset: const Offset(0, 8),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+  Widget _premiumCallControlsCore() {
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      _premiumControlRow([
+        CallUiGlassControlButton(
+          label: 'Mute',
+          icon: Icons.mic_off_outlined,
+          isSelected: _muted,
+          onTap: _toggleMute,
+          iconGradient: const [
+            CallScreenUiColors.neonPurple,
+            CallScreenUiColors.neonMagenta,
+          ],
+        ),
+        CallUiSpeakerButton(
+          isSelected: _route == CallAudioRoute.speaker,
+          onTap: _toggleSpeakerRoute,
+        ),
+        CallUiGlassControlButton(
+          label: 'Keypad',
+          icon: Icons.dialpad,
+          onTap: () => bestieToast(context, 'Keypad ready'),
+        ),
+        CallUiGlassControlButton(
+          label: 'Bluetooth',
+          icon: Icons.bluetooth,
+          isSelected: _route == CallAudioRoute.bluetooth,
+          onTap: _toggleBluetoothRoute,
+          iconGradient: const [
+            CallScreenUiColors.neonBlue,
+            CallScreenUiColors.verifiedBlue,
+          ],
+        ),
+      ]),
+      const SizedBox(height: 8),
+      _premiumControlRow([
+        CallUiGlassControlButton(
+          label: 'Hold',
+          icon: Icons.pause,
+          isSelected: _held,
+          onTap: _toggleHold,
+          iconGradient: const [
+            Color(0xFFFFD166),
+            Color(0xFFFF9F43),
+          ],
+        ),
+        CallUiGlassControlButton(
+          label: 'Transfer',
+          icon: Icons.swap_horiz,
+          onTap: _showTransfer,
+          iconGradient: const [
+            Color(0xFF2ECC71),
+            CallScreenUiColors.neonBlue,
+          ],
+        ),
+        CallUiGlassControlButton(
+          label: 'Add Participant',
+          icon: Icons.person_add_outlined,
+          onTap: _showInvite,
+          iconGradient: const [
+            CallScreenUiColors.neonBlue,
+            CallScreenUiColors.neonPurple,
+          ],
+        ),
+        CallUiRecordButton(
+          isSelected: _recording,
+          onTap: _isCallInitiator ? _toggleRecord : null,
+        ),
+      ]),
+      const SizedBox(height: 10),
+      Row(children: [
+        const Expanded(child: SizedBox()),
+        Expanded(
+          child: CallUiGlassControlButton(
+            label: 'Voicemail',
+            icon: Icons.voicemail,
+            onTap: _openVoiceMail,
+          ),
+        ),
+        const SizedBox(width: _kPremiumControlColumnGap),
+        Expanded(
+          child: CallUiGlassControlButton(
+            label: 'Call Notes',
+            icon: Icons.edit_note_outlined,
+            onTap: _showCallNotes,
+          ),
+        ),
+        const SizedBox(width: _kPremiumControlColumnGap),
+        Expanded(
+          child: CallUiGlassControlButton(
+            label: 'Buzzer',
+            icon: Icons.campaign_rounded,
+            iconGradient: const [
+              Color(0xFFFBBF24),
+              Color(0xFFFF8A00),
+            ],
+            onTap: _sendEmergencyBuzzer,
+          ),
+        ),
+        const Expanded(child: SizedBox()),
+      ]),
+      const SizedBox(height: 18),
+      SizedBox(
+        height: 72,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                if (label == 'Record' && active)
-                  _RecordingPulse(child: Icon(icon, color: a, size: 22))
-                else
-                  Icon(icon, color: active ? a : Colors.white, size: 19),
-                const SizedBox(height: 4),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(label,
-                        maxLines: 1,
-                        style: TextStyle(
-                            color: active ? a : Colors.white70,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600)),
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.center,
+                    child: CallUiBottomActionButton(
+                      icon: Icons.chat_bubble_outline,
+                      size: 48,
+                      onTap: _openCallChat,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: _kPremiumControlColumnGap),
+                const Expanded(child: SizedBox()),
+                const SizedBox(width: _kPremiumControlColumnGap),
+                const Expanded(child: SizedBox()),
+                const SizedBox(width: _kPremiumControlColumnGap),
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.center,
+                    child: Transform.translate(
+                      offset: const Offset(6, 0),
+                      child: CallUiBottomActionButton(
+                        icon: (!_videoEnabled || _cameraOff)
+                            ? Icons.videocam_off_outlined
+                            : Icons.videocam_outlined,
+                        size: 48,
+                        onTap: _toggleCamera,
+                      ),
+                    ),
                   ),
                 ),
               ],
             ),
-          ),
+            _PressableCircle(
+              onTap: _hangup,
+              size: 72,
+              child: Container(
+                width: 72,
+                height: 72,
+                decoration: BoxDecoration(
+                  color: CallScreenUiColors.endCallRed,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color:
+                          CallScreenUiColors.endCallRed.withValues(alpha: 0.55),
+                      blurRadius: 24,
+                      spreadRadius: 2,
+                    ),
+                    BoxShadow(
+                      color:
+                          CallScreenUiColors.endCallRed.withValues(alpha: 0.35),
+                      blurRadius: 40,
+                      spreadRadius: 6,
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.call_end,
+                  color: Colors.white,
+                  size: 36,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
+    ]);
+  }
+
+  Widget _premiumControlRow(List<Widget> children) {
+    return Row(
+      children: [
+        for (var i = 0; i < children.length; i++) ...[
+          if (i > 0) const SizedBox(width: _kPremiumControlColumnGap),
+          Expanded(child: children[i]),
+        ],
+      ],
     );
   }
 
@@ -3226,7 +3564,7 @@ class _Participant {
       required this.video});
 }
 
-/// Animated smoky blue background for the native cyberpunk call screen.
+/// Dark blue voice-call backdrop, matching the manual premium design.
 class _FuturisticCallBackdrop extends StatefulWidget {
   const _FuturisticCallBackdrop();
 
@@ -3257,61 +3595,21 @@ class _FuturisticCallBackdropState extends State<_FuturisticCallBackdrop>
           child: DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
                 colors: [
-                  Color(0xFF03132F),
-                  Color(0xFF092F64),
-                  Color(0xFF041630),
-                  Color(0xFF010816),
+                  CallScreenUiColors.backgroundTop,
+                  CallScreenUiColors.backgroundMid,
+                  CallScreenUiColors.backgroundBottom,
                 ],
-                stops: [0, 0.38, 0.72, 1],
+                stops: [0.0, 0.45, 1.0],
               ),
             ),
           ),
         ),
         Positioned.fill(
           child: CustomPaint(
-            painter: _SmokeBackdropPainter(progress: _controller.value),
-          ),
-        ),
-        Positioned.fill(
-          child: CustomPaint(
-            painter: _CyberMeshPainter(progress: _controller.value),
-          ),
-        ),
-        const Positioned.fill(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: Alignment(0.75, -0.25),
-                radius: 1.15,
-                colors: [Color(0x7014B8FF), Color(0x00030A18)],
-              ),
-            ),
-          ),
-        ),
-        const Positioned.fill(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: Alignment(-0.9, 0.35),
-                radius: 1.2,
-                colors: [Color(0x5CCC166F), Color(0x00030A18)],
-              ),
-            ),
-          ),
-        ),
-        const Positioned.fill(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: Alignment(0, -0.05),
-                radius: 1.35,
-                colors: [Color(0x00030A18), Color(0xB8010717)],
-                stops: [0.28, 1],
-              ),
-            ),
+            painter: _BackdropSmokePainter(progress: _controller.value),
           ),
         ),
       ]),
@@ -3319,9 +3617,9 @@ class _FuturisticCallBackdropState extends State<_FuturisticCallBackdrop>
   }
 }
 
-class _SmokeBackdropPainter extends CustomPainter {
+class _BackdropSmokePainter extends CustomPainter {
   final double progress;
-  const _SmokeBackdropPainter({required this.progress});
+  const _BackdropSmokePainter({required this.progress});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -3338,68 +3636,59 @@ class _SmokeBackdropPainter extends CustomPainter {
 
     cloud(
       Offset(
-        size.width * 0.12 + sin(phase) * 18,
-        size.height * 0.24 + cos(phase * 0.72) * 22,
+        size.width * 0.16 + sin(phase * 0.9) * 16,
+        size.height * 0.20 + cos(phase * 0.72) * 20,
       ),
-      size.shortestSide * 0.42,
-      const Color(0x493A56E8),
+      size.shortestSide * 0.46,
+      const Color(0x3D1C5DFF),
       72,
     );
     cloud(
       Offset(
-        size.width * 0.18 + cos(phase * 0.8) * 20,
-        size.height * 0.72 + sin(phase * 0.62) * 24,
+        size.width * 0.82 + cos(phase * 0.7) * 18,
+        size.height * 0.32 + sin(phase * 0.76) * 18,
       ),
-      size.shortestSide * 0.38,
-      const Color(0x4ACC176F),
+      size.shortestSide * 0.40,
+      const Color(0x36C91C7D),
       80,
     );
     cloud(
       Offset(
-        size.width * 0.88 + cos(phase * 0.7) * 22,
-        size.height * 0.36 + sin(phase * 0.76) * 20,
+        size.width * 0.60 + cos(phase * 0.58) * 20,
+        size.height * 0.82 + sin(phase * 0.68) * 16,
       ),
-      size.shortestSide * 0.44,
-      const Color(0x45118DFF),
+      size.shortestSide * 0.36,
+      const Color(0x34B11CF3),
       82,
-    );
-    cloud(
-      Offset(
-        size.width * 0.76 + sin(phase * 0.58) * 18,
-        size.height * 0.86 + cos(phase * 0.68) * 20,
-      ),
-      size.shortestSide * 0.34,
-      const Color(0x3E8B1B7D),
-      74,
     );
   }
 
   @override
-  bool shouldRepaint(covariant _SmokeBackdropPainter oldDelegate) =>
+  bool shouldRepaint(covariant _BackdropSmokePainter oldDelegate) =>
       oldDelegate.progress != progress;
 }
 
-class _NeonMeshAvatar extends StatefulWidget {
+class _CallUiAvatarStage extends StatefulWidget {
   final String name;
   final String? imageUrl;
   final bool connected;
-  final double size;
-  const _NeonMeshAvatar({
+  final double height;
+  const _CallUiAvatarStage({
     required this.name,
     required this.imageUrl,
     required this.connected,
-    required this.size,
+    required this.height,
   });
 
   @override
-  State<_NeonMeshAvatar> createState() => _NeonMeshAvatarState();
+  State<_CallUiAvatarStage> createState() => _CallUiAvatarStageState();
 }
 
-class _NeonMeshAvatarState extends State<_NeonMeshAvatar>
+class _CallUiAvatarStageState extends State<_CallUiAvatarStage>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller = AnimationController(
     vsync: this,
-    duration: const Duration(seconds: 8),
+    duration: const Duration(seconds: 12),
   )..repeat();
 
   @override
@@ -3410,111 +3699,104 @@ class _NeonMeshAvatarState extends State<_NeonMeshAvatar>
 
   @override
   Widget build(BuildContext context) {
-    final avatarSize = min(widget.size, 160.0).toDouble();
+    final ringOuter = widget.height * 0.92;
+    final ringInner = widget.height * 0.84;
+    final avatarSize = ringInner - 18;
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, _) {
+        final rotation = _controller.value * pi * 2;
         return SizedBox(
-          width: widget.size,
-          height: 390,
+          width: double.infinity,
+          height: widget.height,
           child: Stack(
-            clipBehavior: Clip.none,
-            fit: StackFit.expand,
+            alignment: Alignment.center,
             children: [
-              Positioned.fill(
-                child: CustomPaint(
-                  painter: _ProfileWavePainter(progress: _controller.value),
+              Container(
+                width: ringOuter,
+                height: ringOuter,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color:
+                          CallScreenUiColors.neonBlue.withValues(alpha: 0.12),
+                      blurRadius: 36,
+                      spreadRadius: 6,
+                    ),
+                    BoxShadow(
+                      color:
+                          CallScreenUiColors.neonPurple.withValues(alpha: 0.18),
+                      blurRadius: 44,
+                      spreadRadius: 10,
+                    ),
+                    BoxShadow(
+                      color: CallScreenUiColors.neonMagenta
+                          .withValues(alpha: 0.10),
+                      blurRadius: 52,
+                      spreadRadius: 14,
+                    ),
+                  ],
                 ),
               ),
-              Align(
-                alignment: const Alignment(0, -0.18),
-                child: SizedBox(
-                  width: 184,
-                  height: 184,
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Transform.rotate(
-                        angle: _controller.value * pi * 2,
-                        child: Container(
-                          width: 178,
-                          height: 178,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            gradient: const SweepGradient(
-                              colors: [
-                                Color(0xFF00F2FF),
-                                Color(0xFF1677FF),
-                                Color(0xFFFF00EA),
-                                Color(0xFF7B00FF),
-                                Color(0xFF00F2FF),
-                              ],
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(0xFF00F2FF)
-                                    .withValues(alpha: 0.88),
-                                blurRadius: 32,
-                                spreadRadius: 4,
-                              ),
-                              BoxShadow(
-                                color: const Color(0xFFFF00EA)
-                                    .withValues(alpha: 0.72),
-                                blurRadius: 52,
-                                spreadRadius: 5,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      Container(
-                        width: 166,
-                        height: 166,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.18),
-                            width: 1,
-                          ),
-                        ),
-                        child: ClipOval(
-                          child: BestieAvatar(
-                            name: widget.name,
-                            imageUrl: widget.imageUrl,
-                            size: avatarSize,
-                          ),
-                        ),
-                      ),
-                      Positioned(
-                        right: 7,
-                        bottom: 7,
-                        child: Container(
-                          width: 42,
-                          height: 42,
-                          decoration: BoxDecoration(
-                            color: widget.connected
-                                ? const Color(0xFF12D15E)
-                                : const Color(0xFF22C55E),
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: const Color(0xFF071426),
-                              width: 3,
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(0xFF12D15E)
-                                    .withValues(alpha: 0.8),
-                                blurRadius: 20,
-                              ),
-                            ],
-                          ),
-                          child: const Icon(Icons.call_rounded,
-                              color: Colors.white, size: 17),
-                        ),
-                      ),
-                    ],
-                  ),
+              Transform.rotate(
+                angle: rotation,
+                child: CustomPaint(
+                  size: Size(ringInner, ringInner),
+                  painter: CallUiSmokyRingPainter(rotation: rotation * 0.35),
                 ),
+              ),
+              Stack(
+                clipBehavior: Clip.none,
+                alignment: Alignment.center,
+                children: [
+                  Container(
+                    width: ringInner - 12,
+                    height: ringInner - 12,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: CallScreenUiColors.backgroundTop,
+                    ),
+                    padding: const EdgeInsets.all(3),
+                    child: ClipOval(
+                      child: BestieAvatar(
+                        name: widget.name,
+                        imageUrl: widget.imageUrl,
+                        size: avatarSize,
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    bottom: 2,
+                    right: 2,
+                    child: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: widget.connected
+                            ? CallScreenUiColors.neonGreen
+                            : const Color(0xFF22C55E),
+                        border: Border.all(
+                          color: CallScreenUiColors.backgroundTop,
+                          width: 3,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: CallScreenUiColors.neonGreen
+                                .withValues(alpha: 0.6),
+                            blurRadius: 12,
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.call,
+                        color: Colors.white,
+                        size: 18,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -3524,165 +3806,40 @@ class _NeonMeshAvatarState extends State<_NeonMeshAvatar>
   }
 }
 
-class _ProfileWavePainter extends CustomPainter {
-  final double progress;
-  const _ProfileWavePainter({required this.progress});
+class _PrototypeReconnectBanner extends StatelessWidget {
+  const _PrototypeReconnectBanner();
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final topEdge = size.height * 0.10;
-    final bottomEdge = size.height * 0.70;
-    final centerX = size.width * 0.50;
-    final blurPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
-    final crispPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-
-    const horizontalLineCount = 38;
-    const verticalLineCount = 34;
-    const horizontalAmplitude = 18.0;
-
-    double horizontalY(double x, double baseY, double phase) {
-      final position = x / size.width;
-      return baseY +
-          sin(position * pi * 2 + phase) * horizontalAmplitude +
-          sin(position * pi * 3 - phase * 0.65) * 5;
-    }
-
-    Path horizontalPath(
-      double startX,
-      double endX,
-      double baseY,
-      double phase,
-    ) {
-      const segments = 28;
-      final path = Path()..moveTo(startX, horizontalY(startX, baseY, phase));
-      for (var step = 1; step <= segments; step++) {
-        final x = startX + (endX - startX) * step / segments;
-        path.lineTo(x, horizontalY(x, baseY, phase));
-      }
-      return path;
-    }
-
-    for (var i = 0; i < horizontalLineCount; i++) {
-      final t = i / (horizontalLineCount - 1);
-      final phase = progress * pi * 2 + t * pi * 1.30;
-      final y = topEdge + (bottomEdge - topEdge) * t;
-      final leftPath = horizontalPath(0, centerX, y, phase);
-      final rightPath = horizontalPath(size.width, centerX, y, phase);
-
-      const leftColor = Color(0xFFFF00EA);
-      const rightColor = Color(0xFF00CFFF);
-
-      blurPaint
-        ..strokeWidth = 2.1
-        ..color = leftColor.withValues(alpha: 0.36);
-      canvas.drawPath(leftPath, blurPaint);
-      blurPaint.color = rightColor.withValues(alpha: 0.40);
-      canvas.drawPath(rightPath, blurPaint);
-
-      crispPaint
-        ..strokeWidth = 0.95
-        ..color = leftColor.withValues(alpha: 0.70);
-      canvas.drawPath(leftPath, crispPaint);
-      crispPaint.color = rightColor.withValues(alpha: 0.76);
-      canvas.drawPath(rightPath, crispPaint);
-    }
-
-    final topPhase = progress * pi * 2;
-    final bottomPhase = progress * pi * 2 + pi * 1.30;
-    final meshBounds = Path()..moveTo(0, horizontalY(0, topEdge, topPhase));
-    const boundarySegments = 56;
-    for (var step = 1; step <= boundarySegments; step++) {
-      final x = size.width * step / boundarySegments;
-      meshBounds.lineTo(x, horizontalY(x, topEdge, topPhase));
-    }
-    for (var step = boundarySegments; step >= 0; step--) {
-      final x = size.width * step / boundarySegments;
-      meshBounds.lineTo(x, horizontalY(x, bottomEdge, bottomPhase));
-    }
-    meshBounds.close();
-
-    canvas.save();
-    canvas.clipPath(meshBounds);
-    for (var i = 0; i < verticalLineCount; i++) {
-      final t = i / (verticalLineCount - 1);
-      final phase = progress * pi * 2 + t * pi * 1.20;
-      final x = size.width * t;
-      final verticalTop = horizontalY(x, topEdge, topPhase);
-      final verticalBottom = horizontalY(x, bottomEdge, bottomPhase);
-      final verticalPath = Path()
-        ..moveTo(x, verticalTop)
-        ..cubicTo(
-          x - 30 - sin(phase) * 13,
-          verticalTop + (verticalBottom - verticalTop) * 0.32,
-          x + 34 + cos(phase) * 13,
-          verticalTop + (verticalBottom - verticalTop) * 0.68,
-          x + sin(phase) * 3,
-          verticalBottom,
-        );
-
-      final color =
-          x <= centerX ? const Color(0xFFFF00EA) : const Color(0xFF00CFFF);
-
-      blurPaint
-        ..strokeWidth = 2.0
-        ..color = color.withValues(alpha: 0.34);
-      canvas.drawPath(verticalPath, blurPaint);
-
-      crispPaint
-        ..strokeWidth = 0.90
-        ..color = color.withValues(alpha: 0.68);
-      canvas.drawPath(verticalPath, crispPaint);
-    }
-    canvas.restore();
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFB45309).withValues(alpha: 0.95),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: const Row(mainAxisSize: MainAxisSize.min, children: [
+        SizedBox(
+          width: 14,
+          height: 14,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            valueColor: AlwaysStoppedAnimation(Colors.white),
+          ),
+        ),
+        SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            'Reconnecting... check your internet connection',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 12.5,
+              fontWeight: BestieTokens.fwSemibold,
+            ),
+          ),
+        ),
+      ]),
+    );
   }
-
-  @override
-  bool shouldRepaint(covariant _ProfileWavePainter oldDelegate) =>
-      oldDelegate.progress != progress;
-}
-
-class _CyberMeshPainter extends CustomPainter {
-  final double progress;
-  const _CyberMeshPainter({required this.progress});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.8
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2);
-    for (var i = 0; i < 16; i++) {
-      final t = i / 15;
-      paint.color = Color.lerp(
-        const Color(0xFF00E5FF),
-        const Color(0xFF125BFF),
-        t,
-      )!
-          .withValues(alpha: 0.08 + (1 - t) * 0.12);
-      final y = size.height * (0.1 + t * 0.82);
-      final wave = sin(progress * pi * 2 + t * 4) * 24;
-      final path = Path()
-        ..moveTo(-20, y + wave)
-        ..cubicTo(
-          size.width * 0.28,
-          y - 46 - wave,
-          size.width * 0.72,
-          y + 46 + wave,
-          size.width + 20,
-          y - wave,
-        );
-      canvas.drawPath(path, paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _CyberMeshPainter oldDelegate) =>
-      oldDelegate.progress != progress;
 }
 
 class _RecordingPulse extends StatefulWidget {

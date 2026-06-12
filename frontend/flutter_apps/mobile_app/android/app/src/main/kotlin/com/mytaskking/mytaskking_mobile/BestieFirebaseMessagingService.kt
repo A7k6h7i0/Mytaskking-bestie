@@ -23,9 +23,25 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
 
         val type = data["type"]
         val kind = data["kind"]
+        if (type == "call.ended") {
+            val callId = data["callId"]
+            IncomingCallForegroundService.stop(this, callId)
+            CallForegroundService.stop(this, callId)
+            if (!callId.isNullOrBlank()) {
+                getSystemService(NotificationManager::class.java)
+                    .cancel(notificationIdFor(callId))
+            }
+            return
+        }
         if (type == "call.incoming" || type == "meeting.invited") {
             if (isAppInForeground()) return
-            showIncomingCallNotification(data, type)
+            try {
+                IncomingCallForegroundService.start(this, data, type)
+            } catch (_: Exception) {
+                // Some OEMs may reject a background foreground-service start.
+                // Fall back to the normal high-priority call notification.
+                showIncomingCallNotification(data, type)
+            }
             wakeBriefly()
             return
         }
@@ -94,6 +110,14 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
             openIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        val acceptPendingIntent = PendingIntent.getActivity(
+            this,
+            notificationId + 1,
+            targetIntent(data, type, notificationId).apply {
+                putExtra("acceptCall", true)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         val declinePendingIntent = PendingIntent.getBroadcast(
             this,
             notificationId + 17,
@@ -136,13 +160,13 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
                 Notification.CallStyle.forIncomingCall(
                     person,
                     declinePendingIntent,
-                    openPendingIntent
+                    acceptPendingIntent
                 )
             )
         } else {
             builder
                 .addAction(applicationInfo.icon, "Decline", declinePendingIntent)
-                .addAction(applicationInfo.icon, "Accept", openPendingIntent)
+                .addAction(applicationInfo.icon, "Accept", acceptPendingIntent)
         }
 
         getSystemService(NotificationManager::class.java)

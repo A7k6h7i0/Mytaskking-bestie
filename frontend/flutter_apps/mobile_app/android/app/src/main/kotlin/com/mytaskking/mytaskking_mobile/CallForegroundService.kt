@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
@@ -22,6 +23,8 @@ class CallForegroundService : Service() {
         }
 
         createChannel()
+        activeKey = intent?.getStringExtra(EXTRA_CALL_ID)
+            ?: intent?.getStringExtra(EXTRA_MEETING_SLUG)
         acquireWakeLock()
         acquireWifiLock()
         startForeground(NOTIFICATION_ID, buildNotification(intent))
@@ -33,6 +36,7 @@ class CallForegroundService : Service() {
         wakeLock = null
         if (wifiLock?.isHeld == true) wifiLock?.release()
         wifiLock = null
+        activeKey = null
         super.onDestroy()
     }
 
@@ -134,5 +138,17 @@ class CallForegroundService : Service() {
         const val EXTRA_STARTED_AT = "startedAtMs"
         const val NOTIFICATION_ID = 4701
         private const val CHANNEL_ID = "active_calls"
+
+        @Volatile
+        var activeKey: String? = null
+            private set
+
+        fun stop(context: Context, key: String? = null) {
+            if (key != null && activeKey != null && key != activeKey) return
+            context.stopService(Intent(context, CallForegroundService::class.java).apply {
+                action = ACTION_STOP
+            })
+            context.getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
+        }
     }
 }

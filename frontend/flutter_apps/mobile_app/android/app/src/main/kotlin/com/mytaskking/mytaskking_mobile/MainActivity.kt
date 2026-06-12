@@ -43,11 +43,7 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                     "hide" -> {
-                        stopService(Intent(this, CallForegroundService::class.java).apply {
-                            action = CallForegroundService.ACTION_STOP
-                        })
-                        getSystemService(NotificationManager::class.java)
-                            .cancel(CallForegroundService.NOTIFICATION_ID)
+                        CallForegroundService.stop(this)
                         result.success(null)
                     }
                     "cancelIncoming" -> {
@@ -55,6 +51,7 @@ class MainActivity : FlutterActivity() {
                         cancelIncomingNotification(call.arguments as? Map<String, Any?>)
                         result.success(null)
                     }
+                    "isIncomingActive" -> result.success(IncomingCallForegroundService.active)
                     else -> result.notImplemented()
                 }
             }
@@ -85,6 +82,8 @@ class MainActivity : FlutterActivity() {
             "messageId" to intent.getStringExtra("messageId"),
             "taskId" to intent.getStringExtra("taskId"),
             "kind" to intent.getStringExtra("kind"),
+            "acceptCall" to intent.getBooleanExtra("acceptCall", false).toString(),
+            "nativeRinging" to intent.getBooleanExtra("nativeRinging", false).toString(),
             "notificationId" to if (intent.hasExtra("notificationId")) {
                 intent.getIntExtra("notificationId", -1).toString()
             } else {
@@ -111,14 +110,22 @@ class MainActivity : FlutterActivity() {
 
     private fun cancelNotificationFromIntent(intent: Intent?) {
         if (intent == null || !intent.hasExtra("notificationId")) return
+        val isIncoming = intent.getStringExtra("type") == "call.incoming" ||
+            intent.getStringExtra("type") == "meeting.invited"
+        // A full-screen incoming-call intent displays the Flutter accept /
+        // decline UI; it is not acceptance by itself. Keep ringing until the
+        // explicit Accept action or Flutter overlay stops the service.
+        if (isIncoming && !intent.getBooleanExtra("acceptCall", false)) return
         val id = intent.getIntExtra("notificationId", -1)
         if (id != -1) getSystemService(NotificationManager::class.java).cancel(id)
+        if (isIncoming) IncomingCallForegroundService.stop(this)
     }
 
     private fun cancelIncomingNotification(args: Map<String, Any?>?) {
         val key = args?.get("callId")?.toString()?.takeIf { it.isNotBlank() }
             ?: args?.get("meetingSlug")?.toString()?.takeIf { it.isNotBlank() }
             ?: return
+        IncomingCallForegroundService.stop(this, key)
         getSystemService(NotificationManager::class.java).cancel(
             BestieFirebaseMessagingService.notificationIdFor(key)
         )

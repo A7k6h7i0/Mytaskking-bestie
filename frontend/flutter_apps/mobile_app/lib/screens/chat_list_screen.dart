@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -341,6 +342,16 @@ class ChatListScreen extends ConsumerWidget {
             (res['targetPresence'] as Map?)?.cast<String, dynamic>();
         if (presence != null &&
             !(presence['status'] == 'ON_CALL' && res['waiting'] == true)) {
+          final custom = (presence['customStatus'] ?? '').toString();
+          if (presence['status'] == 'ON_CALL' ||
+              custom.toLowerCase().contains('another call')) {
+            try {
+              final tts = FlutterTts();
+              await tts.setSpeechRate(0.36);
+              await tts.speak(
+                  '${user['name']} is busy with another call. Please call again later.');
+            } catch (_) {}
+          }
           if (context.mounted) {
             bestieToast(context, '${user['name']} is unavailable',
                 body:

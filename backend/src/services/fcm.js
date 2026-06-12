@@ -48,14 +48,16 @@ async function sendToTokens(tokens, { title, body, data }) {
     ? Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)]))
     : undefined;
   const isCallLike = stringData?.type === 'call.incoming' || stringData?.type === 'meeting.invited';
+  const isCallControl = stringData?.type === 'call.ended';
   const isActionableChat =
     (stringData?.type === 'chat.message' || stringData?.kind === 'CHAT' || stringData?.kind === 'MENTION') &&
     !!stringData?.channelId &&
     !!stringData?.actionToken;
-  const isDataOnly = isCallLike || isActionableChat;
+  const isDataOnly = isCallLike || isCallControl || isActionableChat;
   const messages = tokens.map((token) => {
-    const aps = { sound: 'default', contentAvailable: true };
-    if (isDataOnly) {
+    const aps = { contentAvailable: true };
+    if (!isCallControl) aps.sound = 'default';
+    if (isDataOnly && !isCallControl) {
       if (isCallLike) aps.category = 'CALL_INVITE';
       aps.alert = { title, body };
     }
@@ -111,4 +113,20 @@ async function sendToTokens(tokens, { title, body, data }) {
   return { sent: result.successCount, failed: result.failureCount, responses: result.responses };
 }
 
-module.exports = { sendToTokens };
+async function sendCallEnded(call) {
+  if (!call?.id) return { sent: 0, failed: 0 };
+  const userIds = [...new Set((call.participants || []).map((p) => p.userId).filter(Boolean))];
+  if (!userIds.length) return { sent: 0, failed: 0 };
+  const prisma = require('../database/prisma');
+  const devices = await prisma.deviceToken.findMany({
+    where: { userId: { in: userIds } },
+    select: { token: true },
+  });
+  return sendToTokens(devices.map((d) => d.token), {
+    title: 'Call ended',
+    body: '',
+    data: { type: 'call.ended', callId: call.id },
+  });
+}
+
+module.exports = { sendToTokens, sendCallEnded };

@@ -16,6 +16,9 @@ class NotificationActionReceiver : BroadcastReceiver() {
         if (notificationId != -1) {
             context.getSystemService(NotificationManager::class.java)?.cancel(notificationId)
         }
+        if (action == ACTION_CALL_DECLINE) {
+            IncomingCallForegroundService.stop(context)
+        }
 
         val apiBaseUrl = intent.getStringExtra(EXTRA_API_BASE_URL)?.trimEnd('/')
         val token = intent.getStringExtra(EXTRA_ACTION_TOKEN)

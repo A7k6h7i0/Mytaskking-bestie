@@ -482,6 +482,13 @@ class _BestieAppState extends ConsumerState<BestieApp> {
       );
       if (raw != null) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
+          final type = raw['type']?.toString();
+          final accepted = raw['acceptCall']?.toString() == 'true';
+          if (!accepted &&
+              (type == 'call.incoming' || type == 'meeting.invited')) {
+            showIncomingCallFromPush(raw);
+            return;
+          }
           final route = _routeForPush(raw);
           if (route != null) ref.read(routerProvider).go(route);
         });

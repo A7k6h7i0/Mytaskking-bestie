@@ -125,10 +125,10 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
       _ringtone.stop();
       _customRingtone.stop();
       final name = (data['userName'] ?? 'The person').toString();
-      _speak('$name rejected the waiting call.');
+      _speak('$name is busy with another call. Please call again later.');
       setState(() => _banner = {
             'title': 'Call declined',
-            'body': '$name could not accept your waiting call.',
+            'body': '$name is busy with another call. Please call again later.',
             'kind': 'CALL',
           });
     }));
@@ -145,20 +145,26 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     _unsubs.add(rt.onAny('call.declined', ([data]) {
       // Caller side: another participant declined. We dismiss our ringer if
       // it was the same call (some race conditions on group calls).
-      if (_pending != null &&
-          data is Map &&
-          data['callId'] == _pending!['call']?['id']) {
-        _dismiss();
+      final status = data is Map ? data['status']?.toString() : null;
+      final terminal = status == 'ENDED' || status == 'MISSED';
+      if (_pending != null && data is Map) {
+        final me = ref.read(authStoreProvider).user;
+        if (data['callId'] == _pending!['call']?['id'] &&
+            (terminal || data['userId'] == me?.id)) {
+          unawaited(_cancelNativeIncomingNotification(
+              callId: data['callId']?.toString()));
+          _dismiss();
+        }
       }
-      _clearEndedOngoingCall(data);
+      if (terminal) unawaited(_clearEndedOngoingCall(data));
     }));
     // Global call-end cleanup. The CallScreen also handles call.ended, but it
     // unsubscribes on dispose — so when the user backgrounds a call to the
     // "ongoing call" pill and the call then ends remotely, nothing cleared the
     // pill and it lingered as "tap to join". This always-mounted listener
     // guarantees the pill is cleared whenever the active call ends.
-    _unsubs
-        .add(rt.onAny('call.ended', ([data]) => _clearEndedOngoingCall(data)));
+    _unsubs.add(rt.onAny(
+        'call.ended', ([data]) => unawaited(_clearEndedOngoingCall(data))));
     // Emergency siren (#11): admin-triggered loud alarm that blares until the
     // recipient acknowledges. Also fired on escalation.
     _unsubs.add(rt.onAny('emergency.alert', ([data]) => _onEmergency(data)));
@@ -176,14 +182,25 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
 
   /// Clears the "ongoing call" pill when the matching call ends, even if the
   /// CallScreen widget is already disposed (user backgrounded to the pill).
-  void _clearEndedOngoingCall(dynamic data) {
+  Future<void> _clearEndedOngoingCall(dynamic data) async {
     if (data is! Map) return;
     final endedId = data['callId']?.toString();
+    if (endedId == null || endedId.isEmpty) return;
+    await _cancelNativeIncomingNotification(callId: endedId);
     final active = ActiveCallState.current.value;
-    if (active == null) return;
-    if (endedId == null || endedId.isEmpty || endedId == active.callId) {
-      ActiveCallState.clear();
-    }
+    final matchesState = active?.callId == endedId;
+    final matchesSession = CallSession.activeCallId == endedId;
+    if (!matchesState && !matchesSession) return;
+
+    // The call screen may be disposed while the Agora engine intentionally
+    // continues in the background. A server-side end must therefore tear
+    // down the app-wide session too, otherwise "tap to return" resurrects a
+    // call that has already ended.
+    await CallSession.teardown();
+    ActiveCallState.clear();
+    try {
+      await _nativeCallNotificationChannel.invokeMethod('hide');
+    } catch (_) {/* best effort on non-Android platforms */}
   }
 
   /// Emergency siren (#11): blare a looping alarm + heavy haptics and show a
@@ -389,7 +406,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     _hapticTimer = Timer.periodic(const Duration(milliseconds: 1300), (_) {
       HapticFeedback.heavyImpact();
     });
-    _playRingtone();
+    unawaited(_playRingtoneUnlessNativeService());
     final caller = (call['initiator']?['name'] ?? 'Someone').toString();
     _speak('$caller is calling you. Please attend the call.');
   }
@@ -512,6 +529,15 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
         asAlarm: false,
       );
     } catch (_) {/* best-effort — silent fall back to haptics */}
+  }
+
+  Future<void> _playRingtoneUnlessNativeService() async {
+    try {
+      final nativeActive = await _nativeCallNotificationChannel
+          .invokeMethod<bool>('isIncomingActive');
+      if (nativeActive == true) return;
+    } catch (_) {/* Native service is Android-only. */}
+    await _playRingtone();
   }
 
   void _dismiss() {

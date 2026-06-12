@@ -31,6 +31,10 @@ function emitToCallParticipants(io, call, event, payload) {
   }
 }
 
+function pushCallEnded(call) {
+  return fcm.sendCallEnded(call).catch(() => {/* push is best-effort */});
+}
+
 router.post(
   '/initiate',
   validate({
@@ -79,6 +83,7 @@ router.post(
             waitingCallId: result.call.id,
             userName: 'Call waiting timeout',
           });
+          await pushCallEnded(expired);
         }, 90 * 1000);
         return res.status(202).json({ ...result, mode, waiting: true });
       }
@@ -147,6 +152,7 @@ router.post(
         if (!missed) return;
         emitToCallParticipants(req.app.get('io'), missed, 'call.declined', { callId: missed.id, status: 'MISSED' });
         emitToCallParticipants(req.app.get('io'), missed, 'call.ended', { callId: missed.id, status: 'MISSED' });
+        await pushCallEnded(missed);
       } catch (_) {/* job runner cleans up stragglers */}
     }, 60 * 1000);
     res.status(201).json({ ...result, mode });
@@ -220,6 +226,7 @@ router.post('/:id/leave', asyncHandler(async (req, res) => {
       userId: req.user.id,
       status: call.status,
     });
+    await pushCallEnded(call);
   }
   res.json(call);
 }));
@@ -237,6 +244,7 @@ router.post('/:id/decline', asyncHandler(async (req, res) => {
       userId: req.user.id,
       status: call.status,
     });
+    await pushCallEnded(call);
   }
   res.json(call);
 }));
@@ -256,7 +264,10 @@ router.post('/:id/busy', asyncHandler(async (req, res) => {
     status: 'ON_CALL',
   });
   const ended = await service.expireIfRinging({ callId: call.id });
-  if (ended) emitToCallParticipants(req.app.get('io'), ended, 'call.ended', { callId: ended.id, status: ended.status });
+  if (ended) {
+    emitToCallParticipants(req.app.get('io'), ended, 'call.ended', { callId: ended.id, status: ended.status });
+    await pushCallEnded(ended);
+  }
   res.json({ ok: true });
 }));
 
@@ -288,6 +299,7 @@ router.post('/:id/waiting/reject', asyncHandler(async (req, res) => {
     callId: result.waitingCallId,
     status: result.call.status,
   });
+  await pushCallEnded(result.call);
   res.json(result);
 }));
 

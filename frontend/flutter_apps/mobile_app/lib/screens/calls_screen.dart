@@ -300,6 +300,12 @@ class _CallRow extends ConsumerWidget {
                     ? 'on leave'
                     : 'busy';
         if (status == 'ON_CALL' && res['waiting'] == true) {
+          try {
+            final tts = FlutterTts();
+            await tts.setSpeechRate(0.36);
+            await tts.speak(
+                '$name is busy with another call. Please wait for them to respond or call again later.');
+          } catch (_) {}
           if (context.mounted) {
             bestieToast(context, 'Call waiting',
                 body: '$name can accept and add you to the current call.',

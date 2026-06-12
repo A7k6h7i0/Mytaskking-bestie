@@ -9,6 +9,7 @@ const prisma = require('../../database/prisma');
 const notificationActions = require('../../services/notificationActions');
 const chatService = require('../chat/chat.service');
 const callsService = require('../calls/calls.service');
+const fcm = require('../../services/fcm');
 const { NotFound } = require('../../utils/errors');
 const service = require('./notifications.service');
 
@@ -66,6 +67,7 @@ router.post(
         userId: user.id,
         status: call.status,
       });
+      await fcm.sendCallEnded(call).catch(() => {/* push is best-effort */});
     }
     res.json({ ok: true, callId: call.id, status: call.status });
   })

@@ -143,11 +143,19 @@ async function initiate({ initiator, participantIds, kind = 'ONE_TO_ONE', channe
         select: { id: true, status: true },
       }).catch(() => null),
     ]);
-    if (activeCall) {
+    if (activeCall?.status === 'ACTIVE') {
       targetPresence = {
         status: 'ON_CALL',
         customStatus: 'Currently on another call',
         activeCallId: activeCall.id,
+      };
+    } else if (activeCall?.status === 'RINGING') {
+      // A person who is already receiving another call is unavailable, but
+      // there is no active conference to merge into. Do not expose a broken
+      // call-waiting Accept action in this state.
+      targetPresence = {
+        status: 'BUSY',
+        customStatus: 'Already receiving another call',
       };
     } else if (presence && ['BUSY', 'IN_MEETING', 'INVISIBLE', 'AWAY'].includes(presence.status)) {
       targetPresence = { status: presence.status, customStatus: presence.customStatus || null };
@@ -183,7 +191,8 @@ async function initiate({ initiator, participantIds, kind = 'ONE_TO_ONE', channe
 async function tokenFor({ callId, user }) {
   const call = await prisma.call.findUnique({ where: { id: callId }, include: callInclude });
   if (!call) throw NotFound('Call not found');
-  const isParticipant = call.participants.some((p) => p.userId === user.id);
+  if (!['RINGING', 'ACTIVE'].includes(call.status)) throw BadRequest('Call has ended');
+  const isParticipant = call.participants.some((p) => p.userId === user.id && !p.leftAt);
   if (!isParticipant) throw Forbidden('Not a participant of this call');
   return {
     ...agora.generateRtcToken({ channelName: call.channelName, wildcard: true }),
@@ -205,8 +214,9 @@ function withAgoraParticipantUids(call) {
 async function join({ callId, user }) {
   const call = await prisma.call.findUnique({ where: { id: callId }, include: callInclude });
   if (!call) throw NotFound('Call not found');
+  if (!['RINGING', 'ACTIVE'].includes(call.status)) throw BadRequest('Call has ended');
   const part = call.participants.find((p) => p.userId === user.id);
-  if (!part) throw Forbidden('Not invited');
+  if (!part || part.leftAt) throw Forbidden('Not invited');
 
   await prisma.callParticipant.update({
     where: { callId_userId: { callId, userId: user.id } },
@@ -279,6 +289,11 @@ async function finalizeCallTiming(callId, endedAtInput) {
 async function leave({ callId, user }) {
   const before = await prisma.call.findUnique({ where: { id: callId }, include: callInclude });
   if (!before) throw NotFound('Call not found');
+  if (!before.participants.some((p) => p.userId === user.id)) {
+    throw Forbidden('Not a participant of this call');
+  }
+  if (['ENDED', 'MISSED', 'FAILED'].includes(before.status)) return before;
+
   await prisma.callParticipant.updateMany({
     where: { callId, userId: user.id, leftAt: null },
     data: { leftAt: new Date() },
@@ -297,8 +312,16 @@ async function leave({ callId, user }) {
     await postCallEventMessage({ call: ended, kind: 'ENDED', actor: user });
     return ended;
   }
-  const remaining = await prisma.callParticipant.count({ where: { callId, leftAt: null } });
-  if (remaining === 0) {
+  // A group call cannot continue with one connected person. Ignore invited
+  // users who never joined when deciding whether the room is still alive.
+  const remainingConnected = await prisma.callParticipant.count({
+    where: { callId, joinedAt: { not: null }, leftAt: null },
+  });
+  if (remainingConnected <= 1) {
+    await prisma.callParticipant.updateMany({
+      where: { callId, leftAt: null },
+      data: { leftAt: new Date() },
+    });
     await prisma.call.update({
       where: { id: callId },
       data: { status: 'ENDED', endedAt: new Date() },
@@ -321,7 +344,7 @@ async function decline({ callId, user }) {
     data: { leftAt: new Date() },
   });
 
-  if (call.status === 'RINGING') {
+  if (call.status === 'RINGING' && call.kind === 'ONE_TO_ONE') {
     await prisma.callParticipant.updateMany({
       where: { callId, leftAt: null },
       data: { leftAt: new Date() },
@@ -329,6 +352,27 @@ async function decline({ callId, user }) {
     // A missed (never-answered) call has no talk time.
     await prisma.call.update({ where: { id: callId }, data: { status: 'MISSED', endedAt: new Date(), durationSeconds: 0 } });
     await postCallEventMessage({ call, kind: 'MISSED', actor: user });
+  } else if (call.status === 'RINGING') {
+    const remainingInvitees = await prisma.callParticipant.count({
+      where: {
+        callId,
+        userId: { not: call.initiatorId },
+        leftAt: null,
+      },
+    });
+    if (remainingInvitees === 0) {
+      await prisma.callParticipant.updateMany({
+        where: { callId, leftAt: null },
+        data: { leftAt: new Date() },
+      });
+      await prisma.call.update({
+        where: { id: callId },
+        data: { status: 'MISSED', endedAt: new Date(), durationSeconds: 0 },
+      });
+      await postCallEventMessage({ call, kind: 'MISSED', actor: user });
+    } else {
+      await postCallEventMessage({ call, kind: 'DECLINED', actor: user });
+    }
   } else if (call.kind === 'ONE_TO_ONE') {
     await prisma.callParticipant.updateMany({
       where: { callId, leftAt: null },
@@ -351,6 +395,7 @@ async function decline({ callId, user }) {
 async function addParticipant({ callId, userIds, actor }) {
   const call = await prisma.call.findUnique({ where: { id: callId }, include: callInclude });
   if (!call) throw NotFound('Call not found');
+  if (!['RINGING', 'ACTIVE'].includes(call.status)) throw BadRequest('Call has ended');
   const actorParticipant = call.participants.some((p) => p.userId === actor.id);
   if (!actorParticipant && !['SUPER_ADMIN', 'ADMIN'].includes(actor.role)) {
     throw Forbidden('Only current participants or admins can add people');
@@ -386,9 +431,12 @@ async function addParticipant({ callId, userIds, actor }) {
 
 async function acceptWaitingCall({ waitingCallId, user }) {
   const waitingCall = await prisma.call.findUnique({ where: { id: waitingCallId }, include: callInclude });
-  if (!waitingCall || waitingCall.status !== 'RINGING') throw NotFound('Waiting call not found');
-  if (!waitingCall.participants.some((p) => p.userId === user.id && !p.leftAt)) throw Forbidden('Not invited');
+  if (!waitingCall) throw NotFound('Waiting call not found');
+  if (!waitingCall.participants.some((p) => p.userId === user.id)) throw Forbidden('Not invited');
 
+  const waitingUsers = waitingCall.participants
+    .map((p) => p.userId)
+    .filter((id) => id !== user.id);
   const activeCall = await prisma.call.findFirst({
     where: {
       id: { not: waitingCallId },
@@ -408,11 +456,31 @@ async function acceptWaitingCall({ waitingCallId, user }) {
     },
     include: callInclude,
   });
+
+  // Accept can arrive twice from a rapid double-tap or from both the native
+  // notification and Flutter overlay. If the first request already merged
+  // the caller, return the resulting conference instead of reporting a false
+  // "Waiting call not found" error.
+  if (waitingCall.status !== 'RINGING') {
+    const alreadyMerged = activeCall &&
+      waitingUsers.every((userId) =>
+        activeCall.participants.some((p) => p.userId === userId && !p.leftAt)
+      );
+    if (!alreadyMerged) throw NotFound('Waiting call not found');
+    return {
+      activeCall,
+      waitingCallId,
+      tokens: Object.fromEntries(
+        waitingUsers.map((userId) => [
+          userId,
+          agora.generateRtcToken({ channelName: activeCall.channelName, wildcard: true }),
+        ])
+      ),
+      addedUserIds: waitingUsers,
+    };
+  }
   if (!activeCall) throw BadRequest('Your active call is no longer available');
 
-  const waitingUsers = waitingCall.participants
-    .map((p) => p.userId)
-    .filter((id) => id !== user.id);
   const added = await addParticipant({ callId: activeCall.id, userIds: waitingUsers, actor: user });
   const now = new Date();
   await prisma.$transaction([
