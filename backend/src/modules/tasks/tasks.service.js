@@ -25,13 +25,13 @@ const taskInclude = {
 };
 
 async function ensureVisible(task, user) {
-  if (['SUPER_ADMIN', 'ADMIN'].includes(user.role)) return;
+  if (['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'PROJECT_COORDINATOR_MANAGER'].includes(user.role)) return;
   const assigned = task.assignees.some((a) => a.userId === user.id) || task.createdById === user.id;
   if (!assigned) throw Forbidden('Not allowed to access this task');
 }
 
 async function list({ user, status, assigneeId, q, page = 1, pageSize = 50, view = 'list' }) {
-  const isAdmin = ['SUPER_ADMIN', 'ADMIN'].includes(user.role);
+  const isAdmin = ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'PROJECT_COORDINATOR_MANAGER'].includes(user.role);
   const where = {
     ...(status ? { status } : {}),
     ...(assigneeId ? { assignees: { some: { userId: assigneeId } } } : {}),

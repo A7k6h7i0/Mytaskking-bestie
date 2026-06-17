@@ -4,7 +4,7 @@ const { Router } = require('express');
 const Joi = require('joi');
 const validate = require('../../middleware/validate');
 const asyncHandler = require('../../utils/asyncHandler');
-const { requireAuth, requireAdmin, requireInternal } = require('../../middleware/auth');
+const { requireAuth, requireAdmin, requireInternal, requireRole } = require('../../middleware/auth');
 const service = require('./employees.service');
 const audit = require('../../services/audit');
 
@@ -37,9 +37,11 @@ router.get(
   asyncHandler(async (req, res) => res.json(await service.getById(req.params.id)))
 );
 
+const requirePeopleAdmin = requireRole('SUPER_ADMIN', 'ADMIN', 'MANAGER');
+
 router.post(
   '/',
-  requireAdmin,
+  requirePeopleAdmin,
   validate({
     body: Joi.object({
       userId: Joi.string().trim().min(2).max(64).required(),
@@ -63,7 +65,7 @@ router.post(
 
 router.patch(
   '/:id',
-  requireAdmin,
+  requirePeopleAdmin,
   validate({
     body: Joi.object({
       userId: Joi.string().trim().min(2).max(64),
@@ -84,21 +86,21 @@ router.patch(
 
 router.post(
   '/:id/suspend',
-  requireAdmin,
+  requirePeopleAdmin,
   asyncHandler(async (req, res) => res.json(await service.setStatus(req.params.id, 'SUSPENDED')))
 );
 
 router.post(
   '/:id/activate',
-  requireAdmin,
+  requirePeopleAdmin,
   asyncHandler(async (req, res) => res.json(await service.setStatus(req.params.id, 'ACTIVE')))
 );
 
 router.delete(
   '/:id',
-  requireAdmin,
+  requirePeopleAdmin,
   asyncHandler(async (req, res) => {
-    await service.remove(req.params.id);
+    await service.remove(req.params.id, req.user.id);
     audit.record({ kind: 'employee.deleted', entity: 'user', entityId: req.params.id, req });
     res.status(204).end();
   })
