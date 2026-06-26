@@ -1,15 +1,42 @@
+# ---- dependencies & build output ----
 node_modules/
 dist/
 build/
+**/build/debug-info/
+admin-dist/
+
+# ---- environment & secrets (never commit) ----
 .env
 .env.local
 .env.*.local
+**/*.keystore
+**/*.jks
+key.properties
+upload-keystore.jks
+
+# ---- logs & temp ----
 *.log
 logs/
+*.tmp
+*.temp
+*.swp
+*.bak
+
+# ---- OS & IDE ----
 .DS_Store
+Thumbs.db
+Desktop.ini
 .idea/
 .vscode/
+**/*.iml
+.claude/
+
+# ---- Node / TypeScript ----
 coverage/
+frontend/react_web/tsconfig.tsbuildinfo
+admin.mytaskking.com.conf.pending
+
+# ---- Flutter / Dart ----
 .flutter-plugins
 .flutter-plugins-dependencies
 .dart_tool/
@@ -17,10 +44,31 @@ coverage/
 .pub-cache/
 .pub/
 ios/Pods/
-**/*.iml
-*.lock
+**/doc/api/
+**/ios/Flutter/.last_build_id
+app.*.symbols
+app.*.map.json
+**/coverage/
+
+# ---- Android (Gradle / native builds) ----
+**/.gradle/
+**/.cxx/
+**/local.properties
+**/captures/
+**/android/java_pid*.hprof
+*.hprof
+
+# ---- mobile release binaries (build locally, do not commit) ----
+*.apk
+*.aab
+*.ipa
+*.app
+
+# ---- backend uploads & local backups ----
 backend/uploads/
-.claude/
-admin-dist/
-frontend/react_web/tsconfig.tsbuildinfo
-admin.mytaskking.com.conf.pending
+backend/src.zip
+**/*.zip
+
+# ---- misc junk ----
+**/Untitled
+*.lock

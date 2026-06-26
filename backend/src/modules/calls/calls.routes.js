@@ -11,7 +11,13 @@ const fcm = require('../../services/fcm');
 const prisma = require('../../database/prisma');
 const agora = require('../../services/agora');
 const notificationActions = require('../../services/notificationActions');
-const { Forbidden } = require('../../utils/errors');
+const cache = require('../../services/cache');
+const { APP_WEB } = require('../../utils/clientApp');
+const {
+  clientAppFromUserAgent,
+  emitToUserApp,
+  emitToCallParticipants,
+} = require('../../utils/clientApp');
 
 // Date range for talk-time reports — defaults to the last 30 days.
 const talkTimeRange = {
@@ -25,14 +31,23 @@ const isAdminRole = (user) => ['SUPER_ADMIN', 'ADMIN'].includes(user.role);
 const router = Router();
 router.use(requireAuth);
 
-function emitToCallParticipants(io, call, event, payload) {
-  for (const p of call?.participants || []) {
-    io?.to(`user:${p.userId}`).emit(event, payload);
+function pushCallEnded(call, clientApp) {
+  return fcm.sendCallEnded(call, clientApp).catch(() => {/* push is best-effort */});
+}
+
+async function storedCallClientApp(callId, fallback = APP_WEB) {
+  try {
+    const hit = await cache.get(`call:clientApp:${callId}`);
+    return hit || fallback;
+  } catch {
+    return fallback;
   }
 }
 
-function pushCallEnded(call) {
-  return fcm.sendCallEnded(call).catch(() => {/* push is best-effort */});
+async function rememberCallClientApp(callId, clientApp) {
+  try {
+    await cache.set(`call:clientApp:${callId}`, clientApp || APP_WEB, 7200);
+  } catch (_) {/* best-effort */}
 }
 
 router.post(
@@ -50,12 +65,24 @@ router.post(
   }),
   asyncHandler(async (req, res) => {
     const mode = req.body.mode || 'VIDEO';
+    const callerApp = clientAppFromUserAgent(req.headers['user-agent']);
     const result = await service.initiate({
       initiator: req.user,
       participantIds: req.body.participantIds,
       kind: req.body.kind,
       channelId: req.body.channelId,
     });
+    const io = req.app.get('io');
+
+    // Target unavailable — no call record was created.
+    if (result.suppressRinging && !result.call) {
+      return res.status(200).json({
+        targetPresence: result.targetPresence,
+        suppressRinging: true,
+        mode,
+      });
+    }
+
     audit.record({
       kind: 'call.initiated',
       entity: 'call',
@@ -63,11 +90,10 @@ router.post(
       payload: { kind: result.call.kind, mode, participants: req.body.participantIds.length + 1 },
       req,
     });
-    const io = req.app.get('io');
     if (result.suppressRinging) {
       if (result.targetPresence?.status === 'ON_CALL') {
         for (const participantId of req.body.participantIds) {
-          io?.to(`user:${participantId}`).emit('call.waiting', {
+          emitToUserApp(io, participantId, callerApp, 'call.waiting', {
             callId: result.call.id,
             call: result.call,
             mode,
@@ -76,6 +102,11 @@ router.post(
             activeCallId: result.targetPresence.activeCallId,
           });
         }
+        emitToUserApp(io, req.user.id, callerApp, 'call.waiting.queued', {
+          callId: result.call.id,
+          targetUserId: req.body.participantIds[0],
+          mode,
+        });
         setTimeout(async () => {
           const expired = await service.expireIfRinging({ callId: result.call.id }).catch(() => null);
           if (!expired) return;
@@ -87,26 +118,21 @@ router.post(
         }, 90 * 1000);
         return res.status(202).json({ ...result, mode, waiting: true });
       }
-      const missed = await service.expireIfRinging({ callId: result.call.id });
-      return res.status(200).json({
-        ...result,
-        call: missed || result.call,
-        mode,
-      });
     }
-    for (const p of result.call.participants) {
-      io?.to(`user:${p.userId}`).emit('call.incoming', {
-        call: result.call,
-        mode,
-        token: result.tokens[p.userId],
-      });
-    }
-    // FCM push to every invited participant so the recipient's phone rings
-    // even when the app is backgrounded or killed. The Flutter side reads
-    // the `type` / `callId` data fields to know to show the ringer.
     const inviteeIds = result.call.participants
       .map((p) => p.userId)
       .filter((uid) => uid !== req.user.id);
+    await rememberCallClientApp(result.call.id, callerApp);
+    for (const userId of inviteeIds) {
+      emitToUserApp(io, userId, callerApp, 'call.incoming', {
+        call: result.call,
+        mode,
+        token: result.tokens[userId],
+        callerId: req.user.id,
+        callerName: req.user.name,
+      });
+    }
+    // FCM push — tagged with clientApp so other app families can ignore cross-app rings.
     if (inviteeIds.length) {
       prisma.deviceToken
         .findMany({ where: { userId: { in: inviteeIds } } })
@@ -127,7 +153,10 @@ router.post(
                   type: 'call.incoming',
                   callId: result.call.id,
                   mode,
+                  clientApp: callerApp,
                   fromName: req.user.name,
+                  callerId: req.user.id,
+                  initiatorId: req.user.id,
                   apiBaseUrl: notificationActions.publicApiBaseUrl(),
                   actionToken: notificationActions.signAction(
                     { action: 'call.decline', userId, callId: result.call.id },
@@ -141,20 +170,18 @@ router.post(
         })
         .catch(() => {/* push is best-effort */});
     }
-    // 60-second auto-miss: if no one has joined within a minute, mark the
-    // call MISSED and post a system message so the recipient still sees it
-    // in their chat history with a tap-to-call-back affordance.
+    // 60-second auto-miss: if no one has joined within a minute, mark the call
+    // MISSED and post a system message so the chat shows "No answer".
+    const ringMs = service.RING_NO_ANSWER_MS;
     setTimeout(async () => {
       try {
-        // Atomic: only marks MISSED if still RINGING (won't kill a call that
-        // was answered in the race window) and posts the "Missed call" event.
         const missed = await service.expireIfRinging({ callId: result.call.id });
         if (!missed) return;
-        emitToCallParticipants(req.app.get('io'), missed, 'call.declined', { callId: missed.id, status: 'MISSED' });
-        emitToCallParticipants(req.app.get('io'), missed, 'call.ended', { callId: missed.id, status: 'MISSED' });
-        await pushCallEnded(missed);
-      } catch (_) {/* job runner cleans up stragglers */}
-    }, 60 * 1000);
+        emitToCallParticipants(req.app.get('io'), missed, 'call.declined', { callId: missed.id, status: 'MISSED' }, callerApp);
+        emitToCallParticipants(req.app.get('io'), missed, 'call.ended', { callId: missed.id, status: 'MISSED' }, callerApp);
+        await pushCallEnded(missed, callerApp);
+      } catch (_) {/* cron sweep cleans up stragglers */}
+    }, ringMs);
     res.status(201).json({ ...result, mode });
   })
 );
@@ -215,36 +242,44 @@ router.post(
 
 router.post('/:id/leave', asyncHandler(async (req, res) => {
   const call = await service.leave({ callId: req.params.id, user: req.user });
+  const clientApp = await storedCallClientApp(
+    call.id,
+    clientAppFromUserAgent(req.headers['user-agent']),
+  );
   emitToCallParticipants(req.app.get('io'), call, 'call.participant.left', {
     callId: call.id,
     userId: req.user.id,
     status: call.status,
-  });
+  }, clientApp);
   if (call.status === 'ENDED') {
     emitToCallParticipants(req.app.get('io'), call, 'call.ended', {
       callId: call.id,
       userId: req.user.id,
       status: call.status,
-    });
-    await pushCallEnded(call);
+    }, clientApp);
+    await pushCallEnded(call, clientApp);
   }
   res.json(call);
 }));
 
 router.post('/:id/decline', asyncHandler(async (req, res) => {
   const call = await service.decline({ callId: req.params.id, user: req.user });
+  const clientApp = await storedCallClientApp(
+    call.id,
+    clientAppFromUserAgent(req.headers['user-agent']),
+  );
   emitToCallParticipants(req.app.get('io'), call, 'call.declined', {
     callId: call.id,
     userId: req.user.id,
     status: call.status,
-  });
+  }, clientApp);
   if (call.status === 'ENDED' || call.status === 'MISSED') {
     emitToCallParticipants(req.app.get('io'), call, 'call.ended', {
       callId: call.id,
       userId: req.user.id,
       status: call.status,
-    });
-    await pushCallEnded(call);
+    }, clientApp);
+    await pushCallEnded(call, clientApp);
   }
   res.json(call);
 }));
@@ -271,8 +306,17 @@ router.post('/:id/busy', asyncHandler(async (req, res) => {
   res.json({ ok: true });
 }));
 
-router.post('/:id/waiting/accept', asyncHandler(async (req, res) => {
-  const result = await service.acceptWaitingCall({ waitingCallId: req.params.id, user: req.user });
+router.post('/:id/waiting/accept', validate({
+  body: Joi.object({
+    mode: Joi.string().valid('VOICE', 'VIDEO'),
+    activeCallId: Joi.string().allow(null, ''),
+  }),
+}), asyncHandler(async (req, res) => {
+  const result = await service.acceptWaitingCall({
+    waitingCallId: req.params.id,
+    user: req.user,
+    activeCallId: req.body?.activeCallId || null,
+  });
   for (const userId of result.addedUserIds) {
     req.app.get('io')?.to(`user:${userId}`).emit('call.waiting.accepted', {
       waitingCallId: result.waitingCallId,
@@ -348,16 +392,27 @@ router.post(
       ])
     );
     const mode = (req.body.mode || 'VIDEO').toUpperCase();
+    const callerApp = clientAppFromUserAgent(req.headers['user-agent']);
     const result = await service.addParticipant({
       callId: req.params.id,
       userIds,
       actor: req.user,
     });
+    await rememberCallClientApp(result.call.id, callerApp);
     for (const userId of userIds) {
-      req.app.get('io')?.to(`user:${userId}`).emit('call.invited', {
+      emitToUserApp(req.app.get('io'), userId, callerApp, 'call.incoming', {
         call: result.call,
         mode,
         token: result.tokens[userId],
+        callerId: req.user.id,
+        callerName: req.user.name,
+      });
+      emitToUserApp(req.app.get('io'), userId, callerApp, 'call.invited', {
+        call: result.call,
+        mode,
+        token: result.tokens[userId],
+        callerId: req.user.id,
+        callerName: req.user.name,
       });
     }
     // Ring the newly-added people even when their app is backgrounded/killed —
@@ -382,6 +437,7 @@ router.post(
                 type: 'call.incoming',
                 callId: result.call.id,
                 mode,
+                clientApp: callerApp,
                 fromName: req.user.name,
                 apiBaseUrl: notificationActions.publicApiBaseUrl(),
                 actionToken: notificationActions.signAction(
@@ -409,7 +465,8 @@ router.post(
       actor: req.user,
     });
     const mode = req.body.mode || 'VOICE';
-    req.app.get('io')?.to(`user:${result.targetUserId}`).emit('call.invited', {
+    const callerApp = clientAppFromUserAgent(req.headers['user-agent']);
+    emitToUserApp(req.app.get('io'), result.targetUserId, callerApp, 'call.invited', {
       call: result.call,
       mode,
       token: result.tokens[result.targetUserId],
@@ -426,6 +483,7 @@ router.post(
             type: 'call.incoming',
             callId: result.call.id,
             mode,
+            clientApp: callerApp,
             fromName: req.user.name,
             apiBaseUrl: notificationActions.publicApiBaseUrl(),
             actionToken: notificationActions.signAction(

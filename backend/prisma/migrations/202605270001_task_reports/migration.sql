@@ -1,4 +1,4 @@
-﻿-- Task completion reports and one-response-per-recipient replies.
+-- Task completion reports and one-response-per-recipient replies.
 CREATE TABLE IF NOT EXISTS "TaskCompletionReport" (
   "id" TEXT NOT NULL,
   "taskId" TEXT NOT NULL,

@@ -5,7 +5,25 @@ const prisma = require('./prisma');
 const config = require('../config');
 const logger = require('../utils/logger');
 
+const ATTENDANCE_MIN_WORDS =
+  Number(process.env.ATTENDANCE_MIN_REQUIRED_WORDS) || 10;
+
+async function seedAttendanceConfig() {
+  await prisma.workspaceSetting.upsert({
+    where: { scope_key: { scope: 'attendance', key: 'minRequiredWords' } },
+    create: {
+      scope: 'attendance',
+      key: 'minRequiredWords',
+      value: ATTENDANCE_MIN_WORDS,
+    },
+    update: { value: ATTENDANCE_MIN_WORDS },
+  });
+  logger.info({ minRequiredWords: ATTENDANCE_MIN_WORDS }, 'seed.attendance_config');
+}
+
 async function main() {
+  await seedAttendanceConfig();
+
   const userId = config.seed.superAdminUserId;
   const existing = await prisma.user.findUnique({ where: { userId } });
   if (existing) {

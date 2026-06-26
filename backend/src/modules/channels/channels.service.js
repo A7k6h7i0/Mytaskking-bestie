@@ -92,6 +92,16 @@ async function listForUser(user) {
       const { messages, ...rest } = channel;
       return withOnlineMembers({ ...rest, lastMessage: messages[0] || null, unreadCount }, user);
     })
+  ).then((items) =>
+    items.filter((channel) => {
+      if (channel.kind !== 'DM') return true;
+      const others = channel.members.filter((m) => m.userId !== user.id && m.user);
+      return others.some((m) => {
+        const name = (m.user.name || '').trim();
+        const loginId = (m.user.userId || '').trim();
+        return name.length > 0 || loginId.length > 0;
+      });
+    })
   );
 }
 

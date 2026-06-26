@@ -175,6 +175,8 @@ extension BestieApiExt on BestieApi {
   // ---- calls + meetings ----
   Future<Map<String, dynamic>> callHistory({int page = 1, int pageSize = 25}) =>
       get('/calls/history', query: {'page': page, 'pageSize': pageSize});
+  Future<Map<String, dynamic>> joinCall(String callId) =>
+      post('/calls/$callId/join');
   Future<Map<String, dynamic>> initiateCall({
     required List<String> participantIds,
     String kind = 'ONE_TO_ONE',
@@ -604,7 +606,7 @@ extension BestieApiExt on BestieApi {
     query: {if (timezone != null) 'timezone': timezone},
   );
 
-  /// Submit the morning plan (≥ 100 words) and clock in.
+  /// Submit the morning plan (≥ 10 words) and clock in.
   Future<Map<String, dynamic>> attendanceCheckIn({
     required String plan,
     String? timezone,
@@ -625,7 +627,7 @@ extension BestieApiExt on BestieApi {
     },
   );
 
-  /// Submit the evening report (≥ 100 words) and clock out.
+  /// Submit the evening report (≥ 10 words) and clock out.
   Future<Map<String, dynamic>> attendanceCheckOut({
     required String report,
     String? timezone,

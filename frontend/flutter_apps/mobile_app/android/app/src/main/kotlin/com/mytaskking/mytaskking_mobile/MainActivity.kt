@@ -2,17 +2,31 @@ package com.mytaskking.mytaskking_mobile
 
 import android.app.NotificationManager
 import android.content.Intent
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private val launchChannel = "mytaskking/launch_intent"
     private val callNotificationChannel = "mytaskking/call_notification"
+    private val proximityMethodChannel = "mytaskking/proximity"
+    private val proximityEventChannel = "mytaskking/proximity_events"
     private var latestLaunchPayload: Map<String, String?>? = null
+
+    private var sensorManager: SensorManager? = null
+    private var proximitySensor: Sensor? = null
+    private var proximityWakeLock: PowerManager.WakeLock? = null
+    private var proximityListener: SensorEventListener? = null
+    private var proximitySink: EventChannel.EventSink? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -23,17 +37,19 @@ class MainActivity : FlutterActivity() {
         applyCallWindowFlags(latestLaunchPayload)
     }
 
+    private var launchMethodChannel: MethodChannel? = null
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, launchChannel)
-            .setMethodCallHandler { call, result ->
-                if (call.method == "getInitialPayload") {
-                    result.success(latestLaunchPayload)
-                    latestLaunchPayload = null
-                } else {
-                    result.notImplemented()
-                }
+        launchMethodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, launchChannel)
+        launchMethodChannel?.setMethodCallHandler { call, result ->
+            if (call.method == "getInitialPayload") {
+                result.success(latestLaunchPayload)
+                latestLaunchPayload = null
+            } else {
+                result.notImplemented()
             }
+        }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, callNotificationChannel)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -51,10 +67,44 @@ class MainActivity : FlutterActivity() {
                         cancelIncomingNotification(call.arguments as? Map<String, Any?>)
                         result.success(null)
                     }
+                    "startIncoming" -> {
+                        @Suppress("UNCHECKED_CAST")
+                        startIncomingNotification(call.arguments as? Map<String, Any?>)
+                        result.success(null)
+                    }
                     "isIncomingActive" -> result.success(IncomingCallForegroundService.active)
                     else -> result.notImplemented()
                 }
             }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, proximityMethodChannel)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "enable" -> {
+                        enableProximity()
+                        result.success(null)
+                    }
+                    "disable" -> {
+                        disableProximity()
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, proximityEventChannel)
+            .setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    proximitySink = events
+                }
+
+                override fun onCancel(arguments: Any?) {
+                    proximitySink = null
+                }
+            })
+    }
+
+    override fun onDestroy() {
+        disableProximity()
+        super.onDestroy()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -63,12 +113,67 @@ class MainActivity : FlutterActivity() {
         latestLaunchPayload = payloadFrom(intent)
         cancelNotificationFromIntent(intent)
         applyCallWindowFlags(latestLaunchPayload)
+        notifyLaunchPayload(latestLaunchPayload)
+    }
+
+    private fun notifyLaunchPayload(payload: Map<String, String?>?) {
+        if (payload == null) return
+        launchMethodChannel?.invokeMethod("onLaunchPayload", payload)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun enableProximity() {
+        disableProximity()
+        val power = getSystemService(POWER_SERVICE) as PowerManager
+        try {
+            proximityWakeLock = power.newWakeLock(
+                PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK,
+                "mytaskking:proximity"
+            ).apply {
+                acquire(60 * 60 * 1000L)
+            }
+        } catch (_: Exception) {
+            proximityWakeLock = null
+        }
+
+        sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
+        proximitySensor = sensorManager?.getDefaultSensor(Sensor.TYPE_PROXIMITY)
+        if (proximitySensor == null) return
+
+        proximityListener = object : SensorEventListener {
+            override fun onSensorChanged(event: SensorEvent) {
+                val near = event.values[0] < event.sensor.maximumRange
+                runOnUiThread { proximitySink?.success(near) }
+            }
+
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+        }
+        sensorManager?.registerListener(
+            proximityListener,
+            proximitySensor,
+            SensorManager.SENSOR_DELAY_NORMAL
+        )
+    }
+
+    private fun disableProximity() {
+        proximityListener?.let { listener ->
+            sensorManager?.unregisterListener(listener)
+        }
+        proximityListener = null
+        proximitySensor = null
+        sensorManager = null
+        if (proximityWakeLock?.isHeld == true) {
+            proximityWakeLock?.release()
+        }
+        proximityWakeLock = null
     }
 
     private fun payloadFrom(intent: Intent?): Map<String, String?>? {
         if (intent == null) return null
         val type = intent.getStringExtra("type")
-        val hasCallTarget = type == "call.incoming" || type == "meeting.invited"
+        val hasCallTarget = type == "call.incoming" ||
+            type == "call.active" ||
+            type == "meeting.invited"
         val hasChatTarget = !intent.getStringExtra("channelId").isNullOrBlank()
         val hasTaskTarget = !intent.getStringExtra("taskId").isNullOrBlank()
         if (!hasCallTarget && !hasChatTarget && !hasTaskTarget) return null
@@ -112,9 +217,6 @@ class MainActivity : FlutterActivity() {
         if (intent == null || !intent.hasExtra("notificationId")) return
         val isIncoming = intent.getStringExtra("type") == "call.incoming" ||
             intent.getStringExtra("type") == "meeting.invited"
-        // A full-screen incoming-call intent displays the Flutter accept /
-        // decline UI; it is not acceptance by itself. Keep ringing until the
-        // explicit Accept action or Flutter overlay stops the service.
         if (isIncoming && !intent.getBooleanExtra("acceptCall", false)) return
         val id = intent.getIntExtra("notificationId", -1)
         if (id != -1) getSystemService(NotificationManager::class.java).cancel(id)
@@ -129,6 +231,18 @@ class MainActivity : FlutterActivity() {
         getSystemService(NotificationManager::class.java).cancel(
             BestieFirebaseMessagingService.notificationIdFor(key)
         )
+    }
+
+    private fun startIncomingNotification(args: Map<String, Any?>?) {
+        if (args == null) return
+        val type = args["type"]?.toString() ?: "call.incoming"
+        val data = mutableMapOf<String, String>()
+        for ((key, value) in args) {
+            val text = value?.toString()?.trim().orEmpty()
+            if (text.isNotEmpty()) data[key.toString()] = text
+        }
+        if (data.isEmpty()) return
+        IncomingCallForegroundService.start(this, data, type)
     }
 
     private fun startCallForegroundService(args: Map<String, Any?>?) {
@@ -153,5 +267,4 @@ class MainActivity : FlutterActivity() {
             startService(serviceIntent)
         }
     }
-
 }

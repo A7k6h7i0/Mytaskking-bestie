@@ -22,6 +22,12 @@ class _EmployeesScreenState extends ConsumerState<EmployeesScreen> {
     'EMPLOYEE',
     'TELECALLER',
   ];
+
+  static String _roleLabel(String role) => switch (role) {
+        'PROJECT_COORDINATOR_MANAGER' => 'Project coordinator',
+        'TELECALLER' => 'Telecaller',
+        _ => role[0] + role.substring(1).toLowerCase().replaceAll('_', ' '),
+      };
   final _search = TextEditingController();
   Timer? _debounce;
   List<Map<String, dynamic>> _items = const [];
@@ -73,246 +79,21 @@ class _EmployeesScreenState extends ConsumerState<EmployeesScreen> {
   }
 
   Future<void> _openEmployeeForm([Map<String, dynamic>? employee]) async {
-    final editing = employee != null;
-    final userId = TextEditingController(text: employee?['userId']?.toString());
-    final password = TextEditingController();
-    final name = TextEditingController(text: employee?['name']?.toString());
-    final customTitle =
-        TextEditingController(text: employee?['customTitle']?.toString());
-    final email = TextEditingController(text: employee?['email']?.toString());
-    final phone = TextEditingController(text: employee?['phone']?.toString());
-    final avatarUrl =
-        TextEditingController(text: employee?['avatarUrl']?.toString());
-    final departmentId =
-        TextEditingController(text: employee?['departmentId']?.toString());
-    final supervisorIds = ((employee?['supervisors'] as List?) ?? const [])
-        .map((entry) => (entry as Map?)?['supervisorId']?.toString())
-        .whereType<String>()
-        .toSet();
-    var role = employee?['role']?.toString() ?? 'EMPLOYEE';
-    var status = employee?['status']?.toString() ?? 'ACTIVE';
-    var saving = false;
-    String? error;
-
-    await showDialog<void>(
+    final saved = await showDialog<bool>(
       context: context,
-      builder: (_) => StatefulBuilder(
-        builder: (ctx, setLocal) {
-          InputDecoration decoration(String label, {String? hint}) =>
-              InputDecoration(labelText: label, hintText: hint);
-
-          Future<void> submit() async {
-            if (userId.text.trim().length < 2 ||
-                name.text.trim().isEmpty ||
-                (!editing && password.text.length < 8) ||
-                (editing &&
-                    password.text.isNotEmpty &&
-                    password.text.length < 8)) {
-              setLocal(() => error =
-                  'Enter a name, User ID, and a password of at least 8 characters.');
-              return;
-            }
-            setLocal(() {
-              saving = true;
-              error = null;
-            });
-            String? optional(TextEditingController controller) {
-              final value = controller.text.trim();
-              return value.isEmpty ? null : value;
-            }
-            final data = <String, dynamic>{
-              'userId': userId.text.trim(),
-              'name': name.text.trim(),
-              'role': role,
-              'status': status,
-              'customTitle': optional(customTitle),
-              'email': optional(email),
-              'phone': optional(phone),
-              'avatarUrl': optional(avatarUrl),
-              'departmentId': optional(departmentId),
-              'supervisorIds': supervisorIds.toList(),
-              if (password.text.isNotEmpty) 'password': password.text,
-            };
-            try {
-              if (editing) {
-                await ref
-                    .read(apiProvider)
-                    .updateEmployee(employee['id'] as String, data);
-              } else {
-                data.remove('status');
-                await ref.read(apiProvider).createEmployee(data);
-              }
-              if (ctx.mounted) Navigator.of(ctx).pop();
-              await _fetch(_search.text);
-              if (mounted) {
-                bestieToast(
-                  context,
-                  editing ? 'Employee updated' : 'Employee added',
-                  kind: BestieToastKind.success,
-                );
-              }
-            } catch (e) {
-              if (ctx.mounted) {
-                setLocal(() {
-                  saving = false;
-                  error = formatApiError(e);
-                });
-              }
-            }
-          }
-
-          return AlertDialog(
-            title: Text(editing ? 'Edit employee' : 'Add employee'),
-            content: SizedBox(
-              width: 440,
-              child: SingleChildScrollView(
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  TextField(
-                    controller: userId,
-                    decoration: decoration('User ID'),
-                    textInputAction: TextInputAction.next,
-                  ),
-                  TextField(
-                    controller: password,
-                    obscureText: true,
-                    decoration: decoration(
-                      editing ? 'New password (optional)' : 'Password',
-                      hint: editing ? 'Leave blank to keep current password' : null,
-                    ),
-                    textInputAction: TextInputAction.next,
-                  ),
-                  TextField(
-                    controller: name,
-                    decoration: decoration('Full name'),
-                    textInputAction: TextInputAction.next,
-                  ),
-                  TextField(
-                    controller: customTitle,
-                    decoration: decoration('Job title'),
-                    textInputAction: TextInputAction.next,
-                  ),
-                  TextField(
-                    controller: email,
-                    decoration: decoration('Email'),
-                    keyboardType: TextInputType.emailAddress,
-                    textInputAction: TextInputAction.next,
-                  ),
-                  TextField(
-                    controller: phone,
-                    decoration: decoration('Phone'),
-                    keyboardType: TextInputType.phone,
-                  ),
-                  TextField(
-                    controller: avatarUrl,
-                    decoration: decoration('Avatar URL'),
-                    keyboardType: TextInputType.url,
-                    textInputAction: TextInputAction.next,
-                  ),
-                  TextField(
-                    controller: departmentId,
-                    decoration: decoration('Department ID'),
-                    textInputAction: TextInputAction.next,
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    value: role,
-                    decoration: decoration('Role'),
-                    items: _roles
-                        .map((value) => DropdownMenuItem(
-                              value: value,
-                              child: Text(value.replaceAll('_', ' ')),
-                            ))
-                        .toList(),
-                    onChanged: saving
-                        ? null
-                        : (value) => setLocal(() => role = value ?? role),
-                  ),
-                  if (editing) ...[
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      value: status,
-                      decoration: decoration('Status'),
-                      items: const [
-                        DropdownMenuItem(value: 'ACTIVE', child: Text('ACTIVE')),
-                        DropdownMenuItem(
-                            value: 'SUSPENDED', child: Text('SUSPENDED')),
-                      ],
-                      onChanged: saving
-                          ? null
-                          : (value) => setLocal(() => status = value ?? status),
-                    ),
-                  ],
-                  if (_items
-                      .where((item) => item['id'] != employee?['id'])
-                      .isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text('Reports to',
-                          style: TextStyle(
-                              color: BestieColors.of(ctx).textMuted,
-                              fontWeight: BestieTokens.fwSemibold)),
-                    ),
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxHeight: 160),
-                      child: ListView(
-                        shrinkWrap: true,
-                        children: [
-                          for (final candidate in _items.where(
-                              (item) => item['id'] != employee?['id']))
-                            CheckboxListTile(
-                              dense: true,
-                              contentPadding: EdgeInsets.zero,
-                              value:
-                                  supervisorIds.contains(candidate['id']?.toString()),
-                              title: Text(
-                                  (candidate['name'] ?? candidate['userId'])
-                                      .toString()),
-                              onChanged: saving
-                                  ? null
-                                  : (checked) => setLocal(() {
-                                        final id = candidate['id'].toString();
-                                        checked == true
-                                            ? supervisorIds.add(id)
-                                            : supervisorIds.remove(id);
-                                      }),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ],
-                  if (error != null) ...[
-                    const SizedBox(height: 12),
-                    Text(error!,
-                        style: TextStyle(
-                            color: BestieColors.of(ctx).danger, fontSize: 12)),
-                  ],
-                ]),
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: saving ? null : () => Navigator.of(ctx).pop(),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: saving ? null : submit,
-                child: Text(saving ? 'Saving…' : (editing ? 'Save' : 'Add')),
-              ),
-            ],
-          );
-        },
+      builder: (_) => _EmployeeFormDialog(
+        employee: employee,
+        candidates: _items,
       ),
     );
-
-    userId.dispose();
-    password.dispose();
-    name.dispose();
-    customTitle.dispose();
-    email.dispose();
-    phone.dispose();
-    avatarUrl.dispose();
-    departmentId.dispose();
+    if (!mounted || saved != true) return;
+    await _fetch(_search.text);
+    if (!mounted) return;
+    bestieToast(
+      context,
+      employee != null ? 'Employee updated' : 'Employee added',
+      kind: BestieToastKind.success,
+    );
   }
 
   Future<void> _deleteEmployee(Map<String, dynamic> employee) async {
@@ -343,7 +124,8 @@ class _EmployeesScreenState extends ConsumerState<EmployeesScreen> {
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
     final me = ref.watch(authStoreProvider).user;
-    final canManage = me?.role == 'SUPER_ADMIN';
+    final canManage = me != null &&
+        const {'SUPER_ADMIN', 'ADMIN', 'MANAGER'}.contains(me.role);
     final list = _items.where((u) => u['id'] != me?.id).toList();
 
     return Scaffold(
@@ -461,6 +243,294 @@ class _EmployeesScreenState extends ConsumerState<EmployeesScreen> {
                         ),
         ),
       ]),
+      floatingActionButton: canManage
+          ? FloatingActionButton.extended(
+              onPressed: () => _openEmployeeForm(),
+              icon: const Icon(Icons.person_add_alt_1_rounded),
+              label: const Text('Add employee'),
+            )
+          : null,
+    );
+  }
+}
+
+class _EmployeeFormDialog extends ConsumerStatefulWidget {
+  final Map<String, dynamic>? employee;
+  final List<Map<String, dynamic>> candidates;
+
+  const _EmployeeFormDialog({
+    required this.employee,
+    required this.candidates,
+  });
+
+  @override
+  ConsumerState<_EmployeeFormDialog> createState() =>
+      _EmployeeFormDialogState();
+}
+
+class _EmployeeFormDialogState extends ConsumerState<_EmployeeFormDialog> {
+  late final TextEditingController _userId;
+  late final TextEditingController _password;
+  late final TextEditingController _name;
+  late final TextEditingController _customTitle;
+  late final TextEditingController _email;
+  late final TextEditingController _phone;
+  late final TextEditingController _avatarUrl;
+  late final TextEditingController _departmentId;
+  late final Set<String> _supervisorIds;
+  late String _role;
+  late String _status;
+  bool _saving = false;
+  String? _error;
+
+  bool get _editing => widget.employee != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final employee = widget.employee;
+    _userId = TextEditingController(text: employee?['userId']?.toString());
+    _password = TextEditingController();
+    _name = TextEditingController(text: employee?['name']?.toString());
+    _customTitle =
+        TextEditingController(text: employee?['customTitle']?.toString());
+    _email = TextEditingController(text: employee?['email']?.toString());
+    _phone = TextEditingController(text: employee?['phone']?.toString());
+    _avatarUrl =
+        TextEditingController(text: employee?['avatarUrl']?.toString());
+    _departmentId =
+        TextEditingController(text: employee?['departmentId']?.toString());
+    _supervisorIds = ((employee?['supervisors'] as List?) ?? const [])
+        .map((entry) => (entry as Map?)?['supervisorId']?.toString())
+        .whereType<String>()
+        .toSet();
+    _role = employee?['role']?.toString() ?? 'EMPLOYEE';
+    _status = employee?['status']?.toString() ?? 'ACTIVE';
+  }
+
+  @override
+  void dispose() {
+    _userId.dispose();
+    _password.dispose();
+    _name.dispose();
+    _customTitle.dispose();
+    _email.dispose();
+    _phone.dispose();
+    _avatarUrl.dispose();
+    _departmentId.dispose();
+    super.dispose();
+  }
+
+  InputDecoration _decoration(String label, {String? hint}) =>
+      InputDecoration(labelText: label, hintText: hint);
+
+  String? _optional(TextEditingController controller) {
+    final value = controller.text.trim();
+    return value.isEmpty ? null : value;
+  }
+
+  Future<void> _submit() async {
+    if (_userId.text.trim().length < 2 ||
+        _name.text.trim().isEmpty ||
+        (!_editing && _password.text.length < 8) ||
+        (_editing &&
+            _password.text.isNotEmpty &&
+            _password.text.length < 8)) {
+      setState(() => _error =
+          'Enter a name, User ID, and a password of at least 8 characters.');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    final data = <String, dynamic>{
+      'userId': _userId.text.trim(),
+      'name': _name.text.trim(),
+      'role': _role,
+      'status': _status,
+      'customTitle': _optional(_customTitle),
+      'email': _optional(_email),
+      'phone': _optional(_phone),
+      'avatarUrl': _optional(_avatarUrl),
+      'departmentId': _optional(_departmentId),
+      'supervisorIds': _supervisorIds.toList(),
+      if (_password.text.isNotEmpty) 'password': _password.text,
+    };
+    try {
+      if (_editing) {
+        await ref
+            .read(apiProvider)
+            .updateEmployee(widget.employee!['id'] as String, data);
+      } else {
+        data.remove('status');
+        await ref.read(apiProvider).createEmployee(data);
+      }
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = formatApiError(e);
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
+    final maxWidth = MediaQuery.sizeOf(context).width - 48;
+    final reportCandidates = widget.candidates
+        .where((item) => item['id'] != widget.employee?['id'])
+        .toList();
+
+    return AlertDialog(
+      title: Text(_editing ? 'Edit employee' : 'Add employee'),
+      content: SizedBox(
+        width: maxWidth.clamp(280, 440),
+        child: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            TextField(
+              controller: _userId,
+              decoration: _decoration('User ID'),
+              textInputAction: TextInputAction.next,
+            ),
+            TextField(
+              controller: _password,
+              obscureText: true,
+              decoration: _decoration(
+                _editing ? 'New password (optional)' : 'Password',
+                hint: _editing ? 'Leave blank to keep current password' : null,
+              ),
+              textInputAction: TextInputAction.next,
+            ),
+            TextField(
+              controller: _name,
+              decoration: _decoration('Full name'),
+              textInputAction: TextInputAction.next,
+            ),
+            TextField(
+              controller: _customTitle,
+              decoration: _decoration('Job title'),
+              textInputAction: TextInputAction.next,
+            ),
+            TextField(
+              controller: _email,
+              decoration: _decoration('Email'),
+              keyboardType: TextInputType.emailAddress,
+              textInputAction: TextInputAction.next,
+            ),
+            TextField(
+              controller: _phone,
+              decoration: _decoration('Phone'),
+              keyboardType: TextInputType.phone,
+            ),
+            TextField(
+              controller: _avatarUrl,
+              decoration: _decoration('Avatar URL'),
+              keyboardType: TextInputType.url,
+              textInputAction: TextInputAction.next,
+            ),
+            TextField(
+              controller: _departmentId,
+              decoration: _decoration('Department ID'),
+              textInputAction: TextInputAction.next,
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: _role,
+              isExpanded: true,
+              decoration: _decoration('Role'),
+              items: _EmployeesScreenState._roles
+                  .map((value) => DropdownMenuItem(
+                        value: value,
+                        child: Text(
+                          _EmployeesScreenState._roleLabel(value),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ))
+                  .toList(),
+              onChanged: _saving
+                  ? null
+                  : (value) => setState(() => _role = value ?? _role),
+            ),
+            if (_editing) ...[
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: _status,
+                isExpanded: true,
+                decoration: _decoration('Status'),
+                items: const [
+                  DropdownMenuItem(value: 'ACTIVE', child: Text('Active')),
+                  DropdownMenuItem(value: 'SUSPENDED', child: Text('Suspended')),
+                ],
+                onChanged: _saving
+                    ? null
+                    : (value) => setState(() => _status = value ?? _status),
+              ),
+            ],
+            if (reportCandidates.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Reports to',
+                  style: TextStyle(
+                    color: c.textMuted,
+                    fontWeight: BestieTokens.fwSemibold,
+                  ),
+                ),
+              ),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 160),
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    for (final candidate in reportCandidates)
+                      CheckboxListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        value: _supervisorIds
+                            .contains(candidate['id']?.toString()),
+                        title: Text(
+                          (candidate['name'] ?? candidate['userId']).toString(),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        onChanged: _saving
+                            ? null
+                            : (checked) => setState(() {
+                                  final id = candidate['id'].toString();
+                                  checked == true
+                                      ? _supervisorIds.add(id)
+                                      : _supervisorIds.remove(id);
+                                }),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _error!,
+                style: TextStyle(color: c.danger, fontSize: 12),
+              ),
+            ],
+          ]),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _saving ? null : _submit,
+          child: Text(_saving ? 'Saving…' : (_editing ? 'Save' : 'Add')),
+        ),
+      ],
     );
   }
 }

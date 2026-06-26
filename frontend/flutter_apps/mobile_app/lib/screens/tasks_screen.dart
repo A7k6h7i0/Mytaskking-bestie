@@ -5,6 +5,33 @@ import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../state.dart';
 
+String? _assigneeRecordUserId(Map<String, dynamic> assignee) {
+  final nested = (assignee['user'] as Map?)?['id']?.toString();
+  if (nested != null && nested.isNotEmpty) return nested;
+  return assignee['userId']?.toString();
+}
+
+bool _isAssignedToMe(Map<String, dynamic> task, String? meId) {
+  if (meId == null) return false;
+  final assignees =
+      (task['assignees'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+  return assignees.any((a) => _assigneeRecordUserId(a) == meId);
+}
+
+Map<String, dynamic>? _myAssignment(Map<String, dynamic> task, String? meId) {
+  if (meId == null) return null;
+  final assignees =
+      (task['assignees'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+  for (final a in assignees) {
+    if (_assigneeRecordUserId(a) == meId) return a;
+  }
+  return null;
+}
+
+List<Map<String, dynamic>> _flattenKanbanColumns(
+  Map<String, dynamic> data,
+) => flattenTasksResponse(data);
+
 /// Tasks home — single list view of every task the user can see, ordered by
 /// most-recently-touched. Tapping a card pushes `/tasks/:id` for the
 /// full-screen detail (no more bottom-sheet modal).
@@ -14,7 +41,8 @@ class TasksScreen extends ConsumerStatefulWidget {
   ConsumerState<TasksScreen> createState() => _TasksScreenState();
 }
 
-class _TasksScreenState extends ConsumerState<TasksScreen> {
+class _TasksScreenState extends ConsumerState<TasksScreen>
+    with WidgetsBindingObserver {
   void Function()? _offAssigned;
   void Function()? _offAutoPromoted;
   _TaskFilter _filter = _TaskFilter.all;
@@ -30,9 +58,11 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // Realtime toast when someone assigns me a task — connection is opened
     // lazily by the realtime provider, so we wait until after first paint.
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.invalidate(tasksKanbanProvider);
       final me = ref.read(authStoreProvider).user;
       final rt = ref.read(realtimeProvider);
       _offAssigned = rt.on<Map>('task.assigned', (data) {
@@ -43,7 +73,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
         final assignees =
             (task['assignees'] as List?)?.cast<Map<String, dynamic>>() ??
                 const [];
-        final mine = assignees.any((a) => (a['user'] as Map?)?['id'] == me.id);
+        final mine = assignees.any((a) => _assigneeRecordUserId(a) == me.id);
         if (!mine) return;
         final due =
             task['dueAt'] != null ? ' · due ${_fmt(task['dueAt'])}' : '';
@@ -73,10 +103,18 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _offAssigned?.call();
     _offAutoPromoted?.call();
     _searchCtl.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ref.invalidate(tasksKanbanProvider);
+    }
   }
 
   @override
@@ -106,21 +144,21 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
           loading: () => const BestieSkeletonList(
             itemCount: 5,
             shape: BestieSkeletonShape.card,
+            padding: EdgeInsets.fromLTRB(12, 8, 12, 96),
           ),
-          error: (e, _) => BestieEmptyState(
-            icon: Icons.error_outline,
-            iconColor: c.danger,
-            title: 'Couldn\'t load tasks',
-            description: formatApiError(e),
+          error: (e, _) => ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            children: [
+              BestieEmptyState(
+                icon: Icons.error_outline,
+                iconColor: c.danger,
+                title: 'Couldn\'t load tasks',
+                description: formatApiError(e),
+              ),
+            ],
           ),
           data: (data) {
-            // The provider still returns a kanban shape (columns keyed by
-            // status) — flatten it for the list and sort by most-recent.
-            final cols =
-                (data['columns'] as Map?)?.cast<String, dynamic>() ?? const {};
-            final all = cols.values
-                .expand((v) => (v as List).cast<Map<String, dynamic>>())
-                .toList();
+            final all = flattenTasksResponse(data);
             all.sort(
                 (a, b) => '${b['updatedAt']}'.compareTo('${a['updatedAt']}'));
 
@@ -137,39 +175,91 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
             }
             _showPriorityToastFor(all, me?.id);
 
+            final assignedPending = all.where((t) {
+              final status = (t['status'] ?? 'TODO').toString();
+              if (status == 'DONE' || status == 'CANCELLED') return false;
+              final mine = _myAssignment(t, me?.id);
+              return mine != null && mine['state']?.toString() == 'PENDING';
+            }).toList();
+
             if (all.isEmpty) {
-              return BestieEmptyState(
-                icon: Icons.task_alt,
-                title: 'No tasks yet',
-                description:
-                    'Create one and assign it to anyone in the workspace.',
-                action: FilledButton.icon(
-                  onPressed: _newTask,
-                  icon: const Icon(Icons.add),
-                  label: const Text('New task'),
-                ),
+              return ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                children: [
+                  BestieEmptyState(
+                    icon: Icons.task_alt,
+                    title: 'No tasks yet',
+                    description:
+                        'Create one and assign it to anyone in the workspace.',
+                    action: FilledButton.icon(
+                      onPressed: _newTask,
+                      icon: const Icon(Icons.add),
+                      label: const Text('New task'),
+                    ),
+                  ),
+                ],
               );
             }
 
-            return Column(
-              children: [
-                _searchBar(c),
-                _filterRow(c, counts),
-                Expanded(
-                  child: filtered.isEmpty
-                      ? BestieEmptyState(
-                          icon: Icons.filter_alt_off_outlined,
-                          title: 'No tasks match',
-                          description: 'Try a different filter or search term.',
-                        )
-                      : ListView.separated(
-                          padding: const EdgeInsets.fromLTRB(12, 4, 12, 96),
-                          itemBuilder: (_, i) => _taskCard(filtered[i], c),
-                          separatorBuilder: (_, __) =>
-                              const SizedBox(height: 8),
-                          itemCount: filtered.length,
+            return CustomScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: [
+                SliverToBoxAdapter(child: _searchBar(c)),
+                SliverToBoxAdapter(child: _filterRow(c, counts)),
+                if (assignedPending.isNotEmpty &&
+                    _filter != _TaskFilter.done) ...[
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                      child: Text(
+                        'ASSIGNED TO YOU',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: BestieTokens.fwBold,
+                          color: c.textMuted,
+                          letterSpacing: BestieTokens.lsEyebrow,
                         ),
-                ),
+                      ),
+                    ),
+                  ),
+                  SliverToBoxAdapter(
+                    child: SizedBox(
+                      height: 132,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                        itemCount: assignedPending.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 8),
+                        itemBuilder: (_, i) => SizedBox(
+                          width: 280,
+                          child: _taskCard(assignedPending[i], c),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+                if (filtered.isEmpty)
+                  SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: BestieEmptyState(
+                      icon: Icons.filter_alt_off_outlined,
+                      title: _filter == _TaskFilter.mine
+                          ? 'No tasks assigned to you'
+                          : 'No tasks match',
+                      description: _filter == _TaskFilter.mine
+                          ? 'Tasks assigned to you will appear here.'
+                          : 'Try a different filter or search term.',
+                    ),
+                  )
+                else
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 96),
+                    sliver: SliverList.separated(
+                      itemBuilder: (_, i) => _taskCard(filtered[i], c),
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemCount: filtered.length,
+                    ),
+                  ),
               ],
             );
           },
@@ -216,7 +306,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
           (t['assignees'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
       return assignees.any((a) {
         final state = a['state']?.toString();
-        return (a['user'] as Map?)?['id'] == meId &&
+        return _assigneeRecordUserId(a) == meId &&
             state != 'COMPLETED' &&
             state != 'DECLINED';
       });
@@ -244,10 +334,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
     for (final t in all) {
       final status = (t['status'] ?? 'TODO').toString();
       final done = status == 'DONE' || status == 'CANCELLED';
-      final assignees =
-          (t['assignees'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
-      final mine = meId != null &&
-          assignees.any((a) => (a['user'] as Map?)?['id'] == meId);
+      final mine = meId != null && _isAssignedToMe(t, meId);
       final due = DateTime.tryParse('${t['dueAt']}')?.toLocal();
       out[_TaskFilter.all] = out[_TaskFilter.all]! + 1;
       if (mine && !done) out[_TaskFilter.mine] = out[_TaskFilter.mine]! + 1;
@@ -271,10 +358,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
     return all.where((t) {
       final status = (t['status'] ?? 'TODO').toString();
       final done = status == 'DONE' || status == 'CANCELLED';
-      final assignees =
-          (t['assignees'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
-      final mine = meId != null &&
-          assignees.any((a) => (a['user'] as Map?)?['id'] == meId);
+      final mine = meId != null && _isAssignedToMe(t, meId);
       final due = DateTime.tryParse('${t['dueAt']}')?.toLocal();
       switch (f) {
         case _TaskFilter.mine:
@@ -421,10 +505,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
     final assignees =
         (t['assignees'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
     final me = ref.read(authStoreProvider).user;
-    final mine = assignees.firstWhere(
-      (a) => (a['user'] as Map?)?['id'] == me?.id,
-      orElse: () => const {},
-    );
+    final mine = _myAssignment(t, me?.id) ?? const {};
     final myState = mine['state'] as String?;
     final myScore = mine['score'] is int ? mine['score'] as int : null;
     final status = (t['status'] ?? 'TODO').toString();
@@ -528,59 +609,67 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
               ],
               const SizedBox(height: 10),
               Row(children: [
-                if (assignees.isNotEmpty)
-                  SizedBox(
-                    height: 24,
-                    child: Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        for (var i = 0; i < assignees.take(3).length; i++)
-                          Positioned(
-                            left: i * 16.0,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border: Border.all(color: c.surface, width: 2),
-                              ),
-                              child: BestieAvatar(
-                                name: (assignees[i]['user'] as Map?)?['name']
-                                        ?.toString() ??
-                                    '?',
-                                imageUrl:
-                                    (assignees[i]['user'] as Map?)?['avatarUrl']
-                                        ?.toString(),
-                                isClient: (assignees[i]['user']
-                                        as Map?)?['isClient'] ??
-                                    false,
-                                size: 24,
-                              ),
-                            ),
-                          ),
-                        if (assignees.length > 3)
-                          Positioned(
-                            left: 3 * 16.0,
-                            child: Container(
-                              width: 24,
-                              height: 24,
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: c.surface2,
-                                shape: BoxShape.circle,
-                                border: Border.all(color: c.surface, width: 2),
-                              ),
-                              child: Text(
-                                '+${assignees.length - 3}',
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  color: c.textSoft,
-                                  fontWeight: BestieTokens.fwBold,
+                if (assignees.isNotEmpty) ...[
+                  Builder(builder: (context) {
+                    final slots =
+                        assignees.length > 3 ? 4 : assignees.length.clamp(1, 3);
+                    final stackWidth = 24.0 + (slots - 1) * 16.0;
+                    return SizedBox(
+                      height: 24,
+                      width: stackWidth,
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          for (var i = 0; i < assignees.take(3).length; i++)
+                            Positioned(
+                              left: i * 16.0,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: c.surface, width: 2),
+                                ),
+                                child: BestieAvatar(
+                                  name: (assignees[i]['user'] as Map?)?['name']
+                                          ?.toString() ??
+                                      '?',
+                                  imageUrl:
+                                      (assignees[i]['user'] as Map?)?['avatarUrl']
+                                          ?.toString(),
+                                  isClient: (assignees[i]['user']
+                                          as Map?)?['isClient'] ??
+                                      false,
+                                  size: 24,
                                 ),
                               ),
                             ),
-                          ),
-                      ],
-                    ),
-                  ),
+                          if (assignees.length > 3)
+                            Positioned(
+                              left: 3 * 16.0,
+                              child: Container(
+                                width: 24,
+                                height: 24,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: c.surface2,
+                                  shape: BoxShape.circle,
+                                  border:
+                                      Border.all(color: c.surface, width: 2),
+                                ),
+                                child: Text(
+                                  '+${assignees.length - 3}',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    color: c.textSoft,
+                                    fontWeight: BestieTokens.fwBold,
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    );
+                  }),
+                ],
                 const Spacer(),
                 if (dueAt != null)
                   Container(

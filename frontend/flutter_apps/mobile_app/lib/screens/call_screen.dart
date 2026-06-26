@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
@@ -15,13 +16,20 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../active_call_state.dart';
+import '../call_proximity.dart';
+import '../call_screen_theme.dart';
 import '../router.dart';
 import '../state.dart';
+import '../widgets/call_dialpad_sheet.dart';
 import '../widgets/call_screen_design.dart';
 
 const _callNotificationChannel = MethodChannel('mytaskking/call_notification');
 const _kPremiumControlGridWidth = 354.0;
 const _kPremiumControlColumnGap = 10.0;
+/// Outbound ring with no answer — matches server `RING_NO_ANSWER_MS` (60s).
+const _kOutgoingRingTimeout = Duration(seconds: 60);
+
+enum _CallMemberConnection { connected, ringing, notConnected }
 
 /// Live audio/video call view powered by Agora RTC.
 ///
@@ -60,12 +68,14 @@ class CallSession {
   static bool joined = false;
   static bool videoEnabled = false;
   static bool muted = false;
+  static bool held = false;
   static bool cameraOff = false;
   static CallAudioRoute audioRoute = CallAudioRoute.earpiece;
   static DateTime? connectedAt;
   static bool recording = false;
   static bool savingRecording = false;
   static String? recordingPath;
+  static Timer? _audioRouteKeepAliveTimer;
 
   /// This device's randomly-chosen Agora uid for the active call. Random per
   /// device so the same account can join from two phones without colliding.
@@ -81,6 +91,23 @@ class CallSession {
   static final Map<int, String> remoteNames = {};
   static final Map<int, bool> remoteMuted = {};
 
+  /// Real Agora uid → backend userId (from call.announce). Used to match
+  /// volume-indication uids to tiles and to drop duplicate self tiles.
+  static final Map<int, String> agoraUidToUserId = {};
+
+  /// Backend-tracked participants still in the call (userId → display name).
+  /// Stable source of truth for the header count — Agora uid churn during
+  /// reconnects no longer makes "2" flicker to "1".
+  static final Map<String, String> joinedParticipants = {};
+
+  /// Cached call metadata + remote peer display fields survive CallScreen
+  /// dispose so the return bubble and re-opened call UI still show the person
+  /// you are talking to (not a placeholder title / "Connecting…").
+  static Map<String, dynamic>? callMeta;
+  static String? remotePeerName;
+  static String? remotePeerSubtitle;
+  static String? remotePeerAvatarUrl;
+
   /// Bumps whenever the session activates or deactivates so widgets
   /// outside the call screen (e.g. the "ongoing call" return pill) can
   /// rebuild without polling.
@@ -89,7 +116,47 @@ class CallSession {
     revision.value = revision.value + 1;
   }
 
+  /// Notifies widgets outside the call screen (return bubble, etc.).
+  static void notifyRevision() => _ping();
+
   static bool get isActive => engine != null;
+
+  /// Re-apply the user's chosen output route on the live Agora engine.
+  static Future<void> reapplyAudioRoute() async {
+    final e = engine;
+    if (e == null || !joined || held) return;
+    final speaker = audioRoute == CallAudioRoute.speaker;
+    try {
+      await e.setDefaultAudioRouteToSpeakerphone(speaker);
+    } catch (_) {}
+    try {
+      await e.setEnableSpeakerphone(speaker);
+    } catch (_) {}
+    try {
+      await e.adjustPlaybackSignalVolume(speaker ? 255 : 160);
+    } catch (_) {}
+  }
+
+  static void startAudioRouteKeepAlive() {
+    _audioRouteKeepAliveTimer?.cancel();
+    _audioRouteKeepAliveTimer = Timer.periodic(
+      const Duration(seconds: 6),
+      (_) => unawaited(reapplyAudioRoute()),
+    );
+  }
+
+  static void stopAudioRouteKeepAlive() {
+    _audioRouteKeepAliveTimer?.cancel();
+    _audioRouteKeepAliveTimer = null;
+  }
+
+  /// Wipe any in-memory call UI before placing a new outgoing call.
+  static Future<void> prepareForNewCall() async {
+    await teardown();
+    ActiveCallState.clear();
+    _ping();
+  }
+
   static bool matches(String? callId, String? meetingSlug) {
     if (engine == null) return false;
     if (callId != null) return activeCallId == callId;
@@ -112,6 +179,7 @@ class CallSession {
     videoEnabled = false;
     myUid = null;
     muted = false;
+    held = false;
     cameraOff = false;
     audioRoute = CallAudioRoute.earpiece;
     connectedAt = null;
@@ -122,6 +190,13 @@ class CallSession {
     remoteUids.clear();
     remoteNames.clear();
     remoteMuted.clear();
+    agoraUidToUserId.clear();
+    joinedParticipants.clear();
+    callMeta = null;
+    remotePeerName = null;
+    remotePeerSubtitle = null;
+    remotePeerAvatarUrl = null;
+    stopAudioRouteKeepAlive();
     _ping();
   }
 }
@@ -141,8 +216,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
   Set<int> get _remoteUids => _CallSession.remoteUids;
   Map<int, String> get _remoteNames => _CallSession.remoteNames;
   Map<int, bool> get _remoteMuted => _CallSession.remoteMuted;
+  Map<int, String> get _agoraUidToUserId => _CallSession.agoraUidToUserId;
+  Map<String, String> get _joinedParticipants => _CallSession.joinedParticipants;
   bool get _muted => _CallSession.muted;
   set _muted(bool v) => _CallSession.muted = v;
+  bool get _held => _CallSession.held;
+  set _held(bool v) => _CallSession.held = v;
   bool get _cameraOff => _CallSession.cameraOff;
   set _cameraOff(bool v) => _CallSession.cameraOff = v;
   CallAudioRoute get _route => _CallSession.audioRoute;
@@ -167,6 +246,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
   bool _remoteClosed = false;
   Timer? _timer;
   Timer? _audioHealthTimer;
+  Timer? _tokenRefreshTimer;
+  Timer? _ringTimeoutTimer;
   Duration _elapsed = Duration.zero;
   final _ringtone = FlutterRingtonePlayer();
   final _tonePlayer = AudioPlayer();
@@ -174,12 +255,31 @@ class _CallScreenState extends ConsumerState<CallScreen>
   String _headOfficeName = 'HQ India';
   String? _ringingSoundUrl;
   String? _buzzerSoundUrl;
+  bool _proximityNear = false;
+  CallProximityController? _proximity;
+  final Map<String, Timer> _participantLeaveTimers = {};
+  /// When each invitee was last rung — drives ringing vs ring-again in Members.
+  final Map<String, DateTime> _invitedAtByUserId = {};
+  static const _kInviteRingWindow = Duration(seconds: 60);
+
+  /// Agora uid of the loudest current speaker (0 = local) — WhatsApp-style tile border.
+  int? _activeSpeakerUid;
+  static const _kSpeakingVolumeThreshold = 10;
+  static const _kSpeakingBorderColor = Color(0xFFE8A060);
 
   bool get _isVideo => _videoEnabled;
   bool get _isCallInitiator {
     final call = (_callMeta?['call'] as Map?)?.cast<String, dynamic>();
     return call?['initiatorId'] == ref.read(authStoreProvider).user?.id;
   }
+
+  /// Outgoing 1:1 call still ringing — callee has not answered on the server.
+  bool get _waitingForAnswer =>
+      _joined &&
+      _connectedAt == null &&
+      !_isMeeting &&
+      !_remoteClosed &&
+      _isCallInitiator;
 
   @override
   void initState() {
@@ -197,6 +297,22 @@ class _CallScreenState extends ConsumerState<CallScreen>
     _CallSession.onCallScreen = true;
     _CallSession._ping();
     _subscribeCallLifecycle();
+    if (_CallSession.matches(widget.callId, widget.meetingSlug)) {
+      _callMeta = _CallSession.callMeta;
+      _restoreLiveCallUi();
+    } else if (_callMeta == null &&
+        widget.callId != null &&
+        _CallSession.callMeta != null) {
+      final seededId =
+          (_CallSession.callMeta?['call'] as Map?)?['id']?.toString();
+      if (seededId == widget.callId) {
+        _callMeta = _CallSession.callMeta;
+        _syncParticipantsFromCallMeta();
+      }
+    }
+    if (widget.mode != 'video' && widget.meetingSlug == null) {
+      unawaited(_startProximityIfVoice());
+    }
     _bootstrap();
   }
 
@@ -207,11 +323,22 @@ class _CallScreenState extends ConsumerState<CallScreen>
       u();
     }
     _callUnsubs.clear();
+    for (final t in _participantLeaveTimers.values) {
+      t.cancel();
+    }
+    _participantLeaveTimers.clear();
     _timer?.cancel();
     _audioHealthTimer?.cancel();
+    _tokenRefreshTimer?.cancel();
+    _cancelOutgoingRingTimeout();
     _ringtone.stop();
     _tonePlayer.dispose();
     _tts.stop();
+    unawaited(_proximity?.stop());
+    _proximity = null;
+    if (_CallSession.engine != null && _CallSession.joined) {
+      unawaited(_CallSession.reapplyAudioRoute());
+    }
     // Left the call screen — if the call is still live, the return pill should
     // reappear. (We do NOT tear the engine down here; only explicit Hang Up
     // ends the session, so the call keeps running in the background.)
@@ -242,23 +369,18 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final rt = ref.read(realtimeProvider);
     _callUnsubs.add(rt.onAny('call.declined', ([data]) {
       if (data is! Map || data['callId'] != callId) return;
-      // `call.ended` is the authoritative terminal event. A decline inside a
-      // group call removes only that participant and must not tear down every
-      // other participant's live session.
       final status = data['status']?.toString();
-      if (status == 'ENDED' || status == 'MISSED') {
-        _ringtone.stop();
-        _tonePlayer.stop();
+      if (status == 'ENDED' || status == 'MISSED' || status == 'DECLINED') {
+        _endBecauseRemoteClosed(Map<String, dynamic>.from(data));
       }
     }));
     _callUnsubs.add(rt.onAny('call.ended', ([data]) {
       if (data is! Map || data['callId'] != callId) return;
-      _endBecauseRemoteClosed();
+      _endBecauseRemoteClosed(Map<String, dynamic>.from(data));
     }));
     _callUnsubs.add(rt.onAny('call.busy', ([data]) {
       if (data is! Map || data['callId'] != callId) return;
-      _ringtone.stop();
-      _tonePlayer.stop();
+      unawaited(_stopRingback());
       final name = (data['userName'] ?? 'The person').toString();
       _speak('$name is currently on another call. Please leave a message.');
       if (mounted) setState(() => _status = '$name is busy');
@@ -276,37 +398,74 @@ class _CallScreenState extends ConsumerState<CallScreen>
         data['audioUrl']?.toString(),
       );
     }));
-    // A participant (any device) announced its real Agora uid + name. We use
-    // this to label the tile for that uid. Because each device announces its
-    // own random uid, the same account on two phones shows as two tiles.
-    void onPresence([dynamic data]) {
+    // Backend join — updates stable participant list only. Do NOT add agoraUid
+    // to _remoteUids here: early rejoin emits a derived uid before the device
+    // has joined Agora, which duplicated "You" + your own name on the grid.
+    void onParticipantJoined([dynamic data]) {
+      if (data is! Map || data['callId'] != callId) return;
+      final userId = data['userId']?.toString();
+      final name = data['userName']?.toString();
+      if (userId != null && userId.isNotEmpty) {
+        _markParticipantJoined(
+          userId,
+          name ?? _joinedParticipants[userId] ?? 'Participant',
+        );
+        final me = ref.read(authStoreProvider).user;
+        if (userId != me?.id) _onCalleeAnsweredViaServer(userId);
+      }
+      if (mounted) setState(() {});
+    }
+
+    // A participant announced its real per-device Agora uid + name.
+    void onAnnounce([dynamic data]) {
       if (data is! Map || data['callId'] != callId) return;
       final uidRaw = data['agoraUid'];
       final uid = uidRaw is int ? uidRaw : int.tryParse('$uidRaw');
       if (uid == null || uid <= 0) return;
-      if (uid == _CallSession.myUid) return; // that's me
+      final userId = data['userId']?.toString();
+      final me = ref.read(authStoreProvider).user;
+      if (uid == _CallSession.myUid || userId == me?.id) return;
       final name = data['userName']?.toString();
+      if (userId != null && userId.isNotEmpty) {
+        _markParticipantJoined(
+          userId,
+          name ?? _joinedParticipants[userId] ?? 'Participant',
+        );
+        _onCalleeAnsweredViaServer(userId);
+        _agoraUidToUserId[uid] = userId;
+        _dedupeRemoteUidsForUser(userId, keepUid: uid);
+      }
       if (!mounted) return;
-      // Track seen peer uids separately from names — an announce can arrive
-      // with an empty name, and keying "is this new?" off the names map would
-      // make such a peer perpetually "new" and trigger a re-announce storm.
       final isNew = _seenPeerUids.add(uid);
       setState(() {
+        _remoteUids.add(uid);
         if (name != null && name.isNotEmpty) _remoteNames[uid] = name;
       });
-      // Bidirectional discovery: when a genuinely new peer appears, re-announce
-      // myself once so they learn my uid→name too (I may have joined first).
+      _purgeSelfFromRemoteTracking();
+      _syncRemotePeerSnapshot();
       if (isNew) _announceSelf();
     }
 
-    _callUnsubs.add(rt.onAny('call.participant.joined', onPresence));
-    _callUnsubs.add(rt.onAny('call.announce', onPresence));
+    _callUnsubs.add(rt.onAny('call.participant.joined', onParticipantJoined));
+    _callUnsubs.add(rt.onAny('call.announce', onAnnounce));
+    _callUnsubs.add(rt.onAny('call.participant.left', ([data]) {
+      if (data is! Map || data['callId'] != callId) return;
+      _scheduleParticipantLeave(data['userId']?.toString());
+    }));
     _callUnsubs.add(rt.onAny('call.participant.muted', ([data]) {
       if (data is! Map || data['callId'] != callId) return;
       final me = ref.read(authStoreProvider).user;
       if (data['userId'] == me?.id) return;
       // Agora's onUserMuteAudio callback supplies the per-device value. This
       // socket event makes sure the call UI repaints immediately as well.
+      if (mounted) setState(() {});
+    }));
+    _callUnsubs.add(rt.onAny('call.participants.updated', ([data]) {
+      if (data is! Map || data['callId'] != callId) return;
+      final call = (data['call'] as Map?)?.cast<String, dynamic>();
+      if (call == null) return;
+      if (_callMeta != null) _callMeta!['call'] = call;
+      _syncParticipantsFromCallMeta();
       if (mounted) setState(() {});
     }));
   }
@@ -318,33 +477,352 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final uid = _CallSession.myUid;
     if (callId == null || uid == null) return;
     final me = ref.read(authStoreProvider).user;
+    if (me != null) _markParticipantJoined(me.id, me.name);
     ref.read(apiProvider).post('/calls/$callId/announce', body: {
       'agoraUid': uid,
       'userName': me?.name ?? ''
+    }).then((_) {
+      if (me != null) _agoraUidToUserId[uid] = me.id;
     }).catchError((_) => <String, dynamic>{});
   }
 
-  Future<void> _endBecauseRemoteClosed() async {
+  void _markInvited(Iterable<String> userIds) {
+    final now = DateTime.now();
+    for (final id in userIds) {
+      if (id.isEmpty) continue;
+      _invitedAtByUserId[id] = now;
+    }
+  }
+
+  List<Map<String, dynamic>> _participantsFromMeta() {
+    final call = (_callMeta?['call'] as Map?)?.cast<String, dynamic>();
+    return (call?['participants'] as List?)?.cast<Map<String, dynamic>>() ??
+        const [];
+  }
+
+  DateTime? _callCreatedAt() {
+    final raw = (_callMeta?['call'] as Map?)?['createdAt']?.toString();
+    return raw == null ? null : DateTime.tryParse(raw);
+  }
+
+  /// User ids currently connected (joined, not left) — used to disable Add list.
+  Set<String> _userIdsInCall() {
+    final ids = <String>{};
+    final me = ref.read(authStoreProvider).user?.id;
+    if (me != null) ids.add(me);
+    for (final p in _participantsFromMeta()) {
+      if (p['joinedAt'] != null && p['leftAt'] == null) {
+        final id = p['userId']?.toString();
+        if (id != null && id.isNotEmpty) ids.add(id);
+      }
+    }
+    for (final id in _joinedParticipants.keys) {
+      ids.add(id);
+    }
+    return ids;
+  }
+
+  String _participantProfileName(Map<String, dynamic> p) {
+    final user = (p['user'] as Map?)?.cast<String, dynamic>();
+    final name = (user?['name'] ?? 'Participant').toString().trim();
+    return name.isEmpty ? 'Participant' : name;
+  }
+
+  _CallMemberConnection _memberConnection(Map<String, dynamic> p) {
+    if (p['joinedAt'] != null && p['leftAt'] == null) {
+      return _CallMemberConnection.connected;
+    }
+    final userId = p['userId']?.toString() ?? '';
+    if (p['joinedAt'] == null && p['leftAt'] == null) {
+      final invitedAt =
+          _invitedAtByUserId[userId] ?? _callCreatedAt() ?? DateTime.now();
+      if (DateTime.now().difference(invitedAt) < _kInviteRingWindow) {
+        return _CallMemberConnection.ringing;
+      }
+      return _CallMemberConnection.notConnected;
+    }
+    if (p['joinedAt'] == null && p['leftAt'] != null) {
+      return _CallMemberConnection.notConnected;
+    }
+    return _CallMemberConnection.notConnected;
+  }
+
+  Future<void> _refreshCallMeta() async {
+    if (widget.callId == null) return;
+    try {
+      final fresh = await _fetchToken();
+      _callMeta = fresh;
+      _CallSession.callMeta = fresh;
+      _syncParticipantsFromCallMeta();
+    } catch (_) {}
+  }
+
+  Future<void> _ringParticipantAgain(String userId) async {
+    final callId = widget.callId;
+    if (callId == null) return;
+    try {
+      await ref.read(apiProvider).addCallParticipants(
+            callId,
+            [userId],
+            mode: widget.mode.toUpperCase(),
+          );
+      _markInvited([userId]);
+      await _refreshCallMeta();
+      if (mounted) {
+        setState(() {});
+        bestieToast(context, 'Ringing again', kind: BestieToastKind.info);
+      }
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not ring',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    }
+  }
+
+  void _markParticipantJoined(String userId, String name) {
+    _invitedAtByUserId.remove(userId);
+    _participantLeaveTimers[userId]?.cancel();
+    _participantLeaveTimers.remove(userId);
+    _joinedParticipants[userId] = name;
+    final me = ref.read(authStoreProvider).user;
+    if (me != null && userId != me.id && name.trim().isNotEmpty) {
+      _CallSession.remotePeerName = name.trim();
+    }
+  }
+
+  void _scheduleParticipantLeave(String? userId) {
+    if (userId == null || userId.isEmpty) return;
+    final me = ref.read(authStoreProvider).user?.id;
+    if (userId == me) return;
+    _participantLeaveTimers[userId]?.cancel();
+    _participantLeaveTimers[userId] = Timer(const Duration(seconds: 4), () {
+      _participantLeaveTimers.remove(userId);
+      _joinedParticipants.remove(userId);
+      if (mounted) setState(() {});
+    });
+  }
+
+  /// Drop stale remote uids that refer to this device (wrong derived uid from
+  /// an early server join event, or a duplicate announce).
+  void _purgeSelfFromRemoteTracking() {
+    final me = ref.read(authStoreProvider).user;
+    final meId = me?.id;
+    final meName = me?.name?.trim();
+    final myUid = _CallSession.myUid;
+    final remove = <int>[];
+    for (final uid in _remoteUids) {
+      if (uid == myUid) {
+        remove.add(uid);
+        continue;
+      }
+      if (meId != null && _agoraUidToUserId[uid] == meId) {
+        remove.add(uid);
+        continue;
+      }
+      // Early call.participant.joined used a derived uid + your real name.
+      if (meName != null &&
+          meName.isNotEmpty &&
+          !_agoraUidToUserId.containsKey(uid) &&
+          _remoteNames[uid]?.trim() == meName) {
+        remove.add(uid);
+      }
+    }
+    if (remove.isEmpty) return;
+    for (final uid in remove) {
+      _remoteUids.remove(uid);
+      _remoteNames.remove(uid);
+      _remoteMuted.remove(uid);
+      _agoraUidToUserId.remove(uid);
+      _seenPeerUids.remove(uid);
+    }
+  }
+
+  /// Keep one Agora uid per user when a newer announce arrives.
+  void _dedupeRemoteUidsForUser(String userId, {required int keepUid}) {
+    final keepName = _remoteNames[keepUid];
+    final stale = <int>[];
+    for (final uid in _remoteUids) {
+      if (uid == keepUid) continue;
+      if (_agoraUidToUserId[uid] == userId) {
+        stale.add(uid);
+        continue;
+      }
+      if (keepName != null &&
+          keepName.isNotEmpty &&
+          _remoteNames[uid] == keepName &&
+          (_agoraUidToUserId[uid] == null ||
+              _agoraUidToUserId[uid] == userId)) {
+        stale.add(uid);
+      }
+    }
+    for (final uid in stale) {
+      _remoteUids.remove(uid);
+      _remoteNames.remove(uid);
+      _remoteMuted.remove(uid);
+      _agoraUidToUserId.remove(uid);
+      _seenPeerUids.remove(uid);
+    }
+  }
+
+  int? _agoraUidForUserId(String? userId) {
+    if (userId == null) return null;
+    for (final e in _agoraUidToUserId.entries) {
+      if (e.value == userId) return e.key;
+    }
+    return null;
+  }
+
+  bool _isAgoraUidLocal(int uid) =>
+      uid == 0 || uid == _CallSession.myUid;
+
+  void _syncParticipantsFromCallMeta() {
+    final call = (_callMeta?['call'] as Map?)?.cast<String, dynamic>() ??
+        _callMeta?.cast<String, dynamic>();
+    final parts =
+        (call?['participants'] as List?)?.cast<Map<String, dynamic>>() ??
+            const [];
+    for (final p in parts) {
+      final userId = p['userId']?.toString();
+      if (userId != null &&
+          p['joinedAt'] == null &&
+          p['leftAt'] == null &&
+          !_invitedAtByUserId.containsKey(userId)) {
+        _invitedAtByUserId[userId] = _callCreatedAt() ?? DateTime.now();
+      }
+      if (p['leftAt'] != null) continue;
+      if (userId == null) continue;
+      final me = ref.read(authStoreProvider).user;
+      // Invited-but-not-joined yet shouldn't inflate the live count while ringing.
+      if (p['joinedAt'] == null && userId != me?.id) continue;
+      final user = (p['user'] as Map?)?.cast<String, dynamic>();
+      final name = (user?['name'] ?? 'Participant').toString();
+      _markParticipantJoined(userId, name);
+    }
+    final me = ref.read(authStoreProvider).user;
+    if (me != null) _markParticipantJoined(me.id, me.name);
+  }
+
+  /// Stable participant count for the header chip — prefers backend join state
+  /// over raw Agora uid count so reconnect blips don't flicker 1 ↔ 2.
+  int get _participantCount {
+    final backend = _joinedParticipants.length;
+    if (backend > 0) return backend;
+    return max(1, 1 + _remoteUids.length);
+  }
+
+  bool get _useWhatsAppParticipantGrid =>
+      _isMeeting ||
+      _participantCount > 2 ||
+      _remoteUids.length > 1 ||
+      ((_callMeta?['call'] as Map?)?['kind'] == 'GROUP' &&
+          _participantCount >= 3);
+
+  Future<void> _enableSpeakerHighlight() async {
+    final engine = _engine;
+    if (engine == null) return;
+    try {
+      await engine.enableAudioVolumeIndication(
+        interval: 200,
+        smooth: 3,
+        reportVad: true,
+      );
+    } catch (_) {/* non-critical */}
+  }
+
+  bool _isParticipantSpeaking({
+    required bool isLocal,
+    required int? agoraUid,
+    required String? userId,
+    required bool muted,
+  }) {
+    if (muted || _activeSpeakerUid == null) return false;
+    final active = _activeSpeakerUid!;
+    if (isLocal) return _isAgoraUidLocal(active);
+    final activeUserId = _agoraUidToUserId[active];
+    if (userId != null && activeUserId == userId) return true;
+    if (agoraUid != null && active == agoraUid) return true;
+    final mappedUid = _agoraUidForUserId(userId);
+    return mappedUid != null && active == mappedUid;
+  }
+
+  void _updateActiveSpeaker(List<AudioVolumeInfo> speakers) {
+    if (!_useWhatsAppParticipantGrid) {
+      if (_activeSpeakerUid != null && mounted) {
+        setState(() => _activeSpeakerUid = null);
+      }
+      return;
+    }
+    int? loudest;
+    var loudestVol = 0;
+    for (final s in speakers) {
+      final vol = s.volume ?? 0;
+      if (vol < _kSpeakingVolumeThreshold) continue;
+      final uid = s.uid ?? 0;
+      final muted = _isAgoraUidLocal(uid)
+          ? _muted
+          : (_remoteMuted[uid] ?? false);
+      if (muted) continue;
+      if (vol > loudestVol) {
+        loudestVol = vol;
+        loudest = uid;
+      }
+    }
+    if (_activeSpeakerUid != loudest && mounted) {
+      setState(() => _activeSpeakerUid = loudest);
+    }
+  }
+
+  Future<void> _startProximityIfVoice() async {
+    if (_isVideo || _isMeeting) return;
+    _proximity ??= CallProximityController(onChanged: (near) {
+      if (!mounted) return;
+      setState(() => _proximityNear = near);
+      // Never auto-switch away from speaker — user must turn it off manually.
+      if (near && _route == CallAudioRoute.speaker) return;
+      if (near && _route != CallAudioRoute.earpiece) {
+        if (mounted) setState(() => _route = CallAudioRoute.earpiece);
+        unawaited(_applyAudioRoute(CallAudioRoute.earpiece));
+      }
+    });
+    await _proximity!.start();
+  }
+
+  Future<void> _stopProximity() async {
+    await _proximity?.stop();
+    _proximity = null;
+    if (mounted) setState(() => _proximityNear = false);
+  }
+
+  Future<void> _endBecauseRemoteClosed([Map<String, dynamic>? data]) async {
     if (_remoteClosed) return;
     _remoteClosed = true;
+    _cancelOutgoingRingTimeout();
+    await _stopRingback();
     await _teardown(notifyServer: false);
     if (!mounted) return;
+    final status = data?['status']?.toString();
+    final body = status == 'MISSED'
+        ? 'No answer — the call was not picked up.'
+        : status == 'DECLINED'
+            ? 'The other person declined the call.'
+            : 'The other person left the call.';
     bestieToast(
       context,
-      'Call ended',
-      body: 'The other person declined or left the call.',
+      status == 'MISSED' ? 'No answer' : 'Call ended',
+      body: body,
       kind: BestieToastKind.info,
     );
     context.go('/chat');
   }
 
   void _startTimer() {
+    final started = _connectedAt;
+    if (started == null) return;
     _timer?.cancel();
-    _connectedAt ??= DateTime.now();
     void updateElapsed() {
-      final started = _connectedAt;
-      if (!mounted || started == null) return;
-      setState(() => _elapsed = DateTime.now().difference(started));
+      if (!mounted || _connectedAt == null) return;
+      setState(() => _elapsed = DateTime.now().difference(_connectedAt!));
     }
 
     updateElapsed();
@@ -355,9 +833,31 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   void _startAudioHealthCheck() {
     _audioHealthTimer?.cancel();
-    _audioHealthTimer = Timer.periodic(const Duration(seconds: 20), (_) {
-      if (_joined) _reassertAudio();
+    _audioHealthTimer = Timer.periodic(const Duration(seconds: 12), (_) {
+      if (_joined && !_held) _reassertAudio();
     });
+  }
+
+  void _startTokenRefresh() {
+    _tokenRefreshTimer?.cancel();
+    _tokenRefreshTimer = Timer.periodic(const Duration(minutes: 15), (_) async {
+      if (!_joined || _engine == null) return;
+      try {
+        final fresh = await _fetchToken();
+        final newToken = fresh['token']?.toString();
+        if (newToken != null) await _engine!.renewToken(newToken);
+      } catch (_) {/* best-effort */}
+    });
+  }
+
+  Future<void> _renewTokenNow() async {
+    final engine = _engine;
+    if (engine == null) return;
+    try {
+      final fresh = await _fetchToken();
+      final newToken = fresh['token']?.toString();
+      if (newToken != null) await engine.renewToken(newToken);
+    } catch (_) {}
   }
 
   String _formatElapsed(Duration d) {
@@ -368,17 +868,127 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   void _publishActiveCallState() {
+    _syncRemotePeerSnapshot();
+    String? liveRemoteName;
+    for (final n in _remoteNames.values) {
+      if (n.isNotEmpty) {
+        liveRemoteName = n;
+        break;
+      }
+    }
     final title = widget.meetingSlug != null
         ? 'Meeting'
-        : (_remoteNames.values.isNotEmpty ? _remoteNames.values.first : 'Call');
+        : (_CallSession.remotePeerName ?? liveRemoteName ?? 'Call');
     ActiveCallState.update(
       title: title,
       participants: _remoteNames.values.toList(growable: false),
     );
   }
 
+  /// Persist who we are on a call with so minimize → bubble → return keeps
+  /// the correct name even after CallScreen disposes.
+  void _syncRemotePeerSnapshot() {
+    final me = ref.read(authStoreProvider).user;
+    String? name;
+    for (final entry in _joinedParticipants.entries) {
+      if (entry.key != me?.id && entry.value.trim().isNotEmpty) {
+        name = entry.value.trim();
+        break;
+      }
+    }
+    if (name == null && _remoteUids.isNotEmpty) {
+      for (final uid in _remoteUids) {
+        final n = _remoteNames[uid]?.trim();
+        if (n != null && n.isNotEmpty) {
+          name = n;
+          break;
+        }
+      }
+    }
+    if (name == null) {
+      final fromMeta = _callDisplayTitle();
+      if (fromMeta != 'Connecting…' && fromMeta != 'In call') {
+        name = fromMeta;
+      }
+    }
+
+    final subtitle = _callDisplaySubtitle();
+    final avatar = _callDisplayAvatarUrl();
+
+    if (name != null && name.isNotEmpty) {
+      _CallSession.remotePeerName = name;
+    }
+    _CallSession.remotePeerSubtitle = subtitle;
+    _CallSession.remotePeerAvatarUrl = avatar;
+    if (_callMeta != null) {
+      _CallSession.callMeta = Map<String, dynamic>.from(_callMeta!);
+    }
+    _CallSession._ping();
+  }
+
+  String _primaryRemoteDisplayName() {
+    final cached = _CallSession.remotePeerName;
+    if (cached != null &&
+        cached.isNotEmpty &&
+        cached != 'Call' &&
+        cached != 'Connecting…' &&
+        cached != 'In call') {
+      return cached;
+    }
+    final activeTitle = ActiveCallState.current.value?.title;
+    if (activeTitle != null &&
+        activeTitle.isNotEmpty &&
+        activeTitle != 'Call' &&
+        activeTitle != 'Connecting…' &&
+        activeTitle != 'In call') {
+      return activeTitle;
+    }
+    if (_remoteUids.isNotEmpty) {
+      for (final uid in _remoteUids) {
+        final n = _remoteNames[uid]?.trim();
+        if (n != null && n.isNotEmpty) return n;
+      }
+    }
+    for (final entry in _joinedParticipants.entries) {
+      final me = ref.read(authStoreProvider).user;
+      if (entry.key != me?.id && entry.value.trim().isNotEmpty) {
+        return entry.value.trim();
+      }
+    }
+    final fromMeta = _callDisplayTitle();
+    if (fromMeta != 'Connecting…' && fromMeta != 'In call') return fromMeta;
+    return cached ?? 'Participant';
+  }
+
+  String? _primaryRemoteSubtitle() =>
+      _CallSession.remotePeerSubtitle ?? _callDisplaySubtitle();
+
+  String? _primaryRemoteAvatarUrl() =>
+      _CallSession.remotePeerAvatarUrl ?? _callDisplayAvatarUrl();
+
+  /// When returning to an already-live call, restore timer + connected status
+  /// from the static session instead of "Connecting…".
+  void _restoreLiveCallUi() {
+    if (_CallSession.connectedAt != null) {
+      _startTimer();
+      if (mounted) setState(() => _status = 'Connected');
+      return;
+    }
+    // Still ringing — joined the Agora channel but callee has not answered.
+    if (_waitingForAnswer) {
+      _timer?.cancel();
+      _elapsed = Duration.zero;
+      if (mounted) setState(() => _status = 'Ringing…');
+    }
+  }
+
   void _markRemoteConnected() {
+    if (_connectedAt == null) {
+      _connectedAt = DateTime.now();
+      ActiveCallState.markConnected(_connectedAt!);
+    }
     _startTimer();
+    _syncRemotePeerSnapshot();
     if (mounted) setState(() => _status = 'Connected');
   }
 
@@ -394,7 +1004,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
         'callId': widget.callId,
         'meetingSlug': widget.meetingSlug,
         'mode': widget.mode,
-        'startedAtMs': (_connectedAt ?? DateTime.now()).millisecondsSinceEpoch,
+        'startedAtMs':
+            (_connectedAt ?? ActiveCallState.current.value?.startedAt ??
+                    DateTime.now())
+                .millisecondsSinceEpoch,
       });
     } catch (_) {}
   }
@@ -422,8 +1035,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
       } catch (_) {}
     }
     await _CallSession.teardown();
-    await _ringtone.stop();
-    await _tonePlayer.stop();
+    await _stopProximity();
+    _cancelOutgoingRingTimeout();
+    await _stopRingback();
     await _tts.stop();
     _connectedAt = null;
     ActiveCallState.clear();
@@ -442,13 +1056,22 @@ class _CallScreenState extends ConsumerState<CallScreen>
         setState(() {
           _joined = true;
           _reconnecting = false;
+          _error = null;
           // Before anyone answers we're ringing them, not connected.
           _status = _remoteUids.isEmpty ? 'Ringing…' : 'Connected';
         });
+        unawaited(_enableSpeakerHighlight());
+        _purgeSelfFromRemoteTracking();
         _publishActiveCallState();
         _showOngoingCallNotification();
+        _CallSession.startAudioRouteKeepAlive();
         _startAudioHealthCheck();
-        if (_remoteUids.isEmpty && !_isMeeting) _playRingback();
+        _startTokenRefresh();
+        if (_remoteUids.isEmpty && !_isMeeting && _isCallInitiator) {
+          unawaited(_playRingback());
+          _startOutgoingRingTimeout();
+        }
+        if (!_isVideo) unawaited(_startProximityIfVoice());
       },
       onUserJoined: (conn, remoteUid, elapsed) {
         if (!mounted) return;
@@ -456,9 +1079,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
           _remoteUids.add(remoteUid);
           _reconnecting = false;
         });
+        // During outbound ringing, Agora uid alone is NOT proof the callee
+        // picked up — wait for server call.participant.joined (see onPresence).
+        if (_waitingForAnswer) return;
         _markRemoteConnected();
-        _ringtone.stop();
-        _tonePlayer.stop();
+        _cancelOutgoingRingTimeout();
+        unawaited(_stopRingback());
         _reassertAudio();
         _publishActiveCallState();
         _showOngoingCallNotification();
@@ -472,6 +1098,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
         // Do not remove the participant immediately. Agora also fires this
         // for temporary network drops; the backend call.ended event is the
         // source of truth for a real hang-up.
+      },
+      onAudioVolumeIndication: (conn, speakers, speakerNumber, totalVolume) {
+        if (!mounted) return;
+        _updateActiveSpeaker(speakers);
       },
       onUserMuteAudio: (conn, remoteUid, muted) {
         if (mounted) {
@@ -498,9 +1128,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
           _reconnecting = false;
           _status = _remoteUids.isEmpty ? 'Ringing…' : 'Connected';
         });
+        unawaited(_enableSpeakerHighlight());
+        _purgeSelfFromRemoteTracking();
         // Audio engine often needs a nudge after a rejoin or the call stays
         // silent for both sides until something else wakes it.
         if (_connectedAt != null) _startTimer();
+        unawaited(_renewTokenNow());
         _reassertAudio();
         _showOngoingCallNotification();
       },
@@ -517,6 +1150,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
             _status = _remoteUids.isEmpty ? 'Ringing…' : 'Connected';
           });
           if (_connectedAt != null) _startTimer();
+          unawaited(_renewTokenNow());
           _reassertAudio();
           _showOngoingCallNotification();
         } else if (state == ConnectionStateType.connectionStateFailed) {
@@ -524,14 +1158,14 @@ class _CallScreenState extends ConsumerState<CallScreen>
             _reconnecting = true;
             _status = 'Reconnecting…';
           });
+          unawaited(_renewTokenNow());
         }
       },
       onTokenPrivilegeWillExpire: (conn, t) async {
-        try {
-          final fresh = await _fetchToken();
-          final newToken = fresh['token']?.toString();
-          if (newToken != null) await engine.renewToken(newToken);
-        } catch (_) {/* user can rejoin */}
+        await _renewTokenNow();
+      },
+      onRequestToken: (conn) async {
+        await _renewTokenNow();
       },
       onError: (err, msg) {
         if (!mounted) return;
@@ -555,31 +1189,105 @@ class _CallScreenState extends ConsumerState<CallScreen>
         setState(() {
           _joined = false;
           _status = 'Ended';
+          _activeSpeakerUid = null;
         });
         _timer?.cancel();
         _audioHealthTimer?.cancel();
+        _tokenRefreshTimer?.cancel();
       },
     ));
+  }
+
+  /// Server confirmed the callee joined (POST /join) — end the outbound ring.
+  void _onCalleeAnsweredViaServer(String userId) {
+    final me = ref.read(authStoreProvider).user;
+    if (me != null && userId == me.id) return;
+    final call = (_callMeta?['call'] as Map?)?.cast<String, dynamic>();
+    final initiatorId = call?['initiatorId']?.toString();
+    if (initiatorId != null && userId == initiatorId) return;
+    if (!_isCallInitiator || _isMeeting) return;
+    _cancelOutgoingRingTimeout();
+    unawaited(_stopRingback());
+    if (_connectedAt == null) _markRemoteConnected();
+  }
+
+  Future<void> _stopRingback() async {
+    try {
+      await _ringtone.stop();
+      await _tonePlayer.stop();
+    } catch (_) {}
+  }
+
+  void _cancelOutgoingRingTimeout() {
+    _ringTimeoutTimer?.cancel();
+    _ringTimeoutTimer = null;
+  }
+
+  void _startOutgoingRingTimeout() {
+    if (_ringTimeoutTimer != null) return;
+    if (!_isCallInitiator || _isMeeting || _remoteClosed) return;
+    if (!_joined || _remoteUids.isNotEmpty) return;
+    _ringTimeoutTimer = Timer(_kOutgoingRingTimeout, () {
+      if (!mounted || _remoteClosed) return;
+      if (!_isCallInitiator || _isMeeting) return;
+      if (_connectedAt != null) return;
+      unawaited(_handleNoAnswerTimeout());
+    });
+  }
+
+  Future<void> _handleNoAnswerTimeout() async {
+    if (_remoteClosed) return;
+    _remoteClosed = true;
+    _cancelOutgoingRingTimeout();
+    await _stopRingback();
+    await _teardown(notifyServer: true);
+    if (!mounted) return;
+    bestieToast(
+      context,
+      'No answer',
+      body: 'The call was not picked up.',
+      kind: BestieToastKind.info,
+    );
+    context.go('/chat');
   }
 
   Future<void> _playRingback() async {
     if (!_isCallInitiator || _isMeeting) return;
     try {
+      await _stopRingback();
       final url = _ringingSoundUrl;
+      await _tonePlayer.setAudioContext(_ringbackAudioContext(_route));
+      await _tonePlayer.setReleaseMode(ReleaseMode.loop);
+      final ringVolume = switch (_route) {
+        CallAudioRoute.speaker => 1.0,
+        CallAudioRoute.bluetooth => 0.95,
+        CallAudioRoute.earpiece => 0.75,
+      };
       if (url != null && url.isNotEmpty) {
-        await _ringtone.stop();
-        await _tonePlayer.setAudioContext(_ringbackAudioContext(_route));
-        await _tonePlayer.setReleaseMode(ReleaseMode.loop);
-        await _tonePlayer.play(UrlSource(url), volume: 0.9);
+        await _tonePlayer.play(UrlSource(url), volume: ringVolume);
+        _startOutgoingRingTimeout();
         return;
       }
-      await _ringtone.play(
-        android: AndroidSounds.ringtone,
-        ios: IosSounds.electronic,
-        looping: true,
-        volume: 0.75,
-        asAlarm: false,
-      );
+      // Custom URL absent: earpiece uses the system ringtone stream; speaker /
+      // Bluetooth need a different stream or Agora hijacks the session.
+      if (_route == CallAudioRoute.earpiece) {
+        await _ringtone.play(
+          android: AndroidSounds.ringtone,
+          ios: IosSounds.electronic,
+          looping: true,
+          volume: ringVolume,
+          asAlarm: false,
+        );
+      } else {
+        await _ringtone.play(
+          android: AndroidSounds.ringtone,
+          ios: IosSounds.electronic,
+          looping: true,
+          volume: ringVolume,
+          asAlarm: true,
+        );
+      }
+      _startOutgoingRingTimeout();
     } catch (_) {}
   }
 
@@ -637,11 +1345,17 @@ class _CallScreenState extends ConsumerState<CallScreen>
   /// stay silent for both parties for a while after a network blip until the
   /// engine recovers on its own.
   Future<void> _reassertAudio() async {
+    if (_held) return;
     final engine = _engine;
     if (engine == null) return;
     try {
       await engine.enableAudio();
       await engine.muteAllRemoteAudioStreams(false);
+      for (final uid in _remoteUids) {
+        try {
+          await engine.muteRemoteAudioStream(uid: uid, mute: false);
+        } catch (_) {}
+      }
       if (_muted) {
         await engine.muteLocalAudioStream(true);
       } else {
@@ -649,7 +1363,6 @@ class _CallScreenState extends ConsumerState<CallScreen>
         await engine.muteLocalAudioStream(false);
       }
       await _applyAudioRoute(_route);
-      await engine.adjustPlaybackSignalVolume(160);
     } catch (_) {/* best-effort recovery */}
   }
 
@@ -665,27 +1378,58 @@ class _CallScreenState extends ConsumerState<CallScreen>
     // permission, token, and join dance entirely.
     if (_CallSession.matches(widget.callId, widget.meetingSlug)) {
       try {
+        if (mounted) setState(() => _error = null);
+        _callMeta = _CallSession.callMeta;
+        if (_callMeta == null && _CallSession.joined) {
+          try {
+            _callMeta = await _fetchToken();
+            _CallSession.callMeta = _callMeta;
+          } catch (e) {
+            if (_isCallEndedError(e)) {
+              await _teardown(notifyServer: false);
+              if (mounted) context.go('/chat');
+              return;
+            }
+            // Token refresh is optional when the live engine is already up.
+          }
+        }
+        _syncParticipantsFromCallMeta();
         _registerHandlers(_CallSession.engine!);
+        unawaited(_enableSpeakerHighlight());
+        _purgeSelfFromRemoteTracking();
+        _restoreLiveCallUi();
         setState(() {
-          _status = _joined ? 'Connected' : 'Connecting…';
+          _joined = _CallSession.joined;
         });
-        if (_connectedAt != null) _startTimer();
+        _syncRemotePeerSnapshot();
+        _publishActiveCallState();
         _startAudioHealthCheck();
+        _startTokenRefresh();
         _reassertAudio();
         _showOngoingCallNotification();
+        _CallSession.startAudioRouteKeepAlive();
+        if (!_isVideo) unawaited(_startProximityIfVoice());
+      } catch (e) {
+        if (!mounted) return;
+        if (_isCallEndedError(e)) {
+          await _teardown(notifyServer: false);
+          if (mounted) context.go('/chat');
+          return;
+        }
+        setState(() {
+          _error = formatApiError(e);
+          _status = 'Failed';
+        });
       } finally {
         _booting = false;
       }
       return;
     }
-    // Different call already running — leave it cleanly before joining a new
-    // one. Without this Agora throws -17 (already in channel).
-    if (_CallSession.engine != null) {
-      await _CallSession.teardown();
-      // teardown() clears onCallScreen; we're still on the call screen, so set
-      // it back or the "ongoing call" pill would wrongly show over this call.
-      _CallSession.onCallScreen = true;
-    }
+    // New or different call — always wipe stale session maps / bubble state.
+    await _CallSession.teardown();
+    ActiveCallState.clear();
+    _CallSession.onCallScreen = true;
+    _CallSession._ping();
 
     // Track which step is in flight so the error message can identify the
     // exact failing call (-3 with a null message is otherwise opaque).
@@ -711,11 +1455,29 @@ class _CallScreenState extends ConsumerState<CallScreen>
         }
       }
 
-      // 2. Fetch token + appId from the backend.
+      // 2. Re-register on the server when returning to an ACTIVE call (clears
+      // leftAt from a prior hang-up) before we fetch an Agora token.
+      if (widget.callId != null) {
+        step = 'server-join';
+        try {
+          final joined =
+              await ref.read(apiProvider).joinCall(widget.callId!);
+          _callMeta = {'call': joined};
+          _CallSession.callMeta = _callMeta;
+          _syncParticipantsFromCallMeta();
+        } catch (e) {
+          if (_isCallEndedError(e)) rethrow;
+          // Outgoing first connect — token fetch still works without this.
+        }
+      }
+
+      // 3. Fetch token + appId from the backend.
       step = 'token-fetch';
       setState(() => _status = _isMeeting ? 'Joining…' : 'Calling…');
       final tokenResp = await _fetchToken();
       _callMeta = tokenResp;
+      _CallSession.callMeta = tokenResp;
+      _syncParticipantsFromCallMeta();
       try {
         final settings =
             await ref.read(apiProvider).settingsScope(scope: 'calls');
@@ -776,6 +1538,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       // 5. Media setup — sequential awaits, audio always, video only on demand.
       step = 'enable-audio';
       await engine.enableAudio();
+      await _enableSpeakerHighlight();
 
       // Clear, Bluetooth-friendly voice. SPEECH_STANDARD enables Agora's voice
       // noise-suppression + echo cancellation (kills the background noise), and
@@ -790,7 +1553,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
         );
       } catch (_) {/* non-critical tuning */}
       try {
-        await engine.adjustPlaybackSignalVolume(160);
+        await engine.adjustPlaybackSignalVolume(140);
         await engine.adjustRecordingSignalVolume(120);
       } catch (_) {/* non-critical tuning */}
 
@@ -821,6 +1584,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
       final uid =
           serverUid > 0 ? serverUid : (1 + Random().nextInt(2147483646));
       _CallSession.myUid = uid;
+      final me = ref.read(authStoreProvider).user;
+      if (me != null) _agoraUidToUserId[uid] = me.id;
       await engine.joinChannel(
         token: token,
         channelId: channel,
@@ -839,16 +1604,18 @@ class _CallScreenState extends ConsumerState<CallScreen>
       // audio route when the channel connects, which is what made calls quiet.
       try {
         await _applyAudioRoute(_route);
-        await engine.adjustPlaybackSignalVolume(160);
       } catch (_) {/* non-critical */}
 
       if (widget.callId != null) {
         try {
           // Tell the server our real per-device uid so it broadcasts the right
           // uid→name mapping to the other participants' tiles.
-          await ref
+          final joined = await ref
               .read(apiProvider)
               .post('/calls/${widget.callId}/join', body: {'agoraUid': uid});
+          _callMeta = {...?_callMeta, 'call': joined};
+          _syncParticipantsFromCallMeta();
+          _purgeSelfFromRemoteTracking();
         } catch (_) {}
         // Announce again over the socket once we're in — covers participants
         // who were already in the call before us.
@@ -866,7 +1633,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = '${e.toString()} (during "$step")';
+        _error = formatApiError(e);
         _status = 'Failed';
       });
     } finally {
@@ -907,6 +1674,25 @@ class _CallScreenState extends ConsumerState<CallScreen>
     }
     throw 'Missing callId or meetingSlug';
   }
+
+  bool _isCallEndedError(Object e) {
+    if (e is DioException) {
+      final code = e.response?.statusCode;
+      if (code == 404) return true;
+      if (code == 400) {
+        final msg = formatApiError(e).toLowerCase();
+        return msg.contains('ended') || msg.contains('not available');
+      }
+    }
+    return false;
+  }
+
+  static const _activeCallLabelStyle = TextStyle(
+    color: CallScreenUiColors.neonGreen,
+    fontSize: 13,
+    fontWeight: FontWeight.w600,
+    letterSpacing: 1.5,
+  );
 
   Future<void> _toggleMute() async {
     setState(() => _muted = !_muted);
@@ -1011,11 +1797,41 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   Future<void> _toggleSpeakerRoute() async {
-    await _setAudioRoute(CallAudioRoute.speaker);
+    final next = _route == CallAudioRoute.speaker
+        ? CallAudioRoute.earpiece
+        : CallAudioRoute.speaker;
+    if (mounted) {
+      setState(() => _route = next);
+    } else {
+      _route = next;
+    }
+    await _applyAudioRoute(next);
+    if (mounted) {
+      bestieToast(
+        context,
+        _audioRouteLabel(next),
+        kind: BestieToastKind.info,
+      );
+    }
   }
 
   Future<void> _toggleBluetoothRoute() async {
-    await _setAudioRoute(CallAudioRoute.bluetooth);
+    final next = _route == CallAudioRoute.bluetooth
+        ? CallAudioRoute.earpiece
+        : CallAudioRoute.bluetooth;
+    if (mounted) {
+      setState(() => _route = next);
+    } else {
+      _route = next;
+    }
+    await _applyAudioRoute(next);
+    if (mounted) {
+      bestieToast(
+        context,
+        _audioRouteLabel(next),
+        kind: BestieToastKind.info,
+      );
+    }
   }
 
   String _audioRouteLabel(CallAudioRoute r) => switch (r) {
@@ -1044,35 +1860,33 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   Future<void> _applyAudioRoute(CallAudioRoute r) async {
+    // While still ringing, only move the ringback tone — touching Agora's
+    // speakerphone route here steals the audio session and mutes ringback.
+    if (_waitingForAnswer) {
+      await _restartRingbackForRouteChange();
+      return;
+    }
+
     final engine = _engine;
     if (engine == null) return;
     final speaker = r == CallAudioRoute.speaker;
-    // Earpiece + Bluetooth both keep the loudspeaker OFF — when a Bluetooth
-    // headset is connected Android auto-routes to it; otherwise it's the
-    // earpiece. Speaker forces the loudspeaker on.
     try {
       await engine.setDefaultAudioRouteToSpeakerphone(speaker);
     } catch (_) {}
     try {
       await engine.setEnableSpeakerphone(speaker);
     } catch (_) {}
-    // If the caller is still waiting for the other side to answer, re-start
-    // the ringback after a route change so the tone follows speaker/Bluetooth
-    // instead of getting dropped by the audio-session switch.
-    if (_joined &&
-        _remoteUids.isEmpty &&
-        !_isMeeting &&
-        !_remoteClosed &&
-        mounted) {
-      await _restartRingbackForRouteChange();
-    }
+    try {
+      // Speaker mode needs a stronger playback gain so the call is clearly audible.
+      await engine.adjustPlaybackSignalVolume(speaker ? 255 : 160);
+    } catch (_) {}
   }
 
   Future<void> _restartRingbackForRouteChange() async {
     try {
       await _ringtone.stop();
       await _tonePlayer.stop();
-      await Future<void>.delayed(const Duration(milliseconds: 120));
+      await Future<void>.delayed(const Duration(milliseconds: 150));
       if (!mounted ||
           !_joined ||
           _remoteUids.isNotEmpty ||
@@ -1087,28 +1901,62 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   Future<void> _toggleShare() async {
     if (_engine == null) return;
+    if (!_joined || _waitingForAnswer) {
+      if (mounted) {
+        bestieToast(
+          context,
+          'Not connected yet',
+          body: 'Screen share is available once the call is connected.',
+          kind: BestieToastKind.info,
+        );
+      }
+      return;
+    }
     try {
       if (_sharing) {
         await _engine!.stopScreenCapture();
+        await _engine!.updateChannelMediaOptions(ChannelMediaOptions(
+          publishScreenCaptureVideo: false,
+          publishScreenCaptureAudio: false,
+          publishCameraTrack: _isVideo && !_cameraOff,
+        ));
         setState(() => _sharing = false);
-        if (mounted)
+        if (mounted) {
           bestieToast(context, 'Screen share stopped',
               kind: BestieToastKind.info);
+        }
       } else {
         await _engine!.startScreenCapture(const ScreenCaptureParameters2(
           captureVideo: true,
-          captureAudio: false,
+          captureAudio: true,
+        ));
+        await _engine!.updateChannelMediaOptions(ChannelMediaOptions(
+          publishScreenCaptureVideo: true,
+          publishScreenCaptureAudio: true,
+          publishCameraTrack: _isVideo && !_cameraOff,
+          clientRoleType: ClientRoleType.clientRoleBroadcaster,
         ));
         setState(() => _sharing = true);
-        if (mounted)
+        if (mounted) {
           bestieToast(context, 'Sharing your screen',
               kind: BestieToastKind.success);
+        }
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         bestieToast(context, 'Screen share not available',
-            body: e.toString(), kind: BestieToastKind.error);
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
     }
+  }
+
+  Future<void> _showDialPad() async {
+    await showCallDialpadSheet(
+      context,
+      onDigit: (_) {
+        // Local DTMF UX — tones are played via haptics in the sheet.
+      },
+    );
   }
 
   /// Records the whole channel (everyone's mixed audio) to a local file via
@@ -1200,105 +2048,226 @@ class _CallScreenState extends ConsumerState<CallScreen>
     }
   }
 
-  void _showParticipants() {
-    showModalBottomSheet(
+  void _showParticipants() => _showMembersSheet();
+
+  Future<void> _showMembersSheet() async {
+    await _refreshCallMeta();
+    if (!mounted) return;
+
+    await showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) {
-        final c = BestieColors.of(ctx);
-        final participants = <_Participant>[];
-        final me = ref.read(authStoreProvider).user;
-        if (me != null) {
-          participants.add(_Participant(
-              name: me.name, role: 'You', muted: _muted, video: !_cameraOff));
-        }
-        // Only people actually IN the call: me + every live remote stream.
-        // (We deliberately don't list invited-but-not-joined users here — the
-        // sheet answers "who's on this call right now".)
-        for (final uid in _remoteUids) {
-          participants.add(_Participant(
-              name: _remoteNames[uid] ?? 'Participant',
-              role: 'In call',
-              muted: _remoteMuted[uid] == true,
-              video: true));
-        }
-        return Container(
-          decoration: BoxDecoration(
-            color: c.surface,
-            borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(BestieTokens.rXl)),
-          ),
-          padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Container(
-              width: 40,
-              height: 4,
-              margin: const EdgeInsets.only(bottom: 14),
-              decoration: BoxDecoration(
-                color: c.borderStrong,
-                borderRadius: BorderRadius.circular(BestieTokens.rPill),
-              ),
-            ),
-            Row(children: [
-              Text('Participants (${participants.length})',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: BestieTokens.fwBold,
-                    color: c.text,
-                    letterSpacing: BestieTokens.lsTight,
-                  )),
-              const Spacer(),
-              IconButton(
-                icon: Icon(Icons.close_rounded, color: c.textMuted),
-                onPressed: () => Navigator.of(ctx).pop(),
-              ),
-            ]),
-            const SizedBox(height: 8),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 360),
-              child: ListView(
-                shrinkWrap: true,
-                children: [
-                  for (final p in participants)
+        return StatefulBuilder(
+          builder: (ctx, setSheet) {
+            Timer? tick;
+            void scheduleTick() {
+              tick?.cancel();
+              final hasRinging = _participantsFromMeta().any(
+                (p) => _memberConnection(p) == _CallMemberConnection.ringing,
+              );
+              if (hasRinging) {
+                tick = Timer.periodic(const Duration(milliseconds: 500), (_) {
+                  if (ctx.mounted) setSheet(() {});
+                });
+              }
+            }
+
+            scheduleTick();
+
+            final c = BestieColors.of(ctx);
+            final me = ref.read(authStoreProvider).user;
+            final parts = _participantsFromMeta();
+            final connected = <Map<String, dynamic>>[];
+            final ringing = <Map<String, dynamic>>[];
+            final notConnected = <Map<String, dynamic>>[];
+
+            for (final p in parts) {
+              final uid = p['userId']?.toString();
+              if (uid == me?.id) continue;
+              switch (_memberConnection(p)) {
+                case _CallMemberConnection.connected:
+                  connected.add(p);
+                case _CallMemberConnection.ringing:
+                  ringing.add(p);
+                case _CallMemberConnection.notConnected:
+                  notConnected.add(p);
+              }
+            }
+
+            return PopScope(
+              onPopInvokedWithResult: (_, __) => tick?.cancel(),
+              child: Container(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(ctx).size.height * 0.72,
+                ),
+                decoration: BoxDecoration(
+                  color: c.surface,
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(BestieTokens.rXl),
+                  ),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(top: 10, bottom: 12),
+                      decoration: BoxDecoration(
+                        color: c.borderStrong,
+                        borderRadius: BorderRadius.circular(BestieTokens.rPill),
+                      ),
+                    ),
                     Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: Row(children: [
-                        BestieAvatar(name: p.name, isClient: false, size: 36),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(p.name,
-                                  style: TextStyle(
-                                      color: c.text,
-                                      fontWeight: BestieTokens.fwSemibold)),
-                              Text(p.role,
-                                  style: TextStyle(
-                                      color: c.textMuted, fontSize: 11)),
-                            ],
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          '${connected.length + 1} connected',
+                          style: TextStyle(
+                            color: c.textMuted,
+                            fontSize: 13,
+                            fontWeight: BestieTokens.fwSemibold,
                           ),
                         ),
-                        Icon(
-                            p.muted ? Icons.mic_off_rounded : Icons.mic_rounded,
-                            size: 16,
-                            color: p.muted ? c.danger : c.success),
-                        const SizedBox(width: 12),
-                        Icon(
-                            p.video
-                                ? Icons.videocam_rounded
-                                : Icons.videocam_off_rounded,
-                            size: 16,
-                            color: p.video ? c.success : c.textFaint),
-                      ]),
+                      ),
                     ),
-                ],
+                    const SizedBox(height: 8),
+                    ListTile(
+                      leading: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: BestieTokens.cSuccess.withValues(alpha: 0.15),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.person_add_alt_1_rounded,
+                            color: BestieTokens.cSuccess, size: 22),
+                      ),
+                      title: Text('Add people',
+                          style: TextStyle(
+                            color: c.text,
+                            fontWeight: BestieTokens.fwSemibold,
+                          )),
+                      onTap: () {
+                        tick?.cancel();
+                        Navigator.of(ctx).pop();
+                        _showInvite();
+                      },
+                    ),
+                    Flexible(
+                      child: ListView(
+                        shrinkWrap: true,
+                        padding: const EdgeInsets.fromLTRB(8, 0, 8, 16),
+                        children: [
+                          if (me != null)
+                            _membersRow(
+                              c: c,
+                              name: '${me.name} (You)',
+                              avatarName: me.name,
+                              imageUrl: me.avatarUrl,
+                              trailing: const SizedBox.shrink(),
+                            ),
+                          for (final p in connected)
+                            _membersRow(
+                              c: c,
+                              name: _participantProfileName(p),
+                              avatarName: _participantProfileName(p),
+                              imageUrl: (p['user'] as Map?)?['avatarUrl']
+                                  ?.toString(),
+                              trailing: Icon(Icons.mic_rounded,
+                                  size: 18, color: c.textMuted),
+                            ),
+                          if (ringing.isNotEmpty || notConnected.isNotEmpty) ...[
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(12, 16, 12, 8),
+                              child: Text(
+                                'Not connected',
+                                style: TextStyle(
+                                  color: c.textMuted,
+                                  fontSize: 13,
+                                  fontWeight: BestieTokens.fwSemibold,
+                                ),
+                              ),
+                            ),
+                            for (final p in ringing)
+                              _membersRow(
+                                c: c,
+                                name: _participantProfileName(p),
+                                avatarName: _participantProfileName(p),
+                                imageUrl: (p['user'] as Map?)?['avatarUrl']
+                                    ?.toString(),
+                                trailing: const _ConnectingDots(),
+                              ),
+                            for (final p in notConnected)
+                              _membersRow(
+                                c: c,
+                                name: _participantProfileName(p),
+                                avatarName: _participantProfileName(p),
+                                imageUrl: (p['user'] as Map?)?['avatarUrl']
+                                    ?.toString(),
+                                trailing: IconButton(
+                                  icon: Icon(Icons.notifications_active_outlined,
+                                      color: c.text),
+                                  tooltip: 'Ring again',
+                                  onPressed: () async {
+                                    final uid = p['userId']?.toString();
+                                    if (uid == null) return;
+                                    await _ringParticipantAgain(uid);
+                                    if (ctx.mounted) setSheet(() {});
+                                    scheduleTick();
+                                  },
+                                ),
+                              ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ]),
+            );
+          },
         );
       },
+    );
+  }
+
+  Widget _membersRow({
+    required BestieColors c,
+    required String name,
+    required String avatarName,
+    String? imageUrl,
+    required Widget trailing,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          BestieAvatar(
+            name: avatarName,
+            imageUrl: imageUrl,
+            isClient: false,
+            size: 40,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: c.text,
+                fontWeight: BestieTokens.fwSemibold,
+                fontSize: 15,
+              ),
+            ),
+          ),
+          trailing,
+        ],
+      ),
     );
   }
 
@@ -1309,6 +2278,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   void _minimize() {
+    _syncRemotePeerSnapshot();
+    _publishActiveCallState();
+    _CallSession.onCallScreen = false;
+    _CallSession._ping();
+    unawaited(_CallSession.reapplyAudioRoute());
+    _showOngoingCallNotification();
     context.go('/chat');
   }
 
@@ -1316,9 +2291,14 @@ class _CallScreenState extends ConsumerState<CallScreen>
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.of(context).padding.bottom;
     final topInset = MediaQuery.of(context).padding.top;
-    final showingVideo = _isVideo && _remoteUids.isNotEmpty;
-    final useExactVoicePrototype =
-        !_isMeeting && !showingVideo && _remoteUids.length <= 1;
+    // WhatsApp-style: outgoing video shows your camera full-screen while ringing.
+    final showingVideo =
+        _isVideo && (_remoteUids.isNotEmpty || _waitingForAnswer);
+    final useExactVoicePrototype = !_isVideo &&
+        !_isMeeting &&
+        !showingVideo &&
+        !_useWhatsAppParticipantGrid &&
+        _remoteUids.length <= 1;
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
@@ -1326,9 +2306,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
       },
       child: Scaffold(
         backgroundColor: Colors.black,
-        body: useExactVoicePrototype
-            ? _exactPrototypeVoiceBody()
-            : Stack(children: [
+        body: Stack(
+          fit: StackFit.expand,
+          children: [
+            useExactVoicePrototype
+                ? _exactPrototypeVoiceBody()
+                : Stack(children: [
                 // Depth backdrop — a soft vertical gradient so voice calls aren't a
                 // flat black void (WhatsApp does the same). Hidden once real remote
                 // video fills the screen.
@@ -1381,8 +2364,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
                     ),
                   ),
 
-                // Self-view PiP — rounded, shadowed, tap to flip camera.
-                if (_isVideo && _joined && !_cameraOff)
+                // Self-view PiP once the other person joins (full-screen self while ringing).
+                if (_isVideo &&
+                    _joined &&
+                    !_cameraOff &&
+                    _remoteUids.isNotEmpty)
                   Positioned(
                     right: 14,
                     top: topInset + 64,
@@ -1417,9 +2403,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
                 Positioned(
                     top: topInset + 8, left: 8, right: 8, child: _header()),
-                // Premium status chips (HD Voice / Network / Secure calling) — voice calls
-                // only, matching the redesigned call screen.
-                if (!_isMeeting && !showingVideo)
+                // Premium status chips — 1:1 voice only (hidden in group calls).
+                if (!_isMeeting && !showingVideo && !_useWhatsAppParticipantGrid)
                   Positioned(
                     top: topInset + 58,
                     left: 16,
@@ -1462,15 +2447,19 @@ class _CallScreenState extends ConsumerState<CallScreen>
                       ),
                     ),
                   ),
-                // Network-trouble banner — keeps the call UI visible (never blanks)
-                // and tells the user to check their connection while Agora reconnects.
+                // Network trouble — compact pill for group calls; full banner for 1:1.
                 if (_reconnecting && _error == null)
                   Positioned(
-                    top: topInset + (_muteStatusText() == null ? 64 : 104),
+                    top: topInset +
+                        (_useWhatsAppParticipantGrid
+                            ? 52
+                            : (_muteStatusText() == null ? 64 : 104)),
                     left: 16,
                     right: 16,
                     child: IgnorePointer(
-                      child: Container(
+                      child: _useWhatsAppParticipantGrid
+                          ? Center(child: _compactReconnectBanner())
+                          : Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 14, vertical: 10),
                         decoration: BoxDecoration(
@@ -1520,15 +2509,17 @@ class _CallScreenState extends ConsumerState<CallScreen>
                   ),
                 ),
               ]),
+            if (_proximityNear && !_isVideo)
+              const Positioned.fill(child: ColoredBox(color: Colors.black)),
+          ],
+        ),
       ),
     );
   }
 
   Widget _exactPrototypeVoiceBody() {
-    final remoteName = _remoteUids.isNotEmpty
-        ? (_remoteNames[_remoteUids.first] ?? 'Participant')
-        : _callDisplayTitle();
-    final subtitle = _callDisplaySubtitle() ?? 'Senior Product Manager';
+    final remoteName = _primaryRemoteDisplayName();
+    final subtitle = _primaryRemoteSubtitle();
     final timerLine = _connectedAt != null ? _formatElapsed(_elapsed) : _status;
     final timerColor = _connectedAt != null
         ? CallScreenUiColors.neonGreen
@@ -1569,10 +2560,6 @@ class _CallScreenState extends ConsumerState<CallScreen>
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         child: _topChips(),
                       ),
-                      if (_muteStatusText() != null) ...[
-                        const SizedBox(height: 8),
-                        _prototypeMuteBanner(_muteStatusText()!),
-                      ],
                       if (_reconnecting && _error == null) ...[
                         const SizedBox(height: 8),
                         const Padding(
@@ -1594,7 +2581,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
                       const SizedBox(height: 12),
                       _CallUiAvatarStage(
                         name: remoteName,
-                        imageUrl: _callDisplayAvatarUrl(),
+                        imageUrl: _primaryRemoteAvatarUrl(),
                         connected: _connectedAt != null,
                         height: 218,
                       ),
@@ -1603,6 +2590,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
                         padding: const EdgeInsets.symmetric(horizontal: 24),
                         child: Column(
                           children: [
+                            const Text('Active call', style: _activeCallLabelStyle),
+                            const SizedBox(height: 4),
                             Text(
                               remoteName,
                               maxLines: 1,
@@ -1615,18 +2604,20 @@ class _CallScreenState extends ConsumerState<CallScreen>
                                 letterSpacing: -0.3,
                               ),
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              subtitle,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: CallScreenUiColors.textSecondary,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w400,
+                            if (subtitle != null && subtitle.isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                subtitle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: CallScreenUiColors.textSecondary,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w400,
+                                ),
                               ),
-                            ),
+                            ],
                             const SizedBox(height: 4),
                             Text(
                               _headOfficeName,
@@ -1642,16 +2633,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
                           ],
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      Expanded(
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          alignment: Alignment.center,
-                          child: SizedBox(
-                            width: _kPremiumControlGridWidth,
-                            child: _premiumCallControlsCore(),
-                          ),
-                        ),
+                      const Spacer(),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 18),
+                        child: _premiumCallControlsCore(),
                       ),
                       const SizedBox(height: 14),
                     ],
@@ -1705,9 +2690,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   String? _muteStatusText() {
     final labels = <String>[];
+    if (_held) labels.add('On hold');
     if (_muted) labels.add('You are muted');
     for (final entry in _remoteMuted.entries) {
       if (!entry.value) continue;
+      // Drop stale mute flags from participants no longer in the channel.
+      if (!_remoteUids.contains(entry.key)) continue;
       labels.add('${_remoteNames[entry.key] ?? 'Participant'} is muted');
     }
     return labels.isEmpty ? null : labels.join(' · ');
@@ -1733,26 +2721,45 @@ class _CallScreenState extends ConsumerState<CallScreen>
     );
   }
 
+  Widget _callThemeToggleButton() {
+    return Consumer(
+      builder: (context, ref, _) {
+        final light = ref.watch(callScreenLightControlsProvider);
+        return _callHeaderGlassButton(
+          icon: light ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
+          tooltip: light ? 'Dark mode' : 'Light mode',
+          onTap: () {
+            ref.read(callScreenLightControlsProvider.notifier).state = !light;
+          },
+        );
+      },
+    );
+  }
+
   Widget _callHeaderGlassButton({
     required IconData icon,
     required VoidCallback onTap,
+    String? tooltip,
   }) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: CallUiGlassContainer(
-          borderRadius: 12,
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          child: SizedBox(
-            width: 34,
-            height: 18,
-            child: Center(
-              child: Icon(
-                icon,
-                color: CallScreenUiColors.textPrimary,
-                size: 18,
+    return Tooltip(
+      message: tooltip ?? '',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: CallUiGlassContainer(
+            borderRadius: 12,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: SizedBox(
+              width: 34,
+              height: 18,
+              child: Center(
+                child: Icon(
+                  icon,
+                  color: CallScreenUiColors.textPrimary,
+                  size: 18,
+                ),
               ),
             ),
           ),
@@ -1762,7 +2769,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   Widget _callHeaderParticipantsButton() {
-    final count = max(1, 1 + _remoteUids.length);
+    final count = _participantCount;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -1836,12 +2843,48 @@ class _CallScreenState extends ConsumerState<CallScreen>
   /// WhatsApp-style: minimize on the left, caller name centered, add-participant
   /// on the right. Timer shown under the name once connected.
   Widget _callHeader() {
-    final title = _callDisplayTitle();
+    final title = _primaryRemoteDisplayName();
     // Voice calls use the premium center stage (name + timer there), so the
     // header is minimal: minimize · verified MyTaskKing brand · invite. Video
     // calls keep the name + timer in the header (no center stage over video).
     final showingVideo = _isVideo && _remoteUids.isNotEmpty;
     if (!showingVideo) {
+      if (_useWhatsAppParticipantGrid) {
+        final names = _callDisplayTitle();
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+          child: Row(children: [
+            _circleHeaderIcon(Icons.keyboard_arrow_down_rounded, _minimize,
+                tooltip: 'Minimize'),
+            Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Text(names,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: BestieTokens.fwBold,
+                        )),
+                    const SizedBox(height: 2),
+                    Text(
+                      _connectedAt == null
+                          ? _status
+                          : _formatElapsed(_elapsed),
+                      style: const TextStyle(
+                          color: Colors.white70, fontSize: 12),
+                    ),
+                  ]),
+            ),
+            _callThemeToggleButton(),
+            const SizedBox(width: 4),
+            _circleHeaderIcon(Icons.person_add_alt_1_rounded, _showInvite,
+                tooltip: 'Add participant'),
+          ]),
+        );
+      }
       return Padding(
         padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
         child: Row(children: [
@@ -1872,6 +2915,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
                   ]),
                 ]),
           ),
+          _callThemeToggleButton(),
+          const SizedBox(width: 8),
           _callHeaderParticipantsButton(),
         ]),
       );
@@ -1913,6 +2958,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
             ]),
           ]),
         ),
+        _callThemeToggleButton(),
+        const SizedBox(width: 4),
         _circleHeaderIcon(Icons.person_add_alt_1_rounded, _showInvite,
             tooltip: 'Invite'),
       ]),
@@ -1923,7 +2970,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   /// on the right (taps to open the participants sheet).
   Widget _meetingHeader() {
     final title = _channelName ?? 'Meeting';
-    final count = 1 + _remoteUids.length;
+    final count = _participantCount;
     return Padding(
       padding: const EdgeInsets.fromLTRB(10, 4, 10, 0),
       child: Row(children: [
@@ -1961,6 +3008,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
             ]),
           ]),
         ),
+        _callThemeToggleButton(),
+        const SizedBox(width: 6),
         GestureDetector(
           onTap: _showParticipants,
           child: Container(
@@ -1996,6 +3045,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     String label,
     List<Map<String, dynamic>> people,
     Set<String> selected,
+    Set<String> alreadyInCall,
     StateSetter set,
   ) {
     if (people.isEmpty) return const [];
@@ -2013,12 +3063,15 @@ class _CallScreenState extends ConsumerState<CallScreen>
       for (final u in people)
         Builder(builder: (_) {
           final id = u['id'] as String;
+          final inCall = alreadyInCall.contains(id);
           final picked = selected.contains(id);
           return CheckboxListTile(
-            value: picked,
-            onChanged: (_) => set(() {
-              picked ? selected.remove(id) : selected.add(id);
-            }),
+            value: inCall ? true : picked,
+            onChanged: inCall
+                ? null
+                : (_) => set(() {
+                      picked ? selected.remove(id) : selected.add(id);
+                    }),
             controlAffinity: ListTileControlAffinity.trailing,
             secondary: BestieAvatar(
               name: (u['name'] ?? '—').toString(),
@@ -2028,12 +3081,15 @@ class _CallScreenState extends ConsumerState<CallScreen>
             ),
             title: Text((u['name'] ?? '—').toString(),
                 style: TextStyle(
-                    color: c.text, fontWeight: BestieTokens.fwSemibold)),
+                    color: inCall ? c.textMuted : c.text,
+                    fontWeight: BestieTokens.fwSemibold)),
             subtitle: Text(
-                (u['customTitle'] ?? u['role'] ?? '')
-                    .toString()
-                    .replaceAll('_', ' ')
-                    .toLowerCase(),
+                inCall
+                    ? 'Already in call'
+                    : (u['customTitle'] ?? u['role'] ?? '')
+                        .toString()
+                        .replaceAll('_', ' ')
+                        .toLowerCase(),
                 style: TextStyle(color: c.textMuted, fontSize: 12)),
             activeColor: BestieTokens.cBrand,
           );
@@ -2097,6 +3153,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
             fetchPeople(set, '');
           }
           final c = BestieColors.of(ctx);
+          final alreadyInCall = _userIdsInCall();
           return DraggableScrollableSheet(
             initialChildSize: 0.7,
             minChildSize: 0.4,
@@ -2184,9 +3241,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
                                         'Organization members',
                                         members,
                                         selected,
+                                        alreadyInCall,
                                         set),
                                     ..._inviteSection(ctx, c, 'Clients',
-                                        clients, selected, set),
+                                        clients, selected, alreadyInCall, set),
                                   ],
                                 ),
                 ),
@@ -2204,6 +3262,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
                                   await api.addCallParticipants(
                                       callId, selected.toList(),
                                       mode: widget.mode.toUpperCase());
+                                  _markInvited(selected);
+                                  await _refreshCallMeta();
                                   if (ctx.mounted) Navigator.pop(ctx);
                                   if (mounted)
                                     bestieToast(
@@ -2544,7 +3604,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   Widget _remoteSurface() {
-    if (_error != null) {
+    if (_error != null && !(_joined && _engine != null)) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -2572,46 +3632,91 @@ class _CallScreenState extends ConsumerState<CallScreen>
     if (!_isVideo) {
       // For meetings keep the multi-tile grid (Google Meet style).
       if (_isMeeting) {
-        return Center(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 112, 20, 220),
-            child:
-                Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-              _voiceParticipantsGrid(),
-              const SizedBox(height: 24),
-              _participantsStrip(showTimer: false),
-              const SizedBox(height: 14),
-              Text(_connectedAt == null ? _status : _formatElapsed(_elapsed),
-                  style: const TextStyle(color: Colors.white70, fontSize: 14)),
-            ]),
-          ),
+        return Padding(
+          padding: EdgeInsets.fromLTRB(6, 96, 6, 108 + MediaQuery.paddingOf(context).bottom),
+          child: Column(children: [
+            Expanded(child: _whatsappParticipantGrid()),
+            const SizedBox(height: 10),
+            _participantsStrip(showTimer: false),
+            const SizedBox(height: 8),
+            Text(_connectedAt == null ? _status : _formatElapsed(_elapsed),
+                style: const TextStyle(color: Colors.white70, fontSize: 14)),
+          ]),
         );
       }
       // Calls with more than one remote stream (e.g. the same account joined
       // from two devices, or a group call) → show a tile per participant so
       // every joined device gets its own icon.
-      if (_remoteUids.length > 1) {
-        return Center(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 112, 20, 220),
-            child:
-                Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-              _voiceParticipantsGrid(),
-              const SizedBox(height: 18),
-              Text(_connectedAt == null ? _status : _formatElapsed(_elapsed),
-                  style: const TextStyle(color: Colors.white70, fontSize: 14)),
-            ]),
+      if (_useWhatsAppParticipantGrid || _remoteUids.length > 1) {
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+            6,
+            MediaQuery.paddingOf(context).top + 56,
+            6,
+            108 + MediaQuery.paddingOf(context).bottom,
           ),
+          child: SizedBox.expand(child: _whatsappParticipantGrid()),
         );
       }
       // 1:1 call: premium voice stage — waveform-ringed avatar + name +
       // designation + ACTIVE CALL + timer, all centered.
-      final remoteName = _remoteUids.isNotEmpty
-          ? (_remoteNames[_remoteUids.first] ?? 'Participant')
-          : (_callDisplayTitle());
-      return _voiceCallStage(remoteName);
+      return _voiceCallStage(_primaryRemoteDisplayName());
     }
     if (_remoteUids.isEmpty) {
+      // Outgoing / waiting: show local camera full-screen (WhatsApp-style).
+      if (_isVideo && _engine != null && _joined && !_cameraOff) {
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            AgoraVideoView(
+              controller: VideoViewController(
+                rtcEngine: _engine!,
+                canvas: const VideoCanvas(uid: 0),
+              ),
+            ),
+            if (_waitingForAnswer)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 220,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _primaryRemoteDisplayName(),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w600,
+                        shadows: [
+                          Shadow(
+                            color: Colors.black54,
+                            blurRadius: 8,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _status,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 15,
+                        shadows: [
+                          Shadow(
+                            color: Colors.black54,
+                            blurRadius: 6,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        );
+      }
       return Center(
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
           // Soft pulsing ring around the call icon while we wait.
@@ -2638,12 +3743,32 @@ class _CallScreenState extends ConsumerState<CallScreen>
         ]),
       );
     }
-    final firstRemote = _remoteUids.first;
+    if (_remoteUids.length > 1) {
+      return Padding(
+        padding: EdgeInsets.fromLTRB(
+            6, 88, 6, 108 + MediaQuery.paddingOf(context).bottom),
+        child: _whatsappParticipantGrid(forVideo: true),
+      );
+    }
+    // Re-check — remotes can drop between Agora events and the next frame.
+    final remotes = _remoteUids.toList(growable: false);
+    final engine = _engine;
+    if (remotes.isEmpty || engine == null) {
+      return Center(
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          const Icon(Icons.videocam_outlined, color: Colors.white38, size: 46),
+          const SizedBox(height: 22),
+          Text(_joined ? 'Waiting for others to join…' : _status,
+              style: const TextStyle(color: Colors.white70, fontSize: 15)),
+        ]),
+      );
+    }
+    final firstRemote = remotes.first;
     return Stack(children: [
       Positioned.fill(
         child: AgoraVideoView(
             controller: VideoViewController.remote(
-          rtcEngine: _engine!,
+          rtcEngine: engine,
           canvas: VideoCanvas(uid: firstRemote),
           connection: RtcConnection(channelId: _channelName ?? ''),
         )),
@@ -2696,58 +3821,274 @@ class _CallScreenState extends ConsumerState<CallScreen>
     );
   }
 
-  Widget _voiceParticipantsGrid() {
+  String? _avatarUrlForUserId(String? userId) {
+    if (userId == null) return null;
+    final parts = (_callMeta?['call']?['participants'] as List?) ??
+        (_callMeta?['participants'] as List?) ??
+        const [];
+    for (final p in parts) {
+      if (p is! Map || p['userId'] != userId) continue;
+      final user = (p['user'] as Map?)?.cast<String, dynamic>();
+      final url = user?['avatarUrl']?.toString();
+      if (url != null && url.isNotEmpty) return url;
+    }
+    return null;
+  }
+
+  List<({String name, String? userId, String? imageUrl, int? agoraUid, bool isLocal, bool muted})>
+      _participantTilesForGrid() {
+    _purgeSelfFromRemoteTracking();
     final me = ref.read(authStoreProvider).user;
-    // Me first, then one tile per live remote stream (keyed by Agora uid, so
-    // two devices of the same account show as two tiles).
-    final names = <String>[
-      me?.name ?? 'You',
-      ..._remoteUids.map((uid) => _remoteNames[uid] ?? 'Participant'),
+    final tiles = <({
+      String name,
+      String? userId,
+      String? imageUrl,
+      int? agoraUid,
+      bool isLocal,
+      bool muted,
+    })>[
+      (
+        name: me?.name ?? 'You',
+        userId: me?.id,
+        imageUrl: me?.avatarUrl,
+        agoraUid: _CallSession.myUid ?? 0,
+        isLocal: true,
+        muted: _muted,
+      ),
     ];
-    return Wrap(
-      alignment: WrapAlignment.center,
-      spacing: 18,
-      runSpacing: 18,
-      children: [
-        for (var i = 0; i < names.length; i++)
-          Column(mainAxisSize: MainAxisSize.min, children: [
-            Container(
-              width: 92,
-              height: 92,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: i == 0
-                    ? BestieTokens.cBrand.withOpacity(0.22)
-                    : BestieTokens.cSuccess.withOpacity(0.18),
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white24),
-              ),
-              child: Text(
-                names[i].isEmpty ? '?' : names[i][0].toUpperCase(),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 34,
-                  fontWeight: FontWeight.w800,
+    final seen = <String>{if (me?.id != null) me!.id};
+    for (final entry in _joinedParticipants.entries) {
+      if (entry.key == me?.id || seen.contains(entry.key)) continue;
+      seen.add(entry.key);
+      final uid = _agoraUidForUserId(entry.key);
+      tiles.add((
+        name: entry.value,
+        userId: entry.key,
+        imageUrl: _avatarUrlForUserId(entry.key),
+        agoraUid: uid,
+        isLocal: false,
+        muted: uid != null ? (_remoteMuted[uid] ?? false) : false,
+      ));
+    }
+    for (final uid in _remoteUids) {
+      if (uid == _CallSession.myUid) continue;
+      final mappedUserId = _agoraUidToUserId[uid];
+      if (mappedUserId != null && mappedUserId == me?.id) continue;
+      final name = _remoteNames[uid] ?? 'Participant';
+      final existing = mappedUserId != null
+          ? tiles.indexWhere((t) => !t.isLocal && t.userId == mappedUserId)
+          : tiles.indexWhere((t) => !t.isLocal && t.name == name);
+      if (existing >= 0) {
+        final t = tiles[existing];
+        tiles[existing] = (
+          name: t.name,
+          userId: t.userId ?? mappedUserId,
+          imageUrl: t.imageUrl,
+          agoraUid: uid,
+          isLocal: false,
+          muted: _remoteMuted[uid] ?? false,
+        );
+      } else if (mappedUserId == null || !seen.contains(mappedUserId)) {
+        if (mappedUserId != null) seen.add(mappedUserId);
+        tiles.add((
+          name: name,
+          userId: mappedUserId,
+          imageUrl: mappedUserId != null
+              ? _avatarUrlForUserId(mappedUserId)
+              : null,
+          agoraUid: uid,
+          isLocal: false,
+          muted: _remoteMuted[uid] ?? false,
+        ));
+      }
+    }
+    return tiles;
+  }
+
+  Widget _whatsappParticipantGrid({bool forVideo = false}) {
+    final tiles = _participantTilesForGrid();
+    final n = tiles.length;
+    if (n == 0) return const SizedBox.shrink();
+    const gap = 6.0;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        Widget tileAt(int index, {double? height, double? width}) {
+          final t = tiles[index];
+          return _whatsappParticipantTile(
+            name: t.isLocal ? 'You' : t.name,
+            imageUrl: t.imageUrl,
+            agoraUid: t.agoraUid,
+            isLocal: t.isLocal,
+            muted: t.muted,
+            speaking: _isParticipantSpeaking(
+              isLocal: t.isLocal,
+              agoraUid: t.agoraUid,
+              userId: t.userId,
+              muted: t.muted,
+            ),
+            forVideo: forVideo,
+            height: height,
+            width: width,
+          );
+        }
+
+        if (n == 1) {
+          return tileAt(0, height: constraints.maxHeight, width: constraints.maxWidth);
+        }
+        if (n == 2) {
+          final h = (constraints.maxHeight - gap) / 2;
+          return Column(
+            children: [
+              SizedBox(height: h, child: tileAt(0, height: h)),
+              const SizedBox(height: gap),
+              SizedBox(height: h, child: tileAt(1, height: h)),
+            ],
+          );
+        }
+        final cols = 2;
+        final rows = (n / cols).ceil();
+        final tileH = (constraints.maxHeight - gap * (rows - 1)) / rows;
+        return Column(
+          children: [
+            for (var r = 0; r < rows; r++) ...[
+              SizedBox(
+                height: tileH,
+                child: Row(
+                  children: [
+                    for (var c = 0; c < cols; c++) ...[
+                      Expanded(
+                        child: () {
+                          final idx = r * cols + c;
+                          if (idx >= n) return const SizedBox.shrink();
+                          return tileAt(idx, height: tileH);
+                        }(),
+                      ),
+                      if (c < cols - 1) const SizedBox(width: gap),
+                    ],
+                  ],
                 ),
               ),
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              width: 110,
-              child: Text(
-                i == 0 ? 'You' : names[i],
-                maxLines: 1,
-                textAlign: TextAlign.center,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
+              if (r < rows - 1) const SizedBox(height: gap),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _whatsappParticipantTile({
+    required String name,
+    required String? imageUrl,
+    required int? agoraUid,
+    required bool isLocal,
+    required bool muted,
+    required bool speaking,
+    required bool forVideo,
+    double? height,
+    double? width,
+  }) {
+    final showVideo = forVideo &&
+        _engine != null &&
+        ((!isLocal && agoraUid != null) || (isLocal && !_cameraOff));
+    return Container(
+      height: height,
+      width: width,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: speaking ? _kSpeakingBorderColor : Colors.transparent,
+          width: speaking ? 2.5 : 0,
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(speaking ? 9.5 : 12),
+        child: Container(
+          color: const Color(0xFF2A2A2A),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (showVideo && isLocal)
+                AgoraVideoView(
+                  controller: VideoViewController(
+                    rtcEngine: _engine!,
+                    canvas: const VideoCanvas(uid: 0),
+                  ),
+                )
+              else if (showVideo && agoraUid != null)
+                AgoraVideoView(
+                  controller: VideoViewController.remote(
+                    rtcEngine: _engine!,
+                    canvas: VideoCanvas(uid: agoraUid),
+                    connection: RtcConnection(channelId: _channelName ?? ''),
+                  ),
+                )
+              else
+                Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      BestieAvatar(
+                        name: name,
+                        imageUrl: imageUrl,
+                        isClient: false,
+                        size: min(96, (height ?? 120) * 0.42),
+                      ),
+                      if (speaking) ...[
+                        const SizedBox(height: 10),
+                        const _SpeakingWaveform(color: _kSpeakingBorderColor),
+                      ],
+                    ],
+                  ),
+                ),
+              Positioned(
+                left: 10,
+                bottom: 10,
+                right: 10,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          shadows: [
+                            Shadow(color: Colors.black54, blurRadius: 6)
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (muted)
+                      const Icon(Icons.mic_off_rounded,
+                          color: Colors.white70, size: 16),
+                  ],
                 ),
               ),
-            ),
-          ]),
-      ],
+              if (speaking && showVideo)
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.45),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const _SpeakingWaveform(
+                      color: _kSpeakingBorderColor,
+                      compact: true,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -2852,7 +4193,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   /// Centered premium stage: waveform-ringed avatar with a live status badge,
   /// the caller's name + designation, and the ACTIVE CALL label + timer.
   Widget _voiceCallStage(String remoteName) {
-    final subtitle = _callDisplaySubtitle();
+    final subtitle = _primaryRemoteSubtitle();
     final connected = _connectedAt != null;
     final statusText = connected ? _formatElapsed(_elapsed) : _status;
     final statusColor = connected
@@ -2894,12 +4235,14 @@ class _CallScreenState extends ConsumerState<CallScreen>
                   height: profileHeight,
                   child: _CallUiAvatarStage(
                     name: remoteName,
-                    imageUrl: _callDisplayAvatarUrl(),
+                    imageUrl: _primaryRemoteAvatarUrl(),
                     connected: connected,
                     height: profileHeight,
                   ),
                 ),
                 const SizedBox(height: 8),
+                const Text('Active call', style: _activeCallLabelStyle),
+                const SizedBox(height: 4),
                 Text(
                   remoteName,
                   maxLines: 1,
@@ -2912,18 +4255,20 @@ class _CallScreenState extends ConsumerState<CallScreen>
                     letterSpacing: -0.3,
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  subtitle ?? 'Senior Product Manager',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: CallScreenUiColors.textSecondary,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w400,
+                if (subtitle != null && subtitle.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: CallScreenUiColors.textSecondary,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w400,
+                    ),
                   ),
-                ),
+                ],
                 const SizedBox(height: 4),
                 Text(
                   _headOfficeName,
@@ -2941,6 +4286,40 @@ class _CallScreenState extends ConsumerState<CallScreen>
           ),
         );
       },
+    );
+  }
+
+  /// Small reconnect pill for group calls (WhatsApp-style).
+  Widget _compactReconnectBanner() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.55),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFFBBF24).withOpacity(0.6)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: const [
+          SizedBox(
+            width: 12,
+            height: 12,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              valueColor: AlwaysStoppedAnimation(Color(0xFFFBBF24)),
+            ),
+          ),
+          SizedBox(width: 8),
+          Text(
+            'Reconnecting…',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -3014,17 +4393,30 @@ class _CallScreenState extends ConsumerState<CallScreen>
     );
   }
 
-  bool _held = false;
   Future<void> _toggleHold() async {
     final engine = _engine;
     if (engine == null) return;
     final next = !_held;
     try {
-      await engine.muteLocalAudioStream(next || _muted);
-      await engine.muteAllRemoteAudioStreams(next);
-      if (_isVideo) await engine.muteLocalVideoStream(next || _cameraOff);
+      if (next) {
+        await engine.muteLocalAudioStream(true);
+        await engine.muteAllRemoteAudioStreams(true);
+        if (_isVideo) await engine.muteLocalVideoStream(true);
+      } else {
+        await engine.muteAllRemoteAudioStreams(false);
+        for (final uid in _remoteUids) {
+          try {
+            await engine.muteRemoteAudioStream(uid: uid, mute: false);
+          } catch (_) {}
+        }
+        await engine.enableLocalAudio(true);
+        await engine.muteLocalAudioStream(_muted);
+        if (_isVideo) await engine.muteLocalVideoStream(_cameraOff);
+        await _reassertAudio();
+      }
     } catch (_) {/* best-effort */}
     if (mounted) setState(() => _held = next);
+    _CallSession._ping();
   }
 
   Future<void> _showCallNotes() async {
@@ -3159,18 +4551,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
   Widget _premiumCallControls() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 18),
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        alignment: Alignment.center,
-        child: SizedBox(
-          width: _kPremiumControlGridWidth,
-          child: _premiumCallControlsCore(),
-        ),
-      ),
+      child: _premiumCallControlsCore(),
     );
   }
 
   Widget _premiumCallControlsCore() {
+    final lightControls = ref.watch(callScreenLightControlsProvider);
     return Column(mainAxisSize: MainAxisSize.min, children: [
       _premiumControlRow([
         CallUiGlassControlButton(
@@ -3178,6 +4564,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
           icon: Icons.mic_off_outlined,
           isSelected: _muted,
           onTap: _toggleMute,
+          lightControls: lightControls,
           iconGradient: const [
             CallScreenUiColors.neonPurple,
             CallScreenUiColors.neonMagenta,
@@ -3186,89 +4573,67 @@ class _CallScreenState extends ConsumerState<CallScreen>
         CallUiSpeakerButton(
           isSelected: _route == CallAudioRoute.speaker,
           onTap: _toggleSpeakerRoute,
+          lightControls: lightControls,
         ),
         CallUiGlassControlButton(
           label: 'Keypad',
           icon: Icons.dialpad,
-          onTap: () => bestieToast(context, 'Keypad ready'),
+          onTap: _showDialPad,
+          lightControls: lightControls,
         ),
         CallUiGlassControlButton(
-          label: 'Bluetooth',
-          icon: Icons.bluetooth,
-          isSelected: _route == CallAudioRoute.bluetooth,
-          onTap: _toggleBluetoothRoute,
+          label: 'Buzzer',
+          icon: Icons.campaign_rounded,
+          onTap: _sendEmergencyBuzzer,
+          lightControls: lightControls,
           iconGradient: const [
-            CallScreenUiColors.neonBlue,
-            CallScreenUiColors.verifiedBlue,
+            Color(0xFFFBBF24),
+            Color(0xFFFF8A00),
           ],
         ),
       ]),
       const SizedBox(height: 8),
       _premiumControlRow([
         CallUiGlassControlButton(
-          label: 'Hold',
-          icon: Icons.pause,
-          isSelected: _held,
-          onTap: _toggleHold,
+          label: _sharing ? 'Stop share' : 'Share screen',
+          icon: _sharing
+              ? Icons.stop_screen_share_rounded
+              : Icons.screen_share_rounded,
+          isSelected: _sharing,
+          onTap: _toggleShare,
+          lightControls: lightControls,
           iconGradient: const [
-            Color(0xFFFFD166),
-            Color(0xFFFF9F43),
-          ],
-        ),
-        CallUiGlassControlButton(
-          label: 'Transfer',
-          icon: Icons.swap_horiz,
-          onTap: _showTransfer,
-          iconGradient: const [
-            Color(0xFF2ECC71),
             CallScreenUiColors.neonBlue,
+            CallScreenUiColors.verifiedBlue,
           ],
         ),
         CallUiGlassControlButton(
           label: 'Add Participant',
           icon: Icons.person_add_outlined,
           onTap: _showInvite,
+          lightControls: lightControls,
           iconGradient: const [
             CallScreenUiColors.neonBlue,
             CallScreenUiColors.neonPurple,
           ],
         ),
-        CallUiRecordButton(
+        CallUiGlassControlButton(
+          label: 'Record',
+          icon: Icons.fiber_manual_record_outlined,
           isSelected: _recording,
-          onTap: _isCallInitiator ? _toggleRecord : null,
+          onTap: _toggleRecord,
+          lightControls: lightControls,
+          iconGradient: const [
+            Color(0xFFFF6B6B),
+            Color(0xFFFF4757),
+          ],
         ),
-      ]),
-      const SizedBox(height: 10),
-      Row(children: [
-        const Expanded(child: SizedBox()),
-        Expanded(
-          child: CallUiGlassControlButton(
-            label: 'Voicemail',
-            icon: Icons.voicemail,
-            onTap: _openVoiceMail,
-          ),
+        CallUiGlassControlButton(
+          label: 'Call Notes',
+          icon: Icons.edit_note_outlined,
+          onTap: _showCallNotes,
+          lightControls: lightControls,
         ),
-        const SizedBox(width: _kPremiumControlColumnGap),
-        Expanded(
-          child: CallUiGlassControlButton(
-            label: 'Call Notes',
-            icon: Icons.edit_note_outlined,
-            onTap: _showCallNotes,
-          ),
-        ),
-        const SizedBox(width: _kPremiumControlColumnGap),
-        Expanded(
-          child: CallUiGlassControlButton(
-            label: 'Buzzer',
-            icon: Icons.campaign_rounded,
-            iconGradient: const [
-              Color(0xFFFBBF24),
-              Color(0xFFFF8A00),
-            ],
-            onTap: _sendEmergencyBuzzer,
-          ),
-        ),
-        const Expanded(child: SizedBox()),
       ]),
       const SizedBox(height: 18),
       SizedBox(
@@ -3375,10 +4740,119 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   Widget _controls() {
     if (_isMeeting) return _meetingControls();
-    // Premium grid for voice calls; keep the compact pill for video calls so
-    // it doesn't cover the video feed.
+    // 3+ participants: WhatsApp-style single bottom row (fixed-size circles).
+    if (_useWhatsAppParticipantGrid) return _groupCallBottomControls();
+    // Premium grid for 1:1 voice; compact pill for video calls.
     final showingVideo = _isVideo && _remoteUids.isNotEmpty;
     return showingVideo ? _callControls() : _premiumCallControls();
+  }
+
+  /// Bottom control bar for group calls (3+ people) — matches WhatsApp layout:
+  /// more · video · speaker · mute · end. Fixed circle sizes; no FittedBox.
+  Widget _groupCallBottomControls() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _ctrlCircle(
+            icon: Icons.more_horiz_rounded,
+            onTap: _showGroupMore,
+          ),
+          _ctrlCircle(
+            icon: (!_videoEnabled || _cameraOff)
+                ? Icons.videocam_off_rounded
+                : Icons.videocam_rounded,
+            onTap: _toggleCamera,
+            active: _isVideo && !_cameraOff,
+          ),
+          _ctrlCircle(
+            icon: Icons.volume_up_rounded,
+            onTap: _toggleSpeakerRoute,
+            active: _route == CallAudioRoute.speaker,
+          ),
+          _ctrlCircle(
+            icon: _muted ? Icons.mic_off_rounded : Icons.mic_rounded,
+            onTap: _toggleMute,
+            active: _muted,
+          ),
+          _ctrlCircle(
+            icon: Icons.call_end_rounded,
+            onTap: _hangup,
+            background: BestieTokens.cDanger,
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showGroupMore() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final c = BestieColors.of(ctx);
+        Widget tile(IconData icon, String label, VoidCallback onTap,
+            {Color? color}) {
+          return ListTile(
+            leading: Icon(icon, color: color ?? c.text),
+            title: Text(label, style: TextStyle(color: c.text)),
+            onTap: () {
+              Navigator.of(ctx).pop();
+              onTap();
+            },
+          );
+        }
+
+        return Container(
+          decoration: BoxDecoration(
+            color: c.surface,
+            borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(BestieTokens.rXl)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: c.borderStrong,
+                  borderRadius: BorderRadius.circular(BestieTokens.rPill),
+                ),
+              ),
+              tile(Icons.dialpad, 'Keypad', _showDialPad),
+              tile(Icons.person_add_alt_1_rounded, 'Add participant', _showInvite),
+              tile(
+                _sharing
+                    ? Icons.stop_screen_share_rounded
+                    : Icons.screen_share_rounded,
+                _sharing ? 'Stop sharing' : 'Share screen',
+                _toggleShare,
+                color: _sharing ? c.danger : null,
+              ),
+              tile(
+                _savingRecording
+                    ? Icons.hourglass_top_rounded
+                    : (_recording
+                        ? Icons.stop_circle_rounded
+                        : Icons.fiber_manual_record_rounded),
+                _savingRecording
+                    ? 'Saving recording…'
+                    : (_recording ? 'Stop recording' : 'Record call'),
+                _toggleRecord,
+                color: _recording ? c.danger : null,
+              ),
+              tile(Icons.notes_rounded, 'Call notes', _showCallNotes),
+              tile(Icons.campaign_rounded, 'Buzzer', _sendEmergencyBuzzer),
+              tile(Icons.people_alt_rounded, 'Participants', _showParticipants),
+              const SizedBox(height: 4),
+            ]),
+          ),
+        );
+      },
+    );
   }
 
   /// WhatsApp call controls — one translucent rounded pill with 5 circles:
@@ -3395,7 +4869,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
           border: Border.all(color: Colors.white.withOpacity(0.08)),
         ),
         child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
-          _ctrlCircle(icon: Icons.more_horiz_rounded, onTap: _showMore),
+          _ctrlCircle(
+            icon: _sharing
+                ? Icons.stop_screen_share_rounded
+                : Icons.screen_share_rounded,
+            onTap: _toggleShare,
+            active: _sharing,
+          ),
           _ctrlCircle(
             icon: (!_videoEnabled || _cameraOff)
                 ? Icons.videocam_off_rounded
@@ -3870,6 +5350,67 @@ class _RecordingPulseState extends State<_RecordingPulse>
       );
 }
 
+class _ConnectingDots extends StatefulWidget {
+  const _ConnectingDots();
+
+  @override
+  State<_ConnectingDots> createState() => _ConnectingDotsState();
+}
+
+class _ConnectingDotsState extends State<_ConnectingDots>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 36,
+      height: 24,
+      child: AnimatedBuilder(
+        animation: _ctrl,
+        builder: (_, __) {
+          return Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: List.generate(3, (i) {
+              final phase = (_ctrl.value + i * 0.2) % 1.0;
+              final opacity = 0.35 + 0.65 * (phase < 0.5 ? phase * 2 : (1 - phase) * 2);
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: Opacity(
+                  opacity: opacity.clamp(0.35, 1.0),
+                  child: Container(
+                    width: 6,
+                    height: 6,
+                    decoration: const BoxDecoration(
+                      color: Colors.white70,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+              );
+            }),
+          );
+        },
+      ),
+    );
+  }
+}
+
 class _PressableCircle extends StatefulWidget {
   final Widget child;
   final VoidCallback onTap;
@@ -3902,6 +5443,71 @@ class _PressableCircleState extends State<_PressableCircle> {
           child: widget.child,
         ),
       ),
+    );
+  }
+}
+
+/// Animated audio bars shown under a participant avatar while they speak.
+class _SpeakingWaveform extends StatefulWidget {
+  final Color color;
+  final bool compact;
+
+  const _SpeakingWaveform({
+    required this.color,
+    this.compact = false,
+  });
+
+  @override
+  State<_SpeakingWaveform> createState() => _SpeakingWaveformState();
+}
+
+class _SpeakingWaveformState extends State<_SpeakingWaveform>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 520),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final barW = widget.compact ? 2.0 : 3.0;
+    final maxH = widget.compact ? 12.0 : 16.0;
+    final minH = widget.compact ? 3.0 : 4.0;
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (_, __) {
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: List.generate(5, (i) {
+            final phase = (_ctrl.value + i * 0.18) % 1.0;
+            final h = minH + (maxH - minH) * (0.35 + 0.65 * sin(phase * pi * 2));
+            return Padding(
+              padding: EdgeInsets.symmetric(horizontal: widget.compact ? 1 : 1.5),
+              child: Container(
+                width: barW,
+                height: h,
+                decoration: BoxDecoration(
+                  color: widget.color,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            );
+          }),
+        );
+      },
     );
   }
 }

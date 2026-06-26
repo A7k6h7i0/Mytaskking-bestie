@@ -5,7 +5,10 @@ class ActiveCallInfo {
   final String? meetingSlug;
   final String mode;
   final String title;
+  /// When the call session began (ringing / joining).
   final DateTime startedAt;
+  /// When talk time actually started (callee answered / remote joined).
+  final DateTime? connectedAt;
   final List<String> participants;
 
   const ActiveCallInfo({
@@ -14,6 +17,7 @@ class ActiveCallInfo {
     required this.mode,
     required this.title,
     required this.startedAt,
+    this.connectedAt,
     this.participants = const [],
   });
 
@@ -25,6 +29,7 @@ class ActiveCallInfo {
   ActiveCallInfo copyWith({
     String? title,
     List<String>? participants,
+    DateTime? connectedAt,
   }) {
     return ActiveCallInfo(
       callId: callId,
@@ -32,6 +37,7 @@ class ActiveCallInfo {
       mode: mode,
       title: title ?? this.title,
       startedAt: startedAt,
+      connectedAt: connectedAt ?? this.connectedAt,
       participants: participants ?? this.participants,
     );
   }
@@ -62,6 +68,13 @@ class ActiveCallState {
     final value = current.value;
     if (value == null) return;
     current.value = value.copyWith(title: title, participants: participants);
+  }
+
+  static void markConnected(DateTime at) {
+    final value = current.value;
+    if (value == null) return;
+    if (value.connectedAt != null) return;
+    current.value = value.copyWith(connectedAt: at);
   }
 
   static void clear() {

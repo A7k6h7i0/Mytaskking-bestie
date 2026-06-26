@@ -170,10 +170,6 @@ class IncomingCallForegroundService : Service() {
             .setContentIntent(displayPendingIntent)
             .setFullScreenIntent(displayPendingIntent, true)
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            builder.setTimeoutAfter(RING_TIMEOUT_MS)
-        }
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             builder.setStyle(
                 Notification.CallStyle.forIncomingCall(

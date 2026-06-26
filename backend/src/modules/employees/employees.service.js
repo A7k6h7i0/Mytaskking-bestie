@@ -264,6 +264,13 @@ async function remove(id, actorId) {
       await tx.message.deleteMany({ where: { authorId: id } });
       await tx.userPresence.deleteMany({ where: { userId: id } });
 
+      if (actorId) {
+        await tx.channel.updateMany({
+          where: { createdById: id },
+          data: { createdById: actorId },
+        });
+      }
+
       await tx.user.delete({ where: { id } });
     });
   } catch (e) {

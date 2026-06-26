@@ -13,7 +13,7 @@ router.use(requireAuth, requireInternal);
 
 const DEFAULT_TIMEZONE = process.env.WORKDAY_TIMEZONE || 'Asia/Kolkata';
 const DEFAULT_CONFIG = {
-  minRequiredWords: 100,
+  minRequiredWords: 10,
   checkInHour: 9,
   lunchStartHour: 13,
   lunchEndHour: 14,

@@ -6,6 +6,8 @@ const { NotFound, Forbidden, BadRequest } = require('../../utils/errors');
 const agora = require('../../services/agora');
 const LIVE_RINGING_WINDOW_MS = 90 * 1000;
 const MAX_ACTIVE_CALL_AGE_MS = 24 * 60 * 60 * 1000;
+/** Outbound ring with no answer → MISSED after this many ms (WhatsApp-style). */
+const RING_NO_ANSWER_MS = Number(process.env.CALL_RING_TIMEOUT_MS) || 60 * 1000;
 
 const callInclude = {
   participants: { include: { user: { select: { id: true, name: true, avatarUrl: true, role: true, customTitle: true, isClient: true } } } },
@@ -34,13 +36,55 @@ function fmtDuration(ms) {
   return `${m}m`;
 }
 
+/** DM between two users (if one exists). */
+async function findDmChannelId(userIdA, userIdB) {
+  if (!userIdA || !userIdB || userIdA === userIdB) return null;
+  const channel = await prisma.channel.findFirst({
+    where: {
+      kind: 'DM',
+      archived: false,
+      AND: [
+        { members: { some: { userId: userIdA } } },
+        { members: { some: { userId: userIdB } } },
+        { members: { none: { userId: { notIn: [userIdA, userIdB] } } } },
+      ],
+    },
+    select: { id: true },
+  });
+  return channel?.id || null;
+}
+
+/**
+ * Where a call timeline event should land in chat.
+ * Decline/miss about person X belongs in the host↔X DM (e.g. Kalyan declined
+ * → Lakshmiraj–Kalyan chat), not the channel where the call originally started
+ * (e.g. Lakshmiraj–Sarif).
+ */
+async function resolveCallEventChannelId({ call, kind, actor }) {
+  if (
+    (kind === 'DECLINED' || kind === 'MISSED') &&
+    actor?.id &&
+    call?.initiatorId &&
+    actor.id !== call.initiatorId
+  ) {
+    const dm = await findDmChannelId(call.initiatorId, actor.id);
+    if (dm) return dm;
+  }
+  return call?.channelId || null;
+}
+
 /**
  * Posts a CALL_EVENT message in the chat channel a call belongs to (if any),
  * so the timeline shows "📞 Missed call from Priya · 2:14 PM" instead of the
  * call vanishing silently. Safe no-op when the call has no associated channel.
  */
 async function postCallEventMessage({ call, kind, actor }) {
-  if (!call?.channelId) return;
+  // Group calls: per-person decline / no-answer should not spam DMs.
+  if (call?.kind === 'GROUP' && (kind === 'DECLINED' || kind === 'MISSED')) {
+    return;
+  }
+  const channelId = await resolveCallEventChannelId({ call, kind, actor });
+  if (!channelId) return;
   const initiatorName = call.initiator?.name || 'Someone';
   const now = new Date();
   const started = call.startedAt || call.createdAt || now;
@@ -61,13 +105,13 @@ async function postCallEventMessage({ call, kind, actor }) {
     kind === 'ENDED'   ? 'ENDED'  :
     kind === 'MISSED'  ? 'MISSED' :
     kind === 'DECLINED'? 'DECLINED': 'UNKNOWN';
-  const body = `${text}|call:${call.id}:${status}`;
+  const body = `${text}|call:${call.id}:${status}:${call.initiatorId || ''}`;
   try {
-    const channel = await prisma.channel.findUnique({ where: { id: call.channelId } });
+    const channel = await prisma.channel.findUnique({ where: { id: channelId } });
     if (!channel) return;
     return await prisma.message.create({
       data: {
-        channelId: call.channelId,
+        channelId,
         authorId: actor?.id || call.initiatorId,
         kind: 'CALL_EVENT',
         body,
@@ -98,6 +142,17 @@ async function initiate({ initiator, participantIds, kind = 'ONE_TO_ONE', channe
     const targetId = participantIds[0];
     const staleBefore = new Date(Date.now() - LIVE_RINGING_WINDOW_MS);
     const staleActiveBefore = new Date(Date.now() - MAX_ACTIVE_CALL_AGE_MS);
+    // Drop abandoned outbound rings from this caller to the same person so a
+    // retry is not falsely blocked as "already receiving another call".
+    const ownStaleRinging = await prisma.call.findMany({
+      where: {
+        status: 'RINGING',
+        initiatorId: initiator.id,
+        participants: { some: { userId: targetId, leftAt: null } },
+      },
+      select: { id: true },
+    }).catch(() => []);
+    await Promise.all(ownStaleRinging.map(({ id }) => expireIfRinging({ callId: id })));
     const staleRinging = await prisma.call.findMany({
       where: {
         status: 'RINGING',
@@ -136,11 +191,16 @@ async function initiate({ initiator, participantIds, kind = 'ONE_TO_ONE', channe
                 },
               ],
             },
-            { status: 'RINGING', createdAt: { gte: staleBefore } },
+            {
+              status: 'RINGING',
+              createdAt: { gte: staleBefore },
+              // Only block when someone *else* is already ringing this person.
+              initiatorId: { not: initiator.id },
+            },
           ],
           participants: { some: { userId: targetId, leftAt: null } },
         },
-        select: { id: true, status: true },
+        select: { id: true, status: true, initiatorId: true },
       }).catch(() => null),
     ]);
     if (activeCall?.status === 'ACTIVE') {
@@ -160,6 +220,17 @@ async function initiate({ initiator, participantIds, kind = 'ONE_TO_ONE', channe
     } else if (presence && ['BUSY', 'IN_MEETING', 'INVISIBLE', 'AWAY'].includes(presence.status)) {
       targetPresence = { status: presence.status, customStatus: presence.customStatus || null };
     }
+  }
+
+  // Target is unavailable (busy/away/etc.) — tell the caller without creating
+  // a phantom call that is immediately marked missed.
+  if (targetPresence && targetPresence.status !== 'ON_CALL') {
+    return {
+      call: null,
+      targetPresence,
+      suppressRinging: true,
+      tokens: {},
+    };
   }
 
   const all = Array.from(new Set([initiator.id, ...participantIds]));
@@ -188,16 +259,22 @@ async function initiate({ initiator, participantIds, kind = 'ONE_TO_ONE', channe
   };
 }
 
-async function tokenFor({ callId, user }) {
-  const call = await prisma.call.findUnique({ where: { id: callId }, include: callInclude });
-  if (!call) throw NotFound('Call not found');
-  if (!['RINGING', 'ACTIVE'].includes(call.status)) throw BadRequest('Call has ended');
-  const isParticipant = call.participants.some((p) => p.userId === user.id && !p.leftAt);
-  if (!isParticipant) throw Forbidden('Not a participant of this call');
-  return {
-    ...agora.generateRtcToken({ channelName: call.channelName, wildcard: true }),
-    call: withAgoraParticipantUids(call),
-  };
+/** True when the room has more than two people (even if kind was never promoted). */
+function isMultiPartyCall(call) {
+  if (!call) return false;
+  if (call.kind === 'GROUP') return true;
+  return (call.participants || []).length > 2;
+}
+
+/** Someone who left can return while the call is still ACTIVE and others remain. */
+function canRejoinAfterLeave(call, part) {
+  if (!part?.leftAt) return true;
+  if (!['RINGING', 'ACTIVE'].includes(call?.status)) return false;
+  if (isMultiPartyCall(call)) return true;
+  const othersStillIn = (call.participants || []).filter(
+    (p) => p.userId !== part.userId && p.joinedAt && !p.leftAt,
+  ).length;
+  return call.status === 'ACTIVE' && othersStillIn > 0;
 }
 
 function withAgoraParticipantUids(call) {
@@ -211,19 +288,67 @@ function withAgoraParticipantUids(call) {
   };
 }
 
+async function tokenFor({ callId, user }) {
+  const call = await prisma.call.findUnique({ where: { id: callId }, include: callInclude });
+  if (!call) throw NotFound('Call not found');
+  if (!['RINGING', 'ACTIVE'].includes(call.status)) throw BadRequest('Call has ended');
+  const part = call.participants.find((p) => p.userId === user.id);
+  if (!part) throw Forbidden('Not a participant of this call');
+  if (part.leftAt && !canRejoinAfterLeave(call, part)) {
+    throw Forbidden('Not a participant of this call');
+  }
+  return {
+    ...agora.generateRtcToken({ channelName: call.channelName, wildcard: true }),
+    call: withAgoraParticipantUids(call),
+  };
+}
+
 async function join({ callId, user }) {
   const call = await prisma.call.findUnique({ where: { id: callId }, include: callInclude });
   if (!call) throw NotFound('Call not found');
   if (!['RINGING', 'ACTIVE'].includes(call.status)) throw BadRequest('Call has ended');
   const part = call.participants.find((p) => p.userId === user.id);
-  if (!part || part.leftAt) throw Forbidden('Not invited');
+  if (!part) throw Forbidden('Not invited');
+  if (part.leftAt && !canRejoinAfterLeave(call, part)) {
+    throw Forbidden('Not invited');
+  }
+
+  if (call.kind === 'ONE_TO_ONE' && isMultiPartyCall(call)) {
+    await prisma.call.update({ where: { id: callId }, data: { kind: 'GROUP' } });
+  }
 
   await prisma.callParticipant.update({
     where: { callId_userId: { callId, userId: user.id } },
-    data: { joinedAt: part.joinedAt || new Date() },
+    data: {
+      leftAt: null,
+      joinedAt: part.joinedAt || new Date(),
+    },
   });
   if (call.status === 'RINGING') {
-    await prisma.call.update({ where: { id: callId }, data: { status: 'ACTIVE', startedAt: new Date() } });
+    if (call.kind === 'ONE_TO_ONE' && !isMultiPartyCall(call)) {
+      // Stay RINGING until the callee actually answers — otherwise the 60s
+      // no-answer timer never fires and the caller can sit on "Ringing…" forever
+      // while the callee never received the invite.
+      const answered = await prisma.callParticipant.count({
+        where: {
+          callId,
+          userId: { not: call.initiatorId },
+          joinedAt: { not: null },
+          leftAt: null,
+        },
+      });
+      if (answered > 0) {
+        await prisma.call.update({
+          where: { id: callId },
+          data: { status: 'ACTIVE', startedAt: new Date() },
+        });
+      }
+    } else {
+      await prisma.call.update({
+        where: { id: callId },
+        data: { status: 'ACTIVE', startedAt: new Date() },
+      });
+    }
   }
   return prisma.call
     .findUnique({ where: { id: callId }, include: callInclude })
@@ -286,6 +411,12 @@ async function finalizeCallTiming(callId, endedAtInput) {
   return duration;
 }
 
+function calleeHasAnswered(call) {
+  return (call?.participants || []).some(
+    (p) => p.userId !== call.initiatorId && p.joinedAt != null && !p.leftAt,
+  );
+}
+
 async function leave({ callId, user }) {
   const before = await prisma.call.findUnique({ where: { id: callId }, include: callInclude });
   if (!before) throw NotFound('Call not found');
@@ -294,11 +425,21 @@ async function leave({ callId, user }) {
   }
   if (['ENDED', 'MISSED', 'FAILED'].includes(before.status)) return before;
 
+  // Caller hung up while still ringing — treat as no-answer, not a connected call.
+  if (
+    before.status === 'RINGING' &&
+    before.kind === 'ONE_TO_ONE' &&
+    !calleeHasAnswered(before)
+  ) {
+    const missed = await expireIfRinging({ callId });
+    if (missed) return missed;
+  }
+
   await prisma.callParticipant.updateMany({
     where: { callId, userId: user.id, leftAt: null },
     data: { leftAt: new Date() },
   });
-  if (before.kind === 'ONE_TO_ONE') {
+  if (!isMultiPartyCall(before)) {
     await prisma.callParticipant.updateMany({
       where: { callId, leftAt: null },
       data: { leftAt: new Date() },
@@ -311,6 +452,9 @@ async function leave({ callId, user }) {
     const ended = await prisma.call.findUnique({ where: { id: callId }, include: callInclude });
     await postCallEventMessage({ call: ended, kind: 'ENDED', actor: user });
     return ended;
+  }
+  if (before.kind === 'ONE_TO_ONE') {
+    await prisma.call.update({ where: { id: callId }, data: { kind: 'GROUP' } });
   }
   // A group call cannot continue with one connected person. Ignore invited
   // users who never joined when deciding whether the room is still alive.
@@ -429,32 +573,47 @@ async function addParticipant({ callId, userIds, actor }) {
   };
 }
 
-async function acceptWaitingCall({ waitingCallId, user }) {
+async function findActiveCallForUser(userId, { excludeCallId, preferredCallId } = {}) {
+  if (preferredCallId) {
+    const preferred = await prisma.call.findFirst({
+      where: {
+        id: preferredCallId,
+        status: 'ACTIVE',
+        participants: { some: { userId, leftAt: null } },
+      },
+      include: callInclude,
+    });
+    if (preferred) return preferred;
+  }
+  return prisma.call.findFirst({
+    where: {
+      ...(excludeCallId ? { id: { not: excludeCallId } } : {}),
+      status: 'ACTIVE',
+      participants: {
+        some: { userId, leftAt: null, joinedAt: { not: null } },
+      },
+    },
+    orderBy: { startedAt: 'desc' },
+    include: callInclude,
+  });
+}
+
+async function acceptWaitingCall({ waitingCallId, user, activeCallId }) {
   const waitingCall = await prisma.call.findUnique({ where: { id: waitingCallId }, include: callInclude });
   if (!waitingCall) throw NotFound('Waiting call not found');
-  if (!waitingCall.participants.some((p) => p.userId === user.id)) throw Forbidden('Not invited');
+  if (waitingCall.initiatorId === user.id) {
+    throw Forbidden('The waiting caller cannot accept their own waiting call');
+  }
+  if (!waitingCall.participants.some((p) => p.userId === user.id && !p.leftAt)) {
+    throw Forbidden('Not invited');
+  }
 
   const waitingUsers = waitingCall.participants
-    .map((p) => p.userId)
-    .filter((id) => id !== user.id);
-  const activeCall = await prisma.call.findFirst({
-    where: {
-      id: { not: waitingCallId },
-      status: 'ACTIVE',
-      AND: [
-        {
-          participants: {
-            some: { userId: user.id, joinedAt: { not: null }, leftAt: null },
-          },
-        },
-        {
-          participants: {
-            some: { userId: { not: user.id }, joinedAt: { not: null }, leftAt: null },
-          },
-        },
-      ],
-    },
-    include: callInclude,
+    .filter((p) => !p.leftAt && p.userId !== user.id)
+    .map((p) => p.userId);
+  const activeCall = await findActiveCallForUser(user.id, {
+    excludeCallId: waitingCallId,
+    preferredCallId: activeCallId,
   });
 
   // Accept can arrive twice from a rapid double-tap or from both the native
@@ -540,9 +699,9 @@ async function updateNotes({ callId, notes, user }) {
   });
 }
 
-// Atomically mark a still-RINGING call MISSED (the 60s no-answer timeout) and
-// post the "Missed call" chat event. Conditional updateMany guarantees we never
-// clobber a call that was answered in the race window.
+// Atomically mark a still-RINGING call MISSED (no-answer timeout) and post the
+// "Missed call" / "No answer" chat event. Conditional updateMany guarantees we
+// never clobber a call that was answered in the race window.
 async function expireIfRinging({ callId }) {
   const now = new Date();
   const updated = await prisma.call.updateMany({
@@ -557,6 +716,28 @@ async function expireIfRinging({ callId }) {
   const call = await prisma.call.findUnique({ where: { id: callId }, include: callInclude });
   if (call) await postCallEventMessage({ call, kind: 'MISSED', actor: call.initiator });
   return call;
+}
+
+/** Sweep every RINGING call older than RING_NO_ANSWER_MS — backs up in-memory setTimeout. */
+async function expireStaleRingingCalls({ io = null } = {}) {
+  const cutoff = new Date(Date.now() - RING_NO_ANSWER_MS);
+  const stale = await prisma.call.findMany({
+    where: { status: 'RINGING', createdAt: { lt: cutoff } },
+    select: { id: true },
+  });
+  const expired = [];
+  for (const { id } of stale) {
+    const missed = await expireIfRinging({ callId: id });
+    if (!missed) continue;
+    expired.push(missed);
+    if (io) {
+      for (const p of missed.participants || []) {
+        io.to(`user:${p.userId}`).emit('call.declined', { callId: missed.id, status: 'MISSED' });
+        io.to(`user:${p.userId}`).emit('call.ended', { callId: missed.id, status: 'MISSED' });
+      }
+    }
+  }
+  return expired;
 }
 
 async function expireStaleActive({ callId }) {
@@ -747,6 +928,8 @@ module.exports = {
   history,
   screenShareToken,
   expireIfRinging,
+  expireStaleRingingCalls,
+  RING_NO_ANSWER_MS,
   talkTimeForUser,
   talkTimeOrg,
 };

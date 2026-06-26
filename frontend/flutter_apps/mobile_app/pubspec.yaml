@@ -43,6 +43,7 @@ dependencies:
   flutter_tts: ^4.2.0
   geolocator: ^13.0.2
   geocoding: ^3.0.0
+  proximity_sensor: ^1.4.0
 
 dependency_overrides:
   # record 5.x's federated linux implementation has a platform-interface

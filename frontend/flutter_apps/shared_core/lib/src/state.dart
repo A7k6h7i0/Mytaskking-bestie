@@ -126,8 +126,30 @@ final tasksKanbanProvider =
   ref
       .watch(realtimeProvider)
       .onAny('task.assignment.changed', ([_]) => ref.invalidateSelf());
+  ref
+      .watch(realtimeProvider)
+      .onAny('task.assigned', ([_]) => ref.invalidateSelf());
+  ref
+      .watch(realtimeProvider)
+      .onAny('task.updated', ([_]) => ref.invalidateSelf());
+  ref
+      .watch(realtimeProvider)
+      .onAny('task.deleted', ([_]) => ref.invalidateSelf());
   return ref.watch(apiProvider).listTasks(view: 'kanban');
 });
+
+/// Flatten either a kanban `{ columns: { TODO: [...] } }` payload or a list
+/// `{ items: [...] }` payload into one task array.
+List<Map<String, dynamic>> flattenTasksResponse(Map<String, dynamic> data) {
+  final cols = (data['columns'] as Map?)?.cast<String, dynamic>();
+  if (cols != null && cols.isNotEmpty) {
+    return cols.values
+        .whereType<List>()
+        .expand((v) => v.cast<Map<String, dynamic>>())
+        .toList();
+  }
+  return (data['items'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+}
 
 final taskReportsProvider =
     FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {

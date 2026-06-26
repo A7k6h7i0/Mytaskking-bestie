@@ -81,8 +81,8 @@ class CallForegroundService : Service() {
         val mode = source?.getStringExtra(EXTRA_MODE) ?: "voice"
 
         val openIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("type", if (meetingSlug != null) "meeting.invited" else "call.incoming")
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra("type", "call.active")
             putExtra("callId", callId)
             putExtra("meetingSlug", meetingSlug)
             putExtra("mode", mode)

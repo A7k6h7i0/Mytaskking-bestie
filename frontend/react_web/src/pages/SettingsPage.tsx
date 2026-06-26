@@ -38,7 +38,7 @@ export default function SettingsPage() {
     lunchStartHour: settings?.attendance?.lunchStartHour ?? 13,
     lunchEndHour: settings?.attendance?.lunchEndHour ?? 14,
     checkOutHour: settings?.attendance?.checkOutHour ?? 18,
-    minRequiredWords: settings?.attendance?.minRequiredWords ?? 100,
+    minRequiredWords: settings?.attendance?.minRequiredWords ?? 10,
   });
   const [calls, setCalls] = useState({
     headOfficeName: settings?.calls?.headOfficeName ?? 'HQ India',
@@ -61,7 +61,7 @@ export default function SettingsPage() {
       lunchStartHour: settings?.attendance?.lunchStartHour ?? 13,
       lunchEndHour: settings?.attendance?.lunchEndHour ?? 14,
       checkOutHour: settings?.attendance?.checkOutHour ?? 18,
-      minRequiredWords: settings?.attendance?.minRequiredWords ?? 100,
+      minRequiredWords: settings?.attendance?.minRequiredWords ?? 10,
     });
     setCalls({ headOfficeName: settings?.calls?.headOfficeName ?? 'HQ India' });
   }, [settings]);

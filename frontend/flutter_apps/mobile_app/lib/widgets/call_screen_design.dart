@@ -131,6 +131,7 @@ class CallUiGlassControlButton extends StatelessWidget {
     this.onTap,
     this.iconBegin = Alignment.topCenter,
     this.iconEnd = Alignment.bottomCenter,
+    this.lightControls = false,
   });
 
   final String label;
@@ -140,6 +141,8 @@ class CallUiGlassControlButton extends StatelessWidget {
   final VoidCallback? onTap;
   final AlignmentGeometry iconBegin;
   final AlignmentGeometry iconEnd;
+  /// Light app theme: white borders/shadows instead of neon blue on Mute–Buzzer.
+  final bool lightControls;
 
   static const _radius = 18.0;
   static const _innerRadius = 16.4;
@@ -155,6 +158,30 @@ class CallUiGlassControlButton extends StatelessWidget {
     ],
     stops: [0.0, 0.28, 0.72, 1.0],
   );
+
+  static const _lightBorderGradient = LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [
+      Color(0xFFFFFFFF),
+      Color(0x99FFFFFF),
+      Color(0x99FFFFFF),
+      Color(0xFFFFFFFF),
+    ],
+    stops: [0.0, 0.28, 0.72, 1.0],
+  );
+
+  static const _lightGlowShadows = [
+    BoxShadow(
+      color: Color(0x80FFFFFF),
+      blurRadius: 18,
+    ),
+    BoxShadow(
+      color: Color(0x44FFFFFF),
+      blurRadius: 28,
+      spreadRadius: 1,
+    ),
+  ];
 
   static const _idleFaceGradient = RadialGradient(
     center: Alignment(-0.1, -0.15),
@@ -207,23 +234,29 @@ class CallUiGlassControlButton extends StatelessWidget {
               child: Container(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(_radius),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: CallScreenUiColors.speakerGlowStrong,
-                      blurRadius: 18,
-                    ),
-                    BoxShadow(
-                      color: CallScreenUiColors.speakerGlowSoft,
-                      blurRadius: 28,
-                      spreadRadius: 1,
-                    ),
-                  ],
+                  boxShadow: lightControls
+                      ? _lightGlowShadows
+                      : const [
+                          BoxShadow(
+                            color: CallScreenUiColors.speakerGlowStrong,
+                            blurRadius: 18,
+                          ),
+                          BoxShadow(
+                            color: CallScreenUiColors.speakerGlowSoft,
+                            blurRadius: 28,
+                            spreadRadius: 1,
+                          ),
+                        ],
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(_radius),
                   child: Container(
                     padding: const EdgeInsets.all(1.6),
-                    decoration: const BoxDecoration(gradient: _borderGradient),
+                    decoration: BoxDecoration(
+                      gradient: lightControls
+                          ? _lightBorderGradient
+                          : _borderGradient,
+                    ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(_innerRadius),
                       child: Container(
@@ -292,10 +325,12 @@ class CallUiSpeakerButton extends StatelessWidget {
     super.key,
     this.isSelected = false,
     this.onTap,
+    this.lightControls = false,
   });
 
   final bool isSelected;
   final VoidCallback? onTap;
+  final bool lightControls;
 
   static const _radius = 18.0;
   static const _innerRadius = 16.2;
@@ -339,34 +374,38 @@ class CallUiSpeakerButton extends StatelessWidget {
               child: Container(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(_radius),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: CallScreenUiColors.speakerGlowStrong,
-                      blurRadius: 14,
-                    ),
-                    BoxShadow(
-                      color: CallScreenUiColors.speakerGlowSoft,
-                      blurRadius: 26,
-                      spreadRadius: 1,
-                    ),
-                  ],
+                  boxShadow: lightControls
+                      ? CallUiGlassControlButton._lightGlowShadows
+                      : const [
+                          BoxShadow(
+                            color: CallScreenUiColors.speakerGlowStrong,
+                            blurRadius: 14,
+                          ),
+                          BoxShadow(
+                            color: CallScreenUiColors.speakerGlowSoft,
+                            blurRadius: 26,
+                            spreadRadius: 1,
+                          ),
+                        ],
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(_radius),
                   child: Container(
                     padding: const EdgeInsets.all(1.8),
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          CallScreenUiColors.speakerActiveBorder,
-                          CallScreenUiColors.speakerBorderSide,
-                          CallScreenUiColors.speakerBorderDim,
-                          CallScreenUiColors.speakerBorderSide,
-                        ],
-                        stops: [0.0, 0.35, 0.7, 1.0],
-                      ),
+                    decoration: BoxDecoration(
+                      gradient: lightControls
+                          ? CallUiGlassControlButton._lightBorderGradient
+                          : const LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                CallScreenUiColors.speakerActiveBorder,
+                                CallScreenUiColors.speakerBorderSide,
+                                CallScreenUiColors.speakerBorderDim,
+                                CallScreenUiColors.speakerBorderSide,
+                              ],
+                              stops: [0.0, 0.35, 0.7, 1.0],
+                            ),
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(_innerRadius),

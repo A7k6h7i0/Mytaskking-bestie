@@ -6,6 +6,7 @@ import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:mytaskking_core/mytaskking_core.dart' as core;
 
 import '../state.dart' hide ThemeMode;
+import '../widgets/profile_avatar_viewer.dart';
 import 'leaderboard_card.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
@@ -116,9 +117,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authStoreProvider).user;
-    final themeMode = ref.watch(themeModeProvider);
-    final displayThemeMode =
-        themeMode == core.ThemeMode.system ? core.ThemeMode.light : themeMode;
     final sessions = ref.watch(mySessionsProvider);
 
     return Scaffold(
@@ -132,11 +130,21 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         Padding(
           padding: const EdgeInsets.all(BestieTokens.s4),
           child: Row(children: [
-            BestieAvatar(
-              name: user?.name ?? '—',
-              imageUrl: user?.avatarUrl,
-              isClient: user?.isClient ?? false,
-              size: 64,
+            GestureDetector(
+              onTap: () {
+                ProfileAvatarViewer.show(
+                  context,
+                  name: user?.name ?? '—',
+                  imageUrl: user?.avatarUrl,
+                  isClient: user?.isClient ?? false,
+                );
+              },
+              child: BestieAvatar(
+                name: user?.name ?? '—',
+                imageUrl: user?.avatarUrl,
+                isClient: user?.isClient ?? false,
+                size: 64,
+              ),
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -207,24 +215,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
         // ----- appearance -----
         _section(context, 'Appearance', [
-          ListTile(
-            leading: const Icon(Icons.palette_outlined),
-            title: const Text('Theme'),
-            trailing: BestieSegmentedControl<core.ThemeMode>(
-              value: displayThemeMode,
-              onChanged: (v) => ref.read(themeModeProvider.notifier).state = v,
-              options: const [
-                BestieSegmentOption(
-                    value: core.ThemeMode.light,
-                    label: 'Light',
-                    icon: Icons.light_mode),
-                BestieSegmentOption(
-                    value: core.ThemeMode.dark,
-                    label: 'Dark',
-                    icon: Icons.dark_mode),
-              ],
-            ),
-          ),
           // Font scale + reduce-motion give people with low vision or
           // vestibular sensitivities a more comfortable experience.
           ListTile(

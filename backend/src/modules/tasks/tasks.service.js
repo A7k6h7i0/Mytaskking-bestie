@@ -30,7 +30,22 @@ async function ensureVisible(task, user) {
   if (!assigned) throw Forbidden('Not allowed to access this task');
 }
 
+/** Flip SCHEDULED → TODO when delivery time has passed (cron backup). */
+async function promoteDueScheduledTasks() {
+  const now = new Date();
+  const due = await prisma.task.findMany({
+    where: { status: 'SCHEDULED', scheduledAt: { lte: now } },
+    select: { id: true },
+  });
+  if (!due.length) return;
+  await prisma.task.updateMany({
+    where: { id: { in: due.map((t) => t.id) } },
+    data: { status: 'TODO' },
+  });
+}
+
 async function list({ user, status, assigneeId, q, page = 1, pageSize = 50, view = 'list' }) {
+  await promoteDueScheduledTasks();
   const isAdmin = ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'PROJECT_COORDINATOR_MANAGER'].includes(user.role);
   const where = {
     ...(status ? { status } : {}),

@@ -44,6 +44,10 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // Modern phones only — avoids bundling armeabi-v7a/x86 (~2–3× APK size).
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     signingConfigs {
@@ -80,6 +84,16 @@ android {
     // R8 full-mode does aggressive class merging + tree shaking. Safe for
     // release because we keep the SDK packages explicitly below.
     packaging {
+        jniLibs {
+            @Suppress("UNCHECKED_CAST")
+            val agoraExcludes =
+                rootProject.extra["agoraExtensionExcludePaths"] as Set<String>
+            @Suppress("UNCHECKED_CAST")
+            val abiExcludes =
+                rootProject.extra["nonArm64AbiExcludePaths"] as Set<String>
+            excludes += agoraExcludes
+            excludes += abiExcludes
+        }
         resources {
             excludes += setOf(
                 "META-INF/AL2.0",

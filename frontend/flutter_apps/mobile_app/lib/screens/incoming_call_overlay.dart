@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
+import '../call_app.dart';
 import '../active_call_state.dart';
 import '../router.dart';
 import '../state.dart';
@@ -83,12 +84,32 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _appResumed = state == AppLifecycleState.resumed;
-    if (!_appResumed) {
-      _autoMiss?.cancel();
+    if (state == AppLifecycleState.resumed) {
+      // Screen unlocked / app back in foreground — restore the in-app ringer
+      // if we still have a pending call (never clear _pending on lock).
+      if (_pending != null) {
+        HapticFeedback.heavyImpact();
+        _hapticTimer?.cancel();
+        _hapticTimer = Timer.periodic(const Duration(milliseconds: 1300), (_) {
+          HapticFeedback.heavyImpact();
+        });
+        unawaited(_playRingtoneUnlessNativeService());
+        if (mounted) setState(() {});
+      }
+      return;
+    }
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      // Hand off to the native incoming-call service so Accept/Decline stay on
+      // the lock screen. Do NOT clear _pending — that was making the call
+      // vanish the moment the user locked their phone.
+      if (_pending != null) {
+        unawaited(_ensureNativeIncomingNotification());
+      }
       _hapticTimer?.cancel();
       _ringtone.stop();
       _customRingtone.stop();
-      if (mounted && _pending != null) setState(() => _pending = null);
     }
   }
 
@@ -184,6 +205,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
   /// CallScreen widget is already disposed (user backgrounded to the pill).
   Future<void> _clearEndedOngoingCall(dynamic data) async {
     if (data is! Map) return;
+    if (!isCallEventForThisApp(Map<String, dynamic>.from(data))) return;
     final endedId = data['callId']?.toString();
     if (endedId == null || endedId.isEmpty) return;
     await _cancelNativeIncomingNotification(callId: endedId);
@@ -302,11 +324,15 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
   }
 
   void _onPushInvite(Map<String, dynamic> data) {
-    if (!_appResumed) return;
+    if (!isCallEventForThisApp(data)) return;
     final type = data['type']?.toString();
     final mode = (data['mode'] ?? 'VIDEO').toString().toUpperCase();
     final fromName =
         (data['fromName'] ?? data['title'] ?? 'Someone').toString();
+    final callerId =
+        data['callerId']?.toString() ?? data['initiatorId']?.toString();
+    final me = ref.read(authStoreProvider).user;
+    if (callerId != null && callerId.isNotEmpty && callerId == me?.id) return;
 
     if (type == 'call.incoming') {
       final callId = data['callId']?.toString();
@@ -316,9 +342,13 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
           'id': callId,
           'kind': 'ONE_TO_ONE',
           'mode': mode,
-          'initiator': {'name': fromName},
+          'initiator': {
+            'id': callerId,
+            'name': fromName,
+          },
         },
         'mode': mode,
+        'callerId': callerId,
       });
       return;
     }
@@ -343,8 +373,8 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
   }
 
   void _onIncoming(dynamic data) {
-    if (!_appResumed) return;
     if (data is! Map) return;
+    if (!isCallEventForThisApp(Map<String, dynamic>.from(data))) return;
     final me = ref.read(authStoreProvider).user;
     final call = (data['call'] as Map?)?.cast<String, dynamic>();
     if (call == null) return;
@@ -389,13 +419,24 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
       _customRingtone.stop();
     }
     // Don't ring myself for outbound calls / meetings I'm hosting.
+    final callerId = data['callerId']?.toString() ??
+        call['initiator']?['id']?.toString();
+    if (callerId != null && callerId.isNotEmpty && callerId == me?.id) return;
     if (call['initiator']?['id'] == me?.id) return;
     if ((call['host'] as Map?)?['id'] == me?.id) return;
     setState(() => _pending = Map<String, dynamic>.from(data));
-    // Auto-decline shortly after the backend's 60s RINGING TTL so the server
-    // is the source of truth for "missed" and the two don't fight at 45s.
+    // Let the server's 60s RINGING timeout mark the call missed — don't
+    // auto-decline from the client (that raced the server and could end calls
+    // the callee never saw).
     _autoMiss?.cancel();
-    _autoMiss = Timer(const Duration(seconds: 62), _decline);
+    _autoMiss = Timer(const Duration(seconds: 65), () {
+      _cancelNativeIncomingNotification(
+        callId: _pendingCallId(),
+        meetingSlug: _pending?['meetingSlug']?.toString(),
+      );
+      _stopIncomingAlert();
+      if (mounted) setState(() => _pending = null);
+    });
 
     // Buzz the device every second so the user notices even with the screen
     // off. Pair it with a looping synthesized ringtone (no asset needed —
@@ -419,6 +460,13 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     final caller =
         (data['callerName'] ?? call?['initiator']?['name'] ?? 'Someone')
             .toString();
+    // Cancel any auto-decline timer from a prior normal incoming call — leaving
+    // it running was auto-rejecting the waiting call before the user could tap
+    // Accept ("Waiting call not found" on accept).
+    _autoMiss?.cancel();
+    _hapticTimer?.cancel();
+    _ringtone.stop();
+    _customRingtone.stop();
     setState(() => _pending = {
           ...Map<String, dynamic>.from(data),
           'waiting': true,
@@ -429,9 +477,14 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
                 'initiator': {'id': data['callerId'], 'name': caller},
               },
         });
-    _playRingtone();
+    HapticFeedback.heavyImpact();
+    _hapticTimer = Timer.periodic(const Duration(milliseconds: 1300), (_) {
+      HapticFeedback.heavyImpact();
+    });
+    _autoMiss = Timer(const Duration(seconds: 88), _decline);
+    unawaited(_playRingtoneUnlessNativeService());
     _speak(
-        '$caller is calling. Accept to add them to your current call, or reject the call.');
+        '$caller is calling while you are on another call. Accept to add them, or reject.');
   }
 
   Future<void> _speak(String text) async {
@@ -531,6 +584,33 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     } catch (_) {/* best-effort — silent fall back to haptics */}
   }
 
+  Future<void> _ensureNativeIncomingNotification() async {
+    final pending = _pending;
+    if (pending == null) return;
+    try {
+      final nativeActive = await _nativeCallNotificationChannel
+          .invokeMethod<bool>('isIncomingActive');
+      if (nativeActive == true) return;
+    } catch (_) {/* Android-only */}
+    final call = (pending['call'] as Map?)?.cast<String, dynamic>();
+    final callId = _pendingCallId();
+    final meetingSlug = pending['meetingSlug']?.toString();
+    final mode = _modeFor(pending);
+    final fromName = pending['callerName']?.toString() ??
+        call?['initiator']?['name']?.toString() ??
+        'Someone';
+    final type = meetingSlug != null ? 'meeting.invited' : 'call.incoming';
+    try {
+      await _nativeCallNotificationChannel.invokeMethod('startIncoming', {
+        'type': type,
+        if (callId != null) 'callId': callId,
+        if (meetingSlug != null) 'meetingSlug': meetingSlug,
+        'mode': mode,
+        'fromName': fromName,
+      });
+    } catch (_) {/* best effort */}
+  }
+
   Future<void> _playRingtoneUnlessNativeService() async {
     try {
       final nativeActive = await _nativeCallNotificationChannel
@@ -565,8 +645,11 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     } catch (_) {/* best effort on non-Android platforms */}
   }
 
+  String? _pendingCallId() =>
+      _pending?['call']?['id']?.toString() ?? _pending?['callId']?.toString();
+
   Future<void> _decline() async {
-    final id = _pending?['call']?['id']?.toString();
+    final id = _pendingCallId();
     final meetingSlug = _pending?['meetingSlug']?.toString();
     final waiting = _pending?['waiting'] == true;
     _cancelNativeIncomingNotification(callId: id, meetingSlug: meetingSlug);
@@ -581,7 +664,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
 
   Future<void> _accept() async {
     final meetingSlug = _pending?['meetingSlug']?.toString();
-    final callId = _pending?['call']?['id']?.toString();
+    final callId = _pendingCallId();
     final mode = _modeFor(_pending);
     final waiting = _pending?['waiting'] == true;
     if (meetingSlug == null && callId == null) {
@@ -591,14 +674,18 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     if (waiting && callId != null) {
       _acceptedCallId = callId;
       _acceptedAt = DateTime.now();
+      _stopIncomingAlert();
       _cancelNativeIncomingNotification(callId: callId);
-      _dismiss();
+      if (mounted) setState(() => _pending = null);
       try {
         await ref.read(apiProvider).post('/calls/$callId/waiting/accept',
-            body: {'mode': mode.toUpperCase()});
+            body: {
+              'mode': mode.toUpperCase(),
+              'activeCallId': CallSession.activeCallId,
+            });
         if (mounted) {
           bestieToast(context, 'Caller added',
-              body: 'The waiting caller can now join this conference.',
+              body: 'The waiting caller can now join this call.',
               kind: BestieToastKind.success);
         }
       } catch (e) {
@@ -921,10 +1008,13 @@ class _RingerScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final isWaiting = payload['waiting'] == true;
     final call = (payload['call'] as Map?)?.cast<String, dynamic>() ?? const {};
     final initiator =
         (call['initiator'] as Map?)?.cast<String, dynamic>() ?? const {};
-    final name = (initiator['name'] ?? 'Someone').toString();
+    final name = isWaiting
+        ? (payload['callerName'] ?? initiator['name'] ?? 'Someone').toString()
+        : (initiator['name'] ?? 'Someone').toString();
     final isClient = initiator['isClient'] == true;
     final kind = (call['kind'] ?? 'ONE_TO_ONE').toString();
     // Mode (voice / video) lives at the top of the socket payload — the DB
@@ -976,9 +1066,11 @@ class _RingerScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            kind == 'GROUP'
-                ? 'Group call · $participantCount'
-                : (isMeeting ? 'invited you' : 'incoming call…'),
+            isWaiting
+                ? 'On another call — accept to add them'
+                : kind == 'GROUP'
+                    ? 'Group call · $participantCount'
+                    : (isMeeting ? 'invited you' : 'incoming call…'),
             textAlign: TextAlign.center,
             style: const TextStyle(color: Colors.white60, fontSize: 14),
           ),

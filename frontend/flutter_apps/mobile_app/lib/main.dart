@@ -15,7 +15,9 @@ import 'package:mytaskking_core/mytaskking_core.dart' as core;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'firebase_options.dart';
+import 'call_app.dart';
 import 'router.dart';
+import 'screens/call_screen.dart';
 import 'screens/connectivity_banner.dart';
 import 'screens/incoming_call_overlay.dart';
 import 'screens/ongoing_call_bar.dart';
@@ -60,8 +62,17 @@ void main() async {
   final auth = core.BestieAuthStore();
   await auth.load();
 
-  final api = core.BestieApi(baseUrl: kApiBaseUrl, auth: auth);
-  final socket = core.BestieSocket(url: kSocketUrl, auth: auth);
+  final api = core.BestieApi(
+    baseUrl: kApiBaseUrl,
+    auth: auth,
+    userAgent:
+        'MyTaskKing-Mobile/${Platform.operatingSystem}/${Platform.operatingSystemVersion}',
+  );
+  final socket = core.BestieSocket(
+    url: kSocketUrl,
+    auth: auth,
+    clientApp: 'mytaskking',
+  );
 
   // Best-effort Firebase init. If the platform config files aren't bundled
   // yet (e.g. someone building locally without google-services.json) we
@@ -358,8 +369,7 @@ Future<void> _sendNotificationReply(
 }
 
 bool _isIncomingCallPush(Map<String, dynamic> data) {
-  final type = data['type']?.toString();
-  return type == 'call.incoming' || type == 'meeting.invited';
+  return isIncomingCallPushForThisApp(data);
 }
 
 bool _isActionableChatPush(Map<String, dynamic> data) {
@@ -447,6 +457,14 @@ class _BestieAppState extends ConsumerState<BestieApp> {
   }
 
   Future<void> _wirePushDeepLinks() async {
+    _launchIntentChannel.setMethodCallHandler((call) async {
+      if (call.method == 'onLaunchPayload' && call.arguments is Map) {
+        if (!mounted) return null;
+        _navigateFromLaunchPayload(
+            Map<String, dynamic>.from(call.arguments as Map));
+      }
+      return null;
+    });
     try {
       final initial = await FirebaseMessaging.instance.getInitialMessage();
       if (initial != null) {
@@ -482,18 +500,48 @@ class _BestieAppState extends ConsumerState<BestieApp> {
       );
       if (raw != null) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          final type = raw['type']?.toString();
-          final accepted = raw['acceptCall']?.toString() == 'true';
-          if (!accepted &&
-              (type == 'call.incoming' || type == 'meeting.invited')) {
-            showIncomingCallFromPush(raw);
-            return;
-          }
-          final route = _routeForPush(raw);
-          if (route != null) ref.read(routerProvider).go(route);
+          _navigateFromLaunchPayload(Map<String, dynamic>.from(raw));
         });
       }
     } catch (_) {/* Android native call notification bridge is optional */}
+  }
+
+  void _navigateFromLaunchPayload(Map<String, dynamic> raw) {
+    final type = raw['type']?.toString();
+    final accepted = raw['acceptCall']?.toString() == 'true';
+    final callId = raw['callId']?.toString();
+    final mode =
+        raw['mode']?.toString().toLowerCase() == 'voice' ? 'voice' : 'video';
+
+    // Ongoing-call notification must return to the live session, not open a
+    // fresh incoming-call ringer.
+    if (type == 'call.active') {
+      if (callId != null && callId.isNotEmpty) {
+        ref.read(routerProvider).go('/call/$callId?mode=$mode');
+      } else {
+        final slug = raw['meetingSlug']?.toString();
+        if (slug != null && slug.isNotEmpty) {
+          ref.read(routerProvider).go('/meeting/$slug?mode=$mode');
+        }
+      }
+      return;
+    }
+
+    if (!accepted &&
+        type == 'call.incoming' &&
+        CallSession.isActive &&
+        callId != null &&
+        callId == CallSession.activeCallId) {
+      ref.read(routerProvider).go('/call/$callId?mode=$mode');
+      return;
+    }
+
+    if (!accepted && (type == 'call.incoming' || type == 'meeting.invited')) {
+      showIncomingCallFromPush(raw);
+      return;
+    }
+    final route = _routeForPush(raw);
+    if (route != null) ref.read(routerProvider).go(route);
   }
 
   void _openPushTarget(RemoteMessage message) {
@@ -504,7 +552,7 @@ class _BestieAppState extends ConsumerState<BestieApp> {
 
   String? _routeForPush(Map<String, dynamic> data) {
     final type = data['type']?.toString();
-    if (type == 'call.incoming') {
+    if (type == 'call.active' || type == 'call.incoming') {
       final callId = data['callId']?.toString();
       if (callId == null || callId.isEmpty) return null;
       final mode =
@@ -534,19 +582,14 @@ class _BestieAppState extends ConsumerState<BestieApp> {
 
   @override
   Widget build(BuildContext context) {
-    final mode = ref.watch(themeModeProvider);
     final fontScale = ref.watch(fontScaleProvider);
     return MaterialApp.router(
       title: 'MyTaskKing',
       debugShowCheckedModeBanner: false,
       theme: BestieTheme.light(),
       darkTheme: BestieTheme.dark(),
-      themeMode: switch (mode) {
-        core.ThemeMode.light => ThemeMode.light,
-        core.ThemeMode.dark => ThemeMode.dark,
-        // Mobile defaults to light when no explicit preference is chosen.
-        core.ThemeMode.system => ThemeMode.light,
-      },
+      // App screens always use light theme. Call screen has its own UI theme toggle.
+      themeMode: ThemeMode.light,
       routerConfig: ref.watch(routerProvider),
       // The overlay listens for incoming-call socket events globally and
       // covers whatever screen you're on with an Accept/Decline ringer.

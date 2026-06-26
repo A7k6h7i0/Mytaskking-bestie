@@ -125,21 +125,25 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     if (_success) {
       return Scaffold(
         backgroundColor: c.bg,
-        body: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const BestieSuccessCheck(size: 84),
-              const SizedBox(height: 16),
-              Text('Welcome back',
-                  style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                      color: c.text)),
-              const SizedBox(height: 4),
-              Text('Loading MyTaskKing…', style: TextStyle(color: c.textMuted)),
-            ],
-          ),
+        body: Stack(
+          children: [
+            Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const BestieSuccessCheck(size: 84),
+                  const SizedBox(height: 16),
+                  Text('Welcome back',
+                      style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w700,
+                          color: c.text)),
+                  const SizedBox(height: 4),
+                  Text('Loading MyTaskKing…', style: TextStyle(color: c.textMuted)),
+                ],
+              ),
+            ),
+          ],
         ),
       );
     }

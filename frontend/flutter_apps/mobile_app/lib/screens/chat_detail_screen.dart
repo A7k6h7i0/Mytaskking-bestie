@@ -16,7 +16,14 @@ import 'package:record/record.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../call_event_text.dart';
+import '../chat_clear.dart';
+import '../chat_mute.dart';
 import '../state.dart';
+import 'call_screen.dart';
+import '../widgets/profile_avatar_viewer.dart';
+import 'chat_contact_screen.dart';
+import 'chat_media_library.dart';
 
 /// Resolves the SharedPreferences instance once and shares it across widgets
 /// that need to read/write local-only chat state (e.g. "delete for me" hides).
@@ -647,6 +654,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
             replyToId: stub['_sendReplyId'] as String?,
           );
       ref.invalidate(messagesProvider(widget.channelId));
+      ref.invalidate(channelsProvider);
     } catch (e) {
       final attempts = (stub['_sendAttempts'] as int? ?? 0) + 1;
       stub['_sendAttempts'] = attempts;
@@ -745,6 +753,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
             kind: 'VOICE_NOTE',
           );
       ref.invalidate(messagesProvider(widget.channelId));
+      ref.invalidate(channelsProvider);
       // Best-effort cleanup of the temp file.
       try {
         await file.delete();
@@ -997,6 +1006,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
       return;
     }
     try {
+      await CallSession.prepareForNewCall();
       final ch = _channel!['kind'] == 'DM' ? 'ONE_TO_ONE' : 'GROUP';
       final res = await ref.read(apiProvider).initiateCall(
             participantIds: participantIds,
@@ -1007,19 +1017,24 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
             // see the right Accept icon and join Agora with the right tracks.
             mode: kind == 'voice' ? 'VOICE' : 'VIDEO',
           );
-      final call = (res['call'] as Map?)?.cast<String, dynamic>() ?? res;
-      final callId = call['id']?.toString();
-      if (callId == null || !mounted) return;
+      final call = (res['call'] as Map?)?.cast<String, dynamic>();
+      final callId = call?['id']?.toString();
       // #5: if the callee is busy / in a meeting, offer to leave a message
       // (voice or text — both available right here in the DM) instead of ringing.
       final busy = (res['targetPresence'] as Map?)?.cast<String, dynamic>();
       if (busy != null && ch == 'ONE_TO_ONE') {
         if (busy['status'] == 'ON_CALL' && res['waiting'] == true) {
           unawaited(_announceAvailability(_headerTitle(), busy));
+          try {
+            final tts = FlutterTts();
+            await tts.setSpeechRate(0.36);
+            await tts.speak(
+                '${_headerTitle()} is busy on another call. Waiting for them to respond.');
+          } catch (_) {}
           if (mounted) {
-            bestieToast(context, 'Call waiting',
+            bestieToast(context, '${_headerTitle()} is busy',
                 body:
-                    '${_headerTitle()} can accept and add you to the current call.',
+                    'Waiting for them to accept and add you to their call.',
                 kind: BestieToastKind.info);
           }
           return;
@@ -1029,6 +1044,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
         await _showBusyCallSheet(busy);
         return;
       }
+      if (callId == null || !mounted) return;
       if (mounted) context.go('/call/$callId?mode=$kind');
     } catch (e) {
       if (mounted)
@@ -1146,6 +1162,12 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
       if (u != null && u['name'] != null) return u['name'].toString();
     }
     return (_channel!['name'] ?? 'Chat').toString();
+  }
+
+  String? _headerAvatarUrl() {
+    if (_channel == null) return null;
+    if ((_channel!['kind'] ?? '').toString() != 'DM') return null;
+    return _dmOtherUser()?['avatarUrl']?.toString();
   }
 
   String _headerSubtitle() {
@@ -1277,11 +1299,11 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     // Keep these short — the header has limited width (avatar + name + 3 action
     // icons), and the long "last seen today at …" form was truncating the time
     // away with an ellipsis.
-    if (daysAgo == 0) return 'last seen $clock';
-    if (daysAgo == 1) return 'last seen yesterday $clock';
+    if (daysAgo == 0) return 'Last seen today at $clock';
+    if (daysAgo == 1) return 'Last seen yesterday at $clock';
     if (daysAgo < 7) {
       const dow = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-      return 'last seen ${dow[dt.weekday - 1]} $clock';
+      return 'Last seen ${dow[dt.weekday - 1]} at $clock';
     }
     const months = [
       'Jan',
@@ -1297,7 +1319,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
       'Nov',
       'Dec',
     ];
-    return 'last seen ${dt.day} ${months[dt.month - 1]}';
+    return 'Last seen ${dt.day} ${months[dt.month - 1]} at $clock';
   }
 
   /// Parses the composer text up to the cursor and extracts an in-progress
@@ -1703,16 +1725,326 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
   /// link / stack-replace there's nothing to pop, so fall back to the chat
   /// list instead of letting BACK exit the app.
   void _goBack(BuildContext context) {
-    if (context.canPop()) {
-      context.pop();
+    final router = GoRouter.of(context);
+    if (router.canPop()) {
+      router.pop();
     } else {
-      context.go('/chat');
+      router.go('/chat');
     }
+  }
+
+  void _showProfileAvatar() {
+    if (_channel == null || !mounted) return;
+    final kind = (_channel!['kind'] ?? '').toString();
+    final isClient = _channel?['isClientChannel'] == true;
+    final other = _dmOtherUser();
+    final name = _headerTitle();
+    String? imageUrl;
+    if (kind == 'DM') {
+      imageUrl = other?['avatarUrl']?.toString();
+    }
+    ProfileAvatarViewer.show(
+      context,
+      name: name,
+      imageUrl: imageUrl,
+      isClient: isClient || (other != null && other['isClient'] == true),
+    );
+  }
+
+  Widget _headerCallButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onPressed,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 4),
+      child: Material(
+        color: BestieTokens.cSuccess.withValues(alpha: 0.14),
+        shape: const CircleBorder(),
+        child: IconButton(
+          icon: Icon(icon, color: BestieTokens.cSuccess, size: 22),
+          tooltip: tooltip,
+          visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.all(8),
+          constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+          onPressed: onPressed,
+        ),
+      ),
+    );
+  }
+
+  void _showMediaLibrary() {
+    final messages =
+        ref.read(messagesProvider(widget.channelId)).asData?.value ?? const [];
+    final clearedAt =
+        ref.read(chatClearedAtProvider(widget.channelId)).asData?.value;
+    final hidden =
+        ref.read(_hiddenMessageIdsProvider(widget.channelId)).asData?.value ??
+            const <String>{};
+    final visible = messages
+        .where((m) => !hidden.contains(m['id']?.toString()))
+        .where((m) => isMessageVisibleAfterClear(m, clearedAt))
+        .toList();
+    showChatMediaLibrarySheet(
+      context,
+      messages: List<Map<String, dynamic>>.from(visible),
+      channelName: _headerTitle(),
+    );
+  }
+
+  Future<void> _openNewGroup() async {
+    final api = ref.read(apiProvider);
+    final me = ref.read(authStoreProvider).user;
+    final channel = await showBestieNewChatSheet(
+      context,
+      currentUserId: me?.id,
+      initialTabIndex: 1,
+      fetchEmployees: (q) =>
+          api.listEmployees(q: q.trim().isEmpty ? null : q.trim()),
+      onStartDm: (otherId) async =>
+          api.createChannel(kind: 'DM', memberIds: [otherId]),
+      onStartGroup: (name, memberIds) async => api.createChannel(
+          kind: 'GROUP', name: name, memberIds: memberIds),
+    );
+    if (channel != null && mounted) {
+      ref.invalidate(channelsProvider);
+      final id = channel['id']?.toString();
+      if (id != null) context.push('/chat/$id');
+    }
+  }
+
+  Future<void> _toggleMuteNotifications() async {
+    final muted = ref.read(chatMutedChannelsProvider).asData?.value
+            .contains(widget.channelId) ??
+        false;
+    if (muted) {
+      await writeChatUnmuted(widget.channelId);
+      ref.invalidate(chatMutedUntilProvider);
+      ref.invalidate(chatMutedChannelsProvider);
+      if (mounted) {
+        bestieToast(context, 'Notifications unmuted',
+            kind: BestieToastKind.success);
+      }
+    } else {
+      await showChatMuteDurationPicker(context, ref, widget.channelId);
+    }
+  }
+
+  void _openContactScreen() {
+    if (_channel == null) return;
+    final kind = (_channel!['kind'] ?? '').toString();
+    final isDm = kind == 'DM';
+    final other = _dmOtherUser();
+    final members =
+        (_channel!['members'] as List?)?.cast<Map<String, dynamic>>() ??
+            const [];
+    final muted = ref.read(chatMutedChannelsProvider).asData?.value
+            .contains(widget.channelId) ??
+        false;
+
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => ChatContactScreen(
+          channel: _channel!,
+          title: _headerTitle(),
+          subtitle: _headerSubtitle(),
+          avatarUrl: isDm ? _headerAvatarUrl() : null,
+          isClient: _channel?['isClientChannel'] == true,
+          isDm: isDm,
+          contactUser: other,
+          members: members,
+          muted: muted,
+          canCall: _canStartCalls,
+          onVoiceCall: isDm
+              ? () {
+                  Navigator.of(context).pop();
+                  _startCall(kind: 'voice');
+                }
+              : null,
+          onVideoCall: isDm
+              ? () {
+                  Navigator.of(context).pop();
+                  _startCall(kind: 'video');
+                }
+              : null,
+          onMediaLinksDocs: () {
+            Navigator.of(context).pop();
+            _showMediaLibrary();
+          },
+          onSearch: () {
+            Navigator.of(context).pop();
+            setState(() {
+              _searching = true;
+              _searchCtl.clear();
+              _searchQuery = '';
+            });
+          },
+          onMute: () async {
+            Navigator.of(context).pop();
+            await _toggleMuteNotifications();
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _clearChat() async {
+    final ok = await bestieConfirm(
+      context,
+      title: 'Clear chat?',
+      description:
+          'All messages in this chat will be removed from this device only. '
+          'The other person will still have the full conversation.',
+      confirmLabel: 'Clear chat',
+    );
+    if (!ok) return;
+    try {
+      final prefs = await ref.read(_prefsProvider.future);
+      await markChatCleared(prefs, widget.channelId);
+      ref.invalidate(chatClearedAtProvider(widget.channelId));
+      setState(() {
+        _olderMessages.clear();
+        _pendingOutgoing.clear();
+      });
+      if (mounted) {
+        bestieToast(context, 'Chat cleared',
+            kind: BestieToastKind.success);
+      }
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not clear chat',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    }
+  }
+
+  void _showChatMoreMenu() {
+    final colors = BestieColors.of(context);
+    final kind = (_channel?['kind'] ?? '').toString();
+    final isDm = kind == 'DM';
+    final muted = ref.watch(chatMutedChannelsProvider).asData?.value
+            .contains(widget.channelId) ??
+        false;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: colors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius:
+            BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
+      ),
+      builder: (ctx) => SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: colors.borderStrong,
+                  borderRadius: BorderRadius.circular(BestieTokens.rPill),
+                ),
+              ),
+              ListTile(
+                leading: Icon(
+                  isDm ? Icons.person_outline_rounded : Icons.groups_outlined,
+                  color: colors.text,
+                ),
+                title: Text(isDm ? 'View contact' : 'Group info'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _openContactScreen();
+                },
+              ),
+              ListTile(
+                leading: Icon(
+                  _searching ? Icons.close_rounded : Icons.search_rounded,
+                  color: colors.text,
+                ),
+                title: Text(_searching ? 'Close search' : 'Search'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  setState(() {
+                    _searching = !_searching;
+                    if (!_searching) {
+                      _searchCtl.clear();
+                      _searchQuery = '';
+                    }
+                  });
+                },
+              ),
+              ListTile(
+                leading: Icon(Icons.perm_media_outlined, color: colors.text),
+                title: const Text('Media, links and docs'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showMediaLibrary();
+                },
+              ),
+              ListTile(
+                leading: Icon(
+                  muted
+                      ? Icons.notifications_active_outlined
+                      : Icons.notifications_off_outlined,
+                  color: colors.text,
+                ),
+                title: Text(
+                    muted ? 'Unmute notifications' : 'Mute notifications'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _toggleMuteNotifications();
+                },
+              ),
+              ListTile(
+                leading: Icon(Icons.group_add_outlined, color: colors.text),
+                title: const Text('New group'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _openNewGroup();
+                },
+              ),
+              ListTile(
+                leading: Icon(Icons.delete_sweep_outlined, color: colors.danger),
+                title: Text('Clear chat',
+                    style: TextStyle(color: colors.danger)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  unawaited(_clearChat());
+                },
+              ),
+              if (_canManageDmUser)
+                ListTile(
+                  leading: Icon(
+                    _dmOtherUser()?['status'] == 'SUSPENDED'
+                        ? Icons.lock_open_rounded
+                        : Icons.block_rounded,
+                    color: colors.text,
+                  ),
+                  title: Text(_dmOtherUser()?['status'] == 'SUSPENDED'
+                      ? 'Unblock employee'
+                      : 'Block employee'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _toggleDmBlock();
+                  },
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final colors = BestieColors.of(context);
+    final clearedAt =
+        ref.watch(chatClearedAtProvider(widget.channelId)).asData?.value;
     final messages = ref.watch(messagesProvider(widget.channelId));
     // Subscribe to the auth store *stream* so a login or token refresh
     // re-renders the message list — otherwise own messages can appear on
@@ -1722,8 +2054,14 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     final isClient = _channel?['isClientChannel'] == true;
     final kind = (_channel?['kind'] ?? '').toString();
     final isDm = kind == 'DM';
+    final headerSubtitle = _headerSubtitle();
 
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _goBack(context);
+      },
+      child: Scaffold(
       backgroundColor: colors.bg,
       appBar: AppBar(
         elevation: 0,
@@ -1734,98 +2072,95 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
           onPressed: () => _goBack(context),
         ),
         titleSpacing: 0,
-        title: Row(children: [
-          if (_channel != null)
-            isDm
-                ? BestieAvatar(
-                    name: _headerTitle(),
-                    imageUrl: ((_channel!['members'] as List?)
-                                ?.cast<Map<String, dynamic>>()
-                                .firstWhere((m) => m['userId'] != me?.id,
-                                    orElse: () => const {})['user']
-                            as Map?)?['avatarUrl']
-                        ?.toString(),
-                    isClient: isClient,
-                    size: 32,
-                  )
-                : Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: isClient ? colors.clientSoft : colors.brandSoft,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(
-                      kind == 'CLIENT'
-                          ? Icons.business_center_outlined
-                          : Icons.groups_outlined,
-                      color: isClient ? colors.client : colors.brandStrong,
-                      size: 18,
-                    ),
+        title: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(
+            children: [
+              if (_channel != null)
+                GestureDetector(
+                  onTap: _showProfileAvatar,
+                  behavior: HitTestBehavior.opaque,
+                  child: isDm
+                      ? BestieAvatar(
+                          name: _headerTitle(),
+                          imageUrl: _headerAvatarUrl(),
+                          isClient: isClient,
+                          size: 36,
+                        )
+                      : Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: isClient
+                                ? colors.clientSoft
+                                : colors.brandSoft,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(
+                            kind == 'CLIENT'
+                                ? Icons.business_center_outlined
+                                : Icons.groups_outlined,
+                            color:
+                                isClient ? colors.client : colors.brandStrong,
+                            size: 18,
+                          ),
+                        ),
+                ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: InkWell(
+                  onTap: _channel != null ? _openContactScreen : null,
+                  borderRadius: BorderRadius.circular(8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(_headerTitle(),
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: BestieTokens.fwBold,
+                            color: isClient ? colors.client : colors.text,
+                            letterSpacing: BestieTokens.lsSnug,
+                          )),
+                      if (headerSubtitle.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(headerSubtitle,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: BestieTokens.fwMedium,
+                              color: headerSubtitle == 'Online'
+                                  ? BestieTokens.cSuccess
+                                  : colors.textSoft,
+                              height: 1.15,
+                            )),
+                      ],
+                    ],
                   ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(_headerTitle(),
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: BestieTokens.fwBold,
-                      color: isClient ? colors.client : colors.text,
-                      letterSpacing: BestieTokens.lsSnug,
-                    )),
-                Text(_headerSubtitle(),
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 11, color: colors.textMuted)),
-              ],
-            ),
+                ),
+              ),
+            ],
           ),
-        ]),
+        ),
         actions: [
-          IconButton(
-            icon: Icon(_searching ? Icons.close_rounded : Icons.search_rounded),
-            tooltip: _searching ? 'Close search' : 'Search this chat',
-            onPressed: () {
-              setState(() {
-                _searching = !_searching;
-                if (!_searching) {
-                  _searchCtl.clear();
-                  _searchQuery = '';
-                }
-              });
-            },
-          ),
-          if (_canStartCalls)
-            IconButton(
-              icon: const Icon(Icons.call_outlined),
+          if (_canStartCalls) ...[
+            _headerCallButton(
+              icon: Icons.call_rounded,
               tooltip: 'Voice call',
               onPressed: () => _startCall(kind: 'voice'),
             ),
-          if (_canStartCalls)
-            IconButton(
-              icon: const Icon(Icons.videocam_outlined),
+            _headerCallButton(
+              icon: Icons.videocam_rounded,
               tooltip: 'Video call',
               onPressed: () => _startCall(kind: 'video'),
             ),
-          if (_canManageDmUser)
-            IconButton(
-              icon: Icon(
-                _dmOtherUser()?['status'] == 'SUSPENDED'
-                    ? Icons.lock_open_rounded
-                    : Icons.block_rounded,
-              ),
-              tooltip: _dmOtherUser()?['status'] == 'SUSPENDED'
-                  ? 'Unblock employee'
-                  : 'Block employee',
-              onPressed: _toggleDmBlock,
-            ),
+          ],
           IconButton(
-            icon: const Icon(Icons.info_outline_rounded),
-            tooltip: 'Channel info',
-            onPressed: () => _showInfo(context),
+            icon: const Icon(Icons.more_vert_rounded),
+            tooltip: 'More options',
+            onPressed: _showChatMoreMenu,
           ),
         ],
         bottom: _searching
@@ -1856,7 +2191,12 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
             : null,
       ),
       body: Column(children: [
-        _pinnedBar(messages.asData?.value ?? const [], colors),
+        _pinnedBar(
+          (messages.asData?.value ?? const [])
+              .where((m) => isMessageVisibleAfterClear(m, clearedAt))
+              .toList(),
+          colors,
+        ),
         Expanded(
           child: messages.when(
             loading: () => const Center(child: BestieSpinner()),
@@ -1890,6 +2230,11 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                   : mergedRaw
                       .where((m) => !hidden.contains(m['id']?.toString()))
                       .toList();
+              if (clearedAt != null) {
+                serverItems = serverItems
+                    .where((m) => isMessageVisibleAfterClear(m, clearedAt))
+                    .toList();
+              }
               // Per-conversation search filter — case-insensitive substring
               // match on message body. The list keeps reverse order so
               // matches still read newest-first like the normal view.
@@ -2049,8 +2394,11 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                       : null;
 
                   final bubble = kindStr == 'SYSTEM' || kindStr == 'CALL_EVENT'
-                      ? _SystemBubble(message: m, endedCallIds: endedCallIds)
-                          as Widget
+                      ? _SystemBubble(
+                          message: m,
+                          endedCallIds: endedCallIds,
+                          viewerId: me?.id,
+                        ) as Widget
                       : _MessageBubble(message: m, author: author, mine: mine);
 
                   // "N new messages" unread divider — rendered above the
@@ -2155,6 +2503,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
             )
           : null,
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+      ),
     );
   }
 
@@ -2728,37 +3077,32 @@ class _MemberTile extends StatelessWidget {
 class _SystemBubble extends StatelessWidget {
   final Map<String, dynamic> message;
   final Set<String> endedCallIds;
-  const _SystemBubble({required this.message, this.endedCallIds = const {}});
-
-  ({String display, String? callId, String? status}) _parseBody(String raw) {
-    final marker = raw.lastIndexOf('|call:');
-    if (marker < 0) return (display: raw, callId: null, status: null);
-    final display = raw.substring(0, marker);
-    final tail = raw.substring(marker + 6); // skip "|call:"
-    final colon = tail.indexOf(':');
-    if (colon < 0) return (display: display, callId: tail, status: null);
-    final rest = tail.substring(colon + 1);
-    final statusEnd = rest.indexOf(':');
-    return (
-      display: display,
-      callId: tail.substring(0, colon),
-      status: statusEnd < 0 ? rest : rest.substring(0, statusEnd),
-    );
-  }
+  final String? viewerId;
+  const _SystemBubble({
+    required this.message,
+    this.endedCallIds = const {},
+    this.viewerId,
+  });
 
   @override
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
     final raw = (message['body'] ?? '').toString();
-    final parsed = _parseBody(raw);
-    final body = parsed.display;
+    final parsed = CallEventText.parseBody(raw);
+    final effectiveInitiator = parsed.initiatorId ??
+        (message['authorId'] ?? (message['author'] as Map?)?['id'])?.toString();
+    final body = CallEventText.displayForViewer(
+      rawDisplay: parsed.display,
+      status: parsed.status,
+      initiatorId: effectiveInitiator,
+      viewerId: viewerId,
+    );
     final status = parsed.status;
     final eventType = (message['kind'] ?? '').toString().toLowerCase();
     final isMissed =
         status == 'MISSED' || body.toLowerCase().contains('missed');
     final isDeclined =
         status == 'DECLINED' || body.toLowerCase().contains('declined');
-    final isActive = status == 'ACTIVE';
     final isCall =
         eventType.contains('call') || body.toLowerCase().contains('call');
 
@@ -2778,69 +3122,34 @@ class _SystemBubble extends StatelessWidget {
       icon = Icons.info_outline_rounded;
     }
 
-    // Tap-to-join only while the call is still ACTIVE *and* hasn't since
-    // ended — a later "Call ended" event for the same id strips the pill.
-    final canJoin = isActive &&
-        parsed.callId != null &&
-        !endedCallIds.contains(parsed.callId);
-
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Center(
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: canJoin
-                ? () => context.go('/call/${parsed.callId}?mode=video')
-                : null,
+        child: Container(
+          constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.85),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: accent.withOpacity(0.10),
             borderRadius: BorderRadius.circular(BestieTokens.rPill),
-            child: Container(
-              constraints: BoxConstraints(
-                  maxWidth: MediaQuery.of(context).size.width * 0.85),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              decoration: BoxDecoration(
-                color: accent.withOpacity(0.10),
-                borderRadius: BorderRadius.circular(BestieTokens.rPill),
-                border: Border.all(color: accent.withOpacity(0.20)),
-              ),
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                Icon(icon, size: 14, color: accent),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Text(
-                    body.isEmpty ? 'Call event' : body,
-                    style: TextStyle(
-                      color: accent,
-                      fontWeight: BestieTokens.fwSemibold,
-                      fontSize: 12,
-                      letterSpacing: BestieTokens.lsNormal,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-                if (canJoin) ...[
-                  const SizedBox(width: 8),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: accent,
-                      borderRadius: BorderRadius.circular(BestieTokens.rPill),
-                    ),
-                    child: const Text(
-                      'Tap to join',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: BestieTokens.fwBold,
-                        fontSize: 10,
-                        letterSpacing: BestieTokens.lsWide,
-                      ),
-                    ),
-                  ),
-                ],
-              ]),
-            ),
+            border: Border.all(color: accent.withOpacity(0.20)),
           ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon, size: 14, color: accent),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                body.isEmpty ? 'Call event' : body,
+                style: TextStyle(
+                  color: accent,
+                  fontWeight: BestieTokens.fwSemibold,
+                  fontSize: 12,
+                  letterSpacing: BestieTokens.lsNormal,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ]),
         ),
       ),
     );

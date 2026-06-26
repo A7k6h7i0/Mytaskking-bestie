@@ -5,6 +5,8 @@ const prisma = require('../database/prisma');
 const logger = require('../utils/logger');
 const notifications = require('../modules/notifications/notifications.service');
 const automations = require('../services/automations');
+const callsService = require('../modules/calls/calls.service');
+const fcm = require('../services/fcm');
 
 // Every 15 minutes — expire clients whose access window has elapsed.
 function expireClientsJob() {
@@ -250,12 +252,32 @@ function scheduledTasksJob() {
   });
 }
 
+// Every 15s — expire outbound rings nobody answered. Reliable even when the
+// in-memory setTimeout from POST /calls/initiate is lost (PM2 restart, etc.).
+function expireRingingCallsJob() {
+  setInterval(async () => {
+    try {
+      const io = global.io || null;
+      const expired = await callsService.expireStaleRingingCalls({ io });
+      for (const call of expired) {
+        await fcm.sendCallEnded(call).catch(() => {});
+      }
+      if (expired.length) {
+        logger.info({ count: expired.length }, 'jobs.calls.ringing_expired');
+      }
+    } catch (err) {
+      logger.warn({ err: err.message }, 'jobs.calls.ringing_expired_failed');
+    }
+  }, 15_000).unref?.();
+}
+
 module.exports = function startJobs() {
   expireClientsJob();
   followupRemindersJob();
   taskRemindersJob();
   overdueReminderJob();
   scheduledTasksJob();
+  expireRingingCallsJob();
   automations.startOverdueSweep();
   automations.registerSchedules().catch((err) => logger.warn({ err: err.message }, 'jobs.automations.register_failed'));
   logger.info('jobs.started');

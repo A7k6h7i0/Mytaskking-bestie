@@ -20,12 +20,13 @@ class BestieApi {
   final BestieAuthStore auth;
   Future<bool>? _refreshInFlight;
 
-  BestieApi({required String baseUrl, required this.auth})
+  BestieApi({required String baseUrl, required this.auth, String? userAgent})
     : dio = Dio(
         BaseOptions(
           baseUrl: _normalizeBaseUrl(baseUrl),
           connectTimeout: const Duration(seconds: 15),
           receiveTimeout: const Duration(seconds: 30),
+          headers: userAgent != null ? {'User-Agent': userAgent} : null,
         ),
       ) {
     dio.interceptors.add(

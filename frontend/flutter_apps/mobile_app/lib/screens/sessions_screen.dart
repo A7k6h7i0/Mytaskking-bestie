@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../state.dart';
@@ -20,6 +21,17 @@ class SessionsScreen extends ConsumerWidget {
         elevation: 0,
         backgroundColor: c.surface,
         foregroundColor: c.text,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded),
+          tooltip: 'Back',
+          onPressed: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go('/chat');
+            }
+          },
+        ),
         title: const Text('Sessions'),
         actions: [
           TextButton.icon(
@@ -62,7 +74,7 @@ class SessionsScreen extends ConsumerWidget {
                     color: isCurrent ? c.brand : c.textMuted,
                   ),
                   title: Text(
-                    (s['device'] ?? s['userAgent'] ?? 'Unknown device').toString(),
+                    _deviceLabel(s),
                     maxLines: 1, overflow: TextOverflow.ellipsis,
                     style: TextStyle(fontWeight: BestieTokens.fwSemibold, color: c.text),
                   ),
@@ -128,4 +140,19 @@ class SessionsScreen extends ConsumerWidget {
     if (diff.inHours < 24) return '${diff.inHours}h ago';
     return '${diff.inDays}d ago';
   }
+}
+
+String _deviceLabel(Map<String, dynamic> s) {
+  final raw = (s['device'] ?? '').toString().trim();
+  if (raw.isNotEmpty && raw.toLowerCase() != 'dart:io') return raw;
+  final platform = (s['platform'] ?? '').toString().toLowerCase();
+  return switch (platform) {
+    'android' => 'Android phone',
+    'ios' => 'iPhone / iPad',
+    'windows' => 'Windows PC',
+    'macos' => 'Mac',
+    'linux' => 'Linux PC',
+    'web' => 'Web browser',
+    _ => 'MyTaskKing mobile app',
+  };
 }

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,85 +7,163 @@ import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../call_event_text.dart';
+import '../chat_clear.dart';
+import '../chat_mute.dart';
 import '../state.dart';
+import 'call_screen.dart';
+import '../widgets/profile_avatar_viewer.dart';
 
-const _kMutedKey = 'chat.muted_channels';
-const _kMutedUntilKey = 'chat.muted_until_v2';
-
-/// Channel-mute settings. Map of channelId → expiry. `null` value means
-/// "forever". A missing key means "not muted". The backend doesn't yet
-/// have a per-user mute column, so we keep this on-device only.
-final _mutedUntilProvider =
-    FutureProvider.autoDispose<Map<String, DateTime?>>((ref) async {
-  final prefs = await SharedPreferences.getInstance();
-  final out = <String, DateTime?>{};
-  // Forward-compat: import any old boolean-set entries as "forever".
-  final legacy = prefs.getStringList(_kMutedKey) ?? const [];
-  for (final id in legacy) {
-    out[id] = null;
-  }
-  final raw = prefs.getString(_kMutedUntilKey);
-  if (raw != null && raw.isNotEmpty) {
-    try {
-      final decoded = jsonDecode(raw) as Map<String, dynamic>;
-      decoded.forEach((k, v) {
-        if (v == null || v == 'forever') {
-          out[k] = null;
-        } else {
-          out[k] = DateTime.tryParse(v.toString());
-        }
-      });
-    } catch (_) {/* corrupt cache — ignore */}
-  }
-  return out;
-});
-
-bool _isMutedNow(String channelId, Map<String, DateTime?> map) {
-  if (!map.containsKey(channelId)) return false;
-  final until = map[channelId];
-  if (until == null) return true; // forever
-  return until.isAfter(DateTime.now());
+/// WhatsApp-style recency — pinned first, then most recent activity.
+DateTime _channelActivityTime(Map<String, dynamic> channel) {
+  final lastMsg = (channel['lastMessage'] as Map?)?.cast<String, dynamic>();
+  final fromMessage = DateTime.tryParse(lastMsg?['createdAt']?.toString() ?? '');
+  if (fromMessage != null) return fromMessage;
+  return DateTime.tryParse(channel['updatedAt']?.toString() ?? '') ??
+      DateTime.fromMillisecondsSinceEpoch(0);
 }
 
-/// Backwards-compat shim — existing build code reads the old boolean set.
-/// Computed from the new map so we don't have to touch every callsite.
-final _mutedChannelsProvider =
-    FutureProvider.autoDispose<Set<String>>((ref) async {
-  final map = await ref.watch(_mutedUntilProvider.future);
-  return {
-    for (final entry in map.entries)
-      if (_isMutedNow(entry.key, map)) entry.key,
-  };
-});
-
-Future<void> _writeMutedUntil(String channelId, DateTime? until) async {
-  final prefs = await SharedPreferences.getInstance();
-  final raw = prefs.getString(_kMutedUntilKey);
-  final cur = <String, dynamic>{};
-  if (raw != null && raw.isNotEmpty) {
-    try {
-      cur.addAll(jsonDecode(raw) as Map<String, dynamic>);
-    } catch (_) {}
-  }
-  cur[channelId] = until == null ? 'forever' : until.toIso8601String();
-  await prefs.setString(_kMutedUntilKey, jsonEncode(cur));
+void _sortChannelsByRecent(List<Map<String, dynamic>> channels) {
+  channels.sort((a, b) {
+    final aPinned = a['pinned'] == true;
+    final bPinned = b['pinned'] == true;
+    if (aPinned != bPinned) return aPinned ? -1 : 1;
+    return _channelActivityTime(b).compareTo(_channelActivityTime(a));
+  });
 }
 
-Future<void> _writeUnmuted(String channelId) async {
-  final prefs = await SharedPreferences.getInstance();
-  final raw = prefs.getString(_kMutedUntilKey);
-  final cur = <String, dynamic>{};
-  if (raw != null && raw.isNotEmpty) {
-    try {
-      cur.addAll(jsonDecode(raw) as Map<String, dynamic>);
-    } catch (_) {}
+bool _canCallUser(WidgetRef ref, Map<String, dynamic>? user) {
+  if (user == null) return false;
+  final me = ref.read(authStoreProvider).user;
+  final viewerIsAdmin = me?.role == 'ADMIN' || me?.role == 'SUPER_ADMIN';
+  if (viewerIsAdmin) return true;
+  final role = user['role']?.toString();
+  return role != 'ADMIN' && role != 'SUPER_ADMIN';
+}
+
+/// Other participant in a DM — skips self, prefers nested `user` payload.
+Map<String, dynamic>? _resolveDmPeer(
+  List<Map<String, dynamic>> members,
+  String? meId,
+) {
+  for (final member in members) {
+    if (meId != null && member['userId']?.toString() == meId) continue;
+    final user = (member['user'] as Map?)?.cast<String, dynamic>();
+    if (user != null) return user;
   }
-  cur.remove(channelId);
-  await prefs.setString(_kMutedUntilKey, jsonEncode(cur));
-  // Also drop from the legacy key so the import doesn't re-add it.
-  final legacy = (prefs.getStringList(_kMutedKey) ?? const <String>[]).toList();
-  legacy.remove(channelId);
-  await prefs.setStringList(_kMutedKey, legacy);
+  return null;
+}
+
+String _displayNameForUser(Map<String, dynamic>? user, {String fallback = ''}) {
+  if (user == null) return fallback;
+  final name = (user['name'] ?? '').toString().trim();
+  if (name.isNotEmpty && name != '—') return name;
+  final loginId = (user['userId'] ?? '').toString().trim();
+  if (loginId.isNotEmpty) return loginId;
+  return fallback;
+}
+
+bool _isRenderableDm(
+  Map<String, dynamic> channel,
+  String? meId,
+) {
+  final members =
+      (channel['members'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+  final peer = _resolveDmPeer(members, meId);
+  return peer != null && _displayNameForUser(peer).isNotEmpty;
+}
+
+Widget _chatListCallButton({
+  required IconData icon,
+  required Color iconColor,
+  required Color backgroundColor,
+  required String tooltip,
+  required VoidCallback onPressed,
+}) {
+  return Material(
+    color: backgroundColor,
+    shape: const CircleBorder(),
+    child: IconButton(
+      icon: Icon(icon, color: iconColor, size: 20),
+      tooltip: tooltip,
+      visualDensity: VisualDensity.compact,
+      padding: const EdgeInsets.all(8),
+      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+      onPressed: onPressed,
+    ),
+  );
+}
+
+Future<void> _startCallFromList(
+  BuildContext context,
+  WidgetRef ref, {
+  required Map<String, dynamic> user,
+  required String mode,
+  String? channelId,
+}) async {
+  if (!_canCallUser(ref, user)) {
+    if (context.mounted) {
+      bestieToast(
+        context,
+        'Calling unavailable',
+        body: 'Only admins can start calls with administrators.',
+        kind: BestieToastKind.warning,
+      );
+    }
+    return;
+  }
+  try {
+    await CallSession.prepareForNewCall();
+    final res = await ref.read(apiProvider).initiateCall(
+          participantIds: [user['id'].toString()],
+          kind: 'ONE_TO_ONE',
+          channelId: channelId,
+          mode: mode == 'voice' ? 'VOICE' : 'VIDEO',
+        );
+    final presence = (res['targetPresence'] as Map?)?.cast<String, dynamic>();
+    if (presence != null &&
+        !(presence['status'] == 'ON_CALL' && res['waiting'] == true)) {
+      final custom = (presence['customStatus'] ?? '').toString();
+      if (presence['status'] == 'ON_CALL' ||
+          custom.toLowerCase().contains('another call')) {
+        try {
+          final tts = FlutterTts();
+          await tts.setSpeechRate(0.36);
+          await tts.speak(
+              '${user['name']} is busy with another call. Please call again later.');
+        } catch (_) {}
+      }
+      if (context.mounted) {
+        bestieToast(context, '${user['name']} is unavailable',
+            body: (presence['customStatus'] ?? presence['status']).toString(),
+            kind: BestieToastKind.warning);
+      }
+      return;
+    }
+    final id = (res['call'] as Map?)?['id']?.toString();
+    if (presence?['status'] == 'ON_CALL' && res['waiting'] == true) {
+      try {
+        final tts = FlutterTts();
+        await tts.setSpeechRate(0.36);
+        await tts.speak(
+            '${user['name']} is busy on another call. Waiting for them to respond.');
+      } catch (_) {}
+      if (context.mounted) {
+        bestieToast(context, '${user['name']} is busy',
+            body: 'Waiting for them to accept and add you to their call.',
+            kind: BestieToastKind.info);
+      }
+      return;
+    }
+    if (id != null && context.mounted) {
+      context.go('/call/$id?mode=$mode');
+    }
+  } catch (e) {
+    if (context.mounted) {
+      bestieToast(context, 'Could not start call',
+          body: formatApiError(e), kind: BestieToastKind.error);
+    }
+  }
 }
 
 /// Tracks which channels currently have someone typing, populated from
@@ -160,20 +237,67 @@ class ChatListScreen extends ConsumerWidget {
         foregroundColor: colors.text,
         title: const Text('Chat'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.search_rounded),
-            tooltip: 'Search people, messages, files',
-            onPressed: () => context.go('/search'),
-          ),
-          IconButton(
-            icon: const Icon(Icons.done_all_rounded),
-            tooltip: 'Mark all chats read',
-            onPressed: () => _markAllRead(context, ref),
-          ),
-          IconButton(
-            icon: const Icon(Icons.edit_square),
-            tooltip: 'Start a new chat',
-            onPressed: () => _newChat(context, ref),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert_rounded),
+            tooltip: 'More options',
+            onSelected: (value) {
+              switch (value) {
+                case 'search':
+                  context.go('/search');
+                  break;
+                case 'mark_read':
+                  _markAllRead(context, ref);
+                  break;
+                case 'new_chat':
+                  _newChat(context, ref);
+                  break;
+                case 'new_group':
+                  _newChat(context, ref, initialTabIndex: 1);
+                  break;
+              }
+            },
+            itemBuilder: (ctx) => [
+              PopupMenuItem(
+                value: 'search',
+                child: Row(
+                  children: [
+                    Icon(Icons.search_rounded, color: colors.text, size: 22),
+                    const SizedBox(width: 12),
+                    const Text('Search'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'mark_read',
+                child: Row(
+                  children: [
+                    Icon(Icons.done_all_rounded, color: colors.text, size: 22),
+                    const SizedBox(width: 12),
+                    const Text('Mark all chats read'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'new_chat',
+                child: Row(
+                  children: [
+                    Icon(Icons.edit_square, color: colors.text, size: 22),
+                    const SizedBox(width: 12),
+                    const Text('New chat'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'new_group',
+                child: Row(
+                  children: [
+                    Icon(Icons.group_add_outlined, color: colors.text, size: 22),
+                    const SizedBox(width: 12),
+                    const Text('New group'),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -199,6 +323,7 @@ class ChatListScreen extends ConsumerWidget {
             final dms = <Map<String, dynamic>>[];
             final groups = <Map<String, dynamic>>[];
             final clientChannels = <Map<String, dynamic>>[];
+            final me = ref.read(authStoreProvider).user;
 
             for (final c in items) {
               final kind = (c['kind'] ?? 'GROUP').toString();
@@ -207,13 +332,17 @@ class ChatListScreen extends ConsumerWidget {
               if (isClientChannel) {
                 clientChannels.add(c);
               } else if (kind == 'DM') {
-                dms.add(c);
+                if (_isRenderableDm(c, me?.id)) dms.add(c);
               } else {
                 groups.add(c);
               }
             }
 
-            final me = ref.read(authStoreProvider).user;
+            // Re-sort each section by last activity. The API sorts globally,
+            // but bucketing by kind breaks WhatsApp-style recency within DMs.
+            _sortChannelsByRecent(dms);
+            _sortChannelsByRecent(groups);
+            _sortChannelsByRecent(clientChannels);
 
             return ListView(
               padding: const EdgeInsets.symmetric(vertical: 8),
@@ -301,12 +430,17 @@ class ChatListScreen extends ConsumerWidget {
     }
   }
 
-  Future<void> _newChat(BuildContext context, WidgetRef ref) async {
+  Future<void> _newChat(
+    BuildContext context,
+    WidgetRef ref, {
+    int initialTabIndex = 0,
+  }) async {
     final api = ref.read(apiProvider);
     final me = ref.read(authStoreProvider).user;
     final channel = await showBestieNewChatSheet(
       context,
       currentUserId: me?.id,
+      initialTabIndex: initialTabIndex,
       fetchEmployees: (q) =>
           api.listEmployees(q: q.trim().isEmpty ? null : q.trim()),
       onStartDm: (otherId) async {
@@ -333,6 +467,7 @@ class ChatListScreen extends ConsumerWidget {
           }
           return;
         }
+        await CallSession.prepareForNewCall();
         final res = await api.initiateCall(
           participantIds: [user['id'].toString()],
           kind: 'ONE_TO_ONE',
@@ -362,10 +497,16 @@ class ChatListScreen extends ConsumerWidget {
         }
         final id = (res['call'] as Map?)?['id']?.toString();
         if (presence?['status'] == 'ON_CALL' && res['waiting'] == true) {
+          try {
+            final tts = FlutterTts();
+            await tts.setSpeechRate(0.36);
+            await tts.speak(
+                '${user['name']} is busy on another call. Waiting for them to respond.');
+          } catch (_) {}
           if (context.mounted) {
-            bestieToast(context, 'Call waiting',
+            bestieToast(context, '${user['name']} is busy',
                 body:
-                    '${user['name']} can accept and add you to the current call.',
+                    'Waiting for them to accept and add you to their call.',
                 kind: BestieToastKind.info);
           }
           return;
@@ -475,40 +616,52 @@ class _ChatTile extends ConsumerWidget {
     final isClient = channel['isClientChannel'] == true || kind == 'CLIENT';
 
     // Build display name. For DMs prefer the *other* member's name.
-    String displayName = (channel['name'] ?? '—').toString();
+    String displayName = (channel['name'] ?? '').toString().trim();
     String? avatarUrl;
+    Map<String, dynamic>? dmOtherUser;
     if (kind == 'DM') {
-      final other = members.firstWhere(
-        (m) => m['userId'] != currentUserId,
-        orElse: () => const {},
-      );
-      final user = other['user'] as Map<String, dynamic>?;
-      if (user != null) {
-        displayName = (user['name'] ?? displayName).toString();
-        avatarUrl = user['avatarUrl']?.toString();
+      dmOtherUser = _resolveDmPeer(members, currentUserId);
+      if (dmOtherUser != null) {
+        displayName = _displayNameForUser(dmOtherUser, fallback: displayName);
+        avatarUrl = dmOtherUser['avatarUrl']?.toString();
       }
     }
+    if (displayName.isEmpty) displayName = 'Chat';
+    final showCallActions = kind == 'DM' && _canCallUser(ref, dmOtherUser);
+
+    final channelId = channel['id']?.toString() ?? '';
+    final clearedAt =
+        ref.watch(chatClearedAtProvider(channelId)).asData?.value;
 
     // Prefer the last message body as the preview line — what WhatsApp /
     // Telegram show. Falls back to the member count.
     final lastMessage =
         (channel['lastMessage'] as Map?)?.cast<String, dynamic>();
+    final lastCleared = isLastMessageCleared(lastMessage, clearedAt);
     final lastBody = (lastMessage?['body'] ?? '').toString();
     final lastKind = (lastMessage?['kind'] ?? 'TEXT').toString();
-    final hasLast = lastMessage != null;
+    final hasLast = lastMessage != null && !lastCleared;
     // CALL_EVENT bodies carry a "|call:<id>:<status>" trailer used by the chat
     // bubble for the tap-to-join affordance — strip it from the list preview
     // so it doesn't leak ("Call ended · 12:07 PM · 14m|call:cmpsam…").
     final callPipe = lastBody.indexOf('|call:');
     final cleanBody =
         callPipe >= 0 ? lastBody.substring(0, callPipe) : lastBody;
+    String previewBody = cleanBody;
+    if (lastKind == 'CALL_EVENT' && callPipe >= 0) {
+      previewBody = CallEventText.previewForViewer(
+        rawBody: lastBody,
+        viewerId: currentUserId,
+        authorIdFallback: lastMessage?['authorId']?.toString(),
+      );
+    }
     String previewLine;
     if (hasLast) {
       final base = switch (lastKind) {
         'IMAGE' => '📷 Photo',
         'FILE' => '📎 File',
         'VOICE_NOTE' => '🎙️ Voice note',
-        'CALL_EVENT' => cleanBody.isEmpty ? '📞 Call' : cleanBody,
+        'CALL_EVENT' => previewBody.isEmpty ? '📞 Call' : previewBody,
         'SYSTEM' => cleanBody,
         _ => cleanBody.isEmpty ? '' : cleanBody,
       };
@@ -530,23 +683,22 @@ class _ChatTile extends ConsumerWidget {
         previewLine = base;
       }
     } else {
-      previewLine = switch (kind) {
-        'DM' => 'Direct message',
-        'CLIENT' =>
-          '${members.length} member${members.length == 1 ? '' : 's'} · client',
-        _ => '${members.length} member${members.length == 1 ? '' : 's'}',
-      };
+      previewLine = lastCleared
+          ? 'Chat cleared'
+          : switch (kind) {
+              'DM' => 'Direct message',
+              'CLIENT' =>
+                '${members.length} member${members.length == 1 ? '' : 's'} · client',
+              _ => '${members.length} member${members.length == 1 ? '' : 's'}',
+            };
     }
-    final timeLine = BestieTime.shortRelative(
-      lastMessage?['createdAt']?.toString() ?? channel['updatedAt']?.toString(),
-    );
     // Live "typing…" overrides the preview line whenever someone in this
     // channel is mid-keystroke (driven by typingChannelsProvider).
     final isTyping =
         ref.watch(typingChannelsProvider).contains(channel['id']?.toString());
 
     final muted = ref
-            .watch(_mutedChannelsProvider)
+            .watch(chatMutedChannelsProvider)
             .asData
             ?.value
             .contains(channel['id'] as String) ??
@@ -554,13 +706,20 @@ class _ChatTile extends ConsumerWidget {
 
     return Material(
       color: Colors.transparent,
-      child: InkWell(
-        onTap: () => context.push('/chat/${channel['id']}'),
-        onLongPress: () => _showTileMenu(context, ref, muted),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          child: Row(children: [
-            kind == 'DM'
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(children: [
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              ProfileAvatarViewer.show(
+                context,
+                name: displayName,
+                imageUrl: kind == 'DM' ? avatarUrl : null,
+                isClient: isClient,
+              );
+            },
+            child: kind == 'DM'
                 ? BestieAvatar(
                     name: displayName,
                     imageUrl: avatarUrl,
@@ -582,9 +741,13 @@ class _ChatTile extends ConsumerWidget {
                       size: 22,
                     ),
                   ),
-            const SizedBox(width: 12),
-            // Left block: name (top) + preview (bottom).
-            Expanded(
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: InkWell(
+              onTap: () => context.push('/chat/${channel['id']}'),
+              onLongPress: () => _showTileMenu(context, ref, muted),
+              borderRadius: BorderRadius.circular(BestieTokens.rMd),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
@@ -624,7 +787,7 @@ class _ChatTile extends ConsumerWidget {
                           ),
                         )
                       : Text(
-                          previewLine.isEmpty ? '—' : previewLine,
+                          previewLine.isEmpty ? 'No messages yet' : previewLine,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
@@ -638,53 +801,64 @@ class _ChatTile extends ConsumerWidget {
                 ],
               ),
             ),
-            const SizedBox(width: 8),
-            // Right block: timestamp pinned to the TOP, unread count badge
-            // below it (WhatsApp layout — the time no longer floats in the
-            // vertical middle of the row).
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (timeLine.isNotEmpty)
-                  Text(
-                    timeLine,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: unread
-                          ? BestieTokens.fwSemibold
-                          : BestieTokens.fwMedium,
-                      color: unread ? c.brand : c.textFaint,
-                    ),
-                  ),
-                const SizedBox(height: 6),
-                if (unread)
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                    constraints: const BoxConstraints(minWidth: 18),
-                    decoration: BoxDecoration(
-                      color: muted ? c.textMuted : c.brand,
-                      borderRadius: BorderRadius.circular(BestieTokens.rPill),
-                    ),
-                    child: Text(
-                      unreadCount > 99 ? '99+' : '$unreadCount',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: BestieTokens.fwBold,
-                        height: 1.3,
-                      ),
-                    ),
-                  )
-                else
-                  const SizedBox(height: 18),
-              ],
+          ),
+          if (unread) ...[
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+              constraints: const BoxConstraints(minWidth: 18),
+              decoration: BoxDecoration(
+                color: muted ? c.textMuted : c.brand,
+                borderRadius: BorderRadius.circular(BestieTokens.rPill),
+              ),
+              child: Text(
+                unreadCount > 99 ? '99+' : '$unreadCount',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: BestieTokens.fwBold,
+                  height: 1.3,
+                ),
+              ),
             ),
+          ],
+            if (kind == 'DM') ...[
+              if (showCallActions) ...[
+                _chatListCallButton(
+                  icon: Icons.call_rounded,
+                  iconColor: BestieTokens.cSuccess,
+                  backgroundColor: BestieTokens.cSuccess.withValues(alpha: 0.14),
+                  tooltip: 'Voice call',
+                  onPressed: () => _startCallFromList(
+                    context,
+                    ref,
+                    user: dmOtherUser!,
+                    channelId: channel['id']?.toString(),
+                    mode: 'voice',
+                  ),
+                ),
+                const SizedBox(width: 4),
+                _chatListCallButton(
+                  icon: Icons.videocam_rounded,
+                  iconColor: BestieTokens.cBrand,
+                  backgroundColor: BestieTokens.cBrand.withValues(alpha: 0.14),
+                  tooltip: 'Video call',
+                  onPressed: () => _startCallFromList(
+                    context,
+                    ref,
+                    user: dmOtherUser!,
+                    channelId: channel['id']?.toString(),
+                    mode: 'video',
+                  ),
+                ),
+              ] else ...[
+                const SizedBox(width: 36),
+                const SizedBox(width: 36),
+              ],
+            ],
           ]),
         ),
-      ),
     );
   }
 
@@ -725,13 +899,13 @@ class _ChatTile extends ConsumerWidget {
               Navigator.pop(ctx);
               final channelId = channel['id'] as String;
               if (currentlyMuted) {
-                await _writeUnmuted(channelId);
-                ref.invalidate(_mutedUntilProvider);
-                ref.invalidate(_mutedChannelsProvider);
+                await writeChatUnmuted(channelId);
+                ref.invalidate(chatMutedUntilProvider);
+                ref.invalidate(chatMutedChannelsProvider);
                 return;
               }
               if (!context.mounted) return;
-              await _pickMuteDuration(context, ref, channelId);
+              await showChatMuteDurationPicker(context, ref, channelId);
             },
           ),
           ListTile(
@@ -751,69 +925,6 @@ class _ChatTile extends ConsumerWidget {
               }
             },
           ),
-        ]),
-      ),
-    );
-  }
-
-  /// Mute duration picker — "until 8 hours / tomorrow / a week / forever".
-  Future<void> _pickMuteDuration(
-      BuildContext context, WidgetRef ref, String channelId) async {
-    final c = BestieColors.of(context);
-    final options = <(String, Duration?)>[
-      ('8 hours', const Duration(hours: 8)),
-      ('Until tomorrow', const Duration(days: 1)),
-      ('A week', const Duration(days: 7)),
-      ('Forever', null),
-    ];
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: c.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius:
-            BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
-      ),
-      builder: (ctx) => SafeArea(
-        top: false,
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Container(
-            width: 40,
-            height: 4,
-            margin: const EdgeInsets.symmetric(vertical: 10),
-            decoration: BoxDecoration(
-              color: c.borderStrong,
-              borderRadius: BorderRadius.circular(BestieTokens.rPill),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
-            child: Row(children: [
-              Icon(Icons.volume_off_rounded, size: 18, color: c.textSoft),
-              const SizedBox(width: 8),
-              Text('Mute notifications for…',
-                  style: TextStyle(
-                      color: c.text,
-                      fontWeight: BestieTokens.fwSemibold,
-                      fontSize: 15)),
-            ]),
-          ),
-          for (final opt in options)
-            ListTile(
-              title: Text(opt.$1, style: TextStyle(color: c.text)),
-              trailing: Icon(Icons.chevron_right_rounded, color: c.textFaint),
-              onTap: () async {
-                Navigator.pop(ctx);
-                final until =
-                    opt.$2 == null ? null : DateTime.now().add(opt.$2!);
-                await _writeMutedUntil(channelId, until);
-                ref.invalidate(_mutedUntilProvider);
-                ref.invalidate(_mutedChannelsProvider);
-                if (context.mounted) {
-                  bestieToast(context, 'Muted for ${opt.$1.toLowerCase()}',
-                      kind: BestieToastKind.success);
-                }
-              },
-            ),
         ]),
       ),
     );

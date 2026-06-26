@@ -217,7 +217,7 @@ class DashboardScreen extends ConsumerWidget {
 
   Widget _checkInBanner(
       BuildContext context, Map<String, dynamic>? attendance) {
-    final minWords = (attendance?['minRequiredWords'] as num?)?.toInt() ?? 100;
+    final minWords = (attendance?['minRequiredWords'] as num?)?.toInt() ?? 10;
     return Material(
       color: Colors.transparent,
       child: InkWell(

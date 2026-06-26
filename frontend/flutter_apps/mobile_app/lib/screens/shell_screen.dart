@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
@@ -54,12 +55,29 @@ class ShellScreen extends ConsumerWidget {
     return _employeeTabs;
   }
 
-  Future<bool> _handleShellBack(BuildContext context, String location) async {
+  bool _isRootShellTab(String location) {
+    return location == '/chat' ||
+        location == '/tasks' ||
+        location == '/attendance' ||
+        location == '/meetings' ||
+        location == '/dashboard' ||
+        location == '/telecaller' ||
+        location == '/calls' ||
+        location == '/saved';
+  }
+
+  Future<void> _handleShellBack(BuildContext context, String location) async {
     final router = GoRouter.of(context);
-    if (router.canPop()) return true;
-    if (location == '/chat') return true;
-    context.go('/chat');
-    return false;
+    if (router.canPop()) {
+      router.pop();
+      return;
+    }
+    // Bottom-nav root tabs — Android back closes the app (WhatsApp-style).
+    if (_isRootShellTab(location)) {
+      await SystemNavigator.pop();
+      return;
+    }
+    router.go('/chat');
   }
 
   void _openMoreRoute(BuildContext context, String route) {
@@ -75,17 +93,13 @@ class ShellScreen extends ConsumerWidget {
     final colors = BestieColors.of(context);
     final user = ref.watch(authStoreProvider).user;
     final tabs = _tabsFor(user);
-    final router = GoRouter.of(context);
     final location = GoRouterState.of(context).matchedLocation;
-    final canPop = router.canPop() || location == '/dashboard';
-    int index = tabs.indexWhere((t) => location.startsWith(t.path));
-    if (index < 0) index = 0;
 
     return PopScope(
-      canPop: canPop,
-      onPopInvokedWithResult: (didPop, _) async {
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
-        await _handleShellBack(context, location);
+        _handleShellBack(context, location);
       },
       child: Scaffold(
         extendBody: true,
@@ -97,7 +111,11 @@ class ShellScreen extends ConsumerWidget {
         body: child,
         bottomNavigationBar: _PremiumBottomNav(
           tabs: tabs,
-          currentIndex: index,
+          currentIndex: () {
+            int index = tabs.indexWhere((t) => location.startsWith(t.path));
+            if (index < 0) index = 0;
+            return index;
+          }(),
           onTap: (i) {
             if (tabs[i].path == '/more') {
               _openMore(context, ref, user);
@@ -115,63 +133,76 @@ class ShellScreen extends ConsumerWidget {
     final entries = _moreEntries(user, c);
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: c.surface,
       shape: const RoundedRectangleBorder(
         borderRadius:
             BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
       ),
       builder: (ctx) {
+        final maxHeight = MediaQuery.sizeOf(ctx).height * 0.82;
         return SafeArea(
           top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(8, 12, 8, 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  alignment: Alignment.center,
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: c.borderStrong,
-                      borderRadius: BorderRadius.circular(BestieTokens.rPill),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: maxHeight),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(8, 12, 8, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    alignment: Alignment.center,
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: c.borderStrong,
+                        borderRadius: BorderRadius.circular(BestieTokens.rPill),
+                      ),
                     ),
                   ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                  child: Text(
-                    'More',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: BestieTokens.fwBold,
-                      color: c.text,
-                      letterSpacing: BestieTokens.lsTight,
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Text(
+                      'More',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: BestieTokens.fwBold,
+                        color: c.text,
+                        letterSpacing: BestieTokens.lsTight,
+                      ),
                     ),
                   ),
-                ),
-                GridView.count(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  crossAxisCount: 4,
-                  mainAxisSpacing: 4,
-                  mainAxisExtent: 104,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  children: [
-                    for (final e in entries)
-                      _MoreTile(
-                          entry: e,
-                          colors: c,
-                          onTap: () {
-                            Navigator.of(ctx).pop();
-                            _openMoreRoute(context, e.route);
-                          }),
-                  ],
-                ),
-              ],
+                  GridView.count(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    crossAxisCount: 4,
+                    mainAxisSpacing: 4,
+                    crossAxisSpacing: 4,
+                    mainAxisExtent: 96,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    children: [
+                      for (final e in entries)
+                        _MoreTile(
+                            entry: e,
+                            colors: c,
+                            onTap: () {
+                              Navigator.of(ctx).pop();
+                              // Push only after the sheet route is gone — pushing
+                              // immediately leaves an invisible modal barrier on
+                              // top of Settings (and other More targets), which
+                              // blocks every tap including Back and Sign out.
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                if (!context.mounted) return;
+                                _openMoreRoute(context, e.route);
+                              });
+                            }),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -488,16 +519,6 @@ class _NavItemState extends State<_NavItem>
               decoration: BoxDecoration(
                 color: pill,
                 borderRadius: BorderRadius.circular(14),
-                boxShadow: t > 0.5
-                    ? [
-                        BoxShadow(
-                          color: BestieTokens.cBrand.withOpacity(0.18 * t),
-                          blurRadius: 14,
-                          offset: const Offset(0, 6),
-                          spreadRadius: -2,
-                        ),
-                      ]
-                    : const [],
               ),
               // Vertical layout — icon on top, label below — so labels are
               // always visible (typical mobile bottom-nav). Active state

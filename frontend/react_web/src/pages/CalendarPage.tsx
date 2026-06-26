@@ -52,7 +52,7 @@ type AttendanceRange = {
   items: WorkdayEntry[];
 };
 
-const MIN_REQUIRED_WORDS = 100;
+const MIN_REQUIRED_WORDS = 10;
 
 function countWords(text: string) {
   return text.trim().split(/\s+/).filter(Boolean).length;

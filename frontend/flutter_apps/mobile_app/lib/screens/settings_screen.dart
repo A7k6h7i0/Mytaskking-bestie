@@ -7,9 +7,7 @@ import 'package:mytaskking_core/mytaskking_core.dart' as core;
 
 import '../state.dart' hide ThemeMode;
 
-/// App-level settings with a light/dark theme toggle and links to the rest of
-/// the workspace. Secondary screens open with push so Android back returns here
-/// instead of closing the app.
+/// App-level settings and links to the rest of the workspace.
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
@@ -139,31 +137,43 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
-  Future<bool> _handleBack(BuildContext context) async {
-    final router = GoRouter.of(context);
-    if (router.canPop()) return true;
+  static const _shellRoutes = {
+    '/chat',
+    '/dashboard',
+    '/tasks',
+    '/attendance',
+    '/meetings',
+    '/notifications',
+    '/profile',
+  };
+
+  void _goBack(BuildContext context) {
+    if (context.canPop()) {
+      context.pop();
+      return;
+    }
     context.go('/chat');
-    return false;
   }
 
   void _openRoute(BuildContext context, String route) {
+    if (_shellRoutes.contains(route)) {
+      context.go(route);
+      return;
+    }
     context.push(route);
   }
 
   @override
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
-    final mode = ref.watch(themeModeProvider);
-    final displayMode =
-        mode == core.ThemeMode.system ? core.ThemeMode.light : mode;
     final user = ref.watch(authStoreProvider).user;
-    final canPop = GoRouter.of(context).canPop();
+    final canPop = context.canPop();
 
     return PopScope(
       canPop: canPop,
-      onPopInvokedWithResult: (didPop, _) async {
+      onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
-        await _handleBack(context);
+        _goBack(context);
       },
       child: Scaffold(
         backgroundColor: c.bg,
@@ -174,39 +184,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           leading: IconButton(
             icon: const Icon(Icons.arrow_back_rounded),
             tooltip: 'Back',
-            onPressed: () async {
-              if (await _handleBack(context) && context.mounted) {
-                Navigator.of(context).pop();
-              }
-            },
+            onPressed: () => _goBack(context),
           ),
           title: const Text('Settings'),
         ),
         body: ListView(
           children: [
             if (user != null) _Identity(user: user, colors: c),
-            _SectionLabel('Appearance', colors: c),
-            Container(
-              color: c.surface,
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-              child: BestieSegmentedControl<core.ThemeMode>(
-                value: displayMode,
-                onChanged: (v) =>
-                    ref.read(themeModeProvider.notifier).state = v,
-                options: const [
-                  BestieSegmentOption(
-                    value: core.ThemeMode.light,
-                    label: 'Light',
-                    icon: Icons.light_mode_rounded,
-                  ),
-                  BestieSegmentOption(
-                    value: core.ThemeMode.dark,
-                    label: 'Dark',
-                    icon: Icons.dark_mode_rounded,
-                  ),
-                ],
-              ),
-            ),
             _SectionLabel('Workspace', colors: c),
             if (!(user?.isClient ?? false))
               _SettingTile(

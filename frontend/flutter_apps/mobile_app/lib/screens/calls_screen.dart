@@ -4,7 +4,9 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
+import '../active_call_state.dart';
 import '../state.dart';
+import 'call_screen.dart';
 
 /// Call history — recent calls with a one-tap "ring back" action.
 /// Paginated 25 rows at a time so workspaces with high call volume
@@ -80,6 +82,17 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
         elevation: 0,
         backgroundColor: c.surface,
         foregroundColor: c.text,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded),
+          tooltip: 'Back',
+          onPressed: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go('/chat');
+            }
+          },
+        ),
         title: const Text('Calls'),
       ),
       body: _items.isEmpty && _loading
@@ -145,6 +158,97 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
   }
 }
 
+String _profileNameFromUser(Map? user) {
+  if (user == null) return '';
+  return (user['name'] ?? '').toString().trim();
+}
+
+String _callParticipantLabel({
+  required String? myId,
+  required Map<String, dynamic> initiator,
+  required List<Map<String, dynamic>> participants,
+}) {
+  final names = <String>[];
+  void addName(String? raw) {
+    final n = raw?.trim();
+    if (n == null || n.isEmpty) return;
+    if (!names.contains(n)) names.add(n);
+  }
+
+  for (final p in participants) {
+    final uid = (p['userId'] ?? (p['user'] as Map?)?['id'])?.toString();
+    if (uid == myId) continue;
+    addName(_profileNameFromUser(p['user'] as Map?));
+  }
+  if (initiator['id']?.toString() != myId) {
+    addName(_profileNameFromUser(initiator));
+  }
+
+  if (names.isEmpty) return '—';
+  if (names.length == 1) return names.first;
+  if (names.length == 2) return '${names[0]} & ${names[1]}';
+  return '${names[0]}, ${names[1]} +${names.length - 2}';
+}
+
+Map<String, dynamic>? _myParticipantRow(
+  String? myId,
+  List<Map<String, dynamic>> participants,
+) {
+  for (final p in participants) {
+    final uid = (p['userId'] ?? (p['user'] as Map?)?['id'])?.toString();
+    if (uid == myId) return p;
+  }
+  return null;
+}
+
+void _seedCallSessionFromHistory(
+  Map<String, dynamic> joined, {
+  required String? myId,
+  required String callId,
+  required String mode,
+}) {
+  CallSession.callMeta = {'call': joined};
+  final initiator =
+      (joined['initiator'] as Map?)?.cast<String, dynamic>() ?? const {};
+  final participants =
+      (joined['participants'] as List?)?.cast<Map<String, dynamic>>() ??
+          const [];
+  final title = _callParticipantLabel(
+    myId: myId,
+    initiator: initiator,
+    participants: participants,
+  );
+  final displayTitle = title == '—' ? 'Call' : title;
+  CallSession.remotePeerName = displayTitle;
+  ActiveCallState.start(
+    callId: callId,
+    meetingSlug: null,
+    mode: mode,
+    title: displayTitle,
+  );
+}
+
+Map<String, dynamic> _headerPerson({
+  required String? myId,
+  required Map<String, dynamic> initiator,
+  required List<Map<String, dynamic>> participants,
+  required bool outgoing,
+}) {
+  for (final p in participants) {
+    final uid = (p['userId'] ?? (p['user'] as Map?)?['id'])?.toString();
+    if (uid != null && uid != myId) {
+      return (p['user'] as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+    }
+  }
+  if (!outgoing && initiator['id']?.toString() != myId) return initiator;
+  if (participants.isNotEmpty) {
+    return (participants.first['user'] as Map?)?.cast<String, dynamic>() ??
+        initiator;
+  }
+  return initiator;
+}
+
 class _CallRow extends ConsumerWidget {
   final Map<String, dynamic> call;
   final BestieColors colors;
@@ -159,19 +263,23 @@ class _CallRow extends ConsumerWidget {
         (call['participants'] as List?)?.cast<Map<String, dynamic>>() ??
             const [];
     final outgoing = initiator['id'] == me?.id;
+    final header = _headerPerson(
+      myId: me?.id,
+      initiator: initiator,
+      participants: participants,
+      outgoing: outgoing,
+    );
+    final displayNames = _callParticipantLabel(
+      myId: me?.id,
+      initiator: initiator,
+      participants: participants,
+    );
 
-    // Pick a "header" person — for outgoing calls the first non-me participant;
-    // for incoming, the initiator.
-    Map<String, dynamic> header = initiator;
-    if (outgoing && participants.isNotEmpty) {
-      final p = participants.firstWhere(
-        (p) => (p['user'] as Map?)?['id'] != me?.id,
-        orElse: () => participants.first,
-      );
-      header = (p['user'] as Map?)?.cast<String, dynamic>() ?? initiator;
-    }
-
-    final name = (header['name'] ?? '—').toString();
+    final name = displayNames != '—'
+        ? displayNames
+        : _profileNameFromUser(header).isNotEmpty
+            ? _profileNameFromUser(header)
+            : '—';
     final isClient = header['isClient'] == true;
     final status = (call['status'] ?? 'COMPLETED').toString();
     final kind = (call['kind'] ?? 'ONE_TO_ONE').toString();
@@ -182,6 +290,12 @@ class _CallRow extends ConsumerWidget {
         header['role'] == 'ADMIN' || header['role'] == 'SUPER_ADMIN';
     final canCallBack = viewerIsAdmin || !targetIsAdmin;
 
+    final myPart = _myParticipantRow(me?.id, participants);
+    final userLeft = myPart?['leftAt'] != null;
+    final isActive = status == 'ACTIVE';
+    final showJoin = isActive && userLeft;
+    final showReturn = isActive && !userLeft;
+
     final Color statusColor = switch (status) {
       'MISSED' => colors.danger,
       'RINGING' => colors.warning,
@@ -189,49 +303,193 @@ class _CallRow extends ConsumerWidget {
       _ => colors.textMuted,
     };
 
-    return ListTile(
-      leading: BestieAvatar(
-        name: name,
-        imageUrl: header['avatarUrl']?.toString(),
-        isClient: isClient,
-        size: 40,
-      ),
-      title: BestieUserName(
-          name: name,
-          isClient: isClient,
-          style: TextStyle(
-              fontWeight: BestieTokens.fwSemibold, color: colors.text)),
-      subtitle: Row(children: [
-        Icon(
-          outgoing ? Icons.call_made_rounded : Icons.call_received_rounded,
-          size: 12,
-          color: status == 'MISSED' ? colors.danger : colors.textMuted,
-        ),
-        const SizedBox(width: 4),
-        Text(
-          '${outgoing ? "Outgoing" : "Incoming"} · $kind · ${status.toLowerCase()}',
-          style: TextStyle(color: statusColor, fontSize: 12),
-        ),
-      ]),
-      trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-        IconButton(
-          icon: Icon(Icons.note_alt_outlined,
-              color: (call['notes'] ?? '').toString().trim().isNotEmpty
-                  ? colors.warning
-                  : colors.textMuted),
-          tooltip: 'Call notes',
-          onPressed: () => _editNotes(context, ref),
-        ),
-        if (canCallBack)
-          IconButton(
-            icon: Icon(isVideo ? Icons.videocam_outlined : Icons.call_outlined,
-                color: colors.brand),
-            tooltip: isVideo ? 'Video call back' : 'Call back',
-            onPressed: () =>
-                _ringBack(context, ref, header['id'] as String?, name, mode),
+    return Material(
+      color: colors.surface,
+      child: InkWell(
+        onTap: () {
+          if (showJoin) {
+            _joinCall(context, ref);
+          } else if (showReturn) {
+            _returnToCall(context, ref);
+          } else if (canCallBack) {
+            _ringBack(
+              context,
+              ref,
+              header['id'] as String?,
+              name,
+              mode,
+            );
+          }
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              BestieAvatar(
+                name: name,
+                imageUrl: header['avatarUrl']?.toString(),
+                isClient: isClient,
+                size: 40,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      displayNames,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontWeight: BestieTokens.fwSemibold,
+                        color: colors.text,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Row(
+                      children: [
+                        Icon(
+                          outgoing
+                              ? Icons.call_made_rounded
+                              : Icons.call_received_rounded,
+                          size: 12,
+                          color: status == 'MISSED'
+                              ? colors.danger
+                              : colors.textMuted,
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            showJoin
+                                ? 'Active group call · tap to join'
+                                : showReturn
+                                    ? 'Ongoing · tap to return'
+                                    : '${outgoing ? "Outgoing" : "Incoming"} · $kind · ${status.toLowerCase()}',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(color: statusColor, fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(
+                width: 36,
+                height: 36,
+                child: IconButton(
+                  padding: EdgeInsets.zero,
+                  icon: Icon(
+                    Icons.note_alt_outlined,
+                    size: 20,
+                    color: (call['notes'] ?? '').toString().trim().isNotEmpty
+                        ? colors.warning
+                        : colors.textMuted,
+                  ),
+                  tooltip: 'Call notes',
+                  onPressed: () => _editNotes(context, ref),
+                ),
+              ),
+              if (showJoin)
+                SizedBox(
+                  width: 36,
+                  height: 36,
+                  child: IconButton(
+                    padding: EdgeInsets.zero,
+                    icon: Icon(
+                      Icons.login_rounded,
+                      size: 22,
+                      color: colors.success,
+                    ),
+                    tooltip: 'Join call',
+                    onPressed: () => _joinCall(context, ref),
+                  ),
+                )
+              else if (showReturn)
+                SizedBox(
+                  width: 36,
+                  height: 36,
+                  child: IconButton(
+                    padding: EdgeInsets.zero,
+                    icon: Icon(
+                      Icons.phone_in_talk_rounded,
+                      size: 20,
+                      color: colors.success,
+                    ),
+                    tooltip: 'Return to call',
+                    onPressed: () => _returnToCall(context, ref),
+                  ),
+                )
+              else if (canCallBack)
+                SizedBox(
+                  width: 36,
+                  height: 36,
+                  child: IconButton(
+                    padding: EdgeInsets.zero,
+                    icon: Icon(
+                      isVideo
+                          ? Icons.videocam_outlined
+                          : Icons.call_outlined,
+                      size: 20,
+                      color: colors.brand,
+                    ),
+                    tooltip: isVideo ? 'Video call back' : 'Call back',
+                    onPressed: () => _ringBack(
+                      context,
+                      ref,
+                      header['id'] as String?,
+                      name,
+                      mode,
+                    ),
+                  ),
+                ),
+            ],
           ),
-      ]),
+        ),
+      ),
     );
+  }
+
+  Future<void> _joinCall(BuildContext context, WidgetRef ref) async {
+    final id = call['id']?.toString();
+    if (id == null) return;
+    final mode = (call['mode'] ?? 'VOICE').toString().toLowerCase();
+    try {
+      // Already live on this call — just reopen the screen.
+      if (CallSession.activeCallId == id && CallSession.engine != null) {
+        CallSession.onCallScreen = true;
+        CallSession.notifyRevision();
+        if (context.mounted) context.go('/call/$id?mode=$mode');
+        return;
+      }
+      await CallSession.prepareForNewCall();
+      final joined = await ref.read(apiProvider).joinCall(id);
+      _seedCallSessionFromHistory(
+        joined,
+        myId: ref.read(authStoreProvider).user?.id,
+        callId: id,
+        mode: mode,
+      );
+      CallSession.onCallScreen = true;
+      CallSession.notifyRevision();
+      if (context.mounted) context.go('/call/$id?mode=$mode');
+    } catch (e) {
+      if (context.mounted) {
+        bestieToast(context, 'Could not join call',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    }
+  }
+
+  void _returnToCall(BuildContext context, WidgetRef ref) {
+    final id = call['id']?.toString();
+    if (id == null) return;
+    final mode = (call['mode'] ?? 'VOICE').toString().toLowerCase();
+    CallSession.onCallScreen = true;
+    CallSession.notifyRevision();
+    context.go('/call/$id?mode=$mode');
   }
 
   Future<void> _editNotes(BuildContext context, WidgetRef ref) async {
@@ -267,12 +525,14 @@ class _CallRow extends ConsumerWidget {
           .dio
           .patch('/calls/$id/notes', data: {'notes': notes});
       call['notes'] = notes;
-      if (context.mounted)
+      if (context.mounted) {
         bestieToast(context, 'Call notes saved', kind: BestieToastKind.success);
+      }
     } catch (e) {
-      if (context.mounted)
+      if (context.mounted) {
         bestieToast(context, 'Could not save notes',
             body: formatApiError(e), kind: BestieToastKind.error);
+      }
     }
   }
 
@@ -280,11 +540,10 @@ class _CallRow extends ConsumerWidget {
       String name, String mode) async {
     if (userId == null) return;
     try {
+      await CallSession.prepareForNewCall();
       final res = await ref.read(apiProvider).initiateCall(
         participantIds: [userId],
         kind: 'ONE_TO_ONE',
-        // Mirror the original call's mode so a callback to a voice call
-        // doesn't surprise the recipient with a video Accept button.
         mode: mode.toUpperCase() == 'VOICE' ? 'VOICE' : 'VIDEO',
       );
       final availability =
@@ -329,9 +588,10 @@ class _CallRow extends ConsumerWidget {
         context.go('/call/$id?mode=${mode.toLowerCase()}');
       }
     } catch (e) {
-      if (context.mounted)
+      if (context.mounted) {
         bestieToast(context, 'Could not call',
             body: formatApiError(e), kind: BestieToastKind.error);
+      }
     }
   }
 }

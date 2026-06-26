@@ -8,6 +8,7 @@ const { verifyAccessToken } = require('../services/tokens');
 const monitoring = require('../services/monitoring');
 const cache = require('../services/cache');
 const chatService = require('../modules/chat/chat.service');
+const { clientAppFromSocket, userAppRoom } = require('../utils/clientApp');
 
 const presence = new Map(); // userId -> Set<socketId>
 
@@ -61,7 +62,10 @@ module.exports = function initSockets(server) {
   io.on('connection', async (socket) => {
     monitoring.trackSocketConnect();
     const userId = socket.user.id;
+    const clientApp = clientAppFromSocket(socket);
+    socket.clientApp = clientApp;
     socket.join(`user:${userId}`);
+    socket.join(userAppRoom(userId, clientApp));
     socket.join(`role:${socket.user.role}`);
 
     const connectedAt = new Date();

@@ -5,6 +5,8 @@ allprojects {
     }
 }
 
+apply(from = "agora_size.gradle.kts")
+
 val newBuildDir: Directory =
     rootProject.layout.buildDirectory
         .dir("../../build")

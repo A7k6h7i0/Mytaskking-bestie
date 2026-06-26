@@ -32,6 +32,7 @@ Future<Map<String, dynamic>?> showBestieNewChatSheet(
   required BestieStartGroup onStartGroup,
   BestieStartCall? onStartCall,
   String? currentUserId,
+  int initialTabIndex = 0,
 }) {
   return showModalBottomSheet<Map<String, dynamic>>(
     context: context,
@@ -44,6 +45,7 @@ Future<Map<String, dynamic>?> showBestieNewChatSheet(
       onStartGroup: onStartGroup,
       onStartCall: onStartCall,
       currentUserId: currentUserId,
+      initialTabIndex: initialTabIndex,
     ),
   );
 }
@@ -54,6 +56,7 @@ class _NewChatSheet extends StatefulWidget {
   final BestieStartGroup onStartGroup;
   final BestieStartCall? onStartCall;
   final String? currentUserId;
+  final int initialTabIndex;
 
   const _NewChatSheet({
     required this.fetchEmployees,
@@ -61,6 +64,7 @@ class _NewChatSheet extends StatefulWidget {
     required this.onStartGroup,
     this.onStartCall,
     this.currentUserId,
+    this.initialTabIndex = 0,
   });
 
   @override
@@ -69,7 +73,11 @@ class _NewChatSheet extends StatefulWidget {
 
 class _NewChatSheetState extends State<_NewChatSheet>
     with SingleTickerProviderStateMixin {
-  late final TabController _tabs = TabController(length: 2, vsync: this);
+  late final TabController _tabs = TabController(
+    length: 2,
+    vsync: this,
+    initialIndex: widget.initialTabIndex.clamp(0, 1),
+  );
   final _searchCtrl = TextEditingController();
   final _groupNameCtrl = TextEditingController();
   Timer? _debounce;
@@ -177,12 +185,15 @@ class _NewChatSheetState extends State<_NewChatSheet>
   @override
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     return DraggableScrollableSheet(
       initialChildSize: 0.85,
       minChildSize: 0.5,
       maxChildSize: 0.95,
       expand: false,
-      builder: (ctx, scrollCtrl) => Container(
+      builder: (ctx, scrollCtrl) => Padding(
+        padding: EdgeInsets.only(bottom: bottomInset),
+        child: Container(
         decoration: BoxDecoration(
           color: c.surface,
           borderRadius: const BorderRadius.vertical(
@@ -293,6 +304,7 @@ class _NewChatSheetState extends State<_NewChatSheet>
               ),
           ],
         ),
+        ),
       ),
     );
   }
@@ -382,21 +394,41 @@ class _PeopleList extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
     if (loading && employees.isEmpty) {
-      return const Center(child: BestieSpinner());
+      return ListView(
+        controller: scrollCtrl,
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: const [
+          SizedBox(height: 120, child: Center(child: BestieSpinner())),
+        ],
+      );
     }
     if (error != null && employees.isEmpty) {
-      return BestieEmptyState(
-        icon: Icons.error_outline_rounded,
-        iconColor: c.danger,
-        title: 'Could not load teammates',
-        description: error,
+      return ListView(
+        controller: scrollCtrl,
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(vertical: 24),
+        children: [
+          BestieEmptyState(
+            icon: Icons.error_outline_rounded,
+            iconColor: c.danger,
+            title: 'Could not load teammates',
+            description: error,
+          ),
+        ],
       );
     }
     if (employees.isEmpty) {
-      return BestieEmptyState(
-        icon: Icons.person_search_rounded,
-        title: 'No teammates match',
-        description: 'Try a different name or @userid.',
+      return ListView(
+        controller: scrollCtrl,
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 16),
+        children: const [
+          BestieEmptyState(
+            icon: Icons.person_search_rounded,
+            title: 'No teammates match',
+            description: 'Try a different name or @userid.',
+          ),
+        ],
       );
     }
     return ListView.builder(

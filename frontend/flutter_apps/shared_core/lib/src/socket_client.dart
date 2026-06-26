@@ -4,9 +4,11 @@ import 'auth_store.dart';
 class BestieSocket {
   final String url;
   final BestieAuthStore auth;
+  /// `mytaskking` | `web` — scopes realtime call rings to this app family.
+  final String? clientApp;
   io.Socket? _socket;
 
-  BestieSocket({required this.url, required this.auth});
+  BestieSocket({required this.url, required this.auth, this.clientApp});
 
   io.Socket connect() {
     final token = auth.accessToken;
@@ -15,7 +17,10 @@ class BestieSocket {
       url,
       io.OptionBuilder()
           .setTransports(['websocket'])
-          .setAuth({'token': token})
+          .setAuth({
+            'token': token,
+            if (clientApp != null && clientApp!.isNotEmpty) 'clientApp': clientApp,
+          })
           .setPath('/socket.io')
           .enableForceNew()
           .build(),

@@ -162,14 +162,45 @@ async function listActivity({ userId, from, to, page = 1, pageSize = 50, include
 function parseUA(ua) {
   if (!ua) return { device: null, platform: null };
   const lower = ua.toLowerCase();
+
+  const mytaskking = ua.match(/MyTaskKing-Mobile\/([^/]+)(?:\/(.+))?/i);
+  if (mytaskking) {
+    const platform = (mytaskking[1] || 'mobile').toLowerCase();
+    const version = mytaskking[2]?.trim();
+    const label = platform === 'android'
+      ? 'Android phone'
+      : platform === 'ios'
+        ? 'iPhone / iPad'
+        : platform === 'windows'
+          ? 'Windows PC'
+          : platform === 'macos'
+            ? 'Mac'
+            : 'MyTaskKing mobile app';
+    return {
+      device: version ? `${label} (${version})` : label,
+      platform,
+    };
+  }
+
   let platform = 'web';
   if (lower.includes('android')) platform = 'android';
   else if (lower.includes('iphone') || lower.includes('ipad')) platform = 'ios';
   else if (lower.includes('windows')) platform = 'windows';
   else if (lower.includes('mac os')) platform = 'macos';
   else if (lower.includes('linux')) platform = 'linux';
+
+  if (lower.includes('dart:io') || lower.startsWith('dart/')) {
+    return {
+      device: platform === 'web' ? 'MyTaskKing mobile app' : `MyTaskKing on ${platform}`,
+      platform: platform === 'web' ? 'android' : platform,
+    };
+  }
+
   const m = ua.match(/\(([^)]+)\)/);
-  const device = m ? m[1].split(';')[0].trim() : null;
+  let device = m ? m[1].split(';')[0].trim() : null;
+  if (device === 'dart:io') {
+    device = platform === 'android' ? 'Android phone' : platform === 'ios' ? 'iPhone / iPad' : 'MyTaskKing mobile app';
+  }
   return { device, platform };
 }
 

@@ -23,6 +23,13 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
 
         val type = data["type"]
         val kind = data["kind"]
+        val clientApp = data["clientApp"]?.trim()?.lowercase()
+        if (!clientApp.isNullOrBlank() &&
+            clientApp != "mytaskking" &&
+            clientApp != "web"
+        ) {
+            return
+        }
         if (type == "call.ended") {
             val callId = data["callId"]
             IncomingCallForegroundService.stop(this, callId)
@@ -151,9 +158,6 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
             // the manifest, + CATEGORY_CALL above for Android 14 eligibility).
             .setFullScreenIntent(openPendingIntent, true)
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            builder.setTimeoutAfter(60_000)
-        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val person = Person.Builder().setName(fromName).build()
             builder.setStyle(

@@ -113,7 +113,7 @@ async function sendToTokens(tokens, { title, body, data }) {
   return { sent: result.successCount, failed: result.failureCount, responses: result.responses };
 }
 
-async function sendCallEnded(call) {
+async function sendCallEnded(call, clientApp) {
   if (!call?.id) return { sent: 0, failed: 0 };
   const userIds = [...new Set((call.participants || []).map((p) => p.userId).filter(Boolean))];
   if (!userIds.length) return { sent: 0, failed: 0 };
@@ -125,7 +125,11 @@ async function sendCallEnded(call) {
   return sendToTokens(devices.map((d) => d.token), {
     title: 'Call ended',
     body: '',
-    data: { type: 'call.ended', callId: call.id },
+    data: {
+      type: 'call.ended',
+      callId: call.id,
+      ...(clientApp ? { clientApp } : {}),
+    },
   });
 }
 

@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, MessageSquare, Pencil, Phone, Plus, Search, Siren, X } from 'lucide-react';
+import { Check, MessageSquare, Pencil, Phone, Plus, Search, Siren, Trash2, X } from 'lucide-react';
 import { api } from '@/services/api';
 import { toast } from '@/components/Toast';
+import { useConfirm } from '@/components/ui/ConfirmDialog';
 import { useAuthStore } from '@/store/auth';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
@@ -22,6 +23,7 @@ const EMPLOYEE_DESIGNATIONS = [
 export default function EmployeesPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const confirm = useConfirm();
   const user = useAuthStore((s) => s.user);
   const [q, setQ] = useState('');
   const [showNew, setShowNew] = useState(false);
@@ -31,7 +33,8 @@ export default function EmployeesPage() {
   const [draftTitle, setDraftTitle] = useState('');
   const [form, setForm] = useState({ userId: '', password: '', name: '', role: 'EMPLOYEE', customTitle: '', email: '', supervisorIds: [] as string[] });
   const canCustomizeEmployeeName = user?.role === 'SUPER_ADMIN';
-  const canManageEmployees = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
+  const canManageEmployees =
+    user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN' || user?.role === 'MANAGER';
   const viewerCanCallAdmins = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
   const passwordTooShort = form.password.length > 0 && form.password.length < 8;
   const selectedDesignation = useCustomDesignation || (form.customTitle && !EMPLOYEE_DESIGNATIONS.includes(form.customTitle)) ? 'CUSTOM' : form.customTitle;
@@ -102,6 +105,32 @@ export default function EmployeesPage() {
     },
     onError: (err: any) => toast.error(err?.response?.data?.error?.message || 'Could not update employee name'),
   });
+
+  const deleteMut = useMutation({
+    mutationFn: async (id: string) => (await api.delete(`/employees/${id}`)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['employees'] });
+      toast.success('Employee deleted');
+    },
+    onError: (err: any) =>
+      toast.error(err?.response?.data?.error?.message || 'Could not delete employee'),
+  });
+
+  async function askDelete(employee: { id: string; name: string; userId: string; role: string }) {
+    if (employee.role === 'SUPER_ADMIN') {
+      toast.error('Cannot delete the super admin account');
+      return;
+    }
+    const ok = await confirm({
+      title: `Delete ${employee.name}?`,
+      description:
+        'This permanently removes their account, task assignments, and sign-in access. This cannot be undone.',
+      confirmLabel: 'Delete employee',
+      variant: 'danger',
+      confirmText: employee.userId,
+    });
+    if (ok) deleteMut.mutate(employee.id);
+  }
 
   const items = useMemo(() => data?.items ?? [], [data?.items]);
 
@@ -284,6 +313,17 @@ export default function EmployeesPage() {
                       <Pencil size={14} /> Edit
                     </Button>
                   )
+                )}
+                {canManageEmployees && u.id !== user?.id && u.role !== 'SUPER_ADMIN' && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => askDelete(u)}
+                    disabled={deleteMut.isPending}
+                    title="Delete employee permanently"
+                  >
+                    <Trash2 size={14} /> Delete
+                  </Button>
                 )}
               </span>
             </div>

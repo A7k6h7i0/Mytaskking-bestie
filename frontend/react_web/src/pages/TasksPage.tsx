@@ -16,6 +16,7 @@ import { TaskDrawer } from '@/pages/TaskDrawer';
 import './tasks.css';
 
 const COLUMNS: Array<{ key: string; label: string }> = [
+  { key: 'SCHEDULED', label: 'Scheduled' },
   { key: 'BACKLOG', label: 'Backlog' },
   { key: 'TODO', label: 'To do' },
   { key: 'IN_PROGRESS', label: 'In progress' },

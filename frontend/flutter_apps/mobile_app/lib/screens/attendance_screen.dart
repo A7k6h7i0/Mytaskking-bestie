@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../state.dart';
@@ -7,10 +8,10 @@ import '../state.dart';
 /// Daily workday log screen — backed by `/attendance/*`.
 ///
 /// Three-phase flow that mirrors the backend's lifecycle:
-///   1. **Check-in**  → write today's plan (≥ 100 words) and clock in.
+///   1. **Check-in**  → write today's plan (≥ 10 words) and clock in.
 ///   2. **Lunch**     → toggle start / end of the lunch break (gated by the
 ///                      server's lunchStartHour / lunchEndHour config).
-///   3. **Check-out** → write a logout report (≥ 100 words) and clock out.
+///   3. **Check-out** → write a logout report (≥ 10 words) and clock out.
 ///
 /// Each phase opens at a configurable hour. Word count enforcement lives on
 /// the server too — we surface the live count up front so the user knows
@@ -123,7 +124,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
     final viaEntry = (entry?['minRequiredWords'] as num?)?.toInt();
     if (viaEntry != null && viaEntry > 0) return viaEntry;
     final viaConfig = (_config?['minRequiredWords'] as num?)?.toInt();
-    return viaConfig ?? 100;
+    return viaConfig ?? 10;
   }
 
   Future<void> _checkIn() async {
@@ -231,6 +232,17 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
         elevation: 0,
         backgroundColor: c.surface,
         foregroundColor: c.text,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded),
+          tooltip: 'Back',
+          onPressed: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go('/chat');
+            }
+          },
+        ),
         title: const Text('Workday'),
         actions: [
           IconButton(
