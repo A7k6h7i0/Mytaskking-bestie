@@ -79,6 +79,7 @@ model User {
   calendarEvents  CalendarEvent[]     @relation("CalendarEventOwner")
   eventAttendees  CalendarAttendee[]
   workdayLogs     WorkdayLog[]
+  workActivityClips WorkActivityClip[]
   announcements   Announcement[]     @relation("AnnouncementAuthor")
 
   // multi-tenancy — each organisation is an isolated workspace (Lark-style)
@@ -801,6 +802,29 @@ model WorkdayLog {
   @@unique([userId, localDate])
   @@index([localDate])
   @@index([userId, localDate])
+}
+
+model WorkActivityClip {
+  id                String   @id @default(cuid())
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId            String
+  fileId            String?
+  clipUrl           String?
+  note              String   @default("working")
+  status            String   @default("WORKING")
+  platform          String
+  deviceLabel       String?
+  durationSeconds   Int      @default(5)
+  captureStartedAt  DateTime @default(now())
+  captureEndedAt    DateTime?
+  promptShownAt     DateTime?
+  promptRespondedAt DateTime?
+  tenantId          String?
+  createdAt         DateTime @default(now())
+
+  @@index([userId, captureStartedAt])
+  @@index([tenantId, captureStartedAt])
+  @@index([status])
 }
 
 // ---------------------------------------------------------------------------
