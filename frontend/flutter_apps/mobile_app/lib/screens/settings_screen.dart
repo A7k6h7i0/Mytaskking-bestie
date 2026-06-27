@@ -223,6 +223,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               label: 'Call history',
               onTap: () => _openRoute(context, '/calls'),
             ),
+            if (user?.role == 'SUPER_ADMIN')
+              _SettingTile(
+                colors: c,
+                icon: Icons.apartment_rounded,
+                label: 'Organisations',
+                onTap: () => _openRoute(context, '/organizations'),
+              ),
             if (user?.role == 'ADMIN' || user?.role == 'SUPER_ADMIN')
               _SettingTile(
                 colors: c,

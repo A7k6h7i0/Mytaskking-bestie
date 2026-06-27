@@ -27,14 +27,14 @@ router.get(
     }),
   }),
   asyncHandler(async (req, res) => {
-    res.json(await service.list(req.query));
+    res.json(await service.list(req, req.query));
   })
 );
 
 router.get(
   '/:id',
   requireInternal,
-  asyncHandler(async (req, res) => res.json(await service.getById(req.params.id)))
+  asyncHandler(async (req, res) => res.json(await service.getById(req, req.params.id)))
 );
 
 const requirePeopleAdmin = requireRole('SUPER_ADMIN', 'ADMIN', 'MANAGER');
@@ -57,7 +57,7 @@ router.post(
     }),
   }),
   asyncHandler(async (req, res) => {
-    const e = await service.create(req.body, req.user.id);
+    const e = await service.create(req, req.body, req.user.id);
     audit.record({ kind: 'employee.created', entity: 'user', entityId: e.id, payload: { role: e.role }, req });
     res.status(201).json(e);
   })
@@ -81,19 +81,19 @@ router.patch(
       supervisorIds: Joi.array().items(Joi.string()),
     }),
   }),
-  asyncHandler(async (req, res) => res.json(await service.update(req.params.id, req.body)))
+  asyncHandler(async (req, res) => res.json(await service.update(req, req.params.id, req.body)))
 );
 
 router.post(
   '/:id/suspend',
   requirePeopleAdmin,
-  asyncHandler(async (req, res) => res.json(await service.setStatus(req.params.id, 'SUSPENDED')))
+  asyncHandler(async (req, res) => res.json(await service.setStatus(req, req.params.id, 'SUSPENDED')))
 );
 
 router.post(
   '/:id/activate',
   requirePeopleAdmin,
-  asyncHandler(async (req, res) => res.json(await service.setStatus(req.params.id, 'ACTIVE')))
+  asyncHandler(async (req, res) => res.json(await service.setStatus(req, req.params.id, 'ACTIVE')))
 );
 
 router.delete(

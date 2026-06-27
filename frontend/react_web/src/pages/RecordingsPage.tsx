@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Disc3, Phone, Video, Download, Trash2 } from 'lucide-react';
+import { Disc3, Phone, Video, Download, Trash2, Building2 } from 'lucide-react';
 import dayjs from 'dayjs';
 import { api } from '@/services/api';
 import { useAuthStore } from '@/store/auth';
@@ -16,15 +17,18 @@ type Recording = {
   startedAt: string | null;
   endedAt: string | null;
   createdAt: string;
+  organisation?: { id: string; name: string; slug: string } | null;
 };
 
 export default function RecordingsPage() {
   const user = useAuthStore((s) => s.user);
+  const isPlatformAdmin = user?.role === 'SUPER_ADMIN';
+  const [scope, setScope] = useState<'org' | 'platform'>('org');
   const qc = useQueryClient();
   const { confirm, ConfirmRenderer } = useConfirm();
   const { data, isLoading, isError } = useQuery<{ items: Recording[]; total: number }>({
-    queryKey: ['recordings'],
-    queryFn: async () => (await api.get('/recordings')).data,
+    queryKey: ['recordings', scope],
+    queryFn: async () => (await api.get('/recordings', { params: { scope } })).data,
   });
   const deleteMut = useMutation({
     mutationFn: async (recording: Recording) =>
@@ -51,8 +55,31 @@ export default function RecordingsPage() {
       <header className="cl__head">
         <div>
           <h1 className="cl__title">Recordings</h1>
-          <p className="cl__sub">Saved audio from calls and meeting rooms across the workspace.</p>
+          <p className="cl__sub">
+            {scope === 'platform'
+              ? 'All organisations — platform view (super admin only).'
+              : 'Saved audio from calls and meetings in your organisation.'}
+          </p>
         </div>
+        {isPlatformAdmin && (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              type="button"
+              className={`cl__person${scope === 'org' ? ' cl__person--active' : ''}`}
+              onClick={() => setScope('org')}
+            >
+              My organisation
+            </button>
+            <button
+              type="button"
+              className={`cl__person${scope === 'platform' ? ' cl__person--active' : ''}`}
+              onClick={() => setScope('platform')}
+            >
+              <Building2 size={14} style={{ marginRight: 4, verticalAlign: -2 }} />
+              All organisations
+            </button>
+          </div>
+        )}
       </header>
 
       <div className="cl__list">
@@ -64,6 +91,11 @@ export default function RecordingsPage() {
             <div className="cl__row-body">
               <div className="cl__row-title">
                 {r.title} · <span className="cl__status">{r.source}</span>
+                {r.organisation && (
+                  <span className="cl__status" style={{ marginLeft: 8 }}>
+                    {r.organisation.name}
+                  </span>
+                )}
               </div>
               {!!r.participants.length && (
                 <div className="cl__row-people">{r.participants.join(', ')}</div>

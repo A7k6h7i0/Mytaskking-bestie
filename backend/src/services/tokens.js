@@ -12,6 +12,7 @@ function signAccessToken(user) {
       uid: user.userId,
       role: user.role,
       isClient: user.isClient,
+      tenantId: user.tenantId,
     },
     config.jwt.accessSecret,
     { expiresIn: config.jwt.accessTtl, issuer: 'bestie' }

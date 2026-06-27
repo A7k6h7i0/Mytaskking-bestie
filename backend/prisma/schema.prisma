@@ -32,7 +32,7 @@ enum UserStatus {
 
 model User {
   id              String     @id @default(cuid())
-  userId          String     @unique                       // login id assigned by admin
+  userId          String                                    // login id — unique per organisation
   passwordHash    String
   role            Role
   customTitle     String?
@@ -81,12 +81,14 @@ model User {
   workdayLogs     WorkdayLog[]
   announcements   Announcement[]     @relation("AnnouncementAuthor")
 
-  // multi-tenancy (nullable today; non-null after tenant migration)
-  tenantId        String?
+  // multi-tenancy — each organisation is an isolated workspace (Lark-style)
+  tenantId        String     @default("default")
+  tenant          Tenant     @relation(fields: [tenantId], references: [id])
 
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
+  @@unique([tenantId, userId])
   @@index([role])
   @@index([status])
   @@index([isClient])
@@ -122,9 +124,13 @@ model RefreshToken {
 
 model Department {
   id        String   @id @default(cuid())
-  name      String   @unique
+  name      String
+  tenantId  String   @default("default")
   members   User[]
   createdAt DateTime @default(now())
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
 }
 
 // ---------------------------------------------------------------------------
@@ -462,10 +468,12 @@ model Call {
   durationSeconds Int?                                  // validated talk duration (#7)
   recordingUrl  String?
   notes         String?
+  tenantId      String?
   createdAt     DateTime       @default(now())
 
   @@index([initiatorId])
   @@index([status])
+  @@index([tenantId])
 }
 
 model CallParticipant {
@@ -848,22 +856,24 @@ model FileDownload {
 }
 
 // ---------------------------------------------------------------------------
-// MULTI-TENANCY (forward-prepared; single tenant today)
-//
-// `tenantId` is added to all top-level resources as nullable so existing data
-// migrates trivially. The runtime helper `services/tenant.js` resolves the
-// current tenant from JWT claims and scopes every Prisma query when the
-// feature flag `multiTenant.enabled` is on.
+// MULTI-TENANCY — Lark-style isolated organisations on one platform.
 // ---------------------------------------------------------------------------
 
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+}
+
 model Tenant {
-  id          String   @id @default(cuid())
-  slug        String   @unique                          // "acme" -> acme.mytaskking.app
-  name        String
-  branding    Json?                                     // { logoUrl, primary, … }
-  storagePrefix String? @unique                         // R2/Cloudinary folder prefix
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String       @id @default(cuid())
+  slug          String       @unique                          // "digital-links" — used at login
+  name          String
+  status        TenantStatus @default(ACTIVE)
+  branding      Json?                                         // { logoUrl, primary, … }
+  storagePrefix String?      @unique                         // R2/Cloudinary folder prefix
+  users         User[]
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 }
 
 // ---------------------------------------------------------------------------

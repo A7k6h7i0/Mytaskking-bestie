@@ -2,6 +2,7 @@
 
 const prisma = require('../../database/prisma');
 const { NotFound, Forbidden } = require('../../utils/errors');
+const tenant = require('../../services/tenant');
 
 const taskInclude = {
   createdBy: { select: { id: true, name: true, avatarUrl: true, role: true, isClient: true } },
@@ -48,6 +49,7 @@ async function list({ user, status, assigneeId, q, page = 1, pageSize = 50, view
   await promoteDueScheduledTasks();
   const isAdmin = ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'PROJECT_COORDINATOR_MANAGER'].includes(user.role);
   const where = {
+    ...(tenant.MULTI_TENANT ? { tenantId: user.tenantId } : {}),
     ...(status ? { status } : {}),
     ...(assigneeId ? { assignees: { some: { userId: assigneeId } } } : {}),
     ...(q
@@ -133,6 +135,7 @@ async function create(input, creator) {
       createdById: creator.id,
       channelId: input.channelId || null,
       boardId: input.boardId || null,
+      tenantId: creator.tenantId,
       assignees: input.assigneeIds?.length
         ? { create: input.assigneeIds.map((uid) => ({ userId: uid })) }
         : undefined,

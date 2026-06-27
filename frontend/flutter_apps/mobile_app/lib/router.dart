@@ -26,6 +26,7 @@ import 'screens/attendance_screen.dart';
 import 'screens/task_detail_screen.dart';
 import 'screens/reports_screen.dart';
 import 'screens/recordings_screen.dart';
+import 'screens/organizations_screen.dart';
 import 'state.dart' hide ThemeMode;
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -89,8 +90,11 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/reports', builder: (_, __) => const ReportsScreen()),
       GoRoute(
           path: '/recordings', builder: (_, __) => const RecordingsScreen()),
+      GoRoute(
+          path: '/organizations',
+          builder: (_, __) => const OrganizationsScreen()),
 
-      // Chat detail lives OUTSIDE the shell so the bottom nav doesn't eat
+      // Chat detail lives OUTSIDE the shell
       // composer + keyboard space. Back arrow returns to the chat list.
       GoRoute(
         path: '/chat/:channelId',

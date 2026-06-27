@@ -18,6 +18,7 @@ class LoginScreen extends ConsumerStatefulWidget {
 }
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
+  final _tenantSlug = TextEditingController();
   final _userId = TextEditingController();
   final _password = TextEditingController();
   final _passwordFocus = FocusNode();
@@ -28,6 +29,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   void dispose() {
+    _tenantSlug.dispose();
     _userId.dispose();
     _password.dispose();
     _passwordFocus.dispose();
@@ -37,6 +39,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   Future<void> _submit() async {
     if (_loading) return;
     final userId = _userId.text.trim();
+    final tenantSlug = _tenantSlug.text.trim();
     if (userId.isEmpty || _password.text.isEmpty) {
       setState(() => _error = 'Enter your User ID and password to continue.');
       return;
@@ -48,7 +51,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     });
     try {
       final api = ref.read(apiProvider);
-      final requiresSelfie = await api.loginRequiresSelfie(userId);
+      final requiresSelfie =
+          await api.loginRequiresSelfie(userId, tenantSlug: tenantSlug.isEmpty ? null : tenantSlug);
       if (!mounted) return;
       if (requiresSelfie && _selfie == null) {
         final photo = await Navigator.of(context).push<Uint8List>(
@@ -102,6 +106,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       await api.login(
         userId: userId,
         password: _password.text,
+        tenantSlug: tenantSlug.isEmpty ? null : tenantSlug,
         selfieBase64: _selfie == null ? null : base64Encode(_selfie!),
         selfieMimeType: _selfie == null ? null : 'image/jpeg',
         latitude: latitude,
@@ -209,6 +214,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           StaggeredColumn(
                             stagger: const Duration(milliseconds: 60),
                             children: [
+                              BestieTextField(
+                                label: 'Organisation ID',
+                                controller: _tenantSlug,
+                                icon: Icons.business_outlined,
+                                hint: 'default or digital-links',
+                                textInputAction: TextInputAction.next,
+                                onSubmitted: (_) =>
+                                    FocusScope.of(context).nextFocus(),
+                              ),
                               BestieTextField(
                                 label: 'User ID',
                                 controller: _userId,

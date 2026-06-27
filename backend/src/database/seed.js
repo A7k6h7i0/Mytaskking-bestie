@@ -22,10 +22,16 @@ async function seedAttendanceConfig() {
 }
 
 async function main() {
+  const tenantService = require('../services/tenant');
+  await tenantService.ensureDefaultTenant();
   await seedAttendanceConfig();
 
   const userId = config.seed.superAdminUserId;
-  const existing = await prisma.user.findUnique({ where: { userId } });
+  const existing = await prisma.user.findUnique({
+    where: {
+      tenantId_userId: { tenantId: tenantService.DEFAULT_TENANT_ID, userId },
+    },
+  });
   if (existing) {
     logger.info({ userId }, 'seed.super_admin.exists');
     return;
@@ -39,6 +45,7 @@ async function main() {
       name: config.seed.superAdminName,
       isClient: false,
       status: 'ACTIVE',
+      tenantId: tenantService.DEFAULT_TENANT_ID,
     },
   });
   logger.info({ id: user.id, userId: user.userId }, 'seed.super_admin.created');

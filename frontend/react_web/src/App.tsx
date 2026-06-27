@@ -26,6 +26,7 @@ import RecordingsPage from '@/pages/RecordingsPage';
 import TalkTimePage from '@/pages/TalkTimePage';
 import LoginActivityPage from '@/pages/LoginActivityPage';
 import FlagsPage from '@/pages/FlagsPage';
+import OrganizationsPage from '@/pages/OrganizationsPage';
 import PermissionsPage from '@/pages/PermissionsPage';
 import { ToastHost } from '@/components/Toast';
 import { toast } from '@/components/Toast';
@@ -103,6 +104,10 @@ export default function App() {
           <Route
             path="/flags"
             element={<RoleGate allow={['SUPER_ADMIN', 'ADMIN']}><FlagsPage /></RoleGate>}
+          />
+          <Route
+            path="/organizations"
+            element={<RoleGate allow={['SUPER_ADMIN']}><OrganizationsPage /></RoleGate>}
           />
           <Route
             path="/permissions"

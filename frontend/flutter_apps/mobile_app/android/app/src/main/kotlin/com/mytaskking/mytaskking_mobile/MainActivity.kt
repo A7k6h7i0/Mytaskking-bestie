@@ -6,8 +6,12 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.media.AudioManager
+import android.media.ToneGenerator
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
@@ -20,6 +24,7 @@ class MainActivity : FlutterActivity() {
     private val callNotificationChannel = "mytaskking/call_notification"
     private val proximityMethodChannel = "mytaskking/proximity"
     private val proximityEventChannel = "mytaskking/proximity_events"
+    private val soundsChannel = "mytaskking/sounds"
     private var latestLaunchPayload: Map<String, String?>? = null
 
     private var sensorManager: SensorManager? = null
@@ -90,6 +95,20 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, soundsChannel)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "playCallEnded" -> {
+                        playCallEndedTone()
+                        result.success(null)
+                    }
+                    "playKeyTap" -> {
+                        playKeyTapTone()
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, proximityEventChannel)
             .setStreamHandler(object : EventChannel.StreamHandler {
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
@@ -122,6 +141,30 @@ class MainActivity : FlutterActivity() {
     }
 
     @Suppress("DEPRECATION")
+    private fun playCallEndedTone() {
+        val handler = Handler(Looper.getMainLooper())
+        try {
+            val tone = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 85)
+            tone.startTone(ToneGenerator.TONE_CDMA_ABBR_ALERT, 320)
+            handler.postDelayed({ tone.release() }, 380)
+        } catch (_: Exception) {}
+    }
+
+    private fun playKeyTapTone() {
+        val handler = Handler(Looper.getMainLooper())
+        try {
+            val tone = ToneGenerator(AudioManager.STREAM_MUSIC, 100)
+            tone.startTone(ToneGenerator.TONE_PROP_BEEP2, 70)
+            handler.postDelayed({ tone.release() }, 90)
+        } catch (_: Exception) {
+            try {
+                val am = getSystemService(AUDIO_SERVICE) as AudioManager
+                @Suppress("DEPRECATION")
+                am.playSoundEffect(AudioManager.FX_KEYPRESS_STANDARD, 1.0f)
+            } catch (_: Exception) {}
+        }
+    }
+
     private fun enableProximity() {
         disableProximity()
         val power = getSystemService(POWER_SERVICE) as PowerManager

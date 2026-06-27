@@ -3,10 +3,12 @@
 const prisma = require('../../database/prisma');
 const exotel = require('../../services/exotel');
 const config = require('../../config');
+const tenant = require('../../services/tenant');
 const { NotFound, BadRequest, Forbidden } = require('../../utils/errors');
 
 async function listLeads({ user, q, status, ownerId, page = 1, pageSize = 25 }) {
   const where = {
+    ...(tenant.MULTI_TENANT ? { tenantId: user.tenantId } : {}),
     ...(status ? { status } : {}),
     ...(ownerId ? { ownerId } : {}),
     ...(user.role === 'TELECALLER' ? { ownerId: user.id } : {}),
@@ -33,7 +35,7 @@ async function listLeads({ user, q, status, ownerId, page = 1, pageSize = 25 }) 
   return { total, page, pageSize, items };
 }
 
-async function getLead(id) {
+async function getLead(id, user) {
   const lead = await prisma.lead.findUnique({
     where: { id },
     include: {
@@ -42,6 +44,9 @@ async function getLead(id) {
     },
   });
   if (!lead) throw NotFound('Lead not found');
+  if (tenant.MULTI_TENANT && user && lead.tenantId !== user.tenantId) {
+    throw NotFound('Lead not found');
+  }
   return lead;
 }
 
@@ -57,13 +62,14 @@ async function createLead(input, creator) {
       source: input.source || null,
       notes: input.notes || null,
       tags: input.tags || [],
+      tenantId: creator.tenantId,
       nextFollowAt: input.nextFollowAt ? new Date(input.nextFollowAt) : null,
     },
   });
 }
 
 async function updateLead(id, input, user) {
-  const lead = await getLead(id);
+  const lead = await getLead(id, user);
   if (user.role === 'TELECALLER' && lead.ownerId !== user.id) throw Forbidden();
   const data = { ...input };
   if (data.nextFollowAt) data.nextFollowAt = new Date(data.nextFollowAt);
@@ -71,7 +77,7 @@ async function updateLead(id, input, user) {
 }
 
 async function clickToCall({ leadId, agent }) {
-  const lead = await getLead(leadId);
+  const lead = await getLead(leadId, agent);
   if (!lead.phone) throw BadRequest('Lead has no phone number');
   if (!agent.phone && !agent.email) throw BadRequest('Agent has no phone configured');
 

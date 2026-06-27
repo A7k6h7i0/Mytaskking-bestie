@@ -40,7 +40,7 @@ router.get(
 router.get(
   '/leads/:id',
   telecallerOrAdmin,
-  asyncHandler(async (req, res) => res.json(await service.getLead(req.params.id)))
+  asyncHandler(async (req, res) => res.json(await service.getLead(req.params.id, req.user)))
 );
 
 router.post(

@@ -7,40 +7,59 @@ const validate = require('../../middleware/validate');
 const { requireAuth, requireAdmin } = require('../../middleware/auth');
 const prisma = require('../../database/prisma');
 const audit = require('../../services/audit');
+const tenant = require('../../services/tenant');
 const { NotFound } = require('../../utils/errors');
 
 const router = Router();
 router.use(requireAuth, requireAdmin);
 
-// Unified recordings feed for the admin panel: every call and meeting room
-// that has a stored recordingUrl, newest first. Recordings are produced
-// client-side (mixed channel audio), uploaded as FileAssets, then attached
-// to the call/meeting via their /recording endpoints.
+function callWhere(req) {
+  const platformView =
+    tenant.isPlatformSuperAdmin(req.user) && req.query.scope === 'platform';
+  if (platformView) return { recordingUrl: { not: null } };
+  return tenant.scopedWhere(req, { recordingUrl: { not: null } });
+}
+
+function meetingWhere(req) {
+  const platformView =
+    tenant.isPlatformSuperAdmin(req.user) && req.query.scope === 'platform';
+  if (platformView) return { recordingUrl: { not: null } };
+  return tenant.scopedWhere(req, { recordingUrl: { not: null } });
+}
+
 router.get(
   '/',
   validate({
     query: Joi.object({
       page: Joi.number().integer().min(1).default(1),
       pageSize: Joi.number().integer().min(1).max(100).default(50),
+      scope: Joi.string().valid('org', 'platform').default('org'),
     }),
   }),
   asyncHandler(async (req, res) => {
     const { page, pageSize } = req.query;
+    const platformView =
+      tenant.isPlatformSuperAdmin(req.user) && req.query.scope === 'platform';
 
-    const [calls, meetings] = await Promise.all([
+    const [calls, meetings, tenants] = await Promise.all([
       prisma.call.findMany({
-        where: { recordingUrl: { not: null } },
+        where: callWhere(req),
         include: {
-          initiator: { select: { id: true, name: true } },
+          initiator: { select: { id: true, name: true, tenantId: true } },
           participants: { include: { user: { select: { id: true, name: true } } } },
         },
         orderBy: { createdAt: 'desc' },
       }),
       prisma.meetingRoom.findMany({
-        where: { recordingUrl: { not: null } },
+        where: meetingWhere(req),
         orderBy: { createdAt: 'desc' },
       }),
+      platformView
+        ? prisma.tenant.findMany({ select: { id: true, name: true, slug: true } })
+        : Promise.resolve([]),
     ]);
+
+    const tenantById = new Map(tenants.map((t) => [t.id, t]));
 
     const items = [
       ...calls.map((c) => ({
@@ -52,6 +71,10 @@ router.get(
         startedAt: c.startedAt,
         endedAt: c.endedAt,
         createdAt: c.createdAt,
+        tenantId: c.tenantId,
+        organisation: platformView
+          ? tenantById.get(c.tenantId) || null
+          : undefined,
       })),
       ...meetings.map((m) => ({
         id: m.id,
@@ -62,6 +85,10 @@ router.get(
         startedAt: m.scheduledAt,
         endedAt: m.endedAt,
         createdAt: m.createdAt,
+        tenantId: m.tenantId,
+        organisation: platformView
+          ? tenantById.get(m.tenantId) || null
+          : undefined,
       })),
     ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
@@ -69,7 +96,13 @@ router.get(
     const start = (page - 1) * pageSize;
     const pageItems = items.slice(start, start + pageSize);
 
-    res.json({ items: pageItems, total, page, pageSize });
+    res.json({
+      items: pageItems,
+      total,
+      page,
+      pageSize,
+      scope: platformView ? 'platform' : 'org',
+    });
   })
 );
 
@@ -83,13 +116,14 @@ router.delete(
   }),
   asyncHandler(async (req, res) => {
     const { source, id } = req.params;
+    const scoped = tenant.scopedWhere(req, { id, recordingUrl: { not: null } });
     const result = source === 'CALL'
       ? await prisma.call.updateMany({
-          where: { id, recordingUrl: { not: null } },
+          where: scoped,
           data: { recordingUrl: null },
         })
       : await prisma.meetingRoom.updateMany({
-          where: { id, recordingUrl: { not: null } },
+          where: scoped,
           data: { recordingUrl: null },
         });
 

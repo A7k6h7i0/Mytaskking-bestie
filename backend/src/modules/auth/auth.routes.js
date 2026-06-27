@@ -14,13 +14,17 @@ const router = Router();
 router.get(
   '/login-requirements',
   authLimiter,
-  validate({ query: Joi.object({ userId: Joi.string().trim().min(2).max(64).required() }) }),
+  validate({
+    query: Joi.object({
+      userId: Joi.string().trim().min(2).max(64).required(),
+      tenantSlug: Joi.string().trim().min(2).max(48).allow('', null),
+    }),
+  }),
   asyncHandler(async (req, res) => {
-    const user = await require('../../database/prisma').user.findUnique({
-      where: { userId: req.query.userId },
-      select: { role: true, isClient: true },
-    });
-    res.json({ requiresSelfie: authService.requiresLoginSelfie(user) });
+    res.json(await authService.loginRequirements({
+      userId: req.query.userId,
+      tenantSlug: req.query.tenantSlug || null,
+    }));
   })
 );
 
@@ -29,6 +33,7 @@ router.post(
   authLimiter,
   validate({
     body: Joi.object({
+      tenantSlug: Joi.string().trim().min(2).max(48).allow('', null),
       userId: Joi.string().trim().min(2).max(64).required(),
       password: Joi.string().min(6).max(200).required(),
       loginSource: Joi.string().valid('web', 'mobile').default('web'),
@@ -42,6 +47,7 @@ router.post(
   asyncHandler(async (req, res) => {
     try {
       const result = await authService.login({
+        tenantSlug: req.body.tenantSlug || null,
         userId: req.body.userId,
         password: req.body.password,
         userAgent: req.headers['user-agent'],
@@ -101,7 +107,7 @@ router.get(
   '/me',
   requireAuth,
   asyncHandler(async (req, res) => {
-    res.json({ user: authService.sanitize(req.user) });
+    res.json({ user: await authService.sanitizeWithTenant(req.user) });
   })
 );
 

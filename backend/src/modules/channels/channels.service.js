@@ -194,7 +194,11 @@ async function create(input, creator) {
     }
 
     const internalUsers = await prisma.user.findMany({
-      where: { isClient: false, status: 'ACTIVE' },
+      where: {
+        isClient: false,
+        status: 'ACTIVE',
+        tenantId: creator.tenantId,
+      },
       select: { id: true },
     });
     memberIds = Array.from(new Set([
@@ -204,7 +208,15 @@ async function create(input, creator) {
     ]));
   }
 
-  const members = await prisma.user.findMany({ where: { id: { in: memberIds } } });
+  const members = await prisma.user.findMany({
+    where: {
+      id: { in: memberIds },
+      tenantId: creator.tenantId,
+    },
+  });
+  if (members.length !== memberIds.length) {
+    throw BadRequest('All members must belong to your organisation');
+  }
   const hasClient = members.some((m) => m.isClient);
 
   if (hasClient && input.kind !== 'CLIENT') {
@@ -219,6 +231,7 @@ async function create(input, creator) {
       visibility: input.visibility || 'PRIVATE',
       isClientChannel: hasClient || input.kind === 'CLIENT',
       createdById: creator.id,
+      tenantId: creator.tenantId,
       members: {
         create: members.map((m) => ({
           userId: m.id,

@@ -2,7 +2,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   LayoutDashboard, MessageSquare, KanbanSquare, Users, UserCog, Phone, Headphones, Settings, LogOut, LogIn, Hash,
-  Activity, Calendar, Bookmark, Search, BarChart3, ShieldCheck, Zap, Video, Flag, KeyRound, Radio, PhoneIncoming, PhoneCall, Minimize2, Menu, FileText, Disc3, type LucideIcon,
+  Activity, Calendar, Bookmark, Search, BarChart3, ShieldCheck, Zap, Video, Flag, KeyRound, Radio, PhoneIncoming, PhoneCall, Minimize2, Menu, FileText, Disc3, Building2, type LucideIcon,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuthStore } from '@/store/auth';
@@ -23,7 +23,7 @@ import { PageTransition } from '@/components/PageTransition';
 import { Logo } from '@/components/Logo';
 import './workspace-layout.css';
 
-type NavItem = { to: string; label: string; icon: LucideIcon };
+type NavItem = { to: string; label: string; icon: LucideIcon; platformOnly?: boolean };
 type ChatMessageEvent = {
   id: string;
   channelId: string;
@@ -49,6 +49,7 @@ const NAV: NavItem[] = [
   { to: '/calls', label: 'Calls', icon: Phone },
   { to: '/meetings', label: 'Meetings', icon: Video },
   { to: '/recordings', label: 'Recordings', icon: Disc3 },
+  { to: '/organizations', label: 'Organisations', icon: Building2, platformOnly: true },
   { to: '/telecaller', label: 'Telecaller', icon: Headphones },
   { to: '/saved', label: 'Saved', icon: Bookmark },
   { to: '/employees', label: 'Employees', icon: Users },
@@ -67,7 +68,7 @@ const NAV: NavItem[] = [
 // Per-role visibility. Anything not listed is hidden for that role.
 const ALLOWED: Record<string, string[]> = {
   SUPER_ADMIN: NAV.map((n) => n.to),
-  ADMIN: NAV.map((n) => n.to),
+  ADMIN: NAV.filter((n) => !n.platformOnly).map((n) => n.to),
   MANAGER: ['/dashboard', '/chat', '/channels', '/tasks', '/reports', '/calendar', '/calls', '/meetings', '/saved', '/employees', '/sessions'],
   PROJECT_COORDINATOR_MANAGER: ['/dashboard', '/chat', '/channels', '/tasks', '/reports', '/calendar', '/calls', '/meetings', '/saved', '/employees', '/sessions'],
   EMPLOYEE: ['/dashboard', '/chat', '/channels', '/tasks', '/reports', '/calendar', '/calls', '/meetings', '/saved', '/employees', '/sessions'],

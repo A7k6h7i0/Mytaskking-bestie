@@ -2,10 +2,11 @@
 
 const prisma = require('../../database/prisma');
 const { hashPassword, sanitize } = require('../auth/auth.service');
+const tenant = require('../../services/tenant');
 const { NotFound, Conflict, BadRequest } = require('../../utils/errors');
 
-async function list({ q, status, page = 1, pageSize = 25 }) {
-  const where = {
+async function list(req, { q, status, page = 1, pageSize = 25 }) {
+  const where = tenant.scopedWhere(req, {
     isClient: true,
     ...(status ? { status } : {}),
     ...(q
@@ -17,7 +18,7 @@ async function list({ q, status, page = 1, pageSize = 25 }) {
           ],
         }
       : {}),
-  };
+  });
   const [total, items] = await prisma.$transaction([
     prisma.user.count({ where }),
     prisma.user.findMany({
@@ -30,18 +31,24 @@ async function list({ q, status, page = 1, pageSize = 25 }) {
   return { total, page, pageSize, items: items.map(sanitize) };
 }
 
-async function getById(id) {
+async function getById(req, id) {
   const u = await prisma.user.findUnique({ where: { id } });
   if (!u || !u.isClient) throw NotFound('Client not found');
+  if (tenant.MULTI_TENANT && u.tenantId !== tenant.resolveTenantId(req)) {
+    throw NotFound('Client not found');
+  }
   return sanitize(u);
 }
 
-async function create(input, createdById) {
+async function create(req, input, createdById) {
   if (input.accessEndsAt && input.accessStartsAt && new Date(input.accessEndsAt) <= new Date(input.accessStartsAt)) {
     throw BadRequest('accessEndsAt must be after accessStartsAt');
   }
-  const existing = await prisma.user.findUnique({ where: { userId: input.userId } });
-  if (existing) throw Conflict('userId already in use');
+  const tenantId = tenant.resolveTenantId(req);
+  const existing = await prisma.user.findUnique({
+    where: { tenantId_userId: { tenantId, userId: input.userId } },
+  });
+  if (existing) throw Conflict('userId already in use in this organisation');
 
   const passwordHash = await hashPassword(input.password);
   const user = await prisma.user.create({
@@ -57,13 +64,15 @@ async function create(input, createdById) {
       clientCompany: input.clientCompany || null,
       accessStartsAt: input.accessStartsAt ? new Date(input.accessStartsAt) : new Date(),
       accessEndsAt: input.accessEndsAt ? new Date(input.accessEndsAt) : null,
+      tenantId,
       createdById,
     },
   });
   return sanitize(user);
 }
 
-async function update(id, input) {
+async function update(req, id, input) {
+  await getById(req, id);
   const data = { ...input };
   if (input.password) data.passwordHash = await hashPassword(input.password);
   delete data.password;
@@ -78,17 +87,18 @@ async function update(id, input) {
   }
 }
 
-async function extendAccess(id, untilIso) {
+async function extendAccess(req, id, untilIso) {
   const until = new Date(untilIso);
   if (Number.isNaN(until.getTime())) throw BadRequest('Invalid date');
-  return update(id, { accessEndsAt: until, status: 'ACTIVE' });
+  return update(req, id, { accessEndsAt: until, status: 'ACTIVE' });
 }
 
-async function disable(id) {
-  return update(id, { status: 'SUSPENDED' });
+async function disable(req, id) {
+  return update(req, id, { status: 'SUSPENDED' });
 }
 
-async function remove(id) {
+async function remove(req, id) {
+  await getById(req, id);
   try {
     await prisma.user.delete({ where: { id } });
   } catch (e) {

@@ -241,6 +241,7 @@ async function initiate({ initiator, participantIds, kind = 'ONE_TO_ONE', channe
       status: 'RINGING',
       initiatorId: initiator.id,
       channelId,
+      tenantId: initiator.tenantId,
       participants: { create: all.map((uid) => ({ userId: uid })) },
     },
     include: callInclude,

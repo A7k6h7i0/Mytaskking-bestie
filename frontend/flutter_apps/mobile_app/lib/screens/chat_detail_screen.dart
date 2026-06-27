@@ -17,6 +17,7 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../call_event_text.dart';
+import '../app_sounds.dart';
 import '../chat_clear.dart';
 import '../chat_mute.dart';
 import '../state.dart';
@@ -2760,8 +2761,15 @@ class _ComposerState extends State<_Composer> {
   }
 
   void _onTextChanged() {
-    final has = widget.controller.text.trim().isNotEmpty;
+    final text = widget.controller.text;
+    final has = text.trim().isNotEmpty;
     if (has != _hasText) setState(() => _hasText = has);
+  }
+
+  void _onComposerKey(String _) {
+    if (!_focusNode.hasFocus) return;
+    HapticFeedback.selectionClick();
+    AppSounds.playKeyTap();
   }
 
   /// Bottom-sheet emoji picker. Inserts at the current cursor position so the
@@ -2891,6 +2899,7 @@ class _ComposerState extends State<_Composer> {
                 maxLines: 5,
                 textCapitalization: TextCapitalization.sentences,
                 style: TextStyle(color: colors.text),
+                onChanged: _onComposerKey,
                 decoration: InputDecoration(
                   isCollapsed: true,
                   contentPadding: const EdgeInsets.symmetric(vertical: 11),

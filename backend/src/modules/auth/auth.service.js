@@ -8,6 +8,7 @@ const sessions = require('../../services/sessions');
 const cloudinary = require('../../services/cloudinary');
 const r2 = require('../../services/r2');
 const logger = require('../../utils/logger');
+const tenantService = require('../../services/tenant');
 
 const SELFIE_ROLES = new Set(['MANAGER', 'PROJECT_COORDINATOR_MANAGER', 'EMPLOYEE', 'TELECALLER']);
 
@@ -59,6 +60,7 @@ async function storeLoginSelfie({ user, selfieBase64, selfieMimeType }) {
 }
 
 async function login({
+  tenantSlug,
   userId,
   password,
   userAgent,
@@ -71,7 +73,8 @@ async function login({
   longitude,
   address,
 }) {
-  const user = await prisma.user.findUnique({ where: { userId } });
+  const { tenant, user } = await tenantService.findUserForLogin({ tenantSlug, userId });
+  if (!tenant) throw Unauthorized('Organisation not found');
   if (!user) throw Unauthorized('Invalid credentials');
   if (user.status === 'SUSPENDED') throw Unauthorized('Account suspended');
 
@@ -101,7 +104,8 @@ async function login({
   }).catch(() => null);
 
   return {
-    user: sanitize(user),
+    user: await sanitizeWithTenant(user),
+    tenant: { id: tenant.id, slug: tenant.slug, name: tenant.name },
     accessToken,
     refreshToken,
     refreshExpiresAt: expiresAt,
@@ -131,7 +135,7 @@ async function refresh({ refreshToken, userAgent, ip, req }) {
     .catch(() => null);
 
   return {
-    user: sanitize(rotated.user),
+    user: await sanitizeWithTenant(rotated.user),
     accessToken,
     refreshToken: rotated.token,
     refreshExpiresAt: rotated.expiresAt,
@@ -173,6 +177,20 @@ function sanitize(user) {
   return safe;
 }
 
+async function sanitizeWithTenant(user) {
+  const safe = sanitize(user);
+  const t = await prisma.tenant.findUnique({
+    where: { id: user.tenantId },
+    select: { id: true, slug: true, name: true },
+  });
+  return { ...safe, tenant: t };
+}
+
+async function loginRequirements({ tenantSlug, userId }) {
+  const { user } = await tenantService.findUserForLogin({ tenantSlug, userId });
+  return { requiresSelfie: requiresLoginSelfie(user) };
+}
+
 module.exports = {
   login,
   refresh,
@@ -180,6 +198,8 @@ module.exports = {
   changePassword,
   updateProfile,
   requiresLoginSelfie,
+  loginRequirements,
   hashPassword,
   sanitize,
+  sanitizeWithTenant,
 };

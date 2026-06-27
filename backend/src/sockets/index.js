@@ -67,6 +67,9 @@ module.exports = function initSockets(server) {
     socket.join(`user:${userId}`);
     socket.join(userAppRoom(userId, clientApp));
     socket.join(`role:${socket.user.role}`);
+    if (socket.user.tenantId) {
+      socket.join(`tenant:${socket.user.tenantId}`);
+    }
 
     const connectedAt = new Date();
     if (!presence.has(userId)) {
@@ -161,6 +164,38 @@ module.exports = function initSockets(server) {
 
     socket.on('call.ringing.ack', ({ callId }) => {
       io.emit('call.ringing.ack', { callId, userId });
+    });
+
+    // Active speaker + screen-share state — Agora volume is local-only on some
+    // devices, so each client rebroadcasts who it detects / shares to peers.
+    async function fanoutToCallParticipants(callId, event, payload) {
+      if (!callId) return;
+      const parts = await prisma.callParticipant.findMany({
+        where: { callId, leftAt: null },
+        select: { userId: true },
+      });
+      for (const p of parts) {
+        if (p.userId === userId) continue;
+        io.to(`user:${p.userId}`).emit(event, payload);
+      }
+    }
+
+    socket.on('call.activeSpeaker', ({ callId, userId: speakerUserId }) => {
+      if (!callId) return;
+      fanoutToCallParticipants(callId, 'call.activeSpeaker', {
+        callId,
+        userId: speakerUserId || null,
+      }).catch(() => {});
+    });
+
+    socket.on('call.screenShare', ({ callId, active, agoraUid }) => {
+      if (!callId) return;
+      fanoutToCallParticipants(callId, 'call.screenShare', {
+        callId,
+        userId,
+        active: !!active,
+        agoraUid: Number(agoraUid) > 0 ? Number(agoraUid) : null,
+      }).catch(() => {});
     });
 
     socket.on('disconnect', () => {

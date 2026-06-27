@@ -22,10 +22,10 @@ router.get(
       pageSize: Joi.number().integer().min(1).max(100).default(25),
     }),
   }),
-  asyncHandler(async (req, res) => res.json(await service.list(req.query)))
+  asyncHandler(async (req, res) => res.json(await service.list(req, req.query)))
 );
 
-router.get('/:id', asyncHandler(async (req, res) => res.json(await service.getById(req.params.id))));
+router.get('/:id', asyncHandler(async (req, res) => res.json(await service.getById(req, req.params.id))));
 
 router.post(
   '/',
@@ -43,7 +43,7 @@ router.post(
     }),
   }),
   asyncHandler(async (req, res) => {
-    const c = await service.create(req.body, req.user.id);
+    const c = await service.create(req, req.body, req.user.id);
     audit.record({
       kind: 'client.created',
       entity: 'user',
@@ -70,27 +70,27 @@ router.patch(
       status: Joi.string().valid('ACTIVE', 'SUSPENDED'),
     }),
   }),
-  asyncHandler(async (req, res) => res.json(await service.update(req.params.id, req.body)))
+  asyncHandler(async (req, res) => res.json(await service.update(req, req.params.id, req.body)))
 );
 
 router.post(
   '/:id/extend',
   validate({ body: Joi.object({ accessEndsAt: Joi.date().iso().required() }) }),
   asyncHandler(async (req, res) => {
-    const c = await service.extendAccess(req.params.id, req.body.accessEndsAt);
+    const c = await service.extendAccess(req, req.params.id, req.body.accessEndsAt);
     audit.record({ kind: 'client.access_extended', entity: 'user', entityId: c.id, payload: { until: c.accessEndsAt }, req });
     res.json(c);
   })
 );
 
 router.post('/:id/disable', asyncHandler(async (req, res) => {
-  const c = await service.disable(req.params.id);
+  const c = await service.disable(req, req.params.id);
   audit.record({ kind: 'client.disabled', entity: 'user', entityId: c.id, req });
   res.json(c);
 }));
 
 router.delete('/:id', asyncHandler(async (req, res) => {
-  await service.remove(req.params.id);
+  await service.remove(req, req.params.id);
   audit.record({ kind: 'client.deleted', entity: 'user', entityId: req.params.id, req });
   res.status(204).end();
 }));

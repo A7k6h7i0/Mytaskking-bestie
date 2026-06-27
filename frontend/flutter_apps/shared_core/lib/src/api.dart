@@ -353,7 +353,29 @@ extension BestieApiExt on BestieApi {
   Future<Map<String, dynamic>> listRecordings({
     int page = 1,
     int pageSize = 50,
-  }) => get('/recordings', query: {'page': page, 'pageSize': pageSize});
+    String scope = 'org',
+  }) => get('/recordings', query: {
+        'page': page,
+        'pageSize': pageSize,
+        'scope': scope,
+      });
+
+  // ---- platform organisations (SUPER_ADMIN) ----
+  Future<List<Map<String, dynamic>>> listTenants() => get('/tenants').then(
+        (r) => List<Map<String, dynamic>>.from(r['items'] ?? const []),
+      );
+
+  Future<Map<String, dynamic>> createTenant(Map<String, dynamic> data) =>
+      post('/tenants', body: data);
+
+  Future<Map<String, dynamic>> updateTenant(
+    String id,
+    Map<String, dynamic> data,
+  ) async {
+    final r = await dio.patch('/tenants/$id', data: data);
+    return r.data as Map<String, dynamic>;
+  }
+
   Future<void> deleteRecording(String source, String id) async {
     await dio.delete('/recordings/${source.toUpperCase()}/$id');
   }

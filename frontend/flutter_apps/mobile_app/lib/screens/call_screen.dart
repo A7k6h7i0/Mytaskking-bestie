@@ -16,6 +16,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../active_call_state.dart';
+import '../app_sounds.dart';
 import '../call_proximity.dart';
 import '../call_screen_theme.dart';
 import '../router.dart';
@@ -94,6 +95,13 @@ class CallSession {
   /// Real Agora uid → backend userId (from call.announce). Used to match
   /// volume-indication uids to tiles and to drop duplicate self tiles.
   static final Map<int, String> agoraUidToUserId = {};
+
+  /// Local screen share active on this device.
+  static bool screenSharing = false;
+
+  /// Remote participant sharing their screen (Agora uid + userId).
+  static int? remoteScreenShareUid;
+  static String? remoteScreenShareUserId;
 
   /// Backend-tracked participants still in the call (userId → display name).
   /// Stable source of truth for the header count — Agora uid churn during
@@ -191,6 +199,9 @@ class CallSession {
     remoteNames.clear();
     remoteMuted.clear();
     agoraUidToUserId.clear();
+    screenSharing = false;
+    remoteScreenShareUid = null;
+    remoteScreenShareUserId = null;
     joinedParticipants.clear();
     callMeta = null;
     remotePeerName = null;
@@ -238,12 +249,22 @@ class _CallScreenState extends ConsumerState<CallScreen>
   String _status = 'Preparing…';
   // Peer Agora uids we've already seen announce — gates one-time re-announce.
   final Set<int> _seenPeerUids = {};
-  bool _sharing = false;
+  bool get _sharing => _CallSession.screenSharing;
+  set _sharing(bool v) => _CallSession.screenSharing = v;
+  int? get _remoteScreenShareUid => _CallSession.remoteScreenShareUid;
+  set _remoteScreenShareUid(int? v) => _CallSession.remoteScreenShareUid = v;
+  String? get _remoteScreenShareUserId => _CallSession.remoteScreenShareUserId;
+  set _remoteScreenShareUserId(String? v) =>
+      _CallSession.remoteScreenShareUserId = v;
+  String? _syncedActiveSpeakerUserId;
+  Timer? _speakerEmitTimer;
+  String? _lastEmittedSpeakerUserId;
   bool _reconnecting = false;
   String? _error;
   Map<String, dynamic>? _callMeta;
   final List<void Function()> _callUnsubs = [];
   bool _remoteClosed = false;
+  bool _hangingUp = false;
   Timer? _timer;
   Timer? _audioHealthTimer;
   Timer? _tokenRefreshTimer;
@@ -264,7 +285,6 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   /// Agora uid of the loudest current speaker (0 = local) — WhatsApp-style tile border.
   int? _activeSpeakerUid;
-  static const _kSpeakingVolumeThreshold = 10;
   static const _kSpeakingBorderColor = Color(0xFFE8A060);
 
   bool get _isVideo => _videoEnabled;
@@ -330,6 +350,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     _timer?.cancel();
     _audioHealthTimer?.cancel();
     _tokenRefreshTimer?.cancel();
+    _speakerEmitTimer?.cancel();
     _cancelOutgoingRingTimeout();
     _ringtone.stop();
     _tonePlayer.dispose();
@@ -451,6 +472,35 @@ class _CallScreenState extends ConsumerState<CallScreen>
     _callUnsubs.add(rt.onAny('call.participant.left', ([data]) {
       if (data is! Map || data['callId'] != callId) return;
       _scheduleParticipantLeave(data['userId']?.toString());
+    }));
+    _callUnsubs.add(rt.onAny('call.signal', ([data]) {
+      if (data is! Map) return;
+      final payload = (data['payload'] as Map?)?.cast<String, dynamic>();
+      if (payload == null) return;
+      final enriched = Map<String, dynamic>.from(payload);
+      if (enriched['fromUserId'] == null && data['from'] != null) {
+        enriched['fromUserId'] = data['from'];
+      }
+      _handleCallSignalPayload(enriched);
+    }));
+    // Legacy handlers if backend is updated later.
+    _callUnsubs.add(rt.onAny('call.activeSpeaker', ([data]) {
+      if (data is! Map || data['callId'] != callId) return;
+      _handleCallSignalPayload({
+        'callId': callId,
+        'type': 'activeSpeaker',
+        'userId': data['userId'],
+      });
+    }));
+    _callUnsubs.add(rt.onAny('call.screenShare', ([data]) {
+      if (data is! Map || data['callId'] != callId) return;
+      _handleCallSignalPayload({
+        'callId': callId,
+        'type': 'screenShare',
+        'userId': data['userId'],
+        'active': data['active'],
+        'agoraUid': data['agoraUid'],
+      });
     }));
     _callUnsubs.add(rt.onAny('call.participant.muted', ([data]) {
       if (data is! Map || data['callId'] != callId) return;
@@ -673,6 +723,109 @@ class _CallScreenState extends ConsumerState<CallScreen>
     return null;
   }
 
+  String? _userIdForAgoraUid(int uid) {
+    if (_isAgoraUidLocal(uid)) {
+      return ref.read(authStoreProvider).user?.id;
+    }
+    return _agoraUidToUserId[uid];
+  }
+
+  void _emitActiveSpeaker(String? userId) {
+    if (userId == _lastEmittedSpeakerUserId) return;
+    _lastEmittedSpeakerUserId = userId;
+    final meId = ref.read(authStoreProvider).user?.id;
+    _broadcastCallSignal({
+      'type': 'activeSpeaker',
+      'userId': userId,
+      'fromUserId': meId,
+    });
+  }
+
+  void _scheduleActiveSpeakerEmit(String? userId) {
+    _speakerEmitTimer?.cancel();
+    _speakerEmitTimer = Timer(const Duration(milliseconds: 120), () {
+      _emitActiveSpeaker(userId);
+    });
+  }
+
+  void _emitScreenShareState({required bool active}) {
+    final meId = ref.read(authStoreProvider).user?.id;
+    _broadcastCallSignal({
+      'type': 'screenShare',
+      'active': active,
+      'agoraUid': active ? _CallSession.myUid : null,
+      'fromUserId': meId,
+    });
+  }
+
+  /// Uses the existing production `call.signal` socket — no new backend deploy.
+  void _broadcastCallSignal(Map<String, dynamic> payload) {
+    final callId = widget.callId;
+    if (callId == null) return;
+    final meId = ref.read(authStoreProvider).user?.id;
+    final envelope = {...payload, 'callId': callId};
+    final rt = ref.read(realtimeProvider);
+    for (final peerId in _joinedParticipants.keys) {
+      if (peerId == meId) continue;
+      rt.emit('call.signal', {'to': peerId, 'payload': envelope});
+    }
+  }
+
+  void _handleCallSignalPayload(Map<String, dynamic> payload) {
+    final callId = widget.callId;
+    if (callId == null || payload['callId'] != callId) return;
+    final type = payload['type']?.toString();
+    if (type == 'activeSpeaker') {
+      final speakerId = payload['userId']?.toString();
+      if (mounted) {
+        setState(() => _syncedActiveSpeakerUserId =
+            speakerId != null && speakerId.isNotEmpty ? speakerId : null);
+      }
+      return;
+    }
+    if (type == 'screenShare') {
+      final sharerId = payload['fromUserId']?.toString() ??
+          payload['userId']?.toString();
+      final me = ref.read(authStoreProvider).user;
+      if (sharerId != null && sharerId == me?.id) return;
+      final active = payload['active'] == true;
+      final uidRaw = payload['agoraUid'];
+      final uid = uidRaw is int ? uidRaw : int.tryParse('$uidRaw');
+      if (!mounted) return;
+      setState(() {
+        if (active && uid != null && uid > 0) {
+          _remoteScreenShareUid = uid;
+          _remoteScreenShareUserId = sharerId;
+          if (sharerId != null) {
+            _remoteUids.add(uid);
+            _agoraUidToUserId[uid] = sharerId;
+          }
+        } else if (sharerId == null ||
+            sharerId == _remoteScreenShareUserId) {
+          _remoteScreenShareUid = null;
+          _remoteScreenShareUserId = null;
+        }
+      });
+      if (active && uid != null) {
+        unawaited(_ensureRemoteVideoSubscribed(uid));
+      }
+    }
+  }
+
+  Future<void> _ensureRemoteVideoSubscribed(int uid) async {
+    final engine = _engine;
+    if (engine == null) return;
+    try {
+      await engine.muteRemoteVideoStream(uid: uid, mute: false);
+      await engine.muteAllRemoteVideoStreams(false);
+    } catch (_) {}
+  }
+
+  Future<void> _playCallEndedSound() async {
+    await AppSounds.playCallEnded();
+    await Future<void>.delayed(const Duration(milliseconds: 320));
+  }
+
   bool _isAgoraUidLocal(int uid) =>
       uid == 0 || uid == _CallSession.myUid;
 
@@ -736,7 +889,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
     required String? userId,
     required bool muted,
   }) {
-    if (muted || _activeSpeakerUid == null) return false;
+    if (muted) return false;
+    if (userId != null &&
+        _syncedActiveSpeakerUserId != null &&
+        userId == _syncedActiveSpeakerUserId) {
+      return true;
+    }
+    if (_activeSpeakerUid == null) return false;
     final active = _activeSpeakerUid!;
     if (isLocal) return _isAgoraUidLocal(active);
     final activeUserId = _agoraUidToUserId[active];
@@ -751,13 +910,14 @@ class _CallScreenState extends ConsumerState<CallScreen>
       if (_activeSpeakerUid != null && mounted) {
         setState(() => _activeSpeakerUid = null);
       }
+      _scheduleActiveSpeakerEmit(null);
       return;
     }
     int? loudest;
     var loudestVol = 0;
     for (final s in speakers) {
       final vol = s.volume ?? 0;
-      if (vol < _kSpeakingVolumeThreshold) continue;
+      if (vol <= 0) continue;
       final uid = s.uid ?? 0;
       final muted = _isAgoraUidLocal(uid)
           ? _muted
@@ -768,6 +928,14 @@ class _CallScreenState extends ConsumerState<CallScreen>
         loudest = uid;
       }
     }
+    // Relative threshold — remote levels are often quieter than local.
+    final minVol = loudestVol >= 25 ? 8 : 3;
+    if (loudestVol < minVol) loudest = null;
+
+    final speakerUserId =
+        loudest != null ? _userIdForAgoraUid(loudest) : null;
+    _scheduleActiveSpeakerEmit(speakerUserId);
+
     if (_activeSpeakerUid != loudest && mounted) {
       setState(() => _activeSpeakerUid = loudest);
     }
@@ -797,8 +965,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
   Future<void> _endBecauseRemoteClosed([Map<String, dynamic>? data]) async {
     if (_remoteClosed) return;
     _remoteClosed = true;
+    _hangingUp = true;
     _cancelOutgoingRingTimeout();
     await _stopRingback();
+    unawaited(_playCallEndedSound());
     await _teardown(notifyServer: false);
     if (!mounted) return;
     final status = data?['status']?.toString();
@@ -807,13 +977,15 @@ class _CallScreenState extends ConsumerState<CallScreen>
         : status == 'DECLINED'
             ? 'The other person declined the call.'
             : 'The other person left the call.';
-    bestieToast(
-      context,
-      status == 'MISSED' ? 'No answer' : 'Call ended',
-      body: body,
-      kind: BestieToastKind.info,
-    );
     context.go('/chat');
+    if (mounted) {
+      bestieToast(
+        context,
+        status == 'MISSED' ? 'No answer' : 'Call ended',
+        body: body,
+        kind: BestieToastKind.info,
+      );
+    }
   }
 
   void _startTimer() {
@@ -1040,6 +1212,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
     await _stopRingback();
     await _tts.stop();
     _connectedAt = null;
+    _syncedActiveSpeakerUserId = null;
+    _lastEmittedSpeakerUserId = null;
     ActiveCallState.clear();
     await _hideOngoingCallNotification();
   }
@@ -1079,6 +1253,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
           _remoteUids.add(remoteUid);
           _reconnecting = false;
         });
+        unawaited(_ensureRemoteVideoSubscribed(remoteUid));
         // During outbound ringing, Agora uid alone is NOT proof the callee
         // picked up — wait for server call.participant.joined (see onPresence).
         if (_waitingForAnswer) return;
@@ -1102,6 +1277,41 @@ class _CallScreenState extends ConsumerState<CallScreen>
       onAudioVolumeIndication: (conn, speakers, speakerNumber, totalVolume) {
         if (!mounted) return;
         _updateActiveSpeaker(speakers);
+      },
+      onVideoSizeChanged: (conn, sourceType, uid, width, height, rotation) {
+        if (!mounted) return;
+        final isScreen = sourceType == VideoSourceType.videoSourceScreenPrimary ||
+            sourceType == VideoSourceType.videoSourceScreen;
+        if (!isScreen) return;
+        setState(() {
+          if (width > 0 && height > 0) {
+            if (uid == 0 || uid == _CallSession.myUid) {
+              _sharing = true;
+            } else {
+              _remoteScreenShareUid = uid;
+              _remoteScreenShareUserId = _agoraUidToUserId[uid];
+            }
+          } else if (uid == 0 || uid == _CallSession.myUid) {
+            _sharing = false;
+          } else if (uid == _remoteScreenShareUid) {
+            _remoteScreenShareUid = null;
+            _remoteScreenShareUserId = null;
+          }
+        });
+        if (width > 0 && height > 0 && uid != 0) {
+          unawaited(_ensureRemoteVideoSubscribed(uid));
+        }
+      },
+      onLocalVideoStateChanged: (source, state, reason) {
+        if (!mounted) return;
+        final isScreen = source == VideoSourceType.videoSourceScreenPrimary ||
+            source == VideoSourceType.videoSourceScreen;
+        if (!isScreen) return;
+        if (state == LocalVideoStreamState.localVideoStreamStateStopped ||
+            state == LocalVideoStreamState.localVideoStreamStateFailed) {
+          setState(() => _sharing = false);
+          _emitScreenShareState(active: false);
+        }
       },
       onUserMuteAudio: (conn, remoteUid, muted) {
         if (mounted) {
@@ -1563,6 +1773,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
         step = 'start-preview';
         await engine.startPreview();
+      } else {
+        // Voice calls still need the video module so screen-share tracks
+        // can be published and received (camera stays off).
+        try {
+          await engine.enableVideo();
+        } catch (_) {}
       }
 
       step = 'client-role';
@@ -1921,11 +2137,15 @@ class _CallScreenState extends ConsumerState<CallScreen>
           publishCameraTrack: _isVideo && !_cameraOff,
         ));
         setState(() => _sharing = false);
+        _emitScreenShareState(active: false);
         if (mounted) {
           bestieToast(context, 'Screen share stopped',
               kind: BestieToastKind.info);
         }
       } else {
+        try {
+          await _engine!.enableVideo();
+        } catch (_) {}
         await _engine!.startScreenCapture(const ScreenCaptureParameters2(
           captureVideo: true,
           captureAudio: true,
@@ -1933,10 +2153,16 @@ class _CallScreenState extends ConsumerState<CallScreen>
         await _engine!.updateChannelMediaOptions(ChannelMediaOptions(
           publishScreenCaptureVideo: true,
           publishScreenCaptureAudio: true,
+          publishScreenTrack: true,
           publishCameraTrack: _isVideo && !_cameraOff,
           clientRoleType: ClientRoleType.clientRoleBroadcaster,
+          autoSubscribeVideo: true,
         ));
         setState(() => _sharing = true);
+        _emitScreenShareState(active: true);
+        for (final uid in _remoteUids) {
+          unawaited(_ensureRemoteVideoSubscribed(uid));
+        }
         if (mounted) {
           bestieToast(context, 'Sharing your screen',
               kind: BestieToastKind.success);
@@ -2272,9 +2498,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   Future<void> _hangup() async {
-    // _teardown flushes any in-progress recording before releasing the engine.
-    await _teardown();
+    if (_hangingUp) return;
+    _hangingUp = true;
+    if (mounted) setState(() {});
+    unawaited(_playCallEndedSound());
     if (mounted) context.go('/chat');
+    await _teardown();
   }
 
   void _minimize() {
@@ -2294,7 +2523,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
     // WhatsApp-style: outgoing video shows your camera full-screen while ringing.
     final showingVideo =
         _isVideo && (_remoteUids.isNotEmpty || _waitingForAnswer);
-    final useExactVoicePrototype = !_isVideo &&
+    final screenShareActive =
+        _sharing || _remoteScreenShareUid != null;
+    final isPremiumOneToOneVoice = !_isVideo &&
         !_isMeeting &&
         !showingVideo &&
         !_useWhatsAppParticipantGrid &&
@@ -2309,9 +2540,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
         body: Stack(
           fit: StackFit.expand,
           children: [
-            useExactVoicePrototype
-                ? _exactPrototypeVoiceBody()
-                : Stack(children: [
+            if (isPremiumOneToOneVoice)
+              (screenShareActive
+                  ? _premiumVoiceScreenShareBody()
+                  : _exactPrototypeVoiceBody())
+            else
+              Stack(children: [
                 // Depth backdrop — a soft vertical gradient so voice calls aren't a
                 // flat black void (WhatsApp does the same). Hidden once real remote
                 // video fills the screen.
@@ -2319,8 +2553,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
                   const Positioned.fill(child: _FuturisticCallBackdrop()),
                 Positioned.fill(child: _remoteSurface()),
 
-                // Top scrim for header legibility over video.
-                if (showingVideo)
+                // Top scrim for header legibility over video / screen share.
+                if (showingVideo || screenShareActive)
                   Positioned(
                     top: 0,
                     left: 0,
@@ -2341,8 +2575,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
                       ),
                     ),
                   ),
-                // Bottom scrim for control legibility over video.
-                if (showingVideo)
+                // Bottom scrim for control legibility over video / screen share.
+                if (showingVideo || screenShareActive)
                   Positioned(
                     bottom: 0,
                     left: 0,
@@ -2403,8 +2637,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
                 Positioned(
                     top: topInset + 8, left: 8, right: 8, child: _header()),
-                // Premium status chips — 1:1 voice only (hidden in group calls).
-                if (!_isMeeting && !showingVideo && !_useWhatsAppParticipantGrid)
+                // Premium status chips — 1:1 voice only (hidden during screen share).
+                if (!_isMeeting &&
+                    !showingVideo &&
+                    !screenShareActive &&
+                    !_useWhatsAppParticipantGrid)
                   Positioned(
                     top: topInset + 58,
                     left: 16,
@@ -2448,7 +2685,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
                     ),
                   ),
                 // Network trouble — compact pill for group calls; full banner for 1:1.
-                if (_reconnecting && _error == null)
+                if (_reconnecting && _error == null && _joined && !_hangingUp)
                   Positioned(
                     top: topInset +
                         (_useWhatsAppParticipantGrid
@@ -2520,12 +2757,19 @@ class _CallScreenState extends ConsumerState<CallScreen>
   Widget _exactPrototypeVoiceBody() {
     final remoteName = _primaryRemoteDisplayName();
     final subtitle = _primaryRemoteSubtitle();
-    final timerLine = _connectedAt != null ? _formatElapsed(_elapsed) : _status;
-    final timerColor = _connectedAt != null
-        ? CallScreenUiColors.neonGreen
-        : _status.toLowerCase().contains('ring')
-            ? const Color(0xFFFFB020)
-            : CallScreenUiColors.textPrimary;
+    final ending = _hangingUp || !_joined;
+    final timerLine = ending
+        ? 'Ending call…'
+        : (_connectedAt != null ? _formatElapsed(_elapsed) : _status);
+    final timerColor = ending
+        ? CallScreenUiColors.textMuted
+        : (_connectedAt != null
+            ? CallScreenUiColors.neonGreen
+            : _status.toLowerCase().contains('ring')
+                ? const Color(0xFFFFB020)
+                : CallScreenUiColors.textPrimary);
+    final showReconnect =
+        _reconnecting && _error == null && _joined && !_hangingUp;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -2544,54 +2788,55 @@ class _CallScreenState extends ConsumerState<CallScreen>
               stops: [0.0, 0.45, 1.0],
             ),
           ),
-          child: Center(
-            child: FittedBox(
-              fit: BoxFit.contain,
-              child: SizedBox(
-                width: 390,
-                height: 844,
-                child: SafeArea(
-                  bottom: false,
+          child: SafeArea(
+            child: Column(
+              children: [
+                _callHeader(),
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: _topChips(),
+                ),
+                if (showReconnect) ...[
+                  const SizedBox(height: 6),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: _PrototypeReconnectBanner(),
+                  ),
+                ],
+                const SizedBox(height: 4),
+                Text(
+                  timerLine,
+                  style: TextStyle(
+                    color: timerColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1.5,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Expanded(
                   child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      _callHeader(),
-                      const SizedBox(height: 12),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: _topChips(),
-                      ),
-                      if (_reconnecting && _error == null) ...[
-                        const SizedBox(height: 8),
-                        const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 16),
-                          child: _PrototypeReconnectBanner(),
-                        ),
-                      ],
-                      const SizedBox(height: 6),
-                      Text(
-                        timerLine,
-                        style: TextStyle(
-                          color: timerColor,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 1.5,
-                          fontFeatures: const [FontFeature.tabularFigures()],
-                        ),
-                      ),
-                      const SizedBox(height: 12),
                       _CallUiAvatarStage(
                         name: remoteName,
                         imageUrl: _primaryRemoteAvatarUrl(),
-                        connected: _connectedAt != null,
-                        height: 218,
+                        connected: _connectedAt != null && !ending,
+                        height: 200,
                       ),
-                      const SizedBox(height: 3),
+                      const SizedBox(height: 6),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 24),
                         child: Column(
                           children: [
-                            const Text('Active call', style: _activeCallLabelStyle),
-                            const SizedBox(height: 4),
+                            if (!ending)
+                              const Text(
+                                'Active call',
+                                style: _activeCallLabelStyle,
+                              ),
+                            if (!ending) const SizedBox(height: 4),
                             Text(
                               remoteName,
                               maxLines: 1,
@@ -2633,16 +2878,138 @@ class _CallScreenState extends ConsumerState<CallScreen>
                           ],
                         ),
                       ),
-                      const Spacer(),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 18),
-                        child: _premiumCallControlsCore(),
-                      ),
-                      const SizedBox(height: 14),
                     ],
                   ),
                 ),
-              ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 8),
+                  child: _premiumCallControlsCore(),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Premium 1:1 voice layout while screen sharing — same column structure as
+  /// [_exactPrototypeVoiceBody] so controls/header don't stack on top of video.
+  Widget _premiumVoiceScreenShareBody() {
+    final isLocal = _sharing;
+    final remoteUid = _remoteScreenShareUid;
+    final shareLabel = isLocal
+        ? 'You are sharing your screen'
+        : '${_remoteNames[remoteUid] ?? _primaryRemoteDisplayName()} is sharing their screen';
+    final ending = _hangingUp || !_joined;
+    final timerLine = ending
+        ? 'Ending call…'
+        : (_connectedAt != null ? _formatElapsed(_elapsed) : _status);
+    final timerColor = ending
+        ? CallScreenUiColors.textMuted
+        : (_connectedAt != null
+            ? CallScreenUiColors.neonGreen
+            : _status.toLowerCase().contains('ring')
+                ? const Color(0xFFFFB020)
+                : CallScreenUiColors.textPrimary);
+    final showReconnect =
+        _reconnecting && _error == null && _joined && !_hangingUp;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Container(
+          width: constraints.maxWidth,
+          height: constraints.maxHeight,
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                CallScreenUiColors.backgroundTop,
+                CallScreenUiColors.backgroundMid,
+                CallScreenUiColors.backgroundBottom,
+              ],
+              stops: [0.0, 0.45, 1.0],
+            ),
+          ),
+          child: SafeArea(
+            child: Column(
+              children: [
+                _callHeader(),
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.42),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.white24),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.screen_share_rounded,
+                            color: Colors.white70, size: 16),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            shareLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                if (showReconnect) ...[
+                  const SizedBox(height: 6),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: _PrototypeReconnectBanner(),
+                  ),
+                ],
+                const SizedBox(height: 6),
+                Text(
+                  timerLine,
+                  style: TextStyle(
+                    color: timerColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1.5,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.35),
+                          border: Border.all(color: Colors.white12),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: _screenShareVideo(),
+                      ),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 8),
+                  child: _premiumCallControlsCore(),
+                ),
+              ],
             ),
           ),
         );
@@ -3603,7 +3970,136 @@ class _CallScreenState extends ConsumerState<CallScreen>
     );
   }
 
+  Widget _screenShareVideo() {
+    final engine = _engine;
+    if (engine == null) {
+      return const Center(
+        child: Text(
+          'Connecting to shared screen…',
+          style: TextStyle(color: Colors.white70),
+        ),
+      );
+    }
+    final isLocal = _sharing;
+    final remoteUid = _remoteScreenShareUid;
+    const screenSource = VideoSourceType.videoSourceScreenPrimary;
+
+    if (isLocal) {
+      // Local screen-capture preview is often blank on Android — show status
+      // instead of an empty black panel while others see the real share.
+      return Container(
+        color: Colors.black.withValues(alpha: 0.28),
+        alignment: Alignment.center,
+        child: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.screen_share_rounded, size: 44, color: Colors.white54),
+            SizedBox(height: 10),
+            Text(
+              'Your screen is being shared',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            SizedBox(height: 4),
+            Text(
+              'Others can see your display',
+              style: TextStyle(color: Colors.white60, fontSize: 13),
+            ),
+          ],
+        ),
+      );
+    }
+    if (remoteUid != null) {
+      return AgoraVideoView(
+        controller: VideoViewController.remote(
+          rtcEngine: engine,
+          canvas: VideoCanvas(
+            uid: remoteUid,
+            sourceType: screenSource,
+            renderMode: RenderModeType.renderModeFit,
+          ),
+          connection: RtcConnection(channelId: _channelName ?? ''),
+        ),
+      );
+    }
+    return const Center(
+      child: Text(
+        'Connecting to shared screen…',
+        style: TextStyle(color: Colors.white70),
+      ),
+    );
+  }
+
+  Widget _screenShareSurface() {
+    final topInset = MediaQuery.paddingOf(context).top;
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+    final isLocal = _sharing;
+    final remoteUid = _remoteScreenShareUid;
+    final label = isLocal
+        ? 'You are sharing your screen'
+        : '${_remoteNames[remoteUid] ?? 'Participant'} is sharing their screen';
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        _screenShareVideo(),
+        Positioned(
+          top: topInset + 56,
+          left: 16,
+          right: 16,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.white24),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.screen_share_rounded,
+                      color: Colors.white70, size: 18),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        if (!isLocal && _useWhatsAppParticipantGrid)
+          Positioned(
+            left: 8,
+            right: 8,
+            bottom: bottomInset + 112,
+            height: 120,
+            child: Opacity(
+              opacity: 0.92,
+              child: _whatsappParticipantGrid(),
+            ),
+          ),
+      ],
+    );
+  }
+
   Widget _remoteSurface() {
+    if (_sharing || _remoteScreenShareUid != null) {
+      return _screenShareSurface();
+    }
     if (_error != null && !(_joined && _engine != null)) {
       return Center(
         child: Padding(

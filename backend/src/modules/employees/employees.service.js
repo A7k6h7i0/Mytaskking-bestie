@@ -2,10 +2,11 @@
 
 const prisma = require('../../database/prisma');
 const { hashPassword, sanitize } = require('../auth/auth.service');
+const tenant = require('../../services/tenant');
 const { NotFound, Conflict, Forbidden, BadRequest } = require('../../utils/errors');
 
-async function list({ q, role, status, page = 1, pageSize = 25 }) {
-  const where = {
+async function list(req, { q, role, status, page = 1, pageSize = 25 }) {
+  const where = tenant.scopedWhere(req, {
     isClient: false,
     ...(role ? { role } : { role: { not: 'SUPER_ADMIN' } }),
     ...(status ? { status } : {}),
@@ -18,7 +19,7 @@ async function list({ q, role, status, page = 1, pageSize = 25 }) {
           ],
         }
       : {}),
-  };
+  });
   const [total, items] = await prisma.$transaction([
     prisma.user.count({ where }),
     prisma.user.findMany({
@@ -50,7 +51,7 @@ async function list({ q, role, status, page = 1, pageSize = 25 }) {
   return { total, page, pageSize, items: items.map(sanitize) };
 }
 
-async function getById(id) {
+async function getById(req, id) {
   const u = await prisma.user.findUnique({
     where: { id },
     include: {
@@ -74,15 +75,23 @@ async function getById(id) {
     },
   });
   if (!u || u.isClient || u.role === 'SUPER_ADMIN') throw NotFound('Employee not found');
+  if (tenant.MULTI_TENANT && u.tenantId !== tenant.resolveTenantId(req)) {
+    throw NotFound('Employee not found');
+  }
   return sanitize(u);
 }
 
-async function create(input, createdById) {
-  const existing = await prisma.user.findUnique({ where: { userId: input.userId } });
-  if (existing) throw Conflict('userId already in use');
+async function create(req, input, createdById) {
+  const tenantId = tenant.resolveTenantId(req);
+  const existing = await prisma.user.findUnique({
+    where: { tenantId_userId: { tenantId, userId: input.userId } },
+  });
+  if (existing) throw Conflict('userId already in use in this organisation');
 
   const passwordHash = await hashPassword(input.password);
   const supervisorIds = Array.from(new Set((input.supervisorIds || []).filter(Boolean)));
+  await tenant.filterUserIdsInTenant(req, supervisorIds);
+
   const user = await prisma.$transaction(async (tx) => {
     const created = await tx.user.create({
       data: {
@@ -96,6 +105,7 @@ async function create(input, createdById) {
         avatarUrl: input.avatarUrl || null,
         departmentId: input.departmentId || null,
         isClient: false,
+        tenantId,
         createdById,
       },
     });
@@ -133,12 +143,26 @@ async function create(input, createdById) {
   return sanitize(user);
 }
 
-async function update(id, input) {
+async function update(req, id, input) {
+  await getById(req, id);
   const data = { ...input };
   if (input.password) data.passwordHash = await hashPassword(input.password);
   delete data.password;
   const supervisorIds = data.supervisorIds;
   delete data.supervisorIds;
+
+  if (input.userId) {
+    const tenantId = tenant.resolveTenantId(req);
+    const clash = await prisma.user.findUnique({
+      where: { tenantId_userId: { tenantId, userId: input.userId } },
+    });
+    if (clash && clash.id !== id) throw Conflict('userId already in use in this organisation');
+  }
+
+  if (Array.isArray(supervisorIds)) {
+    await tenant.filterUserIdsInTenant(req, supervisorIds);
+  }
+
   try {
     const user = await prisma.$transaction(async (tx) => {
       await tx.user.update({ where: { id }, data });
@@ -184,8 +208,8 @@ async function update(id, input) {
   }
 }
 
-async function setStatus(id, status) {
-  return update(id, { status });
+async function setStatus(req, id, status) {
+  return update(req, id, { status });
 }
 
 async function remove(id, actorId) {

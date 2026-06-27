@@ -1,6 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { KeyRound, User, ArrowRight } from 'lucide-react';
+import { KeyRound, User, ArrowRight, Building2 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth';
 import { api } from '@/services/api';
 import { Button } from '@/components/ui/Button';
@@ -20,6 +20,7 @@ const RIVE_LOGIN = '/rive/login.riv';
 export default function LoginPage() {
   const token = useAuthStore((s) => s.accessToken);
   const setSession = useAuthStore((s) => s.setSession);
+  const [tenantSlug, setTenantSlug] = useState('');
   const [userId, setUserId] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +37,11 @@ export default function LoginPage() {
     setLoading(true);
     const form = e.currentTarget as HTMLFormElement;
     try {
-      const { data } = await api.post('/auth/login', { userId, password });
+      const { data } = await api.post('/auth/login', {
+        tenantSlug: tenantSlug.trim() || undefined,
+        userId,
+        password,
+      });
       // Celebrate, then route.
       setSuccess(true);
       burst({ origin: { x: window.innerWidth * 0.25, y: window.innerHeight * 0.45 }, count: 50 });
@@ -82,6 +87,14 @@ export default function LoginPage() {
               className="login__form m-stagger"
               style={{ ['--stagger' as never]: '70ms' }}
             >
+              <Input
+                label="Organisation ID"
+                placeholder="default (MyTaskKing) or e.g. digital-links"
+                autoComplete="organization"
+                leading={<Building2 size={16} />}
+                value={tenantSlug}
+                onChange={(e) => setTenantSlug(e.target.value)}
+              />
               <Input
                 label="User ID"
                 placeholder="e.g. priya.k"

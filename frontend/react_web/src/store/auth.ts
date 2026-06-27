@@ -9,6 +9,8 @@ export interface User {
   name: string;
   role: Role;
   isClient: boolean;
+  tenantId?: string;
+  tenant?: { id: string; slug: string; name: string } | null;
   avatarUrl?: string | null;
   customTitle?: string | null;
   clientCompany?: string | null;
