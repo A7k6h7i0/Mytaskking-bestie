@@ -27,6 +27,7 @@ import '../widgets/call_screen_design.dart';
 const _callNotificationChannel = MethodChannel('mytaskking/call_notification');
 const _kPremiumControlGridWidth = 354.0;
 const _kPremiumControlColumnGap = 10.0;
+
 /// Outbound ring with no answer — matches server `RING_NO_ANSWER_MS` (60s).
 const _kOutgoingRingTimeout = Duration(seconds: 60);
 
@@ -228,7 +229,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
   Map<int, String> get _remoteNames => _CallSession.remoteNames;
   Map<int, bool> get _remoteMuted => _CallSession.remoteMuted;
   Map<int, String> get _agoraUidToUserId => _CallSession.agoraUidToUserId;
-  Map<String, String> get _joinedParticipants => _CallSession.joinedParticipants;
+  Map<String, String> get _joinedParticipants =>
+      _CallSession.joinedParticipants;
   bool get _muted => _CallSession.muted;
   set _muted(bool v) => _CallSession.muted = v;
   bool get _held => _CallSession.held;
@@ -279,6 +281,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   bool _proximityNear = false;
   CallProximityController? _proximity;
   final Map<String, Timer> _participantLeaveTimers = {};
+
   /// When each invitee was last rung — drives ringing vs ring-again in Members.
   final Map<String, DateTime> _invitedAtByUserId = {};
   static const _kInviteRingWindow = Duration(seconds: 60);
@@ -528,10 +531,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
     if (callId == null || uid == null) return;
     final me = ref.read(authStoreProvider).user;
     if (me != null) _markParticipantJoined(me.id, me.name);
-    ref.read(apiProvider).post('/calls/$callId/announce', body: {
-      'agoraUid': uid,
-      'userName': me?.name ?? ''
-    }).then((_) {
+    ref.read(apiProvider).post('/calls/$callId/announce',
+        body: {'agoraUid': uid, 'userName': me?.name ?? ''}).then((_) {
       if (me != null) _agoraUidToUserId[uid] = me.id;
     }).catchError((_) => <String, dynamic>{});
   }
@@ -784,8 +785,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
       return;
     }
     if (type == 'screenShare') {
-      final sharerId = payload['fromUserId']?.toString() ??
-          payload['userId']?.toString();
+      final sharerId =
+          payload['fromUserId']?.toString() ?? payload['userId']?.toString();
       final me = ref.read(authStoreProvider).user;
       if (sharerId != null && sharerId == me?.id) return;
       final active = payload['active'] == true;
@@ -800,8 +801,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
             _remoteUids.add(uid);
             _agoraUidToUserId[uid] = sharerId;
           }
-        } else if (sharerId == null ||
-            sharerId == _remoteScreenShareUserId) {
+        } else if (sharerId == null || sharerId == _remoteScreenShareUserId) {
           _remoteScreenShareUid = null;
           _remoteScreenShareUserId = null;
         }
@@ -826,8 +826,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     await Future<void>.delayed(const Duration(milliseconds: 320));
   }
 
-  bool _isAgoraUidLocal(int uid) =>
-      uid == 0 || uid == _CallSession.myUid;
+  bool _isAgoraUidLocal(int uid) => uid == 0 || uid == _CallSession.myUid;
 
   void _syncParticipantsFromCallMeta() {
     final call = (_callMeta?['call'] as Map?)?.cast<String, dynamic>() ??
@@ -919,9 +918,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
       final vol = s.volume ?? 0;
       if (vol <= 0) continue;
       final uid = s.uid ?? 0;
-      final muted = _isAgoraUidLocal(uid)
-          ? _muted
-          : (_remoteMuted[uid] ?? false);
+      final muted =
+          _isAgoraUidLocal(uid) ? _muted : (_remoteMuted[uid] ?? false);
       if (muted) continue;
       if (vol > loudestVol) {
         loudestVol = vol;
@@ -932,8 +930,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final minVol = loudestVol >= 25 ? 8 : 3;
     if (loudestVol < minVol) loudest = null;
 
-    final speakerUserId =
-        loudest != null ? _userIdForAgoraUid(loudest) : null;
+    final speakerUserId = loudest != null ? _userIdForAgoraUid(loudest) : null;
     _scheduleActiveSpeakerEmit(speakerUserId);
 
     if (_activeSpeakerUid != loudest && mounted) {
@@ -1176,10 +1173,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
         'callId': widget.callId,
         'meetingSlug': widget.meetingSlug,
         'mode': widget.mode,
-        'startedAtMs':
-            (_connectedAt ?? ActiveCallState.current.value?.startedAt ??
-                    DateTime.now())
-                .millisecondsSinceEpoch,
+        'startedAtMs': (_connectedAt ??
+                ActiveCallState.current.value?.startedAt ??
+                DateTime.now())
+            .millisecondsSinceEpoch,
       });
     } catch (_) {}
   }
@@ -1280,8 +1277,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
       },
       onVideoSizeChanged: (conn, sourceType, uid, width, height, rotation) {
         if (!mounted) return;
-        final isScreen = sourceType == VideoSourceType.videoSourceScreenPrimary ||
-            sourceType == VideoSourceType.videoSourceScreen;
+        final isScreen =
+            sourceType == VideoSourceType.videoSourceScreenPrimary ||
+                sourceType == VideoSourceType.videoSourceScreen;
         if (!isScreen) return;
         setState(() {
           if (width > 0 && height > 0) {
@@ -1670,8 +1668,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       if (widget.callId != null) {
         step = 'server-join';
         try {
-          final joined =
-              await ref.read(apiProvider).joinCall(widget.callId!);
+          final joined = await ref.read(apiProvider).joinCall(widget.callId!);
           _callMeta = {'call': joined};
           _CallSession.callMeta = _callMeta;
           _syncParticipantsFromCallMeta();
@@ -2401,12 +2398,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
                               c: c,
                               name: _participantProfileName(p),
                               avatarName: _participantProfileName(p),
-                              imageUrl: (p['user'] as Map?)?['avatarUrl']
-                                  ?.toString(),
+                              imageUrl:
+                                  (p['user'] as Map?)?['avatarUrl']?.toString(),
                               trailing: Icon(Icons.mic_rounded,
                                   size: 18, color: c.textMuted),
                             ),
-                          if (ringing.isNotEmpty || notConnected.isNotEmpty) ...[
+                          if (ringing.isNotEmpty ||
+                              notConnected.isNotEmpty) ...[
                             Padding(
                               padding: const EdgeInsets.fromLTRB(12, 16, 12, 8),
                               child: Text(
@@ -2435,7 +2433,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
                                 imageUrl: (p['user'] as Map?)?['avatarUrl']
                                     ?.toString(),
                                 trailing: IconButton(
-                                  icon: Icon(Icons.notifications_active_outlined,
+                                  icon: Icon(
+                                      Icons.notifications_active_outlined,
                                       color: c.text),
                                   tooltip: 'Ring again',
                                   onPressed: () async {
@@ -2523,8 +2522,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     // WhatsApp-style: outgoing video shows your camera full-screen while ringing.
     final showingVideo =
         _isVideo && (_remoteUids.isNotEmpty || _waitingForAnswer);
-    final screenShareActive =
-        _sharing || _remoteScreenShareUid != null;
+    final screenShareActive = _sharing || _remoteScreenShareUid != null;
     final isPremiumOneToOneVoice = !_isVideo &&
         !_isMeeting &&
         !showingVideo &&
@@ -2697,35 +2695,37 @@ class _CallScreenState extends ConsumerState<CallScreen>
                       child: _useWhatsAppParticipantGrid
                           ? Center(child: _compactReconnectBanner())
                           : Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFB45309).withOpacity(0.95),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: const [
-                              SizedBox(
-                                width: 14,
-                                height: 14,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor:
-                                        AlwaysStoppedAnimation(Colors.white)),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 14, vertical: 10),
+                              decoration: BoxDecoration(
+                                color:
+                                    const Color(0xFFB45309).withOpacity(0.95),
+                                borderRadius: BorderRadius.circular(14),
                               ),
-                              SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  'Reconnecting… check your internet connection',
-                                  style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 12.5,
-                                      fontWeight: BestieTokens.fwSemibold),
-                                ),
-                              ),
-                            ]),
-                      ),
+                              child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: const [
+                                    SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor: AlwaysStoppedAnimation(
+                                              Colors.white)),
+                                    ),
+                                    SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        'Reconnecting… check your internet connection',
+                                        style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 12.5,
+                                            fontWeight:
+                                                BestieTokens.fwSemibold),
+                                      ),
+                                    ),
+                                  ]),
+                            ),
                     ),
                   ),
                 // Controls fade + slide up on entrance.
@@ -2757,6 +2757,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   Widget _exactPrototypeVoiceBody() {
     final remoteName = _primaryRemoteDisplayName();
     final subtitle = _primaryRemoteSubtitle();
+    final desktopLayout = Platform.isWindows || Platform.isLinux;
     final ending = _hangingUp || !_joined;
     final timerLine = ending
         ? 'Ending call…'
@@ -2773,6 +2774,15 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
     return LayoutBuilder(
       builder: (context, constraints) {
+        final compact = desktopLayout ||
+            constraints.maxHeight < 760 ||
+            constraints.maxWidth < 420;
+        final avatarHeight = desktopLayout
+            ? max(132.0, min(166.0, constraints.maxHeight * 0.24))
+            : (compact ? 174.0 : 200.0);
+        final contentGap = compact ? 4.0 : 10.0;
+        final nameSize = compact ? 20.0 : 26.0;
+        final subtitleSize = compact ? 12.0 : 14.0;
         return Container(
           width: constraints.maxWidth,
           height: constraints.maxHeight,
@@ -2815,75 +2825,84 @@ class _CallScreenState extends ConsumerState<CallScreen>
                     fontFeatures: const [FontFeature.tabularFigures()],
                   ),
                 ),
-                const SizedBox(height: 10),
+                SizedBox(height: contentGap),
                 Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _CallUiAvatarStage(
-                        name: remoteName,
-                        imageUrl: _primaryRemoteAvatarUrl(),
-                        connected: _connectedAt != null && !ending,
-                        height: 200,
-                      ),
-                      const SizedBox(height: 6),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 24),
-                        child: Column(
-                          children: [
-                            if (!ending)
-                              const Text(
-                                'Active call',
-                                style: _activeCallLabelStyle,
-                              ),
-                            if (!ending) const SizedBox(height: 4),
-                            Text(
-                              remoteName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: CallScreenUiColors.textPrimary,
-                                fontSize: 26,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: -0.3,
-                              ),
-                            ),
-                            if (subtitle != null && subtitle.isNotEmpty) ...[
-                              const SizedBox(height: 4),
+                  child: SingleChildScrollView(
+                    physics: const ClampingScrollPhysics(),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _CallUiAvatarStage(
+                          name: remoteName,
+                          imageUrl: _primaryRemoteAvatarUrl(),
+                          connected: _connectedAt != null && !ending,
+                          height: avatarHeight,
+                        ),
+                        SizedBox(height: compact ? 2 : 6),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: Column(
+                            children: [
+                              if (!ending)
+                                const Text(
+                                  'Active call',
+                                  style: _activeCallLabelStyle,
+                                ),
+                              if (!ending) const SizedBox(height: 3),
                               Text(
-                                subtitle,
+                                remoteName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: CallScreenUiColors.textPrimary,
+                                  fontSize: nameSize,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              if (subtitle != null && subtitle.isNotEmpty) ...[
+                                const SizedBox(height: 3),
+                                Text(
+                                  subtitle,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: CallScreenUiColors.textSecondary,
+                                    fontSize: subtitleSize,
+                                    fontWeight: FontWeight.w400,
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 3),
+                              Text(
+                                _headOfficeName,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(
-                                  color: CallScreenUiColors.textSecondary,
-                                  fontSize: 14,
+                                  color: CallScreenUiColors.textMuted,
+                                  fontSize: 12,
                                   fontWeight: FontWeight.w400,
                                 ),
                               ),
                             ],
-                            const SizedBox(height: 4),
-                            Text(
-                              _headOfficeName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: CallScreenUiColors.textMuted,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w400,
-                              ),
-                            ),
-                          ],
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 8),
-                  child: _premiumCallControlsCore(),
+                  padding: EdgeInsets.fromLTRB(
+                    desktopLayout ? 10 : 18,
+                    0,
+                    desktopLayout ? 10 : 18,
+                    desktopLayout ? 6 : 8,
+                  ),
+                  child: desktopLayout
+                      ? _desktopPremiumCallFooter()
+                      : _premiumCallControlsCore(compact: compact),
                 ),
               ],
             ),
@@ -3237,11 +3256,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
                         )),
                     const SizedBox(height: 2),
                     Text(
-                      _connectedAt == null
-                          ? _status
-                          : _formatElapsed(_elapsed),
-                      style: const TextStyle(
-                          color: Colors.white70, fontSize: 12),
+                      _connectedAt == null ? _status : _formatElapsed(_elapsed),
+                      style:
+                          const TextStyle(color: Colors.white70, fontSize: 12),
                     ),
                   ]),
             ),
@@ -4129,7 +4146,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
       // For meetings keep the multi-tile grid (Google Meet style).
       if (_isMeeting) {
         return Padding(
-          padding: EdgeInsets.fromLTRB(6, 96, 6, 108 + MediaQuery.paddingOf(context).bottom),
+          padding: EdgeInsets.fromLTRB(
+              6, 96, 6, 108 + MediaQuery.paddingOf(context).bottom),
           child: Column(children: [
             Expanded(child: _whatsappParticipantGrid()),
             const SizedBox(height: 10),
@@ -4331,8 +4349,15 @@ class _CallScreenState extends ConsumerState<CallScreen>
     return null;
   }
 
-  List<({String name, String? userId, String? imageUrl, int? agoraUid, bool isLocal, bool muted})>
-      _participantTilesForGrid() {
+  List<
+      ({
+        String name,
+        String? userId,
+        String? imageUrl,
+        int? agoraUid,
+        bool isLocal,
+        bool muted
+      })> _participantTilesForGrid() {
     _purgeSelfFromRemoteTracking();
     final me = ref.read(authStoreProvider).user;
     final tiles = <({
@@ -4389,9 +4414,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
         tiles.add((
           name: name,
           userId: mappedUserId,
-          imageUrl: mappedUserId != null
-              ? _avatarUrlForUserId(mappedUserId)
-              : null,
+          imageUrl:
+              mappedUserId != null ? _avatarUrlForUserId(mappedUserId) : null,
           agoraUid: uid,
           isLocal: false,
           muted: _remoteMuted[uid] ?? false,
@@ -4430,7 +4454,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
         }
 
         if (n == 1) {
-          return tileAt(0, height: constraints.maxHeight, width: constraints.maxWidth);
+          return tileAt(0,
+              height: constraints.maxHeight, width: constraints.maxWidth);
         }
         if (n == 2) {
           final h = (constraints.maxHeight - gap) / 2;
@@ -5043,6 +5068,167 @@ class _CallScreenState extends ConsumerState<CallScreen>
     _openCallChat();
   }
 
+  Widget _desktopPremiumCallFooter() {
+    final actions = [
+      (
+        label: 'Mute',
+        icon: _muted ? Icons.mic_off_rounded : Icons.mic_rounded,
+        selected: _muted,
+        danger: false,
+        onTap: _toggleMute,
+      ),
+      (
+        label: 'Speaker',
+        icon: _route == CallAudioRoute.speaker
+            ? Icons.volume_up_rounded
+            : Icons.hearing_rounded,
+        selected: _route == CallAudioRoute.speaker,
+        danger: false,
+        onTap: _toggleSpeakerRoute,
+      ),
+      (
+        label: 'Keypad',
+        icon: Icons.dialpad_rounded,
+        selected: false,
+        danger: false,
+        onTap: _showDialPad,
+      ),
+      (
+        label: 'Buzzer',
+        icon: Icons.campaign_rounded,
+        selected: false,
+        danger: false,
+        onTap: _sendEmergencyBuzzer,
+      ),
+      (
+        label: 'Chat',
+        icon: Icons.chat_bubble_outline_rounded,
+        selected: false,
+        danger: false,
+        onTap: _openCallChat,
+      ),
+      (
+        label: 'Notes',
+        icon: Icons.edit_note_rounded,
+        selected: false,
+        danger: false,
+        onTap: _showCallNotes,
+      ),
+      (
+        label: 'End',
+        icon: Icons.call_end_rounded,
+        selected: false,
+        danger: true,
+        onTap: _hangup,
+      ),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const gap = 8.0;
+        final fittedWidth =
+            (constraints.maxWidth - (gap * (actions.length - 1))) /
+                actions.length;
+        final itemWidth = fittedWidth.clamp(44.0, 58.0);
+        final minWidth =
+            actions.length * itemWidth + (actions.length - 1) * gap;
+        return SizedBox(
+          height: 70,
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minWidth: constraints.maxWidth),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SizedBox(
+                      width: max(0, (constraints.maxWidth - minWidth) / 2)),
+                  for (var i = 0; i < actions.length; i++) ...[
+                    if (i > 0) const SizedBox(width: gap),
+                    _desktopFooterAction(
+                      width: itemWidth,
+                      label: actions[i].label,
+                      icon: actions[i].icon,
+                      selected: actions[i].selected,
+                      danger: actions[i].danger,
+                      onTap: actions[i].onTap,
+                    ),
+                  ],
+                  SizedBox(
+                      width: max(0, (constraints.maxWidth - minWidth) / 2)),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _desktopFooterAction({
+    required double width,
+    required String label,
+    required IconData icon,
+    required bool selected,
+    required bool danger,
+    required VoidCallback onTap,
+  }) {
+    final fill = danger
+        ? CallScreenUiColors.endCallRed
+        : selected
+            ? CallScreenUiColors.buttonSelectedFillTop
+            : const Color(0xCC0A192F);
+    final border = danger
+        ? CallScreenUiColors.endCallRed.withValues(alpha: 0.72)
+        : selected
+            ? CallScreenUiColors.neonBlue
+            : CallScreenUiColors.speakerBorderSide;
+    return SizedBox(
+      width: width,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          GestureDetector(
+            onTap: onTap,
+            child: Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: fill,
+                shape: BoxShape.circle,
+                border: Border.all(color: border, width: 1),
+                boxShadow: [
+                  BoxShadow(
+                    color: (danger
+                            ? CallScreenUiColors.endCallRed
+                            : CallScreenUiColors.neonBlue)
+                        .withValues(alpha: selected || danger ? 0.32 : 0.16),
+                    blurRadius: selected || danger ? 16 : 10,
+                  ),
+                ],
+              ),
+              child: Icon(icon, color: Colors.white, size: 18),
+            ),
+          ),
+          const SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              label,
+              maxLines: 1,
+              style: const TextStyle(
+                color: CallScreenUiColors.textSecondary,
+                fontSize: 9,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Premium 2-row control grid + bottom action bar, matching the redesign.
   Widget _premiumCallControls({bool compact = false}) {
     return Padding(
@@ -5223,7 +5409,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
     ]);
   }
 
-  Widget _premiumControlRow(List<Widget> children, {double gap = _kPremiumControlColumnGap}) {
+  Widget _premiumControlRow(List<Widget> children,
+      {double gap = _kPremiumControlColumnGap}) {
     return Row(
       children: [
         for (var i = 0; i < children.length; i++) ...[
@@ -5352,7 +5539,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
                 ),
               ),
               tile(Icons.dialpad, 'Keypad', _showDialPad),
-              tile(Icons.person_add_alt_1_rounded, 'Add participant', _showInvite),
+              tile(Icons.person_add_alt_1_rounded, 'Add participant',
+                  _showInvite),
               tile(
                 _sharing
                     ? Icons.stop_screen_share_rounded
@@ -5943,7 +6131,8 @@ class _ConnectingDotsState extends State<_ConnectingDots>
             mainAxisAlignment: MainAxisAlignment.end,
             children: List.generate(3, (i) {
               final phase = (_ctrl.value + i * 0.2) % 1.0;
-              final opacity = 0.35 + 0.65 * (phase < 0.5 ? phase * 2 : (1 - phase) * 2);
+              final opacity =
+                  0.35 + 0.65 * (phase < 0.5 ? phase * 2 : (1 - phase) * 2);
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 2),
                 child: Opacity(
@@ -6048,9 +6237,11 @@ class _SpeakingWaveformState extends State<_SpeakingWaveform>
           crossAxisAlignment: CrossAxisAlignment.end,
           children: List.generate(5, (i) {
             final phase = (_ctrl.value + i * 0.18) % 1.0;
-            final h = minH + (maxH - minH) * (0.35 + 0.65 * sin(phase * pi * 2));
+            final h =
+                minH + (maxH - minH) * (0.35 + 0.65 * sin(phase * pi * 2));
             return Padding(
-              padding: EdgeInsets.symmetric(horizontal: widget.compact ? 1 : 1.5),
+              padding:
+                  EdgeInsets.symmetric(horizontal: widget.compact ? 1 : 1.5),
               child: Container(
                 width: barW,
                 height: h,

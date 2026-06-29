@@ -19,6 +19,8 @@ const TRACKABLE_ROLES = new Set([
   'EMPLOYEE',
   'TELECALLER',
 ]);
+const TRACK_INTERVAL_OPTIONS = [120, 300, 900, 1800, 3600];
+const DEFAULT_TRACK_INTERVAL_SECONDS = 300;
 
 function normalizedNote(value) {
   const text = String(value || '').trim();
@@ -63,10 +65,27 @@ function shouldTrack({ user, presence }) {
   return availabilityFromPresence(presence) === 'WORKING';
 }
 
+async function workActivityIntervalSeconds() {
+  const row = await prisma.workspaceSetting.findUnique({
+    where: {
+      scope_key: {
+        scope: 'workActivity',
+        key: 'intervalSeconds',
+      },
+    },
+    select: { value: true },
+  });
+  const configured = Number(row?.value);
+  return TRACK_INTERVAL_OPTIONS.includes(configured)
+    ? configured
+    : DEFAULT_TRACK_INTERVAL_SECONDS;
+}
+
 router.get(
   '/me/state',
   requireInternal,
   asyncHandler(async (req, res) => {
+    const intervalSeconds = await workActivityIntervalSeconds();
     const presence = await prisma.userPresence.findUnique({
       where: { userId: req.user.id },
     });
@@ -74,7 +93,7 @@ router.get(
     res.json({
       shouldTrack: shouldTrack({ user: req.user, presence }),
       availability,
-      intervalSeconds: 600,
+      intervalSeconds,
       captureSeconds: 5,
       promptSeconds: 30,
       platform: 'desktop',
