@@ -5044,15 +5044,19 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   /// Premium 2-row control grid + bottom action bar, matching the redesign.
-  Widget _premiumCallControls() {
+  Widget _premiumCallControls({bool compact = false}) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 18),
-      child: _premiumCallControlsCore(),
+      padding: EdgeInsets.symmetric(horizontal: compact ? 12 : 18),
+      child: _premiumCallControlsCore(compact: compact),
     );
   }
 
-  Widget _premiumCallControlsCore() {
+  Widget _premiumCallControlsCore({bool compact = false}) {
     final lightControls = ref.watch(callScreenLightControlsProvider);
+    final rowGap = compact ? 6.0 : _kPremiumControlColumnGap;
+    final actionBarHeight = compact ? 62.0 : 72.0;
+    final actionSize = compact ? 42.0 : 48.0;
+    final centerSize = compact ? 64.0 : 72.0;
     return Column(mainAxisSize: MainAxisSize.min, children: [
       _premiumControlRow([
         CallUiGlassControlButton(
@@ -5061,6 +5065,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
           isSelected: _muted,
           onTap: _toggleMute,
           lightControls: lightControls,
+          compact: compact,
           iconGradient: const [
             CallScreenUiColors.neonPurple,
             CallScreenUiColors.neonMagenta,
@@ -5070,24 +5075,27 @@ class _CallScreenState extends ConsumerState<CallScreen>
           isSelected: _route == CallAudioRoute.speaker,
           onTap: _toggleSpeakerRoute,
           lightControls: lightControls,
+          compact: compact,
         ),
         CallUiGlassControlButton(
           label: 'Keypad',
           icon: Icons.dialpad,
           onTap: _showDialPad,
           lightControls: lightControls,
+          compact: compact,
         ),
         CallUiGlassControlButton(
           label: 'Buzzer',
           icon: Icons.campaign_rounded,
           onTap: _sendEmergencyBuzzer,
           lightControls: lightControls,
+          compact: compact,
           iconGradient: const [
             Color(0xFFFBBF24),
             Color(0xFFFF8A00),
           ],
         ),
-      ]),
+      ], gap: rowGap),
       const SizedBox(height: 8),
       _premiumControlRow([
         CallUiGlassControlButton(
@@ -5098,6 +5106,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
           isSelected: _sharing,
           onTap: _toggleShare,
           lightControls: lightControls,
+          compact: compact,
           iconGradient: const [
             CallScreenUiColors.neonBlue,
             CallScreenUiColors.verifiedBlue,
@@ -5108,6 +5117,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
           icon: Icons.person_add_outlined,
           onTap: _showInvite,
           lightControls: lightControls,
+          compact: compact,
           iconGradient: const [
             CallScreenUiColors.neonBlue,
             CallScreenUiColors.neonPurple,
@@ -5119,6 +5129,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
           isSelected: _recording,
           onTap: _toggleRecord,
           lightControls: lightControls,
+          compact: compact,
           iconGradient: const [
             Color(0xFFFF6B6B),
             Color(0xFFFF4757),
@@ -5129,11 +5140,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
           icon: Icons.edit_note_outlined,
           onTap: _showCallNotes,
           lightControls: lightControls,
+          compact: compact,
         ),
-      ]),
-      const SizedBox(height: 18),
+      ], gap: rowGap),
+      SizedBox(height: compact ? 12 : 18),
       SizedBox(
-        height: 72,
+        height: actionBarHeight,
         child: Stack(
           alignment: Alignment.center,
           children: [
@@ -5145,27 +5157,29 @@ class _CallScreenState extends ConsumerState<CallScreen>
                     alignment: Alignment.center,
                     child: CallUiBottomActionButton(
                       icon: Icons.chat_bubble_outline,
-                      size: 48,
+                      size: actionSize,
                       onTap: _openCallChat,
+                      compact: compact,
                     ),
                   ),
                 ),
-                const SizedBox(width: _kPremiumControlColumnGap),
+                SizedBox(width: rowGap),
                 const Expanded(child: SizedBox()),
-                const SizedBox(width: _kPremiumControlColumnGap),
+                SizedBox(width: rowGap),
                 const Expanded(child: SizedBox()),
-                const SizedBox(width: _kPremiumControlColumnGap),
+                SizedBox(width: rowGap),
                 Expanded(
                   child: Align(
                     alignment: Alignment.center,
                     child: Transform.translate(
-                      offset: const Offset(6, 0),
+                      offset: Offset(compact ? 4 : 6, 0),
                       child: CallUiBottomActionButton(
                         icon: (!_videoEnabled || _cameraOff)
                             ? Icons.videocam_off_outlined
                             : Icons.videocam_outlined,
-                        size: 48,
+                        size: actionSize,
                         onTap: _toggleCamera,
+                        compact: compact,
                       ),
                     ),
                   ),
@@ -5174,10 +5188,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
             ),
             _PressableCircle(
               onTap: _hangup,
-              size: 72,
+              size: centerSize,
               child: Container(
-                width: 72,
-                height: 72,
+                width: centerSize,
+                height: centerSize,
                 decoration: BoxDecoration(
                   color: CallScreenUiColors.endCallRed,
                   shape: BoxShape.circle,
@@ -5209,11 +5223,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
     ]);
   }
 
-  Widget _premiumControlRow(List<Widget> children) {
+  Widget _premiumControlRow(List<Widget> children, {double gap = _kPremiumControlColumnGap}) {
     return Row(
       children: [
         for (var i = 0; i < children.length; i++) ...[
-          if (i > 0) const SizedBox(width: _kPremiumControlColumnGap),
+          if (i > 0) SizedBox(width: gap),
           Expanded(child: children[i]),
         ],
       ],
@@ -5235,25 +5249,36 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   Widget _controls() {
-    if (_isMeeting) return _meetingControls();
+    final mq = MediaQuery.of(context);
+    final compact = mq.size.width < 420 || mq.size.height < 760;
+    if (_isMeeting) return _meetingControls(compact: compact);
     // 3+ participants: WhatsApp-style single bottom row (fixed-size circles).
-    if (_useWhatsAppParticipantGrid) return _groupCallBottomControls();
+    if (_useWhatsAppParticipantGrid) {
+      return _groupCallBottomControls(compact: compact);
+    }
     // Premium grid for 1:1 voice; compact pill for video calls.
     final showingVideo = _isVideo && _remoteUids.isNotEmpty;
-    return showingVideo ? _callControls() : _premiumCallControls();
+    return showingVideo
+        ? _callControls(compact: compact)
+        : _premiumCallControls(compact: compact);
   }
 
   /// Bottom control bar for group calls (3+ people) — matches WhatsApp layout:
   /// more · video · speaker · mute · end. Fixed circle sizes; no FittedBox.
-  Widget _groupCallBottomControls() {
+  Widget _groupCallBottomControls({bool compact = false}) {
+    final buttonSize = compact ? 40.0 : 52.0;
+    final iconSize = compact ? 18.0 : 22.0;
+    final endSize = compact ? 48.0 : 52.0;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 12),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
           _ctrlCircle(
             icon: Icons.more_horiz_rounded,
             onTap: _showGroupMore,
+            size: buttonSize,
+            iconSize: iconSize,
           ),
           _ctrlCircle(
             icon: (!_videoEnabled || _cameraOff)
@@ -5261,21 +5286,29 @@ class _CallScreenState extends ConsumerState<CallScreen>
                 : Icons.videocam_rounded,
             onTap: _toggleCamera,
             active: _isVideo && !_cameraOff,
+            size: buttonSize,
+            iconSize: iconSize,
           ),
           _ctrlCircle(
             icon: Icons.volume_up_rounded,
             onTap: _toggleSpeakerRoute,
             active: _route == CallAudioRoute.speaker,
+            size: buttonSize,
+            iconSize: iconSize,
           ),
           _ctrlCircle(
             icon: _muted ? Icons.mic_off_rounded : Icons.mic_rounded,
             onTap: _toggleMute,
             active: _muted,
+            size: buttonSize,
+            iconSize: iconSize,
           ),
           _ctrlCircle(
             icon: Icons.call_end_rounded,
             onTap: _hangup,
             background: BestieTokens.cDanger,
+            size: endSize,
+            iconSize: iconSize,
           ),
         ],
       ),
@@ -5354,11 +5387,14 @@ class _CallScreenState extends ConsumerState<CallScreen>
   /// WhatsApp call controls — one translucent rounded pill with 5 circles:
   /// more · camera · speaker · mic · end. Share / Record / Flip live in the
   /// `_showMore` sheet to keep the bar uncluttered.
-  Widget _callControls() {
+  Widget _callControls({bool compact = false}) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14),
+      padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 14),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 8 : 10,
+          vertical: compact ? 8 : 10,
+        ),
         decoration: BoxDecoration(
           color: Colors.black.withOpacity(0.55),
           borderRadius: BorderRadius.circular(40),
@@ -5371,6 +5407,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
                 : Icons.screen_share_rounded,
             onTap: _toggleShare,
             active: _sharing,
+            size: compact ? 42 : 52,
+            iconSize: compact ? 18 : 22,
           ),
           _ctrlCircle(
             icon: (!_videoEnabled || _cameraOff)
@@ -5378,21 +5416,29 @@ class _CallScreenState extends ConsumerState<CallScreen>
                 : Icons.videocam_rounded,
             onTap: _toggleCamera,
             active: !_videoEnabled || _cameraOff,
+            size: compact ? 42 : 52,
+            iconSize: compact ? 18 : 22,
           ),
           _ctrlCircle(
             icon: _audioRouteIcon(_route),
             onTap: _cycleAudioRoute,
             active: _route != CallAudioRoute.earpiece,
+            size: compact ? 42 : 52,
+            iconSize: compact ? 18 : 22,
           ),
           _ctrlCircle(
             icon: _muted ? Icons.mic_off_rounded : Icons.mic_rounded,
             onTap: _toggleMute,
             active: _muted,
+            size: compact ? 42 : 52,
+            iconSize: compact ? 18 : 22,
           ),
           _ctrlCircle(
             icon: Icons.call_end_rounded,
             onTap: _hangup,
             background: BestieTokens.cDanger,
+            size: compact ? 48 : 52,
+            iconSize: compact ? 20 : 22,
           ),
         ]),
       ),
@@ -5401,11 +5447,14 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   /// Google Meet meeting controls — six circles in a row: mic · camera ·
   /// share · raise hand · more · leave.
-  Widget _meetingControls() {
+  Widget _meetingControls({bool compact = false}) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8),
+      padding: EdgeInsets.symmetric(horizontal: compact ? 6 : 8),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 4 : 6,
+          vertical: compact ? 8 : 10,
+        ),
         decoration: BoxDecoration(
           color: Colors.black.withOpacity(0.62),
           borderRadius: BorderRadius.circular(40),
@@ -5416,6 +5465,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
             icon: _muted ? Icons.mic_off_rounded : Icons.mic_rounded,
             onTap: _toggleMute,
             active: _muted,
+            size: compact ? 42 : 52,
+            iconSize: compact ? 18 : 22,
           ),
           _ctrlCircle(
             icon: (!_videoEnabled || _cameraOff)
@@ -5423,6 +5474,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
                 : Icons.videocam_rounded,
             onTap: _toggleCamera,
             active: !_videoEnabled || _cameraOff,
+            size: compact ? 42 : 52,
+            iconSize: compact ? 18 : 22,
           ),
           _ctrlCircle(
             icon: _sharing
@@ -5430,22 +5483,28 @@ class _CallScreenState extends ConsumerState<CallScreen>
                 : Icons.present_to_all_rounded,
             onTap: _toggleShare,
             active: _sharing,
+            size: compact ? 42 : 52,
+            iconSize: compact ? 18 : 22,
           ),
           _ctrlCircle(
             icon: Icons.front_hand_outlined,
             onTap: () =>
                 bestieToast(context, 'Hand raised', kind: BestieToastKind.info),
+            size: compact ? 42 : 52,
+            iconSize: compact ? 18 : 22,
           ),
           _ctrlCircle(
             icon: Icons.more_vert_rounded,
             onTap: _showMore,
+            size: compact ? 42 : 52,
+            iconSize: compact ? 18 : 22,
           ),
           _ctrlCircle(
             icon: Icons.call_end_rounded,
             onTap: _hangup,
             background: BestieTokens.cDanger,
-            size: 56,
-            iconSize: 24,
+            size: compact ? 48 : 56,
+            iconSize: compact ? 20 : 24,
           ),
         ]),
       ),

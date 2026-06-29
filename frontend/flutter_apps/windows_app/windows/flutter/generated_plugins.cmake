@@ -7,9 +7,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   audioplayers_windows
   emoji_picker_flutter
   file_selector_windows
-  firebase_core
   flutter_secure_storage_windows
-  flutter_tts
   geolocator_windows
   iris_method_channel
   permission_handler_windows

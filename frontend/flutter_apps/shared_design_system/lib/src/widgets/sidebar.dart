@@ -77,21 +77,28 @@ class BestieSidebar extends StatelessWidget {
                   child: InkWell(
                     borderRadius: BorderRadius.circular(BestieTokens.rSm),
                     onTap: () => onSelect(it.route),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-                      child: Row(
-                        children: [
-                          Icon(it.icon, size: 18,
-                              color: active ? BestieTokens.cBrandStrong : BestieTokens.cTextSoft),
-                          if (!collapsed) ...[
-                            const SizedBox(width: 12),
-                            Text(it.label,
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w500,
-                                  color: active ? BestieTokens.cBrandStrong : BestieTokens.cTextSoft,
-                                )),
-                          ]
-                        ],
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.max,
+                          children: [
+                            Icon(it.icon, size: 18,
+                                color: active ? BestieTokens.cBrandStrong : BestieTokens.cTextSoft),
+                            if (!collapsed) ...[
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(it.label,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w500,
+                                      color: active ? BestieTokens.cBrandStrong : BestieTokens.cTextSoft,
+                                    )),
+                              ),
+                            ]
+                          ],
+                        ),
                       ),
                     ),
                   ),

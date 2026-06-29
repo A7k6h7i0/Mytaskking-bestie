@@ -1,5 +1,5 @@
+import 'package:flutter/foundation.dart';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -26,6 +26,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   bool _success = false;
   String? _error;
   Uint8List? _selfie;
+
+  bool get _skipSelfieOnDesktop {
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.windows:
+      case TargetPlatform.linux:
+      case TargetPlatform.macOS:
+        return true;
+      case TargetPlatform.android:
+      case TargetPlatform.iOS:
+      case TargetPlatform.fuchsia:
+        return false;
+    }
+  }
 
   @override
   void dispose() {
@@ -54,7 +67,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       final requiresSelfie =
           await api.loginRequiresSelfie(userId, tenantSlug: tenantSlug.isEmpty ? null : tenantSlug);
       if (!mounted) return;
-      if (requiresSelfie && _selfie == null) {
+      final shouldCaptureSelfie = requiresSelfie && !_skipSelfieOnDesktop;
+      if (shouldCaptureSelfie && _selfie == null) {
         final photo = await Navigator.of(context).push<Uint8List>(
           MaterialPageRoute(builder: (_) => const FrontSelfieCapture()),
         );
@@ -67,7 +81,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       double? latitude;
       double? longitude;
       String? address;
-      if (requiresSelfie) {
+      if (requiresSelfie && !_skipSelfieOnDesktop) {
         final enabled = await Geolocator.isLocationServiceEnabled();
         if (!enabled) throw 'Turn on location to complete employee sign-in.';
         var permission = await Geolocator.checkPermission();
@@ -106,6 +120,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       await api.login(
         userId: userId,
         password: _password.text,
+        loginSource: _skipSelfieOnDesktop ? 'web' : 'mobile',
         tenantSlug: tenantSlug.isEmpty ? null : tenantSlug,
         selfieBase64: _selfie == null ? null : base64Encode(_selfie!),
         selfieMimeType: _selfie == null ? null : 'image/jpeg',
