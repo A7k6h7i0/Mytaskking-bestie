@@ -28,10 +28,6 @@ Map<String, dynamic>? _myAssignment(Map<String, dynamic> task, String? meId) {
   return null;
 }
 
-List<Map<String, dynamic>> _flattenKanbanColumns(
-  Map<String, dynamic> data,
-) => flattenTasksResponse(data);
-
 /// Tasks home — single list view of every task the user can see, ordered by
 /// most-recently-touched. Tapping a card pushes `/tasks/:id` for the
 /// full-screen detail (no more bottom-sheet modal).

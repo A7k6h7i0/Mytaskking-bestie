@@ -329,23 +329,14 @@ class _PremiumBottomNav extends ConsumerWidget {
     required this.onTap,
   });
 
-  /// Total unread channels — DMs + groups that haven't been read by the
-  /// current user. Drives the red dot on the Chat tab. Cheap: derived
-  /// from the existing channelsProvider so no extra API call.
+  /// Total unread messages from the backend. This must use `unreadCount`,
+  /// not `lastReadAt == null`, because many existing/cleared chats have no
+  /// receipt row yet but still have zero new messages.
   int _unreadCount(WidgetRef ref) {
-    final me = ref.read(authStoreProvider).user;
     final channels = ref.watch(channelsProvider).asData?.value ?? const [];
-    if (me == null) return 0;
     int n = 0;
     for (final c in channels) {
-      final members =
-          (c['members'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
-      final mine = members.firstWhere(
-        (m) => m['userId'] == me.id,
-        orElse: () => const {},
-      );
-      if (mine.isEmpty) continue;
-      if (mine['lastReadAt'] == null) n++;
+      n += (c['unreadCount'] as num?)?.toInt() ?? 0;
     }
     return n;
   }

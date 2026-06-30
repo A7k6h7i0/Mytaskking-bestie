@@ -224,6 +224,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   set _joined(bool v) => _CallSession.joined = v;
   bool get _videoEnabled => _CallSession.videoEnabled;
   set _videoEnabled(bool v) => _CallSession.videoEnabled = v;
+  bool get _routeWantsVideo => widget.mode.toLowerCase() == 'video';
   Set<int> get _remoteUids => _CallSession.remoteUids;
   Map<int, String> get _remoteNames => _CallSession.remoteNames;
   Map<int, bool> get _remoteMuted => _CallSession.remoteMuted;
@@ -306,10 +307,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     if (!_CallSession.matches(widget.callId, widget.meetingSlug)) {
-      _videoEnabled = widget.mode == 'video';
+      _videoEnabled = _routeWantsVideo;
       // Voice calls default to earpiece (so Bluetooth/earpiece is used and the
       // call is private); video calls default to speaker.
-      _route = widget.mode == 'video'
+      _route = _routeWantsVideo
           ? CallAudioRoute.speaker
           : CallAudioRoute.earpiece;
     }
@@ -330,7 +331,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
         _syncParticipantsFromCallMeta();
       }
     }
-    if (widget.mode != 'video' && widget.meetingSlug == null) {
+    if (!_routeWantsVideo && widget.meetingSlug == null) {
       unawaited(_startProximityIfVoice());
     }
     _bootstrap();
@@ -1639,6 +1640,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
     await _CallSession.teardown();
     ActiveCallState.clear();
     _CallSession.onCallScreen = true;
+    _videoEnabled = _routeWantsVideo;
+    _route = _routeWantsVideo ? CallAudioRoute.speaker : CallAudioRoute.earpiece;
     _CallSession._ping();
 
     // Track which step is in flight so the error message can identify the
@@ -1648,7 +1651,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       // 1. OS-level permissions.
       step = 'permissions';
       final perms = <Permission>[Permission.microphone];
-      if (_isVideo) perms.add(Permission.camera);
+      if (_routeWantsVideo) perms.add(Permission.camera);
       // Android 12+ needs runtime BLUETOOTH_CONNECT to route call audio to a
       // Bluetooth headset. Requested best-effort — not fatal if denied.
       if (Platform.isAndroid) perms.add(Permission.bluetoothConnect);
@@ -1657,7 +1660,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       if (mic != PermissionStatus.granted && mic != PermissionStatus.limited) {
         throw 'Microphone permission denied. Open Settings → Apps → MyTaskKing → Permissions and enable it.';
       }
-      if (_isVideo) {
+      if (_routeWantsVideo) {
         final cam = granted[Permission.camera];
         if (cam != PermissionStatus.granted &&
             cam != PermissionStatus.limited) {
@@ -1687,6 +1690,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       final tokenResp = await _fetchToken();
       _callMeta = tokenResp;
       _CallSession.callMeta = tokenResp;
+      _videoEnabled = _routeWantsVideo;
       _syncParticipantsFromCallMeta();
       try {
         final settings =
@@ -1767,7 +1771,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
         await engine.adjustRecordingSignalVolume(120);
       } catch (_) {/* non-critical tuning */}
 
-      if (_isVideo) {
+      if (_routeWantsVideo) {
         step = 'enable-video';
         await engine.enableVideo();
 
@@ -4172,42 +4176,16 @@ class _CallScreenState extends ConsumerState<CallScreen>
             ),
             if (_waitingForAnswer)
               Positioned(
-                left: 0,
-                right: 0,
-                bottom: 220,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      _primaryRemoteDisplayName(),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.w600,
-                        shadows: [
-                          Shadow(
-                            color: Colors.black54,
-                            blurRadius: 8,
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _status,
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 15,
-                        shadows: [
-                          Shadow(
-                            color: Colors.black54,
-                            blurRadius: 6,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+                left: 24,
+                right: 24,
+                bottom: MediaQuery.paddingOf(context).bottom + 324,
+                child: IgnorePointer(
+                  child: _VideoRingingIdentity(
+                    name: _primaryRemoteDisplayName(),
+                    subtitle: _primaryRemoteSubtitle(),
+                    headOffice: _headOfficeName,
+                    status: _status,
+                  ),
                 ),
               ),
           ],
@@ -5903,6 +5881,91 @@ class _ConnectingDotsState extends State<_ConnectingDots>
           );
         },
       ),
+    );
+  }
+}
+
+class _VideoRingingIdentity extends StatelessWidget {
+  const _VideoRingingIdentity({
+    required this.name,
+    required this.status,
+    this.subtitle,
+    this.headOffice,
+  });
+
+  final String name;
+  final String status;
+  final String? subtitle;
+  final String? headOffice;
+
+  static const _shadow = [
+    Shadow(color: Colors.black87, blurRadius: 10),
+    Shadow(color: Colors.black54, blurRadius: 18),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final cleanSubtitle = subtitle?.trim();
+    final cleanHeadOffice = headOffice?.trim();
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 22,
+            fontWeight: FontWeight.w700,
+            shadows: _shadow,
+          ),
+        ),
+        if (cleanSubtitle != null && cleanSubtitle.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Text(
+            cleanSubtitle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              shadows: _shadow,
+            ),
+          ),
+        ],
+        if (cleanHeadOffice != null && cleanHeadOffice.isNotEmpty) ...[
+          const SizedBox(height: 2),
+          Text(
+            cleanHeadOffice,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white60,
+              fontSize: 12,
+              fontWeight: FontWeight.w400,
+              shadows: _shadow,
+            ),
+          ),
+        ],
+        const SizedBox(height: 8),
+        Text(
+          status,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Colors.white70,
+            fontSize: 15,
+            fontWeight: FontWeight.w500,
+            shadows: _shadow,
+          ),
+        ),
+      ],
     );
   }
 }

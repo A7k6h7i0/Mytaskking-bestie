@@ -51,37 +51,34 @@ async function promoteDueScheduledTasks() {
 async function list({ user, status, assigneeId, q, page = 1, pageSize = 50, view = 'list' }) {
   await promoteDueScheduledTasks();
   const isAdmin = ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'PROJECT_COORDINATOR_MANAGER'].includes(user.role);
-  const where = {
-    ...tenant.tenantClause(user, {}),
-    ...(status ? { status } : {}),
-    ...(assigneeId ? { assignees: { some: { userId: assigneeId } } } : {}),
-    ...(q
-      ? {
-          OR: [
-            { title: { contains: q, mode: 'insensitive' } },
-            { description: { contains: q, mode: 'insensitive' } },
-          ],
-        }
-      : {}),
-    // Non-admins see only their tasks
-    ...(!isAdmin
-      ? { OR: [{ createdById: user.id }, { assignees: { some: { userId: user.id } } }] }
-      : {}),
-    // SCHEDULED tasks are hidden from assignees until the scheduler flips
-    // them. The creator still sees them so they can edit or cancel before
-    // delivery. An explicit `?status=SCHEDULED` filter overrides this so
-    // admins can still drill into the queue.
-    ...(status
-      ? {}
-      : {
-          NOT: {
-            AND: [
-              { status: 'SCHEDULED' },
-              { createdById: { not: user.id } },
-            ],
-          },
-        }),
-  };
+  const filters = [];
+  if (status) filters.push({ status });
+  if (assigneeId) filters.push({ assignees: { some: { userId: assigneeId } } });
+  if (q) {
+    filters.push({
+      OR: [
+        { title: { contains: q, mode: 'insensitive' } },
+        { description: { contains: q, mode: 'insensitive' } },
+      ],
+    });
+  }
+  // Non-admins see only their tasks.
+  if (!isAdmin) {
+    filters.push({ OR: [{ createdById: user.id }, { assignees: { some: { userId: user.id } } }] });
+  }
+  // SCHEDULED tasks are hidden from assignees until the scheduler flips them.
+  // The creator still sees them so they can edit or cancel before delivery.
+  if (!status) {
+    filters.push({
+      NOT: {
+        AND: [
+          { status: 'SCHEDULED' },
+          { createdById: { not: user.id } },
+        ],
+      },
+    });
+  }
+  const where = tenant.tenantClause(user, filters.length ? { AND: filters } : {});
 
   if (view === 'kanban') {
     const items = await prisma.task.findMany({
@@ -138,7 +135,7 @@ async function create(input, creator) {
       createdById: creator.id,
       channelId: input.channelId || null,
       boardId: input.boardId || null,
-      tenantId: creator.tenantId,
+      tenantId: tenant.userTenantId(creator),
       assignees: input.assigneeIds?.length
         ? { create: input.assigneeIds.map((uid) => ({ userId: uid })) }
         : undefined,

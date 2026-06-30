@@ -53,7 +53,9 @@ function tenantClause(userOrTenantId, where = {}) {
     typeof userOrTenantId === 'string'
       ? userOrTenantId || DEFAULT_TENANT_ID
       : userTenantId(userOrTenantId);
-  return { ...where, tenantId };
+  const tenantWhere = { tenantId };
+  if (!where || Object.keys(where).length === 0) return tenantWhere;
+  return { AND: [tenantWhere, where] };
 }
 
 function resolveTenantId(req) {
@@ -224,7 +226,7 @@ async function findUserForLogin({ tenantSlug, userId }) {
   return { tenant, user };
 }
 
-async function assertSameTenant(req, userId) {
+async function assertUserSameTenant(req, userId) {
   if (!MULTI_TENANT || !userId) return;
   const actorTenant = resolveTenantId(req);
   const target = await prisma.user.findUnique({
@@ -264,6 +266,6 @@ module.exports = {
   slugify,
   findTenantBySlug,
   findUserForLogin,
-  assertSameTenant,
   filterUserIdsInTenant,
+  assertUserSameTenant,
 };

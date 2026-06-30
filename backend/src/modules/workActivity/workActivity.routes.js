@@ -200,7 +200,7 @@ router.get(
     }),
   }),
   asyncHandler(async (req, res) => {
-    await tenant.assertSameTenant(req, req.params.userId);
+    await tenant.assertUserSameTenant(req, req.params.userId);
     const page = Number(req.query.page || 1);
     const pageSize = Number(req.query.pageSize || 50);
     const where = tenant.scopedWhere(req, {
