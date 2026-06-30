@@ -73,6 +73,7 @@ router.post(
       participantIds: req.body.participantIds,
       kind: req.body.kind,
       channelId: req.body.channelId,
+      mode,
     });
     const io = req.app.get('io');
 

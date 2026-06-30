@@ -123,7 +123,7 @@ async function postCallEventMessage({ call, kind, actor }) {
   }
 }
 
-async function initiate({ initiator, participantIds, kind = 'ONE_TO_ONE', channelId = null }) {
+async function initiate({ initiator, participantIds, kind = 'ONE_TO_ONE', channelId = null, mode = 'VIDEO' }) {
   if (!participantIds || participantIds.length === 0) throw BadRequest('Need at least one participant');
   const uniqueParticipantIds = [...new Set(participantIds.filter(Boolean))];
   if (tenant.MULTI_TENANT) {
@@ -259,14 +259,15 @@ async function initiate({ initiator, participantIds, kind = 'ONE_TO_ONE', channe
     },
     include: callInclude,
   });
+  const callWithMode = { ...call, mode };
 
   // Wildcard tokens: each device picks its own random uid at join time so the
   // same account can be in the call from multiple devices without colliding.
   const tokenForUser = () => agora.generateRtcToken({ channelName: call.channelName, wildcard: true });
-  if (!targetPresence) await postCallEventMessage({ call, kind: 'STARTED', actor: initiator });
+  if (!targetPresence) await postCallEventMessage({ call: callWithMode, kind: 'STARTED', actor: initiator });
 
   return {
-    call,
+    call: callWithMode,
     targetPresence,
     suppressRinging: !!targetPresence,
     tokens: Object.fromEntries(all.map((uid) => [uid, tokenForUser(uid)])),

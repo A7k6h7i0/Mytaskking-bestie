@@ -224,7 +224,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
                   ),
                   SliverToBoxAdapter(
                     child: SizedBox(
-                      height: 132,
+                      height: 158,
                       child: ListView.separated(
                         scrollDirection: Axis.horizontal,
                         padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
@@ -608,7 +608,11 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
                 _stateBadge(myState, myScore),
               ],
               const SizedBox(height: 10),
-              Row(children: [
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
                 if (assignees.isNotEmpty) ...[
                   Builder(builder: (context) {
                     final slots =
@@ -670,7 +674,6 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
                     );
                   }),
                 ],
-                const Spacer(),
                 if (dueAt != null)
                   Container(
                     padding:
