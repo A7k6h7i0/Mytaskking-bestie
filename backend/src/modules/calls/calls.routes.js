@@ -12,6 +12,8 @@ const prisma = require('../../database/prisma');
 const agora = require('../../services/agora');
 const notificationActions = require('../../services/notificationActions');
 const cache = require('../../services/cache');
+const tenant = require('../../services/tenant');
+const { Forbidden } = require('../../utils/errors');
 const { APP_WEB } = require('../../utils/clientApp');
 const {
   clientAppFromUserAgent,
@@ -554,7 +556,7 @@ router.get(
   requireAdmin,
   validate(talkTimeRange),
   asyncHandler(async (req, res) =>
-    res.json(await service.talkTimeOrg({ from: req.query.from, to: req.query.to })))
+    res.json(await service.talkTimeOrg({ user: req.user, from: req.query.from, to: req.query.to })))
 );
 
 // Individual report for a specific user — self, or any admin.
@@ -564,6 +566,12 @@ router.get(
   asyncHandler(async (req, res) => {
     if (req.params.userId !== req.user.id && !isAdminRole(req.user)) {
       throw Forbidden('You can only view your own talk-time report');
+    }
+    if (req.params.userId !== req.user.id) {
+      await tenant.assertSameTenant(req.user, (await prisma.user.findUnique({
+        where: { id: req.params.userId },
+        select: { tenantId: true },
+      }))?.tenantId);
     }
     res.json(await service.talkTimeForUser({ userId: req.params.userId, from: req.query.from, to: req.query.to }));
   })

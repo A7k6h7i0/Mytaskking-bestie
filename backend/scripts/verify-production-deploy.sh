@@ -12,7 +12,7 @@ echo
 
 echo "==> Login probe (expect 401 invalid credentials, NOT 500)"
 HTTP=$(curl -sS -o /tmp/login-probe.json -w "%{http_code}" \
-  -X POST "$API/api/v1/auth/login" \
+  -X POST "$API/api/v1/auth/login" \  
   -H "Content-Type: application/json" \
   -d '{"tenantSlug":"default","userId":"probe-user","password":"wrongpass12"}')
 echo "HTTP $HTTP"

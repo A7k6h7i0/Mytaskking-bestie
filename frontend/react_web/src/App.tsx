@@ -28,6 +28,7 @@ import LoginActivityPage from '@/pages/LoginActivityPage';
 import FlagsPage from '@/pages/FlagsPage';
 import OrganizationsPage from '@/pages/OrganizationsPage';
 import PermissionsPage from '@/pages/PermissionsPage';
+import DeletedChatsPage from '@/pages/DeletedChatsPage';
 import { ToastHost } from '@/components/Toast';
 import { toast } from '@/components/Toast';
 import { CommandPalette } from '@/components/CommandPalette';
@@ -96,6 +97,10 @@ export default function App() {
           <Route
             path="/recordings"
             element={<RoleGate allow={['SUPER_ADMIN', 'ADMIN']}><RecordingsPage /></RoleGate>}
+          />
+          <Route
+            path="/deleted-chats"
+            element={<RoleGate allow={['SUPER_ADMIN', 'ADMIN']}><DeletedChatsPage /></RoleGate>}
           />
           <Route
             path="/activity"

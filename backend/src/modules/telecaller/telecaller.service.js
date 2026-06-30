@@ -8,7 +8,7 @@ const { NotFound, BadRequest, Forbidden } = require('../../utils/errors');
 
 async function listLeads({ user, q, status, ownerId, page = 1, pageSize = 25 }) {
   const where = {
-    ...(tenant.MULTI_TENANT ? { tenantId: user.tenantId } : {}),
+    ...(tenant.MULTI_TENANT ? { tenantId: tenant.userTenantId(user) } : {}),
     ...(status ? { status } : {}),
     ...(ownerId ? { ownerId } : {}),
     ...(user.role === 'TELECALLER' ? { ownerId: user.id } : {}),
@@ -44,7 +44,7 @@ async function getLead(id, user) {
     },
   });
   if (!lead) throw NotFound('Lead not found');
-  if (tenant.MULTI_TENANT && user && lead.tenantId !== user.tenantId) {
+  if (tenant.MULTI_TENANT && user && lead.tenantId !== tenant.userTenantId(user)) {
     throw NotFound('Lead not found');
   }
   return lead;

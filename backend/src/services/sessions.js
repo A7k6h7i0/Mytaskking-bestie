@@ -1,6 +1,7 @@
 'use strict';
 
 const prisma = require('../database/prisma');
+const tenant = require('./tenant');
 
 /**
  * Session bookkeeping — every successful login creates a Session row linked
@@ -60,8 +61,14 @@ async function touchSession(sessionId) {
 async function revoke({ id, actor, force }) {
   const session = await prisma.session.findUnique({ where: { id } });
   if (!session) return null;
-  if (session.userId !== actor.id && !['SUPER_ADMIN', 'ADMIN'].includes(actor.role)) {
-    const err = new Error('Forbidden'); err.status = 403; throw err;
+  if (session.userId !== actor.id) {
+    const target = await prisma.user.findUnique({
+      where: { id: session.userId },
+      select: { tenantId: true },
+    });
+    if (!target || !tenant.canAdministerTenant(actor, target.tenantId)) {
+      const err = new Error('Forbidden'); err.status = 403; throw err;
+    }
   }
   const [s] = await prisma.$transaction([
     prisma.session.update({
@@ -76,8 +83,14 @@ async function revoke({ id, actor, force }) {
 }
 
 async function revokeAll({ userId, exceptSessionId, actor, force }) {
-  if (userId !== actor.id && !['SUPER_ADMIN', 'ADMIN'].includes(actor.role)) {
-    const err = new Error('Forbidden'); err.status = 403; throw err;
+  if (userId !== actor.id) {
+    const target = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { tenantId: true },
+    });
+    if (!target || !tenant.canAdministerTenant(actor, target.tenantId)) {
+      const err = new Error('Forbidden'); err.status = 403; throw err;
+    }
   }
   const sessions = await prisma.session.findMany({
     where: {
@@ -113,7 +126,7 @@ async function listForUser(userId, { includeSelfie = false } = {}) {
  * users with login (firstSeenAt) + logout (revokedAt) timestamps, device, ip,
  * and whether the session is still active. Filterable by user and date range.
  */
-async function listActivity({ userId, from, to, page = 1, pageSize = 50, includeSelfie = false } = {}) {
+async function listActivity({ actor, userId, from, to, page = 1, pageSize = 50, includeSelfie = false } = {}) {
   const where = {};
   if (userId) where.userId = userId;
   if (from || to) {
@@ -130,14 +143,15 @@ async function listActivity({ userId, from, to, page = 1, pageSize = 50, include
       take: pageSize,
     }),
   ]);
-  // Session has no relation to User in the schema, so resolve names separately.
   const userIds = Array.from(new Set(rows.map((r) => r.userId)));
   const users = await prisma.user.findMany({
-    where: { id: { in: userIds } },
-    select: { id: true, name: true, role: true, avatarUrl: true, isClient: true, customTitle: true },
+    where: tenant.tenantClause(actor, { id: { in: userIds } }),
+    select: { id: true, name: true, role: true, avatarUrl: true, isClient: true, customTitle: true, tenantId: true },
   });
+  const allowedIds = new Set(users.map((u) => u.id));
+  const filteredRows = rows.filter((r) => allowedIds.has(r.userId));
   const byId = new Map(users.map((u) => [u.id, u]));
-  const items = rows.map((r) => ({
+  const items = filteredRows.map((r) => ({
     id: r.id,
     user: byId.get(r.userId) || { id: r.userId, name: 'Unknown' },
     status: r.status,
@@ -156,7 +170,7 @@ async function listActivity({ userId, from, to, page = 1, pageSize = 50, include
       address: r.address,
     } : {}),
   }));
-  return { total, page, pageSize, items };
+  return { total: items.length, page, pageSize, items };
 }
 
 function parseUA(ua) {

@@ -26,6 +26,9 @@ const taskInclude = {
 };
 
 async function ensureVisible(task, user) {
+  if (tenant.MULTI_TENANT) {
+    tenant.assertSameTenant(user, task.tenantId);
+  }
   if (['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'PROJECT_COORDINATOR_MANAGER'].includes(user.role)) return;
   const assigned = task.assignees.some((a) => a.userId === user.id) || task.createdById === user.id;
   if (!assigned) throw Forbidden('Not allowed to access this task');
@@ -49,7 +52,7 @@ async function list({ user, status, assigneeId, q, page = 1, pageSize = 50, view
   await promoteDueScheduledTasks();
   const isAdmin = ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'PROJECT_COORDINATOR_MANAGER'].includes(user.role);
   const where = {
-    ...(tenant.MULTI_TENANT ? { tenantId: user.tenantId } : {}),
+    ...tenant.tenantClause(user, {}),
     ...(status ? { status } : {}),
     ...(assigneeId ? { assignees: { some: { userId: assigneeId } } } : {}),
     ...(q
@@ -324,11 +327,17 @@ async function promoteNextTaskForUser({ userId, excludingTaskId }) {
   return prisma.task.findUnique({ where: { id: next.id }, include: taskInclude });
 }
 
-async function leaderboard({ limit = 20, sinceDays = 30 }) {
+async function leaderboard({ user, limit = 20, sinceDays = 30 }) {
   const since = new Date(Date.now() - sinceDays * 86_400_000);
   const grouped = await prisma.taskAssignee.groupBy({
     by: ['userId'],
-    where: { state: 'COMPLETED', completedAt: { gte: since } },
+    where: {
+      state: 'COMPLETED',
+      completedAt: { gte: since },
+      ...(tenant.MULTI_TENANT
+        ? { task: { tenantId: tenant.userTenantId(user) } }
+        : {}),
+    },
     _avg: { score: true },
     _count: { _all: true },
     _max: { completedAt: true },
@@ -338,23 +347,25 @@ async function leaderboard({ limit = 20, sinceDays = 30 }) {
   if (grouped.length === 0) return { items: [] };
   const userIds = grouped.map((g) => g.userId);
   const users = await prisma.user.findMany({
-    where: { id: { in: userIds } },
+    where: tenant.tenantClause(user, { id: { in: userIds } }),
     select: { id: true, name: true, userId: true, avatarUrl: true, role: true, isClient: true, departmentId: true },
   });
   const byId = Object.fromEntries(users.map((u) => [u.id, u]));
 
   // Per-user on-time rate + streak — cheap N+1 since N ≤ limit (≤20 by default).
-  const items = await Promise.all(grouped.map(async (g) => {
+  const items = (await Promise.all(grouped.map(async (g) => {
+    const u = byId[g.userId];
+    if (!u) return null;
     const summary = await scoring.userSummary(prisma, g.userId);
     return {
-      user: byId[g.userId],
+      user: u,
       avgScore: Math.round(g._avg.score ?? 0),
       completed: g._count._all,
       lastCompletedAt: g._max.completedAt,
       onTimeRate: summary.onTimeRate,
       streak: summary.streak,
     };
-  }));
+  }))).filter(Boolean);
 
   return { items, sinceDays };
 }

@@ -30,11 +30,12 @@ function uniqueIds(ids) {
   return Array.from(new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean)));
 }
 
-async function ensureRecipients(recipientIds) {
+async function ensureRecipients(recipientIds, user) {
   const ids = uniqueIds(recipientIds);
   if (!ids.length) throw BadRequest('Select at least one person to report to');
+  const tenant = require('../../services/tenant');
   const users = await prisma.user.findMany({
-    where: { id: { in: ids }, status: 'ACTIVE' },
+    where: tenant.tenantClause(user, { id: { in: ids }, status: 'ACTIVE' }),
     select: { id: true },
   });
   const existing = new Set(users.map((u) => u.id));
@@ -43,20 +44,24 @@ async function ensureRecipients(recipientIds) {
   return ids;
 }
 
-async function validateReportInput(body, recipientIds) {
+async function validateReportInput(body, recipientIds, user) {
   assertReportBody(body);
-  return ensureRecipients(recipientIds);
+  return ensureRecipients(recipientIds, user);
 }
 
 async function findVisibleReport(id, user) {
+  const tenant = require('../../services/tenant');
   const report = await prisma.taskCompletionReport.findUnique({
     where: { id },
-    include: reportInclude,
+    include: {
+      ...reportInclude,
+      task: { select: { id: true, title: true, status: true, priority: true, dueAt: true, tenantId: true } },
+    },
   });
   if (!report) throw NotFound('Report not found');
   const isAuthor = report.authorId === user.id;
   const isRecipient = report.recipients.some((recipient) => recipient.userId === user.id);
-  const isAdmin = ['SUPER_ADMIN', 'ADMIN'].includes(user.role);
+  const isAdmin = tenant.canAdministerTenant(user, report.task?.tenantId);
   if (!isAuthor && !isRecipient && !isAdmin) throw Forbidden('Not allowed to view this report');
   return report;
 }
@@ -118,7 +123,7 @@ async function notifyRecipients({ report, recipientIds, actor, io }) {
 
 async function createForCompletion({ taskId, author, assignmentId, body, recipientIds, io }) {
   const count = assertReportBody(body);
-  const ids = await ensureRecipients(recipientIds);
+  const ids = await ensureRecipients(recipientIds, author);
 
   const report = await prisma.$transaction(async (tx) => {
     const existing = assignmentId
@@ -154,7 +159,7 @@ async function updateReport({ id, user, body, recipientIds, io }) {
   }
   const count = assertReportBody(body);
   const before = new Set(existing.recipients.map((recipient) => recipient.userId));
-  const ids = await ensureRecipients(recipientIds);
+  const ids = await ensureRecipients(recipientIds, author);
 
   const report = await prisma.$transaction(async (tx) => {
     await tx.taskCompletionReport.update({

@@ -13,7 +13,47 @@ const MULTI_TENANT = process.env.MULTI_TENANT !== 'false';
 const DEFAULT_TENANT_ID = process.env.DEFAULT_TENANT_ID || 'default';
 
 function isPlatformSuperAdmin(user) {
-  return user?.role === 'SUPER_ADMIN';
+  if (!user || user.role !== 'SUPER_ADMIN') return false;
+  if (!MULTI_TENANT) return true;
+  return (user.tenantId || DEFAULT_TENANT_ID) === DEFAULT_TENANT_ID;
+}
+
+/** Resolved tenant for any authenticated user. */
+function userTenantId(user) {
+  if (!MULTI_TENANT) return null;
+  return user?.tenantId || DEFAULT_TENANT_ID;
+}
+
+function isOrgAdmin(user) {
+  return !!user && ['SUPER_ADMIN', 'ADMIN'].includes(user.role);
+}
+
+/** Org admin powers apply only within the caller's organisation (not cross-tenant). */
+function canAdministerTenant(user, resourceTenantId) {
+  if (!isOrgAdmin(user)) return false;
+  if (!MULTI_TENANT) return true;
+  if (isPlatformSuperAdmin(user)) return true;
+  const resource = resourceTenantId || DEFAULT_TENANT_ID;
+  return userTenantId(user) === resource;
+}
+
+function assertSameTenant(user, resourceTenantId) {
+  if (!MULTI_TENANT) return;
+  const actorTenant = userTenantId(user);
+  const resource = resourceTenantId || DEFAULT_TENANT_ID;
+  if (actorTenant === resource) return;
+  if (isPlatformSuperAdmin(user)) return;
+  throw Forbidden('That resource belongs to another organisation');
+}
+
+/** Prisma where fragment `{ tenantId }` for models stamped with tenantId. */
+function tenantClause(userOrTenantId, where = {}) {
+  if (!MULTI_TENANT) return where;
+  const tenantId =
+    typeof userOrTenantId === 'string'
+      ? userOrTenantId || DEFAULT_TENANT_ID
+      : userTenantId(userOrTenantId);
+  return { ...where, tenantId };
 }
 
 function resolveTenantId(req) {
@@ -211,6 +251,11 @@ module.exports = {
   MULTI_TENANT,
   DEFAULT_TENANT_ID,
   isPlatformSuperAdmin,
+  userTenantId,
+  isOrgAdmin,
+  canAdministerTenant,
+  assertSameTenant,
+  tenantClause,
   resolveTenantId,
   ensureDefaultTenant,
   attachTenant,

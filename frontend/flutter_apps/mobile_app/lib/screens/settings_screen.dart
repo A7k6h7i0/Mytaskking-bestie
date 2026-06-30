@@ -90,24 +90,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _editHeadOffice() async {
-    final controller = TextEditingController(text: _headOfficeName);
     final value = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Head office name'),
-        content:
-            TextField(controller: controller, autofocus: true, maxLength: 80),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          FilledButton(
-              onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-              child: const Text('Save')),
-        ],
-      ),
+      builder: (ctx) => _HeadOfficeNameDialog(initial: _headOfficeName),
     );
-    controller.dispose();
-    if (value == null || value.isEmpty) return;
+    if (value == null || value.isEmpty || value == _headOfficeName) return;
     try {
       await ref
           .read(apiProvider)
@@ -223,7 +210,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               label: 'Call history',
               onTap: () => _openRoute(context, '/calls'),
             ),
-            if (user?.role == 'SUPER_ADMIN')
+            if (user?.isPlatformSuperAdmin == true)
               _SettingTile(
                 colors: c,
                 icon: Icons.apartment_rounded,
@@ -236,6 +223,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 icon: Icons.download_for_offline_outlined,
                 label: 'Call recordings',
                 onTap: () => _openRoute(context, '/recordings'),
+              ),
+            if (user?.role == 'ADMIN' || user?.role == 'SUPER_ADMIN')
+              _SettingTile(
+                colors: c,
+                icon: Icons.delete_outline_rounded,
+                label: 'Deleted chats',
+                onTap: () => _openRoute(context, '/deleted-chats'),
               ),
             if (user?.role == 'ADMIN' || user?.role == 'SUPER_ADMIN')
               _SettingTile(
@@ -449,6 +443,56 @@ class _SettingTile extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _HeadOfficeNameDialog extends StatefulWidget {
+  const _HeadOfficeNameDialog({required this.initial});
+
+  final String initial;
+
+  @override
+  State<_HeadOfficeNameDialog> createState() => _HeadOfficeNameDialogState();
+}
+
+class _HeadOfficeNameDialogState extends State<_HeadOfficeNameDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initial);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Head office name'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        maxLength: 80,
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final text = _controller.text.trim();
+            Navigator.pop(context, text.isEmpty ? null : text);
+          },
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 }

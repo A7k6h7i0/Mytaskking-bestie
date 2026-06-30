@@ -7,6 +7,9 @@ const validate = require('../../middleware/validate');
 const { requireAuth, requireAdmin } = require('../../middleware/auth');
 const service = require('../../services/sessions');
 const audit = require('../../services/audit');
+const tenant = require('../../services/tenant');
+const prisma = require('../../database/prisma');
+const { Forbidden } = require('../../utils/errors');
 
 const router = Router();
 router.use(requireAuth);
@@ -19,9 +22,20 @@ router.get(
 router.get(
   '/users/:userId',
   requireAdmin,
-  asyncHandler(async (req, res) => res.json({
-    items: await service.listForUser(req.params.userId, { includeSelfie: ['SUPER_ADMIN', 'ADMIN'].includes(req.user.role) }),
-  }))
+  asyncHandler(async (req, res) => {
+    const target = await prisma.user.findUnique({
+      where: { id: req.params.userId },
+      select: { tenantId: true },
+    });
+    if (!target || !tenant.canAdministerTenant(req.user, target.tenantId)) {
+      throw Forbidden('Not allowed to view sessions for that user');
+    }
+    return res.json({
+      items: await service.listForUser(req.params.userId, {
+        includeSelfie: tenant.canAdministerTenant(req.user, target.tenantId),
+      }),
+    });
+  })
 );
 
 // Org-wide login/logout activity feed for admins (#2): every session with
@@ -39,8 +53,9 @@ router.get(
     }),
   }),
   asyncHandler(async (req, res) => res.json(await service.listActivity({
+    actor: req.user,
     ...req.query,
-    includeSelfie: ['SUPER_ADMIN', 'ADMIN'].includes(req.user.role),
+    includeSelfie: tenant.isOrgAdmin(req.user),
   })))
 );
 

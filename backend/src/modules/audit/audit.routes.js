@@ -6,6 +6,7 @@ const asyncHandler = require('../../utils/asyncHandler');
 const validate = require('../../middleware/validate');
 const { requireAuth, requireAdmin } = require('../../middleware/auth');
 const prisma = require('../../database/prisma');
+const tenant = require('../../services/tenant');
 
 const router = Router();
 router.use(requireAuth, requireAdmin);
@@ -27,6 +28,9 @@ router.get(
   asyncHandler(async (req, res) => {
     const { q, kind, actorId, entity, from, to, cursor, limit } = req.query;
     const where = {
+      ...(tenant.MULTI_TENANT
+        ? { actor: { tenantId: tenant.userTenantId(req.user) } }
+        : {}),
       ...(kind ? { kind: { contains: kind } } : {}),
       ...(actorId ? { actorId } : {}),
       ...(entity ? { entity } : {}),

@@ -8,6 +8,7 @@ class BestieUser {
   final String? clientCompany;
   final DateTime? accessEndsAt;
   final String status;
+  final String? tenantSlug;
 
   BestieUser({
     required this.id,
@@ -19,7 +20,13 @@ class BestieUser {
     this.clientCompany,
     this.accessEndsAt,
     required this.status,
+    this.tenantSlug,
   });
+
+  /// Platform owner (MyTaskKing / default org) — can manage all organisations.
+  bool get isPlatformSuperAdmin =>
+      role == 'SUPER_ADMIN' &&
+      (tenantSlug == null || tenantSlug == 'default' || tenantSlug!.isEmpty);
 
   factory BestieUser.fromJson(Map<String, dynamic> j) => BestieUser(
         id: j['id'] as String,
@@ -31,6 +38,7 @@ class BestieUser {
         clientCompany: j['clientCompany'] as String?,
         accessEndsAt: j['accessEndsAt'] != null ? DateTime.parse(j['accessEndsAt']) : null,
         status: (j['status'] as String?) ?? 'ACTIVE',
+        tenantSlug: (j['tenant'] as Map?)?['slug']?.toString(),
       );
 }
 

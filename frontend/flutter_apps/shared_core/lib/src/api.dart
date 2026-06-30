@@ -101,6 +101,19 @@ extension BestieApiExt on BestieApi {
   Future<Map<String, dynamic>> correctText(String text) =>
       post('/chat/ai/correct', body: {'text': text});
 
+  Future<Map<String, dynamic>> listDeletedMessages({
+    int page = 1,
+    int pageSize = 50,
+    String? tenantId,
+  }) => get(
+    '/chat/deleted-messages',
+    query: {
+      'page': page,
+      'pageSize': pageSize,
+      if (tenantId != null) 'tenantId': tenantId,
+    },
+  );
+
   Future<Map<String, dynamic>> createTask({
     required String title,
     String? description,

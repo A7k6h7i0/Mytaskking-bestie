@@ -27,6 +27,7 @@ import 'screens/task_detail_screen.dart';
 import 'screens/reports_screen.dart';
 import 'screens/recordings_screen.dart';
 import 'screens/organizations_screen.dart';
+import 'screens/deleted_chats_screen.dart';
 import 'state.dart' hide ThemeMode;
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -90,6 +91,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/reports', builder: (_, __) => const ReportsScreen()),
       GoRoute(
           path: '/recordings', builder: (_, __) => const RecordingsScreen()),
+      GoRoute(
+          path: '/deleted-chats', builder: (_, __) => const DeletedChatsScreen()),
       GoRoute(
           path: '/organizations',
           builder: (_, __) => const OrganizationsScreen()),
