@@ -367,16 +367,15 @@ extension BestieApiExt on BestieApi {
     int page = 1,
     int pageSize = 50,
     String scope = 'org',
-  }) => get('/recordings', query: {
-        'page': page,
-        'pageSize': pageSize,
-        'scope': scope,
-      });
+  }) => get(
+    '/recordings',
+    query: {'page': page, 'pageSize': pageSize, 'scope': scope},
+  );
 
   // ---- platform organisations (SUPER_ADMIN) ----
-  Future<List<Map<String, dynamic>>> listTenants() => get('/tenants').then(
-        (r) => List<Map<String, dynamic>>.from(r['items'] ?? const []),
-      );
+  Future<List<Map<String, dynamic>>> listTenants() => get(
+    '/tenants',
+  ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
 
   Future<Map<String, dynamic>> createTenant(Map<String, dynamic> data) =>
       post('/tenants', body: data);
@@ -690,6 +689,70 @@ extension BestieApiExt on BestieApi {
       'from': from.toUtc().toIso8601String(),
       'to': to.toUtc().toIso8601String(),
       if (timezone != null) 'timezone': timezone,
+    },
+  );
+
+  // ---- desktop work activity ----
+  Future<Map<String, dynamic>> workActivityState() =>
+      get('/work-activity/me/state');
+
+  Future<Map<String, dynamic>> createWorkActivityClip({
+    String? fileId,
+    String? clipUrl,
+    String? note,
+    String status = 'WORKING',
+    required String platform,
+    String? deviceLabel,
+    int durationSeconds = 5,
+    DateTime? captureStartedAt,
+    DateTime? captureEndedAt,
+    DateTime? promptShownAt,
+    DateTime? promptRespondedAt,
+  }) => post(
+    '/work-activity/clips',
+    body: {
+      if (fileId != null) 'fileId': fileId,
+      if (clipUrl != null) 'clipUrl': clipUrl,
+      if (note != null) 'note': note,
+      'status': status,
+      'platform': platform,
+      if (deviceLabel != null) 'deviceLabel': deviceLabel,
+      'durationSeconds': durationSeconds,
+      if (captureStartedAt != null)
+        'captureStartedAt': captureStartedAt.toUtc().toIso8601String(),
+      if (captureEndedAt != null)
+        'captureEndedAt': captureEndedAt.toUtc().toIso8601String(),
+      if (promptShownAt != null)
+        'promptShownAt': promptShownAt.toUtc().toIso8601String(),
+      if (promptRespondedAt != null)
+        'promptRespondedAt': promptRespondedAt.toUtc().toIso8601String(),
+    },
+  );
+
+  Future<Map<String, dynamic>> workActivitySummary({
+    String? date,
+    String? timezone,
+  }) => get(
+    '/work-activity/summary',
+    query: {
+      if (date != null) 'date': date,
+      if (timezone != null) 'timezone': timezone,
+    },
+  );
+
+  Future<Map<String, dynamic>> workActivityClips({
+    required String userId,
+    DateTime? from,
+    DateTime? to,
+    int page = 1,
+    int pageSize = 50,
+  }) => get(
+    '/work-activity/users/$userId/clips',
+    query: {
+      if (from != null) 'from': from.toUtc().toIso8601String(),
+      if (to != null) 'to': to.toUtc().toIso8601String(),
+      'page': page,
+      'pageSize': pageSize,
     },
   );
 

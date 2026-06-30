@@ -41,6 +41,7 @@ const unfurl = require('./unfurl/unfurl.routes');
 const recordings = require('./recordings/recordings.routes');
 const tenants = require('./tenants/tenants.routes');
 const emergency = require('./emergency/emergency.routes');
+const workActivity = require('./workActivity/workActivity.routes');
 
 module.exports = function buildRouter() {
   const router = Router();
@@ -79,6 +80,7 @@ module.exports = function buildRouter() {
   router.use('/recordings', recordings);
   router.use('/tenants', tenants);
   router.use('/emergency', emergency);
+  router.use('/work-activity', workActivity);
 
   // openapi serves /openapi.json + /docs at the root of /api/v1
   router.use('/', openapi);
