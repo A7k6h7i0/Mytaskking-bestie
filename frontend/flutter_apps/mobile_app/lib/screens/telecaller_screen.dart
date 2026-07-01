@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../state.dart';
 
@@ -55,10 +56,33 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen> {
     }
   }
 
-  Future<void> _call(String leadId) async {
+  Future<void> _call(Map<String, dynamic> lead) async {
+    final leadId = lead['id'] as String;
+    final phone = (lead['phone'] ?? '')
+        .toString()
+        .trim()
+        .replaceAll(RegExp(r'[^\d+]'), '');
+    if (phone.isEmpty) {
+      bestieToast(context, 'Lead has no phone number',
+          kind: BestieToastKind.warning);
+      return;
+    }
+
     try {
-      await ref.read(apiProvider).callLead(leadId);
-      if (mounted) bestieToast(context, 'Calling…', kind: BestieToastKind.info);
+      await ref.read(apiProvider).callLead(leadId, mode: 'PHONE');
+      final launched = await launchUrl(
+        Uri(scheme: 'tel', path: phone),
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launched) throw 'Could not open phone app';
+      if (mounted) {
+        bestieToast(
+          context,
+          'Phone call opened',
+          body: 'This call is logged in MyTaskKing for the admin report.',
+          kind: BestieToastKind.info,
+        );
+      }
     } catch (e) {
       if (mounted) {
         bestieToast(context, 'Could not call',
@@ -184,7 +208,7 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen> {
                                   IconButton(
                                     icon: Icon(Icons.call_rounded, color: c.success),
                                     tooltip: 'Call',
-                                    onPressed: () => _call(l['id'] as String),
+                                    onPressed: () => _call(l),
                                   ),
                                 ]),
                                 onTap: () => _showStatusSheet(l),

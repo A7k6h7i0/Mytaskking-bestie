@@ -96,34 +96,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
   Future<void> _editPhone() async {
     final user = ref.read(authStoreProvider).user;
-    final controller = TextEditingController(text: user?.phone ?? '');
     final phone = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Calling phone number'),
-        content: TextField(
-          controller: controller,
-          keyboardType: TextInputType.phone,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: 'Phone number',
-            hintText: '+91 98765 43210',
-            helperText: 'Used as your agent number for telecaller calls.',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
+      builder: (_) => _PhoneNumberDialog(initialPhone: user?.phone ?? ''),
     );
-    controller.dispose();
     if (phone == null) return;
 
     setState(() => _savingPhone = true);
@@ -457,5 +433,57 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   bool _isMobile(Map<String, dynamic> s) {
     final p = (s['platform'] ?? '').toString().toLowerCase();
     return p == 'ios' || p == 'android';
+  }
+}
+
+class _PhoneNumberDialog extends StatefulWidget {
+  const _PhoneNumberDialog({required this.initialPhone});
+
+  final String initialPhone;
+
+  @override
+  State<_PhoneNumberDialog> createState() => _PhoneNumberDialogState();
+}
+
+class _PhoneNumberDialogState extends State<_PhoneNumberDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialPhone);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Calling phone number'),
+      content: TextField(
+        controller: _controller,
+        keyboardType: TextInputType.phone,
+        autofocus: true,
+        decoration: const InputDecoration(
+          labelText: 'Phone number',
+          hintText: '+91 98765 43210',
+          helperText: 'Used as your agent number for telecaller calls.',
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _controller.text.trim()),
+          child: const Text('Save'),
+        ),
+      ],
+    );
   }
 }
