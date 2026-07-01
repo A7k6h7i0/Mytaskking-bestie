@@ -47,7 +47,12 @@ final _hiddenMessageIdsProvider =
 
 class ChatDetailScreen extends ConsumerStatefulWidget {
   final String channelId;
-  const ChatDetailScreen({super.key, required this.channelId});
+  final bool hideHeader;
+  const ChatDetailScreen({
+    super.key,
+    required this.channelId,
+    this.hideHeader = false,
+  });
   @override
   ConsumerState<ChatDetailScreen> createState() => _ChatDetailScreenState();
 }
@@ -1034,8 +1039,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
           } catch (_) {}
           if (mounted) {
             bestieToast(context, '${_headerTitle()} is busy',
-                body:
-                    'Waiting for them to accept and add you to their call.',
+                body: 'Waiting for them to accept and add you to their call.',
                 kind: BestieToastKind.info);
           }
           return;
@@ -1804,8 +1808,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
           api.listEmployees(q: q.trim().isEmpty ? null : q.trim()),
       onStartDm: (otherId) async =>
           api.createChannel(kind: 'DM', memberIds: [otherId]),
-      onStartGroup: (name, memberIds) async => api.createChannel(
-          kind: 'GROUP', name: name, memberIds: memberIds),
+      onStartGroup: (name, memberIds) async =>
+          api.createChannel(kind: 'GROUP', name: name, memberIds: memberIds),
     );
     if (channel != null && mounted) {
       ref.invalidate(channelsProvider);
@@ -1815,7 +1819,10 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
   }
 
   Future<void> _toggleMuteNotifications() async {
-    final muted = ref.read(chatMutedChannelsProvider).asData?.value
+    final muted = ref
+            .read(chatMutedChannelsProvider)
+            .asData
+            ?.value
             .contains(widget.channelId) ??
         false;
     if (muted) {
@@ -1839,7 +1846,10 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     final members =
         (_channel!['members'] as List?)?.cast<Map<String, dynamic>>() ??
             const [];
-    final muted = ref.read(chatMutedChannelsProvider).asData?.value
+    final muted = ref
+            .read(chatMutedChannelsProvider)
+            .asData
+            ?.value
             .contains(widget.channelId) ??
         false;
 
@@ -1908,8 +1918,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
         _pendingOutgoing.clear();
       });
       if (mounted) {
-        bestieToast(context, 'Chat cleared',
-            kind: BestieToastKind.success);
+        bestieToast(context, 'Chat cleared', kind: BestieToastKind.success);
       }
     } catch (e) {
       if (mounted) {
@@ -1923,7 +1932,10 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     final colors = BestieColors.of(context);
     final kind = (_channel?['kind'] ?? '').toString();
     final isDm = kind == 'DM';
-    final muted = ref.watch(chatMutedChannelsProvider).asData?.value
+    final muted = ref
+            .watch(chatMutedChannelsProvider)
+            .asData
+            ?.value
             .contains(widget.channelId) ??
         false;
 
@@ -1993,8 +2005,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                       : Icons.notifications_off_outlined,
                   color: colors.text,
                 ),
-                title: Text(
-                    muted ? 'Unmute notifications' : 'Mute notifications'),
+                title:
+                    Text(muted ? 'Unmute notifications' : 'Mute notifications'),
                 onTap: () {
                   Navigator.pop(ctx);
                   _toggleMuteNotifications();
@@ -2009,9 +2021,10 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                 },
               ),
               ListTile(
-                leading: Icon(Icons.delete_sweep_outlined, color: colors.danger),
-                title: Text('Clear chat',
-                    style: TextStyle(color: colors.danger)),
+                leading:
+                    Icon(Icons.delete_sweep_outlined, color: colors.danger),
+                title:
+                    Text('Clear chat', style: TextStyle(color: colors.danger)),
                 onTap: () {
                   Navigator.pop(ctx);
                   unawaited(_clearChat());
@@ -2063,447 +2076,459 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
         if (!didPop) _goBack(context);
       },
       child: Scaffold(
-      backgroundColor: colors.bg,
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: colors.surface,
-        foregroundColor: colors.text,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: () => _goBack(context),
-        ),
-        titleSpacing: 0,
-        title: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          child: Row(
-            children: [
-              if (_channel != null)
-                GestureDetector(
-                  onTap: _showProfileAvatar,
-                  behavior: HitTestBehavior.opaque,
-                  child: isDm
-                      ? BestieAvatar(
-                          name: _headerTitle(),
-                          imageUrl: _headerAvatarUrl(),
-                          isClient: isClient,
-                          size: 36,
-                        )
-                      : Container(
-                          width: 36,
-                          height: 36,
-                          decoration: BoxDecoration(
-                            color: isClient
-                                ? colors.clientSoft
-                                : colors.brandSoft,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Icon(
-                            kind == 'CLIENT'
-                                ? Icons.business_center_outlined
-                                : Icons.groups_outlined,
-                            color:
-                                isClient ? colors.client : colors.brandStrong,
-                            size: 18,
+        backgroundColor: colors.bg,
+        appBar: widget.hideHeader
+            ? null
+            : AppBar(
+                elevation: 0,
+                backgroundColor: colors.surface,
+                foregroundColor: colors.text,
+                leading: IconButton(
+                  icon: const Icon(Icons.arrow_back_rounded),
+                  onPressed: () => _goBack(context),
+                ),
+                titleSpacing: 0,
+                title: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: Row(
+                    children: [
+                      if (_channel != null)
+                        GestureDetector(
+                          onTap: _showProfileAvatar,
+                          behavior: HitTestBehavior.opaque,
+                          child: isDm
+                              ? BestieAvatar(
+                                  name: _headerTitle(),
+                                  imageUrl: _headerAvatarUrl(),
+                                  isClient: isClient,
+                                  size: 36,
+                                )
+                              : Container(
+                                  width: 36,
+                                  height: 36,
+                                  decoration: BoxDecoration(
+                                    color: isClient
+                                        ? colors.clientSoft
+                                        : colors.brandSoft,
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Icon(
+                                    kind == 'CLIENT'
+                                        ? Icons.business_center_outlined
+                                        : Icons.groups_outlined,
+                                    color: isClient
+                                        ? colors.client
+                                        : colors.brandStrong,
+                                    size: 18,
+                                  ),
+                                ),
+                        ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: InkWell(
+                          onTap: _channel != null ? _openContactScreen : null,
+                          borderRadius: BorderRadius.circular(8),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(_headerTitle(),
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: BestieTokens.fwBold,
+                                    color:
+                                        isClient ? colors.client : colors.text,
+                                    letterSpacing: BestieTokens.lsSnug,
+                                  )),
+                              if (headerSubtitle.isNotEmpty) ...[
+                                const SizedBox(height: 2),
+                                Text(headerSubtitle,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: BestieTokens.fwMedium,
+                                      color: headerSubtitle == 'Online'
+                                          ? BestieTokens.cSuccess
+                                          : colors.textSoft,
+                                      height: 1.15,
+                                    )),
+                              ],
+                            ],
                           ),
                         ),
-                ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: InkWell(
-                  onTap: _channel != null ? _openContactScreen : null,
-                  borderRadius: BorderRadius.circular(8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(_headerTitle(),
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: BestieTokens.fwBold,
-                            color: isClient ? colors.client : colors.text,
-                            letterSpacing: BestieTokens.lsSnug,
-                          )),
-                      if (headerSubtitle.isNotEmpty) ...[
-                        const SizedBox(height: 2),
-                        Text(headerSubtitle,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 12.5,
-                              fontWeight: BestieTokens.fwMedium,
-                              color: headerSubtitle == 'Online'
-                                  ? BestieTokens.cSuccess
-                                  : colors.textSoft,
-                              height: 1.15,
-                            )),
-                      ],
+                      ),
                     ],
                   ),
                 ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          if (_canStartCalls) ...[
-            _headerCallButton(
-              icon: Icons.call_rounded,
-              tooltip: 'Voice call',
-              onPressed: () => _startCall(kind: 'voice'),
-            ),
-            _headerCallButton(
-              icon: Icons.videocam_rounded,
-              tooltip: 'Video call',
-              onPressed: () => _startCall(kind: 'video'),
-            ),
-          ],
-          IconButton(
-            icon: const Icon(Icons.more_vert_rounded),
-            tooltip: 'More options',
-            onPressed: _showChatMoreMenu,
-          ),
-        ],
-        bottom: _searching
-            ? PreferredSize(
-                preferredSize: const Size.fromHeight(48),
-                child: Container(
-                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                  color: colors.surface,
-                  child: TextField(
-                    controller: _searchCtl,
-                    autofocus: true,
-                    onChanged: (v) => setState(() => _searchQuery = v.trim()),
-                    decoration: InputDecoration(
-                      isDense: true,
-                      hintText: 'Search messages in this chat…',
-                      prefixIcon: Icon(Icons.search_rounded,
-                          color: colors.textSoft, size: 18),
-                      filled: true,
-                      fillColor: colors.surface2,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(BestieTokens.rPill),
-                        borderSide: BorderSide.none,
-                      ),
+                actions: [
+                  if (_canStartCalls) ...[
+                    _headerCallButton(
+                      icon: Icons.call_rounded,
+                      tooltip: 'Voice call',
+                      onPressed: () => _startCall(kind: 'voice'),
                     ),
+                    _headerCallButton(
+                      icon: Icons.videocam_rounded,
+                      tooltip: 'Video call',
+                      onPressed: () => _startCall(kind: 'video'),
+                    ),
+                  ],
+                  IconButton(
+                    icon: const Icon(Icons.more_vert_rounded),
+                    tooltip: 'More options',
+                    onPressed: _showChatMoreMenu,
                   ),
+                ],
+                bottom: _searching
+                    ? PreferredSize(
+                        preferredSize: const Size.fromHeight(48),
+                        child: Container(
+                          padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                          color: colors.surface,
+                          child: TextField(
+                            controller: _searchCtl,
+                            autofocus: true,
+                            onChanged: (v) =>
+                                setState(() => _searchQuery = v.trim()),
+                            decoration: InputDecoration(
+                              isDense: true,
+                              hintText: 'Search messages in this chat…',
+                              prefixIcon: Icon(Icons.search_rounded,
+                                  color: colors.textSoft, size: 18),
+                              filled: true,
+                              fillColor: colors.surface2,
+                              border: OutlineInputBorder(
+                                borderRadius:
+                                    BorderRadius.circular(BestieTokens.rPill),
+                                borderSide: BorderSide.none,
+                              ),
+                            ),
+                          ),
+                        ),
+                      )
+                    : null,
+              ),
+        body: Column(children: [
+          _pinnedBar(
+            (messages.asData?.value ?? const [])
+                .where((m) => isMessageVisibleAfterClear(m, clearedAt))
+                .toList(),
+            colors,
+          ),
+          Expanded(
+            child: messages.when(
+              loading: () => const Center(child: BestieSpinner()),
+              error: (e, _) => BestieEmptyState(
+                icon: Icons.error_outline,
+                iconColor: colors.danger,
+                title: 'Couldn\'t load messages',
+                description: formatApiError(e),
+              ),
+              data: (serverItemsRaw) {
+                // Prepend any older pages we've fetched on demand, de-duped
+                // by id (the latest page can overlap with what's still
+                // cached in messagesProvider after a socket invalidate).
+                final knownIds = serverItemsRaw
+                    .map((m) => m['id']?.toString())
+                    .whereType<String>()
+                    .toSet();
+                final mergedRaw = [
+                  ..._olderMessages
+                      .where((m) => !knownIds.contains(m['id']?.toString())),
+                  ...serverItemsRaw,
+                ];
+                // "Delete for me" — drop locally-hidden ids before any further work.
+                final hidden = ref
+                        .watch(_hiddenMessageIdsProvider(widget.channelId))
+                        .asData
+                        ?.value ??
+                    const <String>{};
+                var serverItems = hidden.isEmpty
+                    ? mergedRaw
+                    : mergedRaw
+                        .where((m) => !hidden.contains(m['id']?.toString()))
+                        .toList();
+                if (clearedAt != null) {
+                  serverItems = serverItems
+                      .where((m) => isMessageVisibleAfterClear(m, clearedAt))
+                      .toList();
+                }
+                // Per-conversation search filter — case-insensitive substring
+                // match on message body. The list keeps reverse order so
+                // matches still read newest-first like the normal view.
+                if (_searching && _searchQuery.isNotEmpty) {
+                  final q = _searchQuery.toLowerCase();
+                  serverItems = serverItems
+                      .where((m) =>
+                          ('${m['body'] ?? ''}').toLowerCase().contains(q))
+                      .toList();
+                }
+                // Mark inbound messages as DELIVERED + SEEN now that they're on screen.
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) _ackReceipts(serverItems, seen: true);
+                });
+
+                // Drop optimistic stubs the server has already replaced with
+                // real rows (matched by body + author + close-in-time).
+                final serverIds = serverItems
+                    .whereType<Map>()
+                    .map((m) => m['id']?.toString())
+                    .toSet();
+                _pendingOutgoing.removeWhere((p) {
+                  final pid = p['id']?.toString();
+                  if (pid != null && serverIds.contains(pid)) return true;
+                  // Heuristic dedupe: server message with same body + my author
+                  // landed within the last 30s — assume it's our optimistic stub.
+                  final body = (p['body'] ?? '').toString();
+                  final meId = (p['author'] as Map?)?['id'];
+                  final now = DateTime.now();
+                  final matched = serverItems.whereType<Map>().any((s) {
+                    if ((s['body'] ?? '') != body) return false;
+                    if ((s['author'] as Map?)?['id'] != meId) return false;
+                    final t =
+                        DateTime.tryParse(s['createdAt']?.toString() ?? '');
+                    return t != null && now.difference(t).inSeconds.abs() < 30;
+                  });
+                  return matched;
+                });
+
+                // Combined list: server messages then optimistic outgoing.
+                final items = [...serverItems, ..._pendingOutgoing];
+
+                // Call ids that have since ENDED/MISSED/DECLINED — used to
+                // strip the "Tap to join" pill off an earlier STARTED bubble
+                // once the call is over.
+                final endedCallIds = <String>{};
+                for (final m in items) {
+                  if ((m['kind'] ?? '') != 'CALL_EVENT') continue;
+                  final raw = (m['body'] ?? '').toString();
+                  final marker = raw.lastIndexOf('|call:');
+                  if (marker < 0) continue;
+                  final tail = raw.substring(marker + 6);
+                  final colon = tail.indexOf(':');
+                  if (colon < 0) continue;
+                  final cid = tail.substring(0, colon);
+                  final st = tail.substring(colon + 1);
+                  if (st == 'ENDED' || st == 'MISSED' || st == 'DECLINED') {
+                    endedCallIds.add(cid);
+                  }
+                }
+
+                // Compute the unread boundary once — the oldest message that
+                // arrived after my lastReadAt and wasn't sent by me. Anchors
+                // the "N new messages" divider.
+                if (!_boundaryComputed && _myLastReadAt != null) {
+                  final me = ref.read(authStoreProvider).user;
+                  final unread = items.where((m) {
+                    final t = DateTime.tryParse('${m['createdAt']}');
+                    final authorId = (m['author'] as Map?)?['id'];
+                    return t != null &&
+                        t.isAfter(_myLastReadAt!) &&
+                        authorId != me?.id;
+                  }).toList();
+                  if (unread.isNotEmpty) {
+                    unread.sort((a, b) =>
+                        '${a['createdAt']}'.compareTo('${b['createdAt']}'));
+                    _unreadBoundaryId = unread.first['id']?.toString();
+                    _unreadAtOpen = unread.length;
+                  }
+                  _boundaryComputed = true;
+                }
+
+                // Auto-scroll to the newest message on arrival.
+                if (items.length != _lastCount) {
+                  _lastCount = items.length;
+                  _scrollToLatestSoon();
+                }
+
+                if (items.isEmpty) {
+                  return const BestieEmptyState(
+                    icon: Icons.chat_bubble_outline,
+                    title: 'No messages yet',
+                    description: 'Send the first message to break the ice.',
+                  );
+                }
+
+                // Sort strictly by createdAt (ISO-8601 sorts chronologically as
+                // text) so a socket-merged or optimistic message can never land
+                // out of order — which previously pushed the first message above
+                // the wrong day divider.
+                items.sort((a, b) => (a['createdAt']?.toString() ?? '')
+                    .compareTo(b['createdAt']?.toString() ?? ''));
+                // `reverse: true` pins the newest message at the bottom (above
+                // the composer) so the visual order matches WhatsApp. We render
+                // the *reversed* list so index 0 = newest.
+                final reversed = items.reversed.toList();
+                return ListView.builder(
+                  controller: _scroll,
+                  reverse: true,
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                  // +1 slot at the visual top for the "loading older" pip /
+                  // "start of conversation" marker.
+                  itemCount: reversed.length + 1,
+                  itemBuilder: (_, i) {
+                    if (i == reversed.length) {
+                      if (_loadingOlder) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 12),
+                          child: Center(
+                            child: SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          ),
+                        );
+                      }
+                      if (!_hasMoreOlder && reversed.length > 20) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          child: Center(
+                            child: Text(
+                              'Start of conversation',
+                              style: TextStyle(
+                                  fontSize: 11, color: colors.textFaint),
+                            ),
+                          ),
+                        );
+                      }
+                      return const SizedBox.shrink();
+                    }
+                    final m = reversed[i];
+                    final kindStr = (m['kind'] ?? 'TEXT').toString();
+                    final author =
+                        (m['author'] as Map?)?.cast<String, dynamic>() ??
+                            const {};
+                    final mine = me?.id != null && author['id'] == me!.id;
+
+                    // Date divider: when the message *below* this one (visually
+                    // earlier in time) is from a different day, prepend a
+                    // "Today / Yesterday / Mar 18" chip above the current
+                    // message. With reverse:true that means rendering it AFTER
+                    // the bubble (it appears above when reversed).
+                    final next =
+                        i + 1 < reversed.length ? reversed[i + 1] : null;
+                    final showDivider = _shouldShowDateDivider(m, next);
+                    final divider = showDivider
+                        ? _DateDivider(timestamp: m['createdAt']?.toString())
+                        : null;
+
+                    final bubble =
+                        kindStr == 'SYSTEM' || kindStr == 'CALL_EVENT'
+                            ? _SystemBubble(
+                                message: m,
+                                endedCallIds: endedCallIds,
+                                viewerId: me?.id,
+                              ) as Widget
+                            : _MessageBubble(
+                                message: m, author: author, mine: mine);
+
+                    // "N new messages" unread divider — rendered above the
+                    // boundary message (so, below it in the reversed list).
+                    final isBoundary = m['id']?.toString() == _unreadBoundaryId;
+                    final unreadDivider = isBoundary
+                        ? _UnreadDivider(count: _unreadAtOpen, colors: colors)
+                        : null;
+
+                    // Items inside a reversed ListView keep their normal child
+                    // order. Put dividers before the bubble so the first message
+                    // of a new day appears below "Today", not above it.
+                    final extras = <Widget>[
+                      if (divider != null) divider,
+                      if (unreadDivider != null) unreadDivider,
+                      bubble,
+                    ];
+                    if (extras.length == 1) return bubble;
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: extras,
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+          // Typing indicator sits just above the composer so it doesn't shift
+          // the messages list when it appears/disappears.
+          if (_typing.isNotEmpty)
+            _TypingIndicator(typing: _typing.values.toList(), colors: colors),
+          // @mention autocomplete — pops above the composer when the user is
+          // mid-typing an @handle. Replaces the @-fragment with @Name on tap.
+          _mentionSuggestions(colors),
+          // Smart reply chips — surface 3 quick canned replies when the last
+          // message is from someone else and the user hasn't started typing.
+          if (_replyingTo == null) _smartReplies(colors, me),
+          // Quoted-message preview when replying.
+          if (_replyingTo != null)
+            _ReplyComposerChip(
+              message: _replyingTo!,
+              colors: colors,
+              onCancel: () => setState(() => _replyingTo = null),
+            ),
+          if (_uploadProgress != null)
+            Container(
+              color: colors.surface,
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Sharing file ${(_uploadProgress! * 100).clamp(1, 100).round()}%',
+                      style: TextStyle(color: colors.textMuted, fontSize: 11),
+                    ),
+                    const SizedBox(height: 5),
+                    LinearProgressIndicator(
+                        value: _uploadProgress, minHeight: 5),
+                  ]),
+            ),
+          _Composer(
+            colors: colors,
+            controller: _composer,
+            sending: _sending,
+            attaching: _attaching,
+            onSend: _send,
+            onAttach: _attach,
+            onStartRecording: _startVoiceRecording,
+            onStopRecording: _stopVoiceRecording,
+            onSendVoice: _sendVoiceNote,
+            onCorrect: (text) async {
+              try {
+                final res = await ref.read(apiProvider).correctText(text);
+                if (res['changed'] == true) return res['corrected']?.toString();
+                return null;
+              } catch (_) {
+                return null;
+              }
+            },
+          ),
+        ]),
+        // Quick way back to the latest message after scrolling up. Mini-sized
+        // so it doesn't compete with the composer for thumb space.
+        floatingActionButton: _showJumpToBottom
+            ? Padding(
+                padding: const EdgeInsets.only(bottom: 72),
+                child: FloatingActionButton.small(
+                  heroTag: 'chat_jump_to_bottom',
+                  onPressed: () {
+                    if (_scroll.hasClients) {
+                      _scroll.animateTo(
+                        0,
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeOutCubic,
+                      );
+                    }
+                    setState(() => _showJumpToBottom = false);
+                  },
+                  backgroundColor: colors.surface,
+                  foregroundColor: colors.text,
+                  elevation: 4,
+                  child: const Icon(Icons.keyboard_arrow_down_rounded),
                 ),
               )
             : null,
-      ),
-      body: Column(children: [
-        _pinnedBar(
-          (messages.asData?.value ?? const [])
-              .where((m) => isMessageVisibleAfterClear(m, clearedAt))
-              .toList(),
-          colors,
-        ),
-        Expanded(
-          child: messages.when(
-            loading: () => const Center(child: BestieSpinner()),
-            error: (e, _) => BestieEmptyState(
-              icon: Icons.error_outline,
-              iconColor: colors.danger,
-              title: 'Couldn\'t load messages',
-              description: formatApiError(e),
-            ),
-            data: (serverItemsRaw) {
-              // Prepend any older pages we've fetched on demand, de-duped
-              // by id (the latest page can overlap with what's still
-              // cached in messagesProvider after a socket invalidate).
-              final knownIds = serverItemsRaw
-                  .map((m) => m['id']?.toString())
-                  .whereType<String>()
-                  .toSet();
-              final mergedRaw = [
-                ..._olderMessages
-                    .where((m) => !knownIds.contains(m['id']?.toString())),
-                ...serverItemsRaw,
-              ];
-              // "Delete for me" — drop locally-hidden ids before any further work.
-              final hidden = ref
-                      .watch(_hiddenMessageIdsProvider(widget.channelId))
-                      .asData
-                      ?.value ??
-                  const <String>{};
-              var serverItems = hidden.isEmpty
-                  ? mergedRaw
-                  : mergedRaw
-                      .where((m) => !hidden.contains(m['id']?.toString()))
-                      .toList();
-              if (clearedAt != null) {
-                serverItems = serverItems
-                    .where((m) => isMessageVisibleAfterClear(m, clearedAt))
-                    .toList();
-              }
-              // Per-conversation search filter — case-insensitive substring
-              // match on message body. The list keeps reverse order so
-              // matches still read newest-first like the normal view.
-              if (_searching && _searchQuery.isNotEmpty) {
-                final q = _searchQuery.toLowerCase();
-                serverItems = serverItems
-                    .where(
-                        (m) => ('${m['body'] ?? ''}').toLowerCase().contains(q))
-                    .toList();
-              }
-              // Mark inbound messages as DELIVERED + SEEN now that they're on screen.
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) _ackReceipts(serverItems, seen: true);
-              });
-
-              // Drop optimistic stubs the server has already replaced with
-              // real rows (matched by body + author + close-in-time).
-              final serverIds = serverItems
-                  .whereType<Map>()
-                  .map((m) => m['id']?.toString())
-                  .toSet();
-              _pendingOutgoing.removeWhere((p) {
-                final pid = p['id']?.toString();
-                if (pid != null && serverIds.contains(pid)) return true;
-                // Heuristic dedupe: server message with same body + my author
-                // landed within the last 30s — assume it's our optimistic stub.
-                final body = (p['body'] ?? '').toString();
-                final meId = (p['author'] as Map?)?['id'];
-                final now = DateTime.now();
-                final matched = serverItems.whereType<Map>().any((s) {
-                  if ((s['body'] ?? '') != body) return false;
-                  if ((s['author'] as Map?)?['id'] != meId) return false;
-                  final t = DateTime.tryParse(s['createdAt']?.toString() ?? '');
-                  return t != null && now.difference(t).inSeconds.abs() < 30;
-                });
-                return matched;
-              });
-
-              // Combined list: server messages then optimistic outgoing.
-              final items = [...serverItems, ..._pendingOutgoing];
-
-              // Call ids that have since ENDED/MISSED/DECLINED — used to
-              // strip the "Tap to join" pill off an earlier STARTED bubble
-              // once the call is over.
-              final endedCallIds = <String>{};
-              for (final m in items) {
-                if ((m['kind'] ?? '') != 'CALL_EVENT') continue;
-                final raw = (m['body'] ?? '').toString();
-                final marker = raw.lastIndexOf('|call:');
-                if (marker < 0) continue;
-                final tail = raw.substring(marker + 6);
-                final colon = tail.indexOf(':');
-                if (colon < 0) continue;
-                final cid = tail.substring(0, colon);
-                final st = tail.substring(colon + 1);
-                if (st == 'ENDED' || st == 'MISSED' || st == 'DECLINED') {
-                  endedCallIds.add(cid);
-                }
-              }
-
-              // Compute the unread boundary once — the oldest message that
-              // arrived after my lastReadAt and wasn't sent by me. Anchors
-              // the "N new messages" divider.
-              if (!_boundaryComputed && _myLastReadAt != null) {
-                final me = ref.read(authStoreProvider).user;
-                final unread = items.where((m) {
-                  final t = DateTime.tryParse('${m['createdAt']}');
-                  final authorId = (m['author'] as Map?)?['id'];
-                  return t != null &&
-                      t.isAfter(_myLastReadAt!) &&
-                      authorId != me?.id;
-                }).toList();
-                if (unread.isNotEmpty) {
-                  unread.sort((a, b) =>
-                      '${a['createdAt']}'.compareTo('${b['createdAt']}'));
-                  _unreadBoundaryId = unread.first['id']?.toString();
-                  _unreadAtOpen = unread.length;
-                }
-                _boundaryComputed = true;
-              }
-
-              // Auto-scroll to the newest message on arrival.
-              if (items.length != _lastCount) {
-                _lastCount = items.length;
-                _scrollToLatestSoon();
-              }
-
-              if (items.isEmpty) {
-                return const BestieEmptyState(
-                  icon: Icons.chat_bubble_outline,
-                  title: 'No messages yet',
-                  description: 'Send the first message to break the ice.',
-                );
-              }
-
-              // Sort strictly by createdAt (ISO-8601 sorts chronologically as
-              // text) so a socket-merged or optimistic message can never land
-              // out of order — which previously pushed the first message above
-              // the wrong day divider.
-              items.sort((a, b) => (a['createdAt']?.toString() ?? '')
-                  .compareTo(b['createdAt']?.toString() ?? ''));
-              // `reverse: true` pins the newest message at the bottom (above
-              // the composer) so the visual order matches WhatsApp. We render
-              // the *reversed* list so index 0 = newest.
-              final reversed = items.reversed.toList();
-              return ListView.builder(
-                controller: _scroll,
-                reverse: true,
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                // +1 slot at the visual top for the "loading older" pip /
-                // "start of conversation" marker.
-                itemCount: reversed.length + 1,
-                itemBuilder: (_, i) {
-                  if (i == reversed.length) {
-                    if (_loadingOlder) {
-                      return const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 12),
-                        child: Center(
-                          child: SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                        ),
-                      );
-                    }
-                    if (!_hasMoreOlder && reversed.length > 20) {
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 10),
-                        child: Center(
-                          child: Text(
-                            'Start of conversation',
-                            style: TextStyle(
-                                fontSize: 11, color: colors.textFaint),
-                          ),
-                        ),
-                      );
-                    }
-                    return const SizedBox.shrink();
-                  }
-                  final m = reversed[i];
-                  final kindStr = (m['kind'] ?? 'TEXT').toString();
-                  final author =
-                      (m['author'] as Map?)?.cast<String, dynamic>() ??
-                          const {};
-                  final mine = me?.id != null && author['id'] == me!.id;
-
-                  // Date divider: when the message *below* this one (visually
-                  // earlier in time) is from a different day, prepend a
-                  // "Today / Yesterday / Mar 18" chip above the current
-                  // message. With reverse:true that means rendering it AFTER
-                  // the bubble (it appears above when reversed).
-                  final next = i + 1 < reversed.length ? reversed[i + 1] : null;
-                  final showDivider = _shouldShowDateDivider(m, next);
-                  final divider = showDivider
-                      ? _DateDivider(timestamp: m['createdAt']?.toString())
-                      : null;
-
-                  final bubble = kindStr == 'SYSTEM' || kindStr == 'CALL_EVENT'
-                      ? _SystemBubble(
-                          message: m,
-                          endedCallIds: endedCallIds,
-                          viewerId: me?.id,
-                        ) as Widget
-                      : _MessageBubble(message: m, author: author, mine: mine);
-
-                  // "N new messages" unread divider — rendered above the
-                  // boundary message (so, below it in the reversed list).
-                  final isBoundary = m['id']?.toString() == _unreadBoundaryId;
-                  final unreadDivider = isBoundary
-                      ? _UnreadDivider(count: _unreadAtOpen, colors: colors)
-                      : null;
-
-                  // Items inside a reversed ListView keep their normal child
-                  // order. Put dividers before the bubble so the first message
-                  // of a new day appears below "Today", not above it.
-                  final extras = <Widget>[
-                    if (divider != null) divider,
-                    if (unreadDivider != null) unreadDivider,
-                    bubble,
-                  ];
-                  if (extras.length == 1) return bubble;
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: extras,
-                  );
-                },
-              );
-            },
-          ),
-        ),
-        // Typing indicator sits just above the composer so it doesn't shift
-        // the messages list when it appears/disappears.
-        if (_typing.isNotEmpty)
-          _TypingIndicator(typing: _typing.values.toList(), colors: colors),
-        // @mention autocomplete — pops above the composer when the user is
-        // mid-typing an @handle. Replaces the @-fragment with @Name on tap.
-        _mentionSuggestions(colors),
-        // Smart reply chips — surface 3 quick canned replies when the last
-        // message is from someone else and the user hasn't started typing.
-        if (_replyingTo == null) _smartReplies(colors, me),
-        // Quoted-message preview when replying.
-        if (_replyingTo != null)
-          _ReplyComposerChip(
-            message: _replyingTo!,
-            colors: colors,
-            onCancel: () => setState(() => _replyingTo = null),
-          ),
-        if (_uploadProgress != null)
-          Container(
-            color: colors.surface,
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(
-                'Sharing file ${(_uploadProgress! * 100).clamp(1, 100).round()}%',
-                style: TextStyle(color: colors.textMuted, fontSize: 11),
-              ),
-              const SizedBox(height: 5),
-              LinearProgressIndicator(value: _uploadProgress, minHeight: 5),
-            ]),
-          ),
-        _Composer(
-          colors: colors,
-          controller: _composer,
-          sending: _sending,
-          attaching: _attaching,
-          onSend: _send,
-          onAttach: _attach,
-          onStartRecording: _startVoiceRecording,
-          onStopRecording: _stopVoiceRecording,
-          onSendVoice: _sendVoiceNote,
-          onCorrect: (text) async {
-            try {
-              final res = await ref.read(apiProvider).correctText(text);
-              if (res['changed'] == true) return res['corrected']?.toString();
-              return null;
-            } catch (_) {
-              return null;
-            }
-          },
-        ),
-      ]),
-      // Quick way back to the latest message after scrolling up. Mini-sized
-      // so it doesn't compete with the composer for thumb space.
-      floatingActionButton: _showJumpToBottom
-          ? Padding(
-              padding: const EdgeInsets.only(bottom: 72),
-              child: FloatingActionButton.small(
-                heroTag: 'chat_jump_to_bottom',
-                onPressed: () {
-                  if (_scroll.hasClients) {
-                    _scroll.animateTo(
-                      0,
-                      duration: const Duration(milliseconds: 300),
-                      curve: Curves.easeOutCubic,
-                    );
-                  }
-                  setState(() => _showJumpToBottom = false);
-                },
-                backgroundColor: colors.surface,
-                foregroundColor: colors.text,
-                elevation: 4,
-                child: const Icon(Icons.keyboard_arrow_down_rounded),
-              ),
-            )
-          : null,
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+        floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       ),
     );
   }
@@ -2878,7 +2903,7 @@ class _ComposerState extends State<_Composer> {
       );
     }
 
-    return Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+    return Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
       Expanded(
         child: Container(
           decoration: BoxDecoration(
@@ -2887,7 +2912,7 @@ class _ComposerState extends State<_Composer> {
             border: Border.all(color: colors.border),
           ),
           padding: const EdgeInsets.symmetric(horizontal: 2),
-          child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+          child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
             // Emoji on the far left, inside the pill.
             pillIcon(Icons.emoji_emotions_outlined, _showEmojiPicker,
                 tooltip: 'Emoji'),

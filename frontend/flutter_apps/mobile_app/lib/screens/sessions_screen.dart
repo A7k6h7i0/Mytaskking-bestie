@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -28,7 +29,10 @@ class SessionsScreen extends ConsumerWidget {
             if (context.canPop()) {
               context.pop();
             } else {
-              context.go('/chat');
+              final desktop = defaultTargetPlatform == TargetPlatform.windows ||
+                  defaultTargetPlatform == TargetPlatform.linux ||
+                  defaultTargetPlatform == TargetPlatform.macOS;
+              context.go(desktop ? '/dashboard' : '/chat');
             }
           },
         ),
@@ -38,7 +42,8 @@ class SessionsScreen extends ConsumerWidget {
             onPressed: () => _signOutAll(context, ref),
             icon: Icon(Icons.logout_rounded, size: 16, color: c.danger),
             label: Text('Sign out all',
-                style: TextStyle(color: c.danger, fontWeight: BestieTokens.fwSemibold)),
+                style: TextStyle(
+                    color: c.danger, fontWeight: BestieTokens.fwSemibold)),
           ),
           const SizedBox(width: 4),
         ],
@@ -48,8 +53,10 @@ class SessionsScreen extends ConsumerWidget {
         child: sessions.when(
           loading: () => const Center(child: BestieSpinner()),
           error: (e, _) => BestieEmptyState(
-            icon: Icons.error_outline_rounded, iconColor: c.danger,
-            title: 'Could not load sessions', description: formatApiError(e),
+            icon: Icons.error_outline_rounded,
+            iconColor: c.danger,
+            title: 'Could not load sessions',
+            description: formatApiError(e),
           ),
           data: (items) {
             if (items.isEmpty) {
@@ -62,10 +69,12 @@ class SessionsScreen extends ConsumerWidget {
             return ListView.separated(
               padding: const EdgeInsets.symmetric(vertical: 8),
               itemCount: items.length,
-              separatorBuilder: (_, __) => Divider(height: 1, indent: 56, color: c.border),
+              separatorBuilder: (_, __) =>
+                  Divider(height: 1, indent: 56, color: c.border),
               itemBuilder: (ctx, i) {
                 final s = items[i];
-                final platform = (s['platform'] ?? 'unknown').toString().toLowerCase();
+                final platform =
+                    (s['platform'] ?? 'unknown').toString().toLowerCase();
                 final mobile = platform == 'ios' || platform == 'android';
                 final isCurrent = s['current'] == true;
                 return ListTile(
@@ -75,22 +84,28 @@ class SessionsScreen extends ConsumerWidget {
                   ),
                   title: Text(
                     _deviceLabel(s),
-                    maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontWeight: BestieTokens.fwSemibold, color: c.text),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontWeight: BestieTokens.fwSemibold, color: c.text),
                   ),
                   subtitle: Text(
                     [
                       if (s['ip'] != null) s['ip'],
-                      if (s['lastSeenAt'] != null) 'active ${_relative(s['lastSeenAt'].toString())}',
+                      if (s['lastSeenAt'] != null)
+                        'active ${_relative(s['lastSeenAt'].toString())}',
                     ].join(' · '),
                     style: TextStyle(color: c.textMuted, fontSize: 12),
                   ),
                   trailing: isCurrent
-                      ? BestieBadge(tone: BestieTone.success, child: const Text('THIS DEVICE'))
+                      ? BestieBadge(
+                          tone: BestieTone.success,
+                          child: const Text('THIS DEVICE'))
                       : IconButton(
                           icon: Icon(Icons.close_rounded, color: c.danger),
                           tooltip: 'Revoke',
-                          onPressed: () => _revoke(context, ref, s['id'] as String),
+                          onPressed: () =>
+                              _revoke(context, ref, s['id'] as String),
                         ),
                 );
               },
@@ -111,23 +126,26 @@ class SessionsScreen extends ConsumerWidget {
       await ref.read(apiProvider).revokeSession(id);
       ref.invalidate(mySessionsProvider);
     } catch (e) {
-      if (context.mounted) bestieToast(context, 'Could not revoke',
-          body: formatApiError(e), kind: BestieToastKind.error);
+      if (context.mounted)
+        bestieToast(context, 'Could not revoke',
+            body: formatApiError(e), kind: BestieToastKind.error);
     }
   }
 
   Future<void> _signOutAll(BuildContext context, WidgetRef ref) async {
     final ok = await bestieConfirm(context,
         title: 'Sign out everywhere?',
-        description: 'You will need to sign in again on every device, including this one.',
+        description:
+            'You will need to sign in again on every device, including this one.',
         confirmLabel: 'Sign out all');
     if (!ok) return;
     try {
       await ref.read(apiProvider).signOutEverywhere();
       ref.invalidate(mySessionsProvider);
     } catch (e) {
-      if (context.mounted) bestieToast(context, 'Could not sign out',
-          body: formatApiError(e), kind: BestieToastKind.error);
+      if (context.mounted)
+        bestieToast(context, 'Could not sign out',
+            body: formatApiError(e), kind: BestieToastKind.error);
     }
   }
 

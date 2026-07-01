@@ -39,6 +39,14 @@ function localDateKey(date = new Date(), timeZone = 'Asia/Kolkata') {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
+function localDateRange(dateKey) {
+  const start = new Date(`${dateKey}T00:00:00.000+05:30`);
+  return {
+    start,
+    end: new Date(start.getTime() + 24 * 60 * 60 * 1000),
+  };
+}
+
 function workSeconds(entry, now = new Date()) {
   if (!entry?.checkInAt) return 0;
   const end = entry.checkOutAt || now;
@@ -162,6 +170,8 @@ router.get(
   }),
   asyncHandler(async (req, res) => {
     const date = req.query.date || localDateKey(new Date(), req.query.timezone || 'Asia/Kolkata');
+    const { start, end } = localDateRange(date);
+    const intervalSeconds = await workActivityIntervalSeconds();
     const users = await prisma.user.findMany({
       where: tenant.scopedWhere(req, {
         isClient: false,
@@ -176,7 +186,10 @@ router.get(
       prisma.userPresence.findMany({ where: { userId: { in: userIds } } }),
       prisma.workdayLog.findMany({ where: { userId: { in: userIds }, localDate: date } }),
       prisma.workActivityClip.findMany({
-        where: tenant.scopedWhere(req, { userId: { in: userIds } }),
+        where: tenant.scopedWhere(req, {
+          userId: { in: userIds },
+          captureStartedAt: { gte: start, lt: end },
+        }),
         orderBy: { captureStartedAt: 'desc' },
         take: 250,
       }),
@@ -185,9 +198,16 @@ router.get(
     const workdayByUser = new Map(workdayRows.map((w) => [w.userId, w]));
     const latestByUser = new Map();
     const counts = new Map();
+    const activitySecondsByUser = new Map();
     for (const clip of clips) {
       counts.set(clip.userId, (counts.get(clip.userId) || 0) + 1);
       if (!latestByUser.has(clip.userId)) latestByUser.set(clip.userId, clip);
+      if (clip.promptRespondedAt && clip.status !== 'CAPTURE_FAILED') {
+        activitySecondsByUser.set(
+          clip.userId,
+          (activitySecondsByUser.get(clip.userId) || 0) + intervalSeconds
+        );
+      }
     }
     res.json({
       date,
@@ -198,7 +218,10 @@ router.get(
           user,
           availability,
           status: shouldTrack({ user, presence }) ? 'Working' : availability,
-          workingSeconds: workSeconds(workdayByUser.get(user.id)),
+          workingSeconds: Math.max(
+            workSeconds(workdayByUser.get(user.id)),
+            activitySecondsByUser.get(user.id) || 0
+          ),
           clipCount: counts.get(user.id) || 0,
           latestClip: latestByUser.get(user.id) || null,
         };

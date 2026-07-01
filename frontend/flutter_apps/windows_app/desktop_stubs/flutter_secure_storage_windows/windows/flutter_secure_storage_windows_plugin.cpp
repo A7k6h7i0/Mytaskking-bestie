@@ -1,14 +1,59 @@
-#include "C:/Users/Sarif/Downloads/Documents/ADD PHONE BOOK/Mytaskking-bestie/frontend/flutter_apps/windows_app/desktop_stubs/flutter_secure_storage_windows/windows/include/flutter_secure_storage_windows/flutter_secure_storage_windows_plugin.h"
-
 #include <flutter/method_channel.h>
 #include <flutter/plugin_registrar_windows.h>
 #include <flutter/standard_method_codec.h>
+#include <flutter_plugin_registrar.h>
 
+#include <algorithm>
+#include <cctype>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <memory>
+#include <optional>
+#include <sstream>
 #include <string>
-#include <unordered_map>
+#include <system_error>
 
 namespace {
+
+namespace fs = std::filesystem;
+
+fs::path StorageDir() {
+  char* app_data = nullptr;
+  size_t app_data_len = 0;
+  _dupenv_s(&app_data, &app_data_len, "APPDATA");
+  fs::path base = app_data && *app_data ? fs::path(app_data) : fs::temp_directory_path();
+  if (app_data) {
+    free(app_data);
+  }
+  return base / "MyTaskKing" / "secure_storage";
+}
+
+std::string SafeKey(std::string key) {
+  std::replace_if(key.begin(), key.end(), [](unsigned char ch) {
+    return !(std::isalnum(ch) || ch == '.' || ch == '_' || ch == '-');
+  }, '_');
+  return key;
+}
+
+fs::path KeyPath(const std::string& key) {
+  return StorageDir() / SafeKey(key);
+}
+
+std::optional<std::string> ReadFile(const fs::path& path) {
+  std::ifstream input(path, std::ios::binary);
+  if (!input) return std::nullopt;
+  std::ostringstream buffer;
+  buffer << input.rdbuf();
+  return buffer.str();
+}
+
+void WriteFile(const fs::path& path, const std::string& value) {
+  std::error_code ec;
+  fs::create_directories(path.parent_path(), ec);
+  std::ofstream output(path, std::ios::binary | std::ios::trunc);
+  output << value;
+}
 
 class FlutterSecureStorageWindowsPlugin : public flutter::Plugin {
  public:
@@ -46,7 +91,7 @@ class FlutterSecureStorageWindowsPlugin : public flutter::Plugin {
         auto key = read_key();
         auto it = args->find(flutter::EncodableValue("value"));
         if (!key.empty() && it != args->end()) {
-          store_[key] = std::get<std::string>(it->second);
+          WriteFile(KeyPath(key), std::get<std::string>(it->second));
         }
       }
       result->Success();
@@ -54,46 +99,59 @@ class FlutterSecureStorageWindowsPlugin : public flutter::Plugin {
     }
     if (method == "read") {
       auto key = read_key();
-      auto it = store_.find(key);
-      if (it == store_.end()) {
+      auto value = key.empty() ? std::optional<std::string>() : ReadFile(KeyPath(key));
+      if (!value.has_value()) {
         result->Success();
       } else {
-        result->Success(flutter::EncodableValue(it->second));
+        result->Success(flutter::EncodableValue(value.value()));
       }
       return;
     }
     if (method == "readAll") {
       flutter::EncodableMap map;
-      for (const auto& pair : store_) {
-        map[flutter::EncodableValue(pair.first)] = flutter::EncodableValue(pair.second);
+      std::error_code ec;
+      const auto dir = StorageDir();
+      if (fs::exists(dir, ec)) {
+        for (const auto& entry : fs::directory_iterator(dir, ec)) {
+          if (!entry.is_regular_file()) continue;
+          auto value = ReadFile(entry.path());
+          if (value.has_value()) {
+            map[flutter::EncodableValue(entry.path().filename().string())] =
+                flutter::EncodableValue(value.value());
+          }
+        }
       }
       result->Success(flutter::EncodableValue(map));
       return;
     }
     if (method == "delete") {
-      store_.erase(read_key());
+      std::error_code ec;
+      const auto key = read_key();
+      if (!key.empty()) fs::remove(KeyPath(key), ec);
       result->Success();
       return;
     }
     if (method == "deleteAll") {
-      store_.clear();
+      std::error_code ec;
+      fs::remove_all(StorageDir(), ec);
       result->Success();
       return;
     }
     if (method == "containsKey") {
-      result->Success(flutter::EncodableValue(store_.count(read_key()) > 0));
+      std::error_code ec;
+      const auto key = read_key();
+      result->Success(flutter::EncodableValue(
+          !key.empty() && fs::exists(KeyPath(key), ec)));
       return;
     }
 
     result->NotImplemented();
   }
-
-  std::unordered_map<std::string, std::string> store_;
 };
 
 }  // namespace
 
-void FlutterSecureStorageWindowsPluginRegisterWithRegistrar(
+extern "C" __declspec(dllexport) void FlutterSecureStorageWindowsPluginRegisterWithRegistrar(
     FlutterDesktopPluginRegistrarRef registrar) {
   FlutterSecureStorageWindowsPlugin::RegisterWithRegistrar(
       flutter::PluginRegistrarManager::GetInstance()

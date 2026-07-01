@@ -92,6 +92,7 @@ class CallSession {
   static final Set<int> remoteUids = {};
   static final Map<int, String> remoteNames = {};
   static final Map<int, bool> remoteMuted = {};
+  static final Map<int, bool> remoteVideoMuted = {};
 
   /// Real Agora uid → backend userId (from call.announce). Used to match
   /// volume-indication uids to tiles and to drop duplicate self tiles.
@@ -199,6 +200,7 @@ class CallSession {
     remoteUids.clear();
     remoteNames.clear();
     remoteMuted.clear();
+    remoteVideoMuted.clear();
     agoraUidToUserId.clear();
     screenSharing = false;
     remoteScreenShareUid = null;
@@ -228,6 +230,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   Set<int> get _remoteUids => _CallSession.remoteUids;
   Map<int, String> get _remoteNames => _CallSession.remoteNames;
   Map<int, bool> get _remoteMuted => _CallSession.remoteMuted;
+  Map<int, bool> get _remoteVideoMuted => _CallSession.remoteVideoMuted;
   Map<int, String> get _agoraUidToUserId => _CallSession.agoraUidToUserId;
   Map<String, String> get _joinedParticipants =>
       _CallSession.joinedParticipants;
@@ -865,6 +868,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   bool get _useWhatsAppParticipantGrid =>
       _isMeeting ||
+      _isVideo ||
       _participantCount > 2 ||
       _remoteUids.length > 1 ||
       ((_callMeta?['call'] as Map?)?['kind'] == 'GROUP' &&
@@ -1135,6 +1139,26 @@ class _CallScreenState extends ConsumerState<CallScreen>
   String? _primaryRemoteAvatarUrl() =>
       _CallSession.remotePeerAvatarUrl ?? _callDisplayAvatarUrl();
 
+  List<({String name, String? imageUrl})> _desktopCompanionProfiles(
+      String primaryName) {
+    final me = ref.read(authStoreProvider).user;
+    var skippedPrimary = false;
+    final profiles = <({String name, String? imageUrl})>[];
+    for (final p in _participantsFromMeta()) {
+      final userId = p['userId']?.toString();
+      if (userId != null && userId == me?.id) continue;
+      if (_memberConnection(p) != _CallMemberConnection.connected) continue;
+      final name = _participantProfileName(p);
+      if (!skippedPrimary && name == primaryName) {
+        skippedPrimary = true;
+        continue;
+      }
+      final user = (p['user'] as Map?)?.cast<String, dynamic>();
+      profiles.add((name: name, imageUrl: user?['avatarUrl']?.toString()));
+    }
+    return profiles.take(5).toList(growable: false);
+  }
+
   /// When returning to an already-live call, restore timer + connected status
   /// from the static session instead of "Connecting…".
   void _restoreLiveCallUi() {
@@ -1323,6 +1347,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
           } catch (_) {}
         }
       },
+      onUserMuteVideo: (conn, remoteUid, muted) {
+        if (!mounted) return;
+        setState(() => _remoteVideoMuted[remoteUid] = muted);
+      },
       onConnectionLost: (conn) {
         if (!mounted) return;
         setState(() {
@@ -1473,6 +1501,14 @@ class _CallScreenState extends ConsumerState<CallScreen>
       };
       if (url != null && url.isNotEmpty) {
         await _tonePlayer.play(UrlSource(url), volume: ringVolume);
+        _startOutgoingRingTimeout();
+        return;
+      }
+      if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+        await _tonePlayer.play(
+          BytesSource(AppSounds.desktopRingtoneBytes()),
+          volume: ringVolume,
+        );
         _startOutgoingRingTimeout();
         return;
       }
@@ -1645,21 +1681,26 @@ class _CallScreenState extends ConsumerState<CallScreen>
     try {
       // 1. OS-level permissions.
       step = 'permissions';
-      final perms = <Permission>[Permission.microphone];
-      if (_isVideo) perms.add(Permission.camera);
-      // Android 12+ needs runtime BLUETOOTH_CONNECT to route call audio to a
-      // Bluetooth headset. Requested best-effort — not fatal if denied.
-      if (Platform.isAndroid) perms.add(Permission.bluetoothConnect);
-      final granted = await perms.request();
-      final mic = granted[Permission.microphone];
-      if (mic != PermissionStatus.granted && mic != PermissionStatus.limited) {
-        throw 'Microphone permission denied. Open Settings → Apps → MyTaskKing → Permissions and enable it.';
-      }
-      if (_isVideo) {
-        final cam = granted[Permission.camera];
-        if (cam != PermissionStatus.granted &&
-            cam != PermissionStatus.limited) {
-          throw 'Camera permission denied. Open Settings → Apps → MyTaskKing → Permissions and enable it.';
+      final desktopRuntime =
+          Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+      if (!desktopRuntime) {
+        final perms = <Permission>[Permission.microphone];
+        if (_isVideo) perms.add(Permission.camera);
+        // Android 12+ needs runtime BLUETOOTH_CONNECT to route call audio to a
+        // Bluetooth headset. Requested best-effort - not fatal if denied.
+        if (Platform.isAndroid) perms.add(Permission.bluetoothConnect);
+        final granted = await perms.request();
+        final mic = granted[Permission.microphone];
+        if (mic != PermissionStatus.granted &&
+            mic != PermissionStatus.limited) {
+          throw 'Microphone permission denied. Open Settings -> Apps -> MyTaskKing -> Permissions and enable it.';
+        }
+        if (_isVideo) {
+          final cam = granted[Permission.camera];
+          if (cam != PermissionStatus.granted &&
+              cam != PermissionStatus.limited) {
+            throw 'Camera permission denied. Open Settings -> Apps -> MyTaskKing -> Permissions and enable it.';
+          }
         }
       }
 
@@ -2523,11 +2564,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final showingVideo =
         _isVideo && (_remoteUids.isNotEmpty || _waitingForAnswer);
     final screenShareActive = _sharing || _remoteScreenShareUid != null;
+    final desktopVoiceStage =
+        (Platform.isWindows || Platform.isLinux) && !_isVideo && !_isMeeting;
     final isPremiumOneToOneVoice = !_isVideo &&
         !_isMeeting &&
         !showingVideo &&
-        !_useWhatsAppParticipantGrid &&
-        _remoteUids.length <= 1;
+        (desktopVoiceStage ||
+            (!_useWhatsAppParticipantGrid && _remoteUids.length <= 1));
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
@@ -2778,7 +2821,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
             constraints.maxHeight < 760 ||
             constraints.maxWidth < 420;
         final avatarHeight = desktopLayout
-            ? max(132.0, min(166.0, constraints.maxHeight * 0.24))
+            ? max(216.0, min(286.0, constraints.maxHeight * 0.34))
             : (compact ? 174.0 : 200.0);
         final contentGap = compact ? 4.0 : 10.0;
         final nameSize = compact ? 20.0 : 26.0;
@@ -2832,12 +2875,22 @@ class _CallScreenState extends ConsumerState<CallScreen>
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        _CallUiAvatarStage(
-                          name: remoteName,
-                          imageUrl: _primaryRemoteAvatarUrl(),
-                          connected: _connectedAt != null && !ending,
-                          height: avatarHeight,
-                        ),
+                        desktopLayout
+                            ? _DesktopMeshAvatarStage(
+                                name: remoteName,
+                                imageUrl: _primaryRemoteAvatarUrl(),
+                                connected: _connectedAt != null && !ending,
+                                height: avatarHeight,
+                                companions:
+                                    _desktopCompanionProfiles(remoteName),
+                              )
+                            : _CallUiAvatarStage(
+                                name: remoteName,
+                                imageUrl: _primaryRemoteAvatarUrl(),
+                                connected: _connectedAt != null && !ending,
+                                height: avatarHeight,
+                                companions: const [],
+                              ),
                         SizedBox(height: compact ? 2 : 6),
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -4002,6 +4055,18 @@ class _CallScreenState extends ConsumerState<CallScreen>
     const screenSource = VideoSourceType.videoSourceScreenPrimary;
 
     if (isLocal) {
+      if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
+        return AgoraVideoView(
+          controller: VideoViewController(
+            rtcEngine: engine,
+            canvas: const VideoCanvas(
+              uid: 0,
+              sourceType: screenSource,
+              renderMode: RenderModeType.renderModeFit,
+            ),
+          ),
+        );
+      }
       // Local screen-capture preview is often blank on Android — show status
       // instead of an empty black panel while others see the real share.
       return Container(
@@ -4098,7 +4163,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
             ),
           ),
         ),
-        if (!isLocal && _useWhatsAppParticipantGrid)
+        if (_useWhatsAppParticipantGrid)
           Positioned(
             left: 8,
             right: 8,
@@ -4356,7 +4421,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
         String? imageUrl,
         int? agoraUid,
         bool isLocal,
-        bool muted
+        bool muted,
+        bool videoMuted
       })> _participantTilesForGrid() {
     _purgeSelfFromRemoteTracking();
     final me = ref.read(authStoreProvider).user;
@@ -4367,6 +4433,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       int? agoraUid,
       bool isLocal,
       bool muted,
+      bool videoMuted,
     })>[
       (
         name: me?.name ?? 'You',
@@ -4375,6 +4442,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
         agoraUid: _CallSession.myUid ?? 0,
         isLocal: true,
         muted: _muted,
+        videoMuted: _cameraOff,
       ),
     ];
     final seen = <String>{if (me?.id != null) me!.id};
@@ -4389,6 +4457,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
         agoraUid: uid,
         isLocal: false,
         muted: uid != null ? (_remoteMuted[uid] ?? false) : false,
+        videoMuted: uid != null ? (_remoteVideoMuted[uid] ?? false) : false,
       ));
     }
     for (final uid in _remoteUids) {
@@ -4408,6 +4477,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
           agoraUid: uid,
           isLocal: false,
           muted: _remoteMuted[uid] ?? false,
+          videoMuted: _remoteVideoMuted[uid] ?? false,
         );
       } else if (mappedUserId == null || !seen.contains(mappedUserId)) {
         if (mappedUserId != null) seen.add(mappedUserId);
@@ -4419,6 +4489,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
           agoraUid: uid,
           isLocal: false,
           muted: _remoteMuted[uid] ?? false,
+          videoMuted: _remoteVideoMuted[uid] ?? false,
         ));
       }
     }
@@ -4441,6 +4512,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
             agoraUid: t.agoraUid,
             isLocal: t.isLocal,
             muted: t.muted,
+            videoMuted: t.videoMuted,
             speaking: _isParticipantSpeaking(
               isLocal: t.isLocal,
               agoraUid: t.agoraUid,
@@ -4504,6 +4576,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     required int? agoraUid,
     required bool isLocal,
     required bool muted,
+    required bool videoMuted,
     required bool speaking,
     required bool forVideo,
     double? height,
@@ -4511,6 +4584,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }) {
     final showVideo = forVideo &&
         _engine != null &&
+        !videoMuted &&
         ((!isLocal && agoraUid != null) || (isLocal && !_cameraOff));
     return Container(
       height: height,
@@ -5354,22 +5428,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
                 SizedBox(width: rowGap),
                 const Expanded(child: SizedBox()),
                 SizedBox(width: rowGap),
-                Expanded(
-                  child: Align(
-                    alignment: Alignment.center,
-                    child: Transform.translate(
-                      offset: Offset(compact ? 4 : 6, 0),
-                      child: CallUiBottomActionButton(
-                        icon: (!_videoEnabled || _cameraOff)
-                            ? Icons.videocam_off_outlined
-                            : Icons.videocam_outlined,
-                        size: actionSize,
-                        onTap: _toggleCamera,
-                        compact: compact,
-                      ),
-                    ),
-                  ),
-                ),
+                const Expanded(child: SizedBox()),
               ],
             ),
             _PressableCircle(
@@ -5468,10 +5527,14 @@ class _CallScreenState extends ConsumerState<CallScreen>
             iconSize: iconSize,
           ),
           _ctrlCircle(
-            icon: (!_videoEnabled || _cameraOff)
-                ? Icons.videocam_off_rounded
-                : Icons.videocam_rounded,
-            onTap: _toggleCamera,
+            icon: _isVideo
+                ? ((!_videoEnabled || _cameraOff)
+                    ? Icons.videocam_off_rounded
+                    : Icons.videocam_rounded)
+                : (_sharing
+                    ? Icons.stop_screen_share_rounded
+                    : Icons.screen_share_rounded),
+            onTap: _isVideo ? _toggleCamera : _toggleShare,
             active: _isVideo && !_cameraOff,
             size: buttonSize,
             iconSize: iconSize,
@@ -5896,11 +5959,13 @@ class _CallUiAvatarStage extends StatefulWidget {
   final String? imageUrl;
   final bool connected;
   final double height;
+  final List<({String name, String? imageUrl})> companions;
   const _CallUiAvatarStage({
     required this.name,
     required this.imageUrl,
     required this.connected,
     required this.height,
+    this.companions = const [],
   });
 
   @override
@@ -5925,10 +5990,18 @@ class _CallUiAvatarStageState extends State<_CallUiAvatarStage>
     final ringOuter = widget.height * 0.92;
     final ringInner = widget.height * 0.84;
     final avatarSize = ringInner - 18;
+    final miniSize = max(24.0, min(34.0, widget.height * 0.18));
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, _) {
         final rotation = _controller.value * pi * 2;
+        final companionOffsets = <Offset>[
+          Offset(ringInner * 0.42, -ringInner * 0.18),
+          Offset(-ringInner * 0.42, -ringInner * 0.18),
+          Offset(ringInner * 0.36, ringInner * 0.28),
+          Offset(-ringInner * 0.36, ringInner * 0.28),
+          Offset(0, -ringInner * 0.50),
+        ];
         return SizedBox(
           width: double.infinity,
           height: widget.height,
@@ -6021,12 +6094,369 @@ class _CallUiAvatarStageState extends State<_CallUiAvatarStage>
                   ),
                 ],
               ),
+              for (var i = 0;
+                  i < widget.companions.length && i < companionOffsets.length;
+                  i++)
+                Align(
+                  alignment: Alignment.center,
+                  child: Transform.translate(
+                    offset: companionOffsets[i],
+                    child: _CallUiMiniAvatarBubble(
+                      name: widget.companions[i].name,
+                      imageUrl: widget.companions[i].imageUrl,
+                      size: miniSize,
+                    ),
+                  ),
+                ),
             ],
           ),
         );
       },
     );
   }
+}
+
+class _DesktopMeshAvatarStage extends StatefulWidget {
+  final String name;
+  final String? imageUrl;
+  final bool connected;
+  final double height;
+  final List<({String name, String? imageUrl})> companions;
+  const _DesktopMeshAvatarStage({
+    required this.name,
+    required this.imageUrl,
+    required this.connected,
+    required this.height,
+    this.companions = const [],
+  });
+
+  @override
+  State<_DesktopMeshAvatarStage> createState() =>
+      _DesktopMeshAvatarStageState();
+}
+
+class _DesktopMeshAvatarStageState extends State<_DesktopMeshAvatarStage>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 8),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final avatarSize = min(widget.height * 0.74, 160.0).toDouble();
+    final miniSize = max(22.0, min(32.0, widget.height * 0.14));
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        final companionOffsets = <Offset>[
+          Offset(78, -56),
+          Offset(-78, -56),
+          Offset(88, 52),
+          Offset(-88, 52),
+          Offset(0, -98),
+        ];
+        return SizedBox(
+          width: double.infinity,
+          height: widget.height + 112,
+          child: Stack(
+            clipBehavior: Clip.none,
+            fit: StackFit.expand,
+            children: [
+              Positioned.fill(
+                child: CustomPaint(
+                  painter: _ProfileWavePainter(progress: _controller.value),
+                ),
+              ),
+              Align(
+                alignment: const Alignment(0, -0.12),
+                child: SizedBox(
+                  width: 184,
+                  height: 184,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    alignment: Alignment.center,
+                    children: [
+                      Transform.rotate(
+                        angle: _controller.value * pi * 2,
+                        child: Container(
+                          width: 178,
+                          height: 178,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: const SweepGradient(
+                              colors: [
+                                Color(0xFF00F2FF),
+                                Color(0xFF1677FF),
+                                Color(0xFFFF00EA),
+                                Color(0xFF7B00FF),
+                                Color(0xFF00F2FF),
+                              ],
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF00F2FF)
+                                    .withValues(alpha: 0.88),
+                                blurRadius: 32,
+                                spreadRadius: 4,
+                              ),
+                              BoxShadow(
+                                color: const Color(0xFFFF00EA)
+                                    .withValues(alpha: 0.72),
+                                blurRadius: 52,
+                                spreadRadius: 5,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      Container(
+                        width: 166,
+                        height: 166,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.18),
+                            width: 1,
+                          ),
+                        ),
+                        child: ClipOval(
+                          child: BestieAvatar(
+                            name: widget.name,
+                            imageUrl: widget.imageUrl,
+                            size: avatarSize,
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        right: 7,
+                        bottom: 7,
+                        child: Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            color: widget.connected
+                                ? const Color(0xFF12D15E)
+                                : const Color(0xFF22C55E),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: const Color(0xFF071426),
+                              width: 3,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF12D15E)
+                                    .withValues(alpha: 0.8),
+                                blurRadius: 20,
+                              ),
+                            ],
+                          ),
+                          child: const Icon(
+                            Icons.call_rounded,
+                            color: Colors.white,
+                            size: 17,
+                          ),
+                        ),
+                      ),
+                      for (var i = 0;
+                          i < widget.companions.length &&
+                              i < companionOffsets.length;
+                          i++)
+                        Transform.translate(
+                          offset: companionOffsets[i],
+                          child: _CallUiMiniAvatarBubble(
+                            name: widget.companions[i].name,
+                            imageUrl: widget.companions[i].imageUrl,
+                            size: miniSize,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _CallUiMiniAvatarBubble extends StatelessWidget {
+  final String name;
+  final String? imageUrl;
+  final double size;
+  const _CallUiMiniAvatarBubble({
+    required this.name,
+    required this.imageUrl,
+    required this.size,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: const SweepGradient(
+          colors: [
+            CallScreenUiColors.neonBlue,
+            CallScreenUiColors.neonMagenta,
+            CallScreenUiColors.neonBlue,
+          ],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: CallScreenUiColors.neonBlue.withValues(alpha: 0.45),
+            blurRadius: 14,
+            spreadRadius: 1,
+          ),
+          BoxShadow(
+            color: CallScreenUiColors.neonMagenta.withValues(alpha: 0.35),
+            blurRadius: 16,
+            spreadRadius: 1,
+          ),
+        ],
+      ),
+      child: ClipOval(
+        child: BestieAvatar(
+          name: name,
+          imageUrl: imageUrl,
+          size: size - 4,
+        ),
+      ),
+    );
+  }
+}
+
+class _ProfileWavePainter extends CustomPainter {
+  final double progress;
+  const _ProfileWavePainter({required this.progress});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final topEdge = size.height * 0.10;
+    final bottomEdge = size.height * 0.70;
+    final centerX = size.width * 0.50;
+    final blurPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
+    final crispPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    const horizontalLineCount = 38;
+    const verticalLineCount = 34;
+    const horizontalAmplitude = 18.0;
+
+    double horizontalY(double x, double baseY, double phase) {
+      final position = x / size.width;
+      return baseY +
+          sin(position * pi * 2 + phase) * horizontalAmplitude +
+          sin(position * pi * 3 - phase * 0.65) * 5;
+    }
+
+    Path horizontalPath(
+      double startX,
+      double endX,
+      double baseY,
+      double phase,
+    ) {
+      const segments = 28;
+      final path = Path()..moveTo(startX, horizontalY(startX, baseY, phase));
+      for (var step = 1; step <= segments; step++) {
+        final x = startX + (endX - startX) * step / segments;
+        path.lineTo(x, horizontalY(x, baseY, phase));
+      }
+      return path;
+    }
+
+    for (var i = 0; i < horizontalLineCount; i++) {
+      final t = i / (horizontalLineCount - 1);
+      final phase = progress * pi * 2 + t * pi * 1.30;
+      final y = topEdge + (bottomEdge - topEdge) * t;
+      final leftPath = horizontalPath(0, centerX, y, phase);
+      final rightPath = horizontalPath(size.width, centerX, y, phase);
+
+      const leftColor = Color(0xFFFF00EA);
+      const rightColor = Color(0xFF00CFFF);
+
+      blurPaint
+        ..strokeWidth = 2.1
+        ..color = leftColor.withValues(alpha: 0.36);
+      canvas.drawPath(leftPath, blurPaint);
+      blurPaint.color = rightColor.withValues(alpha: 0.40);
+      canvas.drawPath(rightPath, blurPaint);
+
+      crispPaint
+        ..strokeWidth = 0.95
+        ..color = leftColor.withValues(alpha: 0.70);
+      canvas.drawPath(leftPath, crispPaint);
+      crispPaint.color = rightColor.withValues(alpha: 0.76);
+      canvas.drawPath(rightPath, crispPaint);
+    }
+
+    final topPhase = progress * pi * 2;
+    final bottomPhase = progress * pi * 2 + pi * 1.30;
+    final meshBounds = Path()..moveTo(0, horizontalY(0, topEdge, topPhase));
+    const boundarySegments = 56;
+    for (var step = 1; step <= boundarySegments; step++) {
+      final x = size.width * step / boundarySegments;
+      meshBounds.lineTo(x, horizontalY(x, topEdge, topPhase));
+    }
+    for (var step = boundarySegments; step >= 0; step--) {
+      final x = size.width * step / boundarySegments;
+      meshBounds.lineTo(x, horizontalY(x, bottomEdge, bottomPhase));
+    }
+    meshBounds.close();
+
+    canvas.save();
+    canvas.clipPath(meshBounds);
+    for (var i = 0; i < verticalLineCount; i++) {
+      final t = i / (verticalLineCount - 1);
+      final phase = progress * pi * 2 + t * pi * 1.20;
+      final x = size.width * t;
+      final verticalTop = horizontalY(x, topEdge, topPhase);
+      final verticalBottom = horizontalY(x, bottomEdge, bottomPhase);
+      final verticalPath = Path()
+        ..moveTo(x, verticalTop)
+        ..cubicTo(
+          x - 30 - sin(phase) * 13,
+          verticalTop + (verticalBottom - verticalTop) * 0.32,
+          x + 34 + cos(phase) * 13,
+          verticalTop + (verticalBottom - verticalTop) * 0.68,
+          x + sin(phase) * 3,
+          verticalBottom,
+        );
+
+      final color =
+          x <= centerX ? const Color(0xFFFF00EA) : const Color(0xFF00CFFF);
+
+      blurPaint
+        ..strokeWidth = 2.0
+        ..color = color.withValues(alpha: 0.34);
+      canvas.drawPath(verticalPath, blurPaint);
+
+      crispPaint
+        ..strokeWidth = 0.90
+        ..color = color.withValues(alpha: 0.68);
+      canvas.drawPath(verticalPath, crispPaint);
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _ProfileWavePainter oldDelegate) =>
+      oldDelegate.progress != progress;
 }
 
 class _PrototypeReconnectBanner extends StatelessWidget {

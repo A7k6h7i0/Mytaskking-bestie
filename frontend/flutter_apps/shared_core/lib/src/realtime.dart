@@ -85,9 +85,15 @@ class BestieRealtime {
     try {
       _socket?.off('connect');
       _socket?.dispose();
-    } catch (_) {/* ignore */}
+    } catch (_) {
+      /* ignore */
+    }
     _socket = null;
     _client.disconnect();
+    if (_client.auth.accessToken == null) {
+      connState.value = BestieConnState.disconnected;
+      return;
+    }
     connect();
   }
 
@@ -101,7 +107,9 @@ class BestieRealtime {
       s.off(topic);
       for (final h in entry.value) {
         s.on(topic, (raw) {
-          try { h(raw); } catch (_) {}
+          try {
+            h(raw);
+          } catch (_) {}
         });
       }
     }
@@ -113,8 +121,11 @@ class BestieRealtime {
   void Function() on<T>(String topic, void Function(T data) handler) {
     final list = _handlers.putIfAbsent(topic, () => <void Function(dynamic)>[]);
     void wrapped(dynamic raw) {
-      try { handler(raw as T); } catch (_) {}
+      try {
+        handler(raw as T);
+      } catch (_) {}
     }
+
     list.add(wrapped);
     // Attempt to connect lazily — typical first call into a provider.
     if (_socket == null || !_socket!.connected) connect();
@@ -133,7 +144,10 @@ class BestieRealtime {
 
   /// Listen for a topic with a typeless handler — common when the caller
   /// just wants "did anything happen?" (e.g. invalidating a provider).
-  void Function() onAny(String topic, [void Function([dynamic data])? handler]) {
+  void Function() onAny(
+    String topic, [
+    void Function([dynamic data])? handler,
+  ]) {
     return on<dynamic>(topic, (raw) => handler?.call(raw));
   }
 
@@ -144,10 +158,7 @@ class BestieRealtime {
 
   /// Update presence — fans out to all watchers via `presence.status`.
   void updatePresence({required String status, String? customStatus}) {
-    emit('presence.set', {
-      'status': status,
-      if (customStatus != null) 'customStatus': customStatus,
-    });
+    emit('presence.set', {'status': status, 'customStatus': customStatus});
   }
 
   /// True iff the socket is currently open. Useful for debug overlays.
@@ -159,7 +170,9 @@ class BestieRealtime {
       _socket?.off(topic);
     }
     _handlers.clear();
-    try { _socket?.dispose(); } catch (_) {}
+    try {
+      _socket?.dispose();
+    } catch (_) {}
     _client.disconnect();
     _socket = null;
   }

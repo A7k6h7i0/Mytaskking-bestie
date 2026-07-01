@@ -27,39 +27,55 @@ class SavedScreen extends ConsumerWidget {
         child: saved.when(
           loading: () => const Center(child: BestieSpinner()),
           error: (e, _) => BestieEmptyState(
-            icon: Icons.error_outline_rounded, iconColor: c.danger,
-            title: 'Could not load saved items', description: formatApiError(e),
+            icon: Icons.error_outline_rounded,
+            iconColor: c.danger,
+            title: 'Could not load saved items',
+            description: formatApiError(e),
           ),
           data: (items) {
             if (items.isEmpty) {
-              return const BestieEmptyState(
-                icon: Icons.bookmark_outline_rounded,
-                title: 'Nothing saved yet',
-                description: 'Long-press a message, file, or task to save it for later.',
+              return LayoutBuilder(
+                builder: (context, constraints) => SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: ConstrainedBox(
+                    constraints:
+                        BoxConstraints(minHeight: constraints.maxHeight),
+                    child: const Center(
+                      child: BestieEmptyState(
+                        icon: Icons.bookmark_outline_rounded,
+                        title: 'Nothing saved yet',
+                        description:
+                            'Long-press a message, file, or task to save it for later.',
+                      ),
+                    ),
+                  ),
+                ),
               );
             }
             return ListView.separated(
               padding: const EdgeInsets.symmetric(vertical: 8),
               itemCount: items.length,
-              separatorBuilder: (_, __) => Divider(height: 1, indent: 56, color: c.border),
+              separatorBuilder: (_, __) =>
+                  Divider(height: 1, indent: 56, color: c.border),
               itemBuilder: (ctx, i) {
                 final s = items[i];
                 final kind = (s['kind'] ?? 'item').toString().toUpperCase();
                 final icon = switch (kind) {
                   'MESSAGE' => Icons.chat_bubble_outline_rounded,
-                  'TASK'    => Icons.task_alt_outlined,
-                  'FILE'    => Icons.description_outlined,
-                  _         => Icons.bookmark_outline_rounded,
+                  'TASK' => Icons.task_alt_outlined,
+                  'FILE' => Icons.description_outlined,
+                  _ => Icons.bookmark_outline_rounded,
                 };
                 final accent = switch (kind) {
                   'MESSAGE' => c.brand,
-                  'TASK'    => c.success,
-                  'FILE'    => c.info,
-                  _         => c.textMuted,
+                  'TASK' => c.success,
+                  'FILE' => c.info,
+                  _ => c.textMuted,
                 };
                 return ListTile(
                   leading: Container(
-                    width: 36, height: 36,
+                    width: 36,
+                    height: 36,
                     decoration: BoxDecoration(
                       color: accent.withOpacity(0.12),
                       borderRadius: BorderRadius.circular(BestieTokens.rSm),
@@ -68,8 +84,10 @@ class SavedScreen extends ConsumerWidget {
                   ),
                   title: Text(
                     (s['title'] ?? s['note'] ?? '—').toString(),
-                    maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontWeight: BestieTokens.fwSemibold, color: c.text),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontWeight: BestieTokens.fwSemibold, color: c.text),
                   ),
                   subtitle: Text(
                     kind.toLowerCase(),

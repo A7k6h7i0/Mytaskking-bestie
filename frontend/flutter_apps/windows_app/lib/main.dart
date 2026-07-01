@@ -10,10 +10,13 @@ import 'package:mytaskking_mobile/screens.dart' hide ThemeMode;
 import 'package:mytaskking_mobile/screens/connectivity_banner.dart';
 import 'package:mytaskking_mobile/screens/incoming_call_overlay.dart';
 import 'package:mytaskking_mobile/screens/ongoing_call_bar.dart';
+import 'package:mytaskking_mobile/screens/organizations_screen.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'desktop_runtime.dart';
 import 'desktop_work_activity_agent.dart';
+import 'desktop_calendar_screen.dart';
+import 'desktop_chat_screen.dart';
 import 'work_activity_screen.dart';
 
 void main(List<String> args) async {
@@ -58,14 +61,21 @@ class BestieWindowsApp extends ConsumerWidget {
   GoRouter _router(BestieAuthStore auth) {
     final logged = auth.accessToken != null;
     return GoRouter(
-      initialLocation: logged ? '/chat' : '/login',
+      initialLocation: logged ? '/dashboard' : '/login',
+      refreshListenable: _AuthListenable(auth),
       redirect: (_, state) {
+        final isLoggedIn = auth.accessToken != null;
         final loginPath = state.matchedLocation == '/login';
-        if (!logged && !loginPath) return '/login';
-        if (logged && loginPath) return '/chat';
+        if (!isLoggedIn && !loginPath) return '/login';
+        if (isLoggedIn && loginPath) return '/dashboard';
         return null;
       },
       routes: [
+        GoRoute(
+          path: '/',
+          redirect: (_, __) =>
+              auth.accessToken != null ? '/dashboard' : '/login',
+        ),
         GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
         GoRoute(
           path: '/search',
@@ -103,7 +113,8 @@ class BestieWindowsApp extends ConsumerWidget {
             GoRoute(
                 path: '/dashboard',
                 builder: (_, __) => const DashboardScreen()),
-            GoRoute(path: '/chat', builder: (_, __) => const ChatListScreen()),
+            GoRoute(
+                path: '/chat', builder: (_, __) => const DesktopChatScreen()),
             GoRoute(
                 path: '/employees',
                 builder: (_, __) => const EmployeesScreen()),
@@ -111,7 +122,8 @@ class BestieWindowsApp extends ConsumerWidget {
                 path: '/clients', builder: (_, __) => const ClientsScreen()),
             GoRoute(path: '/calls', builder: (_, __) => const CallsScreen()),
             GoRoute(
-                path: '/calendar', builder: (_, __) => const CalendarScreen()),
+                path: '/calendar',
+                builder: (_, __) => const DesktopCalendarScreen()),
             GoRoute(
                 path: '/announcements',
                 builder: (_, __) => const AnnouncementsScreen()),
@@ -128,7 +140,14 @@ class BestieWindowsApp extends ConsumerWidget {
             GoRoute(
                 path: '/recordings',
                 builder: (_, __) => const RecordingsScreen()),
+            GoRoute(
+                path: '/organizations',
+                builder: (_, __) => const OrganizationsScreen()),
             GoRoute(path: '/tasks', builder: (_, __) => const TasksScreen()),
+            GoRoute(
+                path: '/attendance',
+                builder: (_, __) => const AttendanceScreen()),
+            GoRoute(path: '/attendence', redirect: (_, __) => '/attendance'),
             GoRoute(
                 path: '/meetings', builder: (_, __) => const MeetingsScreen()),
             GoRoute(
@@ -150,6 +169,7 @@ class BestieWindowsApp extends ConsumerWidget {
     ref.watch(currentUserProvider);
     final auth = ref.watch(authStoreProvider);
     final mode = ref.watch(themeModeProvider);
+    final fontScale = ref.watch(fontScaleProvider);
     final router = _router(auth);
     return MaterialApp.router(
       title: 'MyTaskKing · Windows',
@@ -162,15 +182,36 @@ class BestieWindowsApp extends ConsumerWidget {
         core.ThemeMode.system => ThemeMode.system,
       },
       routerConfig: router,
-      builder: (ctx, child) => ProviderScope(
-        overrides: [mobile_router.routerProvider.overrideWithValue(router)],
-        child: IncomingCallOverlay(
-          child: OngoingCallBar(
-            child: ConnectivityBanner(child: child ?? const SizedBox.shrink()),
+      builder: (ctx, child) => MediaQuery(
+        data: MediaQuery.of(ctx).copyWith(
+          textScaler: TextScaler.linear(fontScale),
+        ),
+        child: ProviderScope(
+          overrides: [mobile_router.routerProvider.overrideWithValue(router)],
+          child: IncomingCallOverlay(
+            child: OngoingCallBar(
+              child:
+                  ConnectivityBanner(child: child ?? const SizedBox.shrink()),
+            ),
           ),
         ),
       ),
     );
+  }
+}
+
+class _AuthListenable extends ChangeNotifier {
+  _AuthListenable(this._auth) {
+    _sub = _auth.changes.listen((_) => notifyListeners());
+  }
+
+  final BestieAuthStore _auth;
+  late final dynamic _sub;
+
+  @override
+  void dispose() {
+    _sub.cancel();
+    super.dispose();
   }
 }
 
@@ -271,13 +312,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell>
   @override
   void onWindowClose() {
     if (!DesktopRuntime.interceptClose) return;
-    if (DesktopRuntime.hideOnClose) {
-      DesktopRuntime.hideWindowToBackground();
-      return;
-    }
-    DesktopRuntime.handoffToBackgroundAgent().whenComplete(() {
-      windowManager.destroy();
-    });
+    DesktopRuntime.hideWindowToBackground();
   }
 
   String _activeRoute(BuildContext context) {
@@ -293,6 +328,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell>
     if (path.startsWith('/calendar')) return '/calendar';
     if (path.startsWith('/reports')) return '/reports';
     if (path.startsWith('/recordings')) return '/recordings';
+    if (path.startsWith('/organizations')) return '/settings';
     if (path.startsWith('/notifications')) return '/notifications';
     if (path.startsWith('/settings')) return '/settings';
     if (path.startsWith('/profile')) return '/profile';

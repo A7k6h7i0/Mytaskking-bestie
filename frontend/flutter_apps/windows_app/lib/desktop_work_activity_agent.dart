@@ -8,6 +8,7 @@ import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:mytaskking_mobile/screens.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'desktop_native.dart';
 import 'desktop_runtime.dart';
 
 class DesktopWorkActivityAgent {
@@ -36,6 +37,7 @@ class DesktopWorkActivityAgent {
   void _scheduleNext(BuildContext context, WidgetRef ref, Duration delay) {
     if (_disposed) return;
     _timer?.cancel();
+    _log('timer.scheduled', {'seconds': delay.inSeconds});
     _timer = Timer(delay, () => _tick(context, ref));
   }
 
@@ -47,12 +49,21 @@ class DesktopWorkActivityAgent {
     }
     _running = true;
     try {
+      await _log('timer.fired');
       final api = ref.read(apiProvider);
       final state = await api.workActivityState();
       _activityInterval = _normalizedInterval(
         (state['intervalSeconds'] as num?)?.toInt(),
       );
-      if (state['shouldTrack'] != true) return;
+      await _log('state.loaded', {
+        'shouldTrack': state['shouldTrack'] == true,
+        'availability': state['availability'],
+        'intervalSeconds': _activityInterval.inSeconds,
+      });
+      if (state['shouldTrack'] != true) {
+        await _log('state.skip_not_trackable');
+        return;
+      }
 
       final captureSeconds = (state['captureSeconds'] as num?)?.toInt() ?? 5;
       final promptSeconds = (state['promptSeconds'] as num?)?.toInt() ?? 30;
@@ -63,6 +74,7 @@ class DesktopWorkActivityAgent {
       String? captureError;
 
       try {
+        await _log('capture.clip.start', {'seconds': captureSeconds});
         final clip = await _recordClip(captureSeconds);
         final asset = await api.uploadFile(
           bytes: clip.bytes,
@@ -71,31 +83,60 @@ class DesktopWorkActivityAgent {
         );
         fileId = asset['id']?.toString();
         clipUrl = asset['url']?.toString();
+        await _log('capture.clip.success', {'fileId': fileId});
       } catch (e) {
         captureError = e.toString();
         status = 'CAPTURE_FAILED';
+        await _log('capture.clip.failed', {'error': captureError});
+        try {
+          await _log('capture.screenshot.start');
+          final fallback = await _captureWindowsScreenshot();
+          final asset = await api.uploadFile(
+            bytes: fallback.bytes,
+            filename: fallback.filename,
+            mimeType: fallback.mimeType,
+          );
+          fileId = asset['id']?.toString();
+          clipUrl = asset['url']?.toString();
+          status = 'SCREENSHOT_FALLBACK';
+          await _log('capture.screenshot.success', {'fileId': fileId});
+        } catch (fallbackError) {
+          await _log('capture.screenshot.failed', {
+            'error': fallbackError.toString(),
+          });
+        }
       }
 
       if (!context.mounted) return;
-      await _bringPromptToFront();
-      if (!context.mounted) return;
       final promptShownAt = DateTime.now();
       String? note;
+      final nativePrompt = Platform.isWindows;
       try {
-        note = await showDialog<String>(
-          context: context,
-          barrierDismissible: false,
-          builder: (_) => WorkActivityPrompt(seconds: promptSeconds),
-        );
+        await _log('prompt.show', {'seconds': promptSeconds});
+        if (nativePrompt) {
+          note = await DesktopNative.showWorkActivityPrompt(
+            seconds: promptSeconds,
+          );
+        } else {
+          if (!context.mounted) return;
+          note = await _showActivityPrompt(context, promptSeconds);
+        }
       } finally {
-        await _releasePromptFocus();
+        if (!nativePrompt) {
+          await _releasePromptFocus();
+        }
+      }
+      if (note == null) {
+        await _log('prompt.dismissed_without_response');
+        return;
       }
       final promptRespondedAt = DateTime.now();
+      await _log('prompt.responded', {'noteLength': note.trim().length});
 
       await api.createWorkActivityClip(
         fileId: fileId,
         clipUrl: clipUrl,
-        note: _noteWithCaptureState(note, captureError),
+        note: _noteWithCaptureState(note, captureError, status),
         status: status,
         platform: Platform.isWindows ? 'windows' : 'linux',
         deviceLabel: Platform.localHostname,
@@ -105,7 +146,9 @@ class DesktopWorkActivityAgent {
         promptShownAt: promptShownAt,
         promptRespondedAt: promptRespondedAt,
       );
-    } catch (_) {
+      await _log('clip.created', {'status': status, 'fileId': fileId});
+    } catch (e) {
+      await _log('tick.failed', {'error': e.toString()});
       // Best effort: activity tracking must never block the employee's work.
     } finally {
       _running = false;
@@ -141,9 +184,44 @@ class DesktopWorkActivityAgent {
     } catch (_) {}
   }
 
-  String _noteWithCaptureState(String? note, String? captureError) {
+  Future<String?> _showActivityPrompt(BuildContext context, int seconds) async {
+    if (Platform.isWindows) {
+      return DesktopNative.showWorkActivityPrompt(seconds: seconds);
+    }
+    await _bringPromptToFront();
+    if (!context.mounted) return null;
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => WorkActivityPrompt(seconds: seconds),
+    );
+  }
+
+  Future<void> _log(String event, [Map<String, Object?>? details]) async {
+    try {
+      final base = Platform.environment['LOCALAPPDATA'] ??
+          Platform.environment['APPDATA'] ??
+          Directory.systemTemp.path;
+      final dir = Directory('$base${Platform.pathSeparator}MyTaskKing');
+      await dir.create(recursive: true);
+      final payload = details == null ? '' : ' ${jsonEncode(details)}';
+      final line = '${DateTime.now().toIso8601String()} $event$payload\n';
+      await File('${dir.path}${Platform.pathSeparator}work_activity_agent.log')
+          .writeAsString(line, mode: FileMode.append, flush: true);
+    } catch (_) {
+      // Logging must not interrupt employee work.
+    }
+  }
+
+  String _noteWithCaptureState(
+    String? note,
+    String? captureError,
+    String status,
+  ) {
     final clean = (note ?? '').trim();
-    if (captureError == null) return clean.isEmpty ? 'working' : clean;
+    if (captureError == null || status != 'CAPTURE_FAILED') {
+      return clean.isEmpty ? 'working' : clean;
+    }
     const suffix = 'Capture unavailable: built-in desktop capture failed.';
     return clean.isEmpty ? suffix : '$clean\n$suffix';
   }
@@ -162,38 +240,14 @@ class DesktopWorkActivityAgent {
     final frameCount = seconds.clamp(2, 8).toInt();
     final delayMs =
         ((seconds * 1000) / frameCount).round().clamp(450, 1400).toInt();
-    final outputDir = await Directory.systemTemp.createTemp('mtk-work-');
+    final frames = await DesktopNative.captureFrames(
+      frameCount: frameCount,
+      delayMs: delayMs,
+      maxWidth: 1280,
+    );
+    final outputDir = frames.first.parent;
     try {
-      final result = await Process.run(
-        'powershell.exe',
-        [
-          '-NoProfile',
-          '-NonInteractive',
-          '-ExecutionPolicy',
-          'Bypass',
-          '-Command',
-          _windowsCaptureScript(
-            outputDir.path,
-            frameCount: frameCount,
-            delayMs: delayMs,
-            maxWidth: 1280,
-          ),
-        ],
-      );
-      if (result.exitCode != 0) {
-        throw StateError(
-          'desktop capture failed with exit code ${result.exitCode}',
-        );
-      }
-      final frames = await outputDir
-          .list()
-          .where((entity) => entity is File && entity.path.endsWith('.png'))
-          .cast<File>()
-          .toList();
       frames.sort((a, b) => a.path.compareTo(b.path));
-      if (frames.isEmpty) {
-        throw StateError('desktop capture did not produce any frames');
-      }
       final html = await _buildReplayHtml(
         frames,
         delayMs: delayMs,
@@ -212,59 +266,34 @@ class DesktopWorkActivityAgent {
     }
   }
 
-  String _windowsCaptureScript(
-    String outputDir, {
-    required int frameCount,
-    required int delayMs,
-    required int maxWidth,
-  }) {
-    final dir = _ps(outputDir);
-    return r'''
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
-$OutputDir = ''' +
-        dir +
-        r'''
-$FrameCount = ''' +
-        '$frameCount' +
-        r'''
-$DelayMs = ''' +
-        '$delayMs' +
-        r'''
-$MaxWidth = ''' +
-        '$maxWidth' +
-        r'''
-$bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-$scale = if ($bounds.Width -gt $MaxWidth) { $MaxWidth / [double]$bounds.Width } else { 1.0 }
-$targetWidth = [Math]::Max(1, [int][Math]::Round($bounds.Width * $scale))
-$targetHeight = [Math]::Max(1, [int][Math]::Round($bounds.Height * $scale))
-[System.IO.Directory]::CreateDirectory($OutputDir) | Out-Null
-for ($i = 0; $i -lt $FrameCount; $i++) {
-  $framePath = Join-Path $OutputDir ('frame-{0:D2}.png' -f $i)
-  $bmp = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
-  $graphics = [System.Drawing.Graphics]::FromImage($bmp)
-  $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
-  if ($scale -lt 0.999) {
-    $scaled = New-Object System.Drawing.Bitmap $targetWidth, $targetHeight
-    $scaledGraphics = [System.Drawing.Graphics]::FromImage($scaled)
-    $scaledGraphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-    $scaledGraphics.DrawImage($bmp, 0, 0, $targetWidth, $targetHeight)
-    $scaled.Save($framePath, [System.Drawing.Imaging.ImageFormat]::Png)
-    $scaledGraphics.Dispose()
-    $scaled.Dispose()
-  } else {
-    $bmp.Save($framePath, [System.Drawing.Imaging.ImageFormat]::Png)
+  Future<_ActivityCaptureAsset> _captureWindowsScreenshot() async {
+    if (!Platform.isWindows) {
+      throw UnsupportedError(
+          'Screenshot fallback is available on Windows only.');
+    }
+    final frames = await DesktopNative.captureFrames(
+      frameCount: 1,
+      delayMs: 0,
+      maxWidth: 1280,
+    );
+    final outputDir = frames.first.parent;
+    try {
+      final frame = frames.first;
+      if (!await frame.exists()) {
+        throw StateError('desktop screenshot did not produce a frame');
+      }
+      return _ActivityCaptureAsset(
+        bytes: await frame.readAsBytes(),
+        filename:
+            'mytaskking-work-shot-${DateTime.now().millisecondsSinceEpoch}.png',
+        mimeType: 'image/png',
+      );
+    } finally {
+      try {
+        await outputDir.delete(recursive: true);
+      } catch (_) {}
+    }
   }
-  $graphics.Dispose()
-  $bmp.Dispose()
-  if ($i -lt ($FrameCount - 1)) {
-    Start-Sleep -Milliseconds $DelayMs
-  }
-}
-''';
-  }
-
-  String _ps(String value) => "'${value.replaceAll("'", "''")}'";
 
   Future<String> _buildReplayHtml(
     List<File> frames, {

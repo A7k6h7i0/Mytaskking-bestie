@@ -27,8 +27,9 @@ body {
   color: var(--c-text);
   background: var(--c-bg);
   background-image:
-    radial-gradient(1200px 600px at -10% -20%, color-mix(in srgb, var(--c-brand) 6%, transparent), transparent 60%),
-    radial-gradient(900px 600px at 110% -10%, color-mix(in srgb, var(--c-accent) 5%, transparent), transparent 55%);
+    radial-gradient(1200px 700px at -10% -20%, color-mix(in srgb, var(--c-brand-deep) 16%, transparent), transparent 62%),
+    radial-gradient(900px 640px at 110% -10%, color-mix(in srgb, var(--c-accent) 12%, transparent), transparent 58%),
+    linear-gradient(135deg, color-mix(in srgb, var(--c-bg) 86%, #051432), color-mix(in srgb, var(--c-bg-tint) 88%, #0b2d68));
   background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -145,6 +146,7 @@ input, textarea, select {
   border: 1px solid var(--c-border);
   border-radius: var(--r-lg);
   box-shadow: var(--sh-1);
+  backdrop-filter: blur(18px);
 }
 .surface-card--elevated {
   box-shadow: var(--sh-2);

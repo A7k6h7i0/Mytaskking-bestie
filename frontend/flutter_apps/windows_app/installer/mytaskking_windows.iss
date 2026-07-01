@@ -1,5 +1,5 @@
 [Setup]
-AppId={{D8C381D0-142A-4A70-80FD-9BFF99A55111}
+AppId={{D8C381D0-142A-4A70-80FD-9BFF99A55111}}
 AppName=MyTaskKing
 AppVersion=1.0.0
 AppPublisher=MyTaskKing
