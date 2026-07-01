@@ -1,0 +1,17 @@
+name: flutter_secure_storage_windows
+description: Desktop stub for Flutter Secure Storage on Windows.
+version: 1.0.0
+publish_to: "none"
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      windows:
+        pluginClass: FlutterSecureStorageWindowsPlugin

@@ -6,16 +6,16 @@
 
 :root {
   /* ---------- color: neutral surface ---------- */
-  --c-bg:           #f4f6fb;
-  --c-bg-soft:      #eceff7;
-  --c-bg-tint:      #f7f9fd;
-  --c-surface:      #ffffff;
-  --c-surface-1:    #fbfcfe;
-  --c-surface-2:    #f1f4fa;
-  --c-surface-3:    #e8ecf4;
-  --c-border:       #e4e7ef;
-  --c-border-soft:  #eef0f6;
-  --c-border-strong:#d0d4e0;
+  --c-bg:           #eef4ff;
+  --c-bg-soft:      #e4ecfb;
+  --c-bg-tint:      #f5f9ff;
+  --c-surface:      rgba(255,255,255,0.92);
+  --c-surface-1:    rgba(250,252,255,0.94);
+  --c-surface-2:    #edf3ff;
+  --c-surface-3:    #dfe8f8;
+  --c-border:       #d8e2f4;
+  --c-border-soft:  #e8eef8;
+  --c-border-strong:#b9c8de;
   --c-overlay:      rgba(15, 18, 22, 0.48);
 
   /* ---------- color: text ---------- */
@@ -26,24 +26,24 @@
   --c-text-invert:  #ffffff;
 
   /* ---------- color: brand (Lark-ish blue family) ---------- */
-  --c-brand-50:     #eef3ff;
-  --c-brand-100:    #dde6ff;
-  --c-brand-200:    #b8caff;
-  --c-brand-300:    #8ba9ff;
-  --c-brand-400:    #5d86ff;
-  --c-brand:        #3a6df0;
-  --c-brand-soft:   #e7eeff;
-  --c-brand-strong: #2a55c8;
-  --c-brand-deep:   #1b3da5;
-  --c-accent:       #7c5cff;
-  --c-accent-soft:  #ece6ff;
+  --c-brand-50:     #eaf2ff;
+  --c-brand-100:    #d8e6ff;
+  --c-brand-200:    #abc7ff;
+  --c-brand-300:    #78a4ff;
+  --c-brand-400:    #397bf6;
+  --c-brand:        #0c4fbf;
+  --c-brand-soft:   #dceaff;
+  --c-brand-strong: #063d96;
+  --c-brand-deep:   #082c6c;
+  --c-accent:       #09a7ff;
+  --c-accent-soft:  #d9f2ff;
 
   /* gradient stops, reused by brand surfaces and CTAs */
-  --g-brand:        linear-gradient(135deg, #7c5cff 0%, #3a6df0 55%, #3aa1ff 100%);
-  --g-brand-soft:   linear-gradient(135deg, rgba(124,92,255,.12), rgba(58,109,240,.10) 55%, rgba(58,161,255,.08));
-  --g-aurora:       radial-gradient(120% 80% at 0% 0%, rgba(124,92,255,.18), transparent 60%),
-                    radial-gradient(120% 80% at 100% 0%, rgba(58,161,255,.18), transparent 60%),
-                    radial-gradient(140% 100% at 50% 120%, rgba(16,185,129,.10), transparent 60%);
+  --g-brand:        linear-gradient(135deg, #072b78 0%, #0c4fbf 52%, #09a7ff 100%);
+  --g-brand-soft:   linear-gradient(135deg, rgba(7,43,120,.16), rgba(12,79,191,.12) 55%, rgba(9,167,255,.10));
+  --g-aurora:       radial-gradient(120% 80% at 0% 0%, rgba(7,43,120,.22), transparent 60%),
+                    radial-gradient(120% 80% at 100% 0%, rgba(9,167,255,.20), transparent 60%),
+                    radial-gradient(140% 100% at 50% 120%, rgba(20,64,140,.12), transparent 60%);
 
   /* ---------- color: status ---------- */
   --c-success:        #10b981;
@@ -67,15 +67,15 @@
 
   /* ---------- elevation — soft, layered, premium ---------- */
   --sh-1:    0 1px 2px rgba(15, 18, 22, 0.04), 0 1px 1px rgba(15, 18, 22, 0.025);
-  --sh-2:    0 2px 4px rgba(15, 18, 22, 0.04), 0 8px 18px rgba(15, 18, 22, 0.06);
-  --sh-3:    0 4px 8px rgba(15, 18, 22, 0.06), 0 16px 40px rgba(15, 18, 22, 0.10);
-  --sh-4:    0 6px 14px rgba(15, 18, 22, 0.08), 0 28px 64px rgba(15, 18, 22, 0.14);
-  --sh-pop:  0 20px 56px rgba(15, 18, 22, 0.18), 0 4px 8px rgba(15, 18, 22, 0.08);
-  --sh-hi:   0 36px 88px rgba(20, 28, 60, 0.28);
+  --sh-2:    0 2px 4px rgba(8, 36, 85, 0.05), 0 10px 24px rgba(8, 36, 85, 0.08);
+  --sh-3:    0 6px 12px rgba(8, 36, 85, 0.08), 0 20px 52px rgba(8, 36, 85, 0.13);
+  --sh-4:    0 10px 20px rgba(8, 36, 85, 0.10), 0 34px 78px rgba(8, 36, 85, 0.18);
+  --sh-pop:  0 24px 70px rgba(8, 36, 85, 0.22), 0 6px 12px rgba(8, 36, 85, 0.10);
+  --sh-hi:   0 42px 110px rgba(8, 36, 85, 0.32);
   --sh-inset:inset 0 0 0 1px rgba(15, 18, 22, 0.04);
-  --sh-ring: 0 0 0 4px rgba(58, 109, 240, 0.18);
+  --sh-ring: 0 0 0 4px rgba(12, 79, 191, 0.20);
   --sh-ring-danger: 0 0 0 4px rgba(239, 68, 68, 0.18);
-  --sh-glow-brand: 0 12px 40px rgba(58, 109, 240, 0.28);
+  --sh-glow-brand: 0 16px 52px rgba(12, 79, 191, 0.34);
 
   /* ---------- radii ---------- */
   --r-xs:   6px;
@@ -166,16 +166,16 @@
 
 /* Dark theme — applied by .theme-dark on <html> */
 .theme-dark {
-  --c-bg:           #0a0d12;
-  --c-bg-soft:      #0e1218;
-  --c-bg-tint:      #11151c;
-  --c-surface:      #141923;
-  --c-surface-1:    #181d27;
-  --c-surface-2:    #1d232f;
-  --c-surface-3:    #232a38;
-  --c-border:       #232a36;
-  --c-border-soft:  #1c222d;
-  --c-border-strong:#323b4b;
+  --c-bg:           #050b18;
+  --c-bg-soft:      #071225;
+  --c-bg-tint:      #0a1730;
+  --c-surface:      rgba(9, 18, 36, 0.92);
+  --c-surface-1:    rgba(13, 26, 50, 0.94);
+  --c-surface-2:    #102040;
+  --c-surface-3:    #15294f;
+  --c-border:       #1d3562;
+  --c-border-soft:  #132744;
+  --c-border-strong:#2c4a7d;
   --c-overlay:      rgba(0, 0, 0, 0.56);
 
   --c-text:         #f0f3f8;
@@ -183,11 +183,11 @@
   --c-text-muted:   #8c95a6;
   --c-text-faint:   #5f6675;
 
-  --c-brand-50:     #1a2547;
-  --c-brand-100:    #1f2c54;
-  --c-brand-200:    #243466;
-  --c-brand-soft:   #1c2a52;
-  --c-accent-soft:  #2a214a;
+  --c-brand-50:     #0a1c41;
+  --c-brand-100:    #0d275a;
+  --c-brand-200:    #103573;
+  --c-brand-soft:   #0d2858;
+  --c-accent-soft:  #073954;
   --c-client-soft:  #3a121e;
 
   --c-success-soft: #0e2e23;

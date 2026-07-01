@@ -27,6 +27,7 @@ import '../widgets/call_screen_design.dart';
 const _callNotificationChannel = MethodChannel('mytaskking/call_notification');
 const _kPremiumControlGridWidth = 354.0;
 const _kPremiumControlColumnGap = 10.0;
+
 /// Outbound ring with no answer — matches server `RING_NO_ANSWER_MS` (60s).
 const _kOutgoingRingTimeout = Duration(seconds: 60);
 
@@ -91,6 +92,7 @@ class CallSession {
   static final Set<int> remoteUids = {};
   static final Map<int, String> remoteNames = {};
   static final Map<int, bool> remoteMuted = {};
+  static final Map<int, bool> remoteVideoMuted = {};
 
   /// Real Agora uid → backend userId (from call.announce). Used to match
   /// volume-indication uids to tiles and to drop duplicate self tiles.
@@ -198,6 +200,7 @@ class CallSession {
     remoteUids.clear();
     remoteNames.clear();
     remoteMuted.clear();
+    remoteVideoMuted.clear();
     agoraUidToUserId.clear();
     screenSharing = false;
     remoteScreenShareUid = null;
@@ -228,8 +231,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
   Set<int> get _remoteUids => _CallSession.remoteUids;
   Map<int, String> get _remoteNames => _CallSession.remoteNames;
   Map<int, bool> get _remoteMuted => _CallSession.remoteMuted;
+  Map<int, bool> get _remoteVideoMuted => _CallSession.remoteVideoMuted;
   Map<int, String> get _agoraUidToUserId => _CallSession.agoraUidToUserId;
-  Map<String, String> get _joinedParticipants => _CallSession.joinedParticipants;
+  Map<String, String> get _joinedParticipants =>
+      _CallSession.joinedParticipants;
   bool get _muted => _CallSession.muted;
   set _muted(bool v) => _CallSession.muted = v;
   bool get _held => _CallSession.held;
@@ -280,6 +285,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   bool _proximityNear = false;
   CallProximityController? _proximity;
   final Map<String, Timer> _participantLeaveTimers = {};
+
   /// When each invitee was last rung — drives ringing vs ring-again in Members.
   final Map<String, DateTime> _invitedAtByUserId = {};
   static const _kInviteRingWindow = Duration(seconds: 60);
@@ -529,10 +535,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
     if (callId == null || uid == null) return;
     final me = ref.read(authStoreProvider).user;
     if (me != null) _markParticipantJoined(me.id, me.name);
-    ref.read(apiProvider).post('/calls/$callId/announce', body: {
-      'agoraUid': uid,
-      'userName': me?.name ?? ''
-    }).then((_) {
+    ref.read(apiProvider).post('/calls/$callId/announce',
+        body: {'agoraUid': uid, 'userName': me?.name ?? ''}).then((_) {
       if (me != null) _agoraUidToUserId[uid] = me.id;
     }).catchError((_) => <String, dynamic>{});
   }
@@ -785,8 +789,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
       return;
     }
     if (type == 'screenShare') {
-      final sharerId = payload['fromUserId']?.toString() ??
-          payload['userId']?.toString();
+      final sharerId =
+          payload['fromUserId']?.toString() ?? payload['userId']?.toString();
       final me = ref.read(authStoreProvider).user;
       if (sharerId != null && sharerId == me?.id) return;
       final active = payload['active'] == true;
@@ -801,8 +805,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
             _remoteUids.add(uid);
             _agoraUidToUserId[uid] = sharerId;
           }
-        } else if (sharerId == null ||
-            sharerId == _remoteScreenShareUserId) {
+        } else if (sharerId == null || sharerId == _remoteScreenShareUserId) {
           _remoteScreenShareUid = null;
           _remoteScreenShareUserId = null;
         }
@@ -827,8 +830,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     await Future<void>.delayed(const Duration(milliseconds: 320));
   }
 
-  bool _isAgoraUidLocal(int uid) =>
-      uid == 0 || uid == _CallSession.myUid;
+  bool _isAgoraUidLocal(int uid) => uid == 0 || uid == _CallSession.myUid;
 
   void _syncParticipantsFromCallMeta() {
     final call = (_callMeta?['call'] as Map?)?.cast<String, dynamic>() ??
@@ -867,6 +869,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   bool get _useWhatsAppParticipantGrid =>
       _isMeeting ||
+      _isVideo ||
       _participantCount > 2 ||
       _remoteUids.length > 1 ||
       ((_callMeta?['call'] as Map?)?['kind'] == 'GROUP' &&
@@ -920,9 +923,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
       final vol = s.volume ?? 0;
       if (vol <= 0) continue;
       final uid = s.uid ?? 0;
-      final muted = _isAgoraUidLocal(uid)
-          ? _muted
-          : (_remoteMuted[uid] ?? false);
+      final muted =
+          _isAgoraUidLocal(uid) ? _muted : (_remoteMuted[uid] ?? false);
       if (muted) continue;
       if (vol > loudestVol) {
         loudestVol = vol;
@@ -933,8 +935,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final minVol = loudestVol >= 25 ? 8 : 3;
     if (loudestVol < minVol) loudest = null;
 
-    final speakerUserId =
-        loudest != null ? _userIdForAgoraUid(loudest) : null;
+    final speakerUserId = loudest != null ? _userIdForAgoraUid(loudest) : null;
     _scheduleActiveSpeakerEmit(speakerUserId);
 
     if (_activeSpeakerUid != loudest && mounted) {
@@ -1139,6 +1140,26 @@ class _CallScreenState extends ConsumerState<CallScreen>
   String? _primaryRemoteAvatarUrl() =>
       _CallSession.remotePeerAvatarUrl ?? _callDisplayAvatarUrl();
 
+  List<({String name, String? imageUrl})> _desktopCompanionProfiles(
+      String primaryName) {
+    final me = ref.read(authStoreProvider).user;
+    var skippedPrimary = false;
+    final profiles = <({String name, String? imageUrl})>[];
+    for (final p in _participantsFromMeta()) {
+      final userId = p['userId']?.toString();
+      if (userId != null && userId == me?.id) continue;
+      if (_memberConnection(p) != _CallMemberConnection.connected) continue;
+      final name = _participantProfileName(p);
+      if (!skippedPrimary && name == primaryName) {
+        skippedPrimary = true;
+        continue;
+      }
+      final user = (p['user'] as Map?)?.cast<String, dynamic>();
+      profiles.add((name: name, imageUrl: user?['avatarUrl']?.toString()));
+    }
+    return profiles.take(5).toList(growable: false);
+  }
+
   /// When returning to an already-live call, restore timer + connected status
   /// from the static session instead of "Connecting…".
   void _restoreLiveCallUi() {
@@ -1177,10 +1198,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
         'callId': widget.callId,
         'meetingSlug': widget.meetingSlug,
         'mode': widget.mode,
-        'startedAtMs':
-            (_connectedAt ?? ActiveCallState.current.value?.startedAt ??
-                    DateTime.now())
-                .millisecondsSinceEpoch,
+        'startedAtMs': (_connectedAt ??
+                ActiveCallState.current.value?.startedAt ??
+                DateTime.now())
+            .millisecondsSinceEpoch,
       });
     } catch (_) {}
   }
@@ -1281,8 +1302,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
       },
       onVideoSizeChanged: (conn, sourceType, uid, width, height, rotation) {
         if (!mounted) return;
-        final isScreen = sourceType == VideoSourceType.videoSourceScreenPrimary ||
-            sourceType == VideoSourceType.videoSourceScreen;
+        final isScreen =
+            sourceType == VideoSourceType.videoSourceScreenPrimary ||
+                sourceType == VideoSourceType.videoSourceScreen;
         if (!isScreen) return;
         setState(() {
           if (width > 0 && height > 0) {
@@ -1325,6 +1347,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
             engine.muteRemoteAudioStream(uid: remoteUid, mute: false);
           } catch (_) {}
         }
+      },
+      onUserMuteVideo: (conn, remoteUid, muted) {
+        if (!mounted) return;
+        setState(() => _remoteVideoMuted[remoteUid] = muted);
       },
       onConnectionLost: (conn) {
         if (!mounted) return;
@@ -1476,6 +1502,14 @@ class _CallScreenState extends ConsumerState<CallScreen>
       };
       if (url != null && url.isNotEmpty) {
         await _tonePlayer.play(UrlSource(url), volume: ringVolume);
+        _startOutgoingRingTimeout();
+        return;
+      }
+      if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+        await _tonePlayer.play(
+          BytesSource(AppSounds.desktopRingtoneBytes()),
+          volume: ringVolume,
+        );
         _startOutgoingRingTimeout();
         return;
       }
@@ -1650,21 +1684,26 @@ class _CallScreenState extends ConsumerState<CallScreen>
     try {
       // 1. OS-level permissions.
       step = 'permissions';
-      final perms = <Permission>[Permission.microphone];
-      if (_routeWantsVideo) perms.add(Permission.camera);
-      // Android 12+ needs runtime BLUETOOTH_CONNECT to route call audio to a
-      // Bluetooth headset. Requested best-effort — not fatal if denied.
-      if (Platform.isAndroid) perms.add(Permission.bluetoothConnect);
-      final granted = await perms.request();
-      final mic = granted[Permission.microphone];
-      if (mic != PermissionStatus.granted && mic != PermissionStatus.limited) {
-        throw 'Microphone permission denied. Open Settings → Apps → MyTaskKing → Permissions and enable it.';
-      }
-      if (_routeWantsVideo) {
-        final cam = granted[Permission.camera];
-        if (cam != PermissionStatus.granted &&
-            cam != PermissionStatus.limited) {
-          throw 'Camera permission denied. Open Settings → Apps → MyTaskKing → Permissions and enable it.';
+      final desktopRuntime =
+          Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+      if (!desktopRuntime) {
+        final perms = <Permission>[Permission.microphone];
+        if (_routeWantsVideo) perms.add(Permission.camera);
+        // Android 12+ needs runtime BLUETOOTH_CONNECT to route call audio to a
+        // Bluetooth headset. Requested best-effort - not fatal if denied.
+        if (Platform.isAndroid) perms.add(Permission.bluetoothConnect);
+        final granted = await perms.request();
+        final mic = granted[Permission.microphone];
+        if (mic != PermissionStatus.granted &&
+            mic != PermissionStatus.limited) {
+          throw 'Microphone permission denied. Open Settings -> Apps -> MyTaskKing -> Permissions and enable it.';
+        }
+        if (_routeWantsVideo) {
+          final cam = granted[Permission.camera];
+          if (cam != PermissionStatus.granted &&
+              cam != PermissionStatus.limited) {
+            throw 'Camera permission denied. Open Settings -> Apps -> MyTaskKing -> Permissions and enable it.';
+          }
         }
       }
 
@@ -1673,8 +1712,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       if (widget.callId != null) {
         step = 'server-join';
         try {
-          final joined =
-              await ref.read(apiProvider).joinCall(widget.callId!);
+          final joined = await ref.read(apiProvider).joinCall(widget.callId!);
           _callMeta = {'call': joined};
           _CallSession.callMeta = _callMeta;
           _syncParticipantsFromCallMeta();
@@ -2405,12 +2443,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
                               c: c,
                               name: _participantProfileName(p),
                               avatarName: _participantProfileName(p),
-                              imageUrl: (p['user'] as Map?)?['avatarUrl']
-                                  ?.toString(),
+                              imageUrl:
+                                  (p['user'] as Map?)?['avatarUrl']?.toString(),
                               trailing: Icon(Icons.mic_rounded,
                                   size: 18, color: c.textMuted),
                             ),
-                          if (ringing.isNotEmpty || notConnected.isNotEmpty) ...[
+                          if (ringing.isNotEmpty ||
+                              notConnected.isNotEmpty) ...[
                             Padding(
                               padding: const EdgeInsets.fromLTRB(12, 16, 12, 8),
                               child: Text(
@@ -2439,7 +2478,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
                                 imageUrl: (p['user'] as Map?)?['avatarUrl']
                                     ?.toString(),
                                 trailing: IconButton(
-                                  icon: Icon(Icons.notifications_active_outlined,
+                                  icon: Icon(
+                                      Icons.notifications_active_outlined,
                                       color: c.text),
                                   tooltip: 'Ring again',
                                   onPressed: () async {
@@ -2527,13 +2567,14 @@ class _CallScreenState extends ConsumerState<CallScreen>
     // WhatsApp-style: outgoing video shows your camera full-screen while ringing.
     final showingVideo =
         _isVideo && (_remoteUids.isNotEmpty || _waitingForAnswer);
-    final screenShareActive =
-        _sharing || _remoteScreenShareUid != null;
+    final screenShareActive = _sharing || _remoteScreenShareUid != null;
+    final desktopVoiceStage =
+        (Platform.isWindows || Platform.isLinux) && !_isVideo && !_isMeeting;
     final isPremiumOneToOneVoice = !_isVideo &&
         !_isMeeting &&
         !showingVideo &&
-        !_useWhatsAppParticipantGrid &&
-        _remoteUids.length <= 1;
+        (desktopVoiceStage ||
+            (!_useWhatsAppParticipantGrid && _remoteUids.length <= 1));
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
@@ -2701,35 +2742,37 @@ class _CallScreenState extends ConsumerState<CallScreen>
                       child: _useWhatsAppParticipantGrid
                           ? Center(child: _compactReconnectBanner())
                           : Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFB45309).withOpacity(0.95),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: const [
-                              SizedBox(
-                                width: 14,
-                                height: 14,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor:
-                                        AlwaysStoppedAnimation(Colors.white)),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 14, vertical: 10),
+                              decoration: BoxDecoration(
+                                color:
+                                    const Color(0xFFB45309).withOpacity(0.95),
+                                borderRadius: BorderRadius.circular(14),
                               ),
-                              SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  'Reconnecting… check your internet connection',
-                                  style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 12.5,
-                                      fontWeight: BestieTokens.fwSemibold),
-                                ),
-                              ),
-                            ]),
-                      ),
+                              child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: const [
+                                    SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor: AlwaysStoppedAnimation(
+                                              Colors.white)),
+                                    ),
+                                    SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        'Reconnecting… check your internet connection',
+                                        style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 12.5,
+                                            fontWeight:
+                                                BestieTokens.fwSemibold),
+                                      ),
+                                    ),
+                                  ]),
+                            ),
                     ),
                   ),
                 // Controls fade + slide up on entrance.
@@ -2761,6 +2804,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   Widget _exactPrototypeVoiceBody() {
     final remoteName = _primaryRemoteDisplayName();
     final subtitle = _primaryRemoteSubtitle();
+    final desktopLayout = Platform.isWindows || Platform.isLinux;
     final ending = _hangingUp || !_joined;
     final timerLine = ending
         ? 'Ending call…'
@@ -2777,6 +2821,15 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
     return LayoutBuilder(
       builder: (context, constraints) {
+        final compact = desktopLayout ||
+            constraints.maxHeight < 760 ||
+            constraints.maxWidth < 420;
+        final avatarHeight = desktopLayout
+            ? max(216.0, min(286.0, constraints.maxHeight * 0.34))
+            : (compact ? 174.0 : 200.0);
+        final contentGap = compact ? 4.0 : 10.0;
+        final nameSize = compact ? 20.0 : 26.0;
+        final subtitleSize = compact ? 12.0 : 14.0;
         return Container(
           width: constraints.maxWidth,
           height: constraints.maxHeight,
@@ -2819,75 +2872,94 @@ class _CallScreenState extends ConsumerState<CallScreen>
                     fontFeatures: const [FontFeature.tabularFigures()],
                   ),
                 ),
-                const SizedBox(height: 10),
+                SizedBox(height: contentGap),
                 Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _CallUiAvatarStage(
-                        name: remoteName,
-                        imageUrl: _primaryRemoteAvatarUrl(),
-                        connected: _connectedAt != null && !ending,
-                        height: 200,
-                      ),
-                      const SizedBox(height: 6),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 24),
-                        child: Column(
-                          children: [
-                            if (!ending)
-                              const Text(
-                                'Active call',
-                                style: _activeCallLabelStyle,
+                  child: SingleChildScrollView(
+                    physics: const ClampingScrollPhysics(),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        desktopLayout
+                            ? _DesktopMeshAvatarStage(
+                                name: remoteName,
+                                imageUrl: _primaryRemoteAvatarUrl(),
+                                connected: _connectedAt != null && !ending,
+                                height: avatarHeight,
+                                companions:
+                                    _desktopCompanionProfiles(remoteName),
+                              )
+                            : _CallUiAvatarStage(
+                                name: remoteName,
+                                imageUrl: _primaryRemoteAvatarUrl(),
+                                connected: _connectedAt != null && !ending,
+                                height: avatarHeight,
+                                companions: const [],
                               ),
-                            if (!ending) const SizedBox(height: 4),
-                            Text(
-                              remoteName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: CallScreenUiColors.textPrimary,
-                                fontSize: 26,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: -0.3,
-                              ),
-                            ),
-                            if (subtitle != null && subtitle.isNotEmpty) ...[
-                              const SizedBox(height: 4),
+                        SizedBox(height: compact ? 2 : 6),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: Column(
+                            children: [
+                              if (!ending)
+                                const Text(
+                                  'Active call',
+                                  style: _activeCallLabelStyle,
+                                ),
+                              if (!ending) const SizedBox(height: 3),
                               Text(
-                                subtitle,
+                                remoteName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: CallScreenUiColors.textPrimary,
+                                  fontSize: nameSize,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              if (subtitle != null && subtitle.isNotEmpty) ...[
+                                const SizedBox(height: 3),
+                                Text(
+                                  subtitle,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: CallScreenUiColors.textSecondary,
+                                    fontSize: subtitleSize,
+                                    fontWeight: FontWeight.w400,
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 3),
+                              Text(
+                                _headOfficeName,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(
-                                  color: CallScreenUiColors.textSecondary,
-                                  fontSize: 14,
+                                  color: CallScreenUiColors.textMuted,
+                                  fontSize: 12,
                                   fontWeight: FontWeight.w400,
                                 ),
                               ),
                             ],
-                            const SizedBox(height: 4),
-                            Text(
-                              _headOfficeName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: CallScreenUiColors.textMuted,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w400,
-                              ),
-                            ),
-                          ],
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 8),
-                  child: _premiumCallControlsCore(),
+                  padding: EdgeInsets.fromLTRB(
+                    desktopLayout ? 10 : 18,
+                    0,
+                    desktopLayout ? 10 : 18,
+                    desktopLayout ? 6 : 8,
+                  ),
+                  child: desktopLayout
+                      ? _desktopPremiumCallFooter()
+                      : _premiumCallControlsCore(compact: compact),
                 ),
               ],
             ),
@@ -3241,11 +3313,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
                         )),
                     const SizedBox(height: 2),
                     Text(
-                      _connectedAt == null
-                          ? _status
-                          : _formatElapsed(_elapsed),
-                      style: const TextStyle(
-                          color: Colors.white70, fontSize: 12),
+                      _connectedAt == null ? _status : _formatElapsed(_elapsed),
+                      style:
+                          const TextStyle(color: Colors.white70, fontSize: 12),
                     ),
                   ]),
             ),
@@ -3989,6 +4059,18 @@ class _CallScreenState extends ConsumerState<CallScreen>
     const screenSource = VideoSourceType.videoSourceScreenPrimary;
 
     if (isLocal) {
+      if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
+        return AgoraVideoView(
+          controller: VideoViewController(
+            rtcEngine: engine,
+            canvas: const VideoCanvas(
+              uid: 0,
+              sourceType: screenSource,
+              renderMode: RenderModeType.renderModeFit,
+            ),
+          ),
+        );
+      }
       // Local screen-capture preview is often blank on Android — show status
       // instead of an empty black panel while others see the real share.
       return Container(
@@ -4085,7 +4167,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
             ),
           ),
         ),
-        if (!isLocal && _useWhatsAppParticipantGrid)
+        if (_useWhatsAppParticipantGrid)
           Positioned(
             left: 8,
             right: 8,
@@ -4133,7 +4215,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
       // For meetings keep the multi-tile grid (Google Meet style).
       if (_isMeeting) {
         return Padding(
-          padding: EdgeInsets.fromLTRB(6, 96, 6, 108 + MediaQuery.paddingOf(context).bottom),
+          padding: EdgeInsets.fromLTRB(
+              6, 96, 6, 108 + MediaQuery.paddingOf(context).bottom),
           child: Column(children: [
             Expanded(child: _whatsappParticipantGrid()),
             const SizedBox(height: 10),
@@ -4309,8 +4392,16 @@ class _CallScreenState extends ConsumerState<CallScreen>
     return null;
   }
 
-  List<({String name, String? userId, String? imageUrl, int? agoraUid, bool isLocal, bool muted})>
-      _participantTilesForGrid() {
+  List<
+      ({
+        String name,
+        String? userId,
+        String? imageUrl,
+        int? agoraUid,
+        bool isLocal,
+        bool muted,
+        bool videoMuted
+      })> _participantTilesForGrid() {
     _purgeSelfFromRemoteTracking();
     final me = ref.read(authStoreProvider).user;
     final tiles = <({
@@ -4320,6 +4411,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       int? agoraUid,
       bool isLocal,
       bool muted,
+      bool videoMuted,
     })>[
       (
         name: me?.name ?? 'You',
@@ -4328,6 +4420,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
         agoraUid: _CallSession.myUid ?? 0,
         isLocal: true,
         muted: _muted,
+        videoMuted: _cameraOff,
       ),
     ];
     final seen = <String>{if (me?.id != null) me!.id};
@@ -4342,6 +4435,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
         agoraUid: uid,
         isLocal: false,
         muted: uid != null ? (_remoteMuted[uid] ?? false) : false,
+        videoMuted: uid != null ? (_remoteVideoMuted[uid] ?? false) : false,
       ));
     }
     for (final uid in _remoteUids) {
@@ -4361,18 +4455,19 @@ class _CallScreenState extends ConsumerState<CallScreen>
           agoraUid: uid,
           isLocal: false,
           muted: _remoteMuted[uid] ?? false,
+          videoMuted: _remoteVideoMuted[uid] ?? false,
         );
       } else if (mappedUserId == null || !seen.contains(mappedUserId)) {
         if (mappedUserId != null) seen.add(mappedUserId);
         tiles.add((
           name: name,
           userId: mappedUserId,
-          imageUrl: mappedUserId != null
-              ? _avatarUrlForUserId(mappedUserId)
-              : null,
+          imageUrl:
+              mappedUserId != null ? _avatarUrlForUserId(mappedUserId) : null,
           agoraUid: uid,
           isLocal: false,
           muted: _remoteMuted[uid] ?? false,
+          videoMuted: _remoteVideoMuted[uid] ?? false,
         ));
       }
     }
@@ -4395,6 +4490,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
             agoraUid: t.agoraUid,
             isLocal: t.isLocal,
             muted: t.muted,
+            videoMuted: t.videoMuted,
             speaking: _isParticipantSpeaking(
               isLocal: t.isLocal,
               agoraUid: t.agoraUid,
@@ -4408,7 +4504,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
         }
 
         if (n == 1) {
-          return tileAt(0, height: constraints.maxHeight, width: constraints.maxWidth);
+          return tileAt(0,
+              height: constraints.maxHeight, width: constraints.maxWidth);
         }
         if (n == 2) {
           final h = (constraints.maxHeight - gap) / 2;
@@ -4457,6 +4554,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     required int? agoraUid,
     required bool isLocal,
     required bool muted,
+    required bool videoMuted,
     required bool speaking,
     required bool forVideo,
     double? height,
@@ -4464,6 +4562,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }) {
     final showVideo = forVideo &&
         _engine != null &&
+        !videoMuted &&
         ((!isLocal && agoraUid != null) || (isLocal && !_cameraOff));
     return Container(
       height: height,
@@ -5021,16 +5120,181 @@ class _CallScreenState extends ConsumerState<CallScreen>
     _openCallChat();
   }
 
-  /// Premium 2-row control grid + bottom action bar, matching the redesign.
-  Widget _premiumCallControls() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 18),
-      child: _premiumCallControlsCore(),
+  Widget _desktopPremiumCallFooter() {
+    final actions = [
+      (
+        label: 'Mute',
+        icon: _muted ? Icons.mic_off_rounded : Icons.mic_rounded,
+        selected: _muted,
+        danger: false,
+        onTap: _toggleMute,
+      ),
+      (
+        label: 'Speaker',
+        icon: _route == CallAudioRoute.speaker
+            ? Icons.volume_up_rounded
+            : Icons.hearing_rounded,
+        selected: _route == CallAudioRoute.speaker,
+        danger: false,
+        onTap: _toggleSpeakerRoute,
+      ),
+      (
+        label: 'Keypad',
+        icon: Icons.dialpad_rounded,
+        selected: false,
+        danger: false,
+        onTap: _showDialPad,
+      ),
+      (
+        label: 'Buzzer',
+        icon: Icons.campaign_rounded,
+        selected: false,
+        danger: false,
+        onTap: _sendEmergencyBuzzer,
+      ),
+      (
+        label: 'Chat',
+        icon: Icons.chat_bubble_outline_rounded,
+        selected: false,
+        danger: false,
+        onTap: _openCallChat,
+      ),
+      (
+        label: 'Notes',
+        icon: Icons.edit_note_rounded,
+        selected: false,
+        danger: false,
+        onTap: _showCallNotes,
+      ),
+      (
+        label: 'End',
+        icon: Icons.call_end_rounded,
+        selected: false,
+        danger: true,
+        onTap: _hangup,
+      ),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const gap = 8.0;
+        final fittedWidth =
+            (constraints.maxWidth - (gap * (actions.length - 1))) /
+                actions.length;
+        final itemWidth = fittedWidth.clamp(44.0, 58.0);
+        final minWidth =
+            actions.length * itemWidth + (actions.length - 1) * gap;
+        return SizedBox(
+          height: 70,
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minWidth: constraints.maxWidth),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SizedBox(
+                      width: max(0, (constraints.maxWidth - minWidth) / 2)),
+                  for (var i = 0; i < actions.length; i++) ...[
+                    if (i > 0) const SizedBox(width: gap),
+                    _desktopFooterAction(
+                      width: itemWidth,
+                      label: actions[i].label,
+                      icon: actions[i].icon,
+                      selected: actions[i].selected,
+                      danger: actions[i].danger,
+                      onTap: actions[i].onTap,
+                    ),
+                  ],
+                  SizedBox(
+                      width: max(0, (constraints.maxWidth - minWidth) / 2)),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
-  Widget _premiumCallControlsCore() {
+  Widget _desktopFooterAction({
+    required double width,
+    required String label,
+    required IconData icon,
+    required bool selected,
+    required bool danger,
+    required VoidCallback onTap,
+  }) {
+    final fill = danger
+        ? CallScreenUiColors.endCallRed
+        : selected
+            ? CallScreenUiColors.buttonSelectedFillTop
+            : const Color(0xCC0A192F);
+    final border = danger
+        ? CallScreenUiColors.endCallRed.withValues(alpha: 0.72)
+        : selected
+            ? CallScreenUiColors.neonBlue
+            : CallScreenUiColors.speakerBorderSide;
+    return SizedBox(
+      width: width,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          GestureDetector(
+            onTap: onTap,
+            child: Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: fill,
+                shape: BoxShape.circle,
+                border: Border.all(color: border, width: 1),
+                boxShadow: [
+                  BoxShadow(
+                    color: (danger
+                            ? CallScreenUiColors.endCallRed
+                            : CallScreenUiColors.neonBlue)
+                        .withValues(alpha: selected || danger ? 0.32 : 0.16),
+                    blurRadius: selected || danger ? 16 : 10,
+                  ),
+                ],
+              ),
+              child: Icon(icon, color: Colors.white, size: 18),
+            ),
+          ),
+          const SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              label,
+              maxLines: 1,
+              style: const TextStyle(
+                color: CallScreenUiColors.textSecondary,
+                fontSize: 9,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Premium 2-row control grid + bottom action bar, matching the redesign.
+  Widget _premiumCallControls({bool compact = false}) {
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: compact ? 12 : 18),
+      child: _premiumCallControlsCore(compact: compact),
+    );
+  }
+
+  Widget _premiumCallControlsCore({bool compact = false}) {
     final lightControls = ref.watch(callScreenLightControlsProvider);
+    final rowGap = compact ? 6.0 : _kPremiumControlColumnGap;
+    final actionBarHeight = compact ? 62.0 : 72.0;
+    final actionSize = compact ? 42.0 : 48.0;
+    final centerSize = compact ? 64.0 : 72.0;
     return Column(mainAxisSize: MainAxisSize.min, children: [
       _premiumControlRow([
         CallUiGlassControlButton(
@@ -5039,6 +5303,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
           isSelected: _muted,
           onTap: _toggleMute,
           lightControls: lightControls,
+          compact: compact,
           iconGradient: const [
             CallScreenUiColors.neonPurple,
             CallScreenUiColors.neonMagenta,
@@ -5048,24 +5313,27 @@ class _CallScreenState extends ConsumerState<CallScreen>
           isSelected: _route == CallAudioRoute.speaker,
           onTap: _toggleSpeakerRoute,
           lightControls: lightControls,
+          compact: compact,
         ),
         CallUiGlassControlButton(
           label: 'Keypad',
           icon: Icons.dialpad,
           onTap: _showDialPad,
           lightControls: lightControls,
+          compact: compact,
         ),
         CallUiGlassControlButton(
           label: 'Buzzer',
           icon: Icons.campaign_rounded,
           onTap: _sendEmergencyBuzzer,
           lightControls: lightControls,
+          compact: compact,
           iconGradient: const [
             Color(0xFFFBBF24),
             Color(0xFFFF8A00),
           ],
         ),
-      ]),
+      ], gap: rowGap),
       const SizedBox(height: 8),
       _premiumControlRow([
         CallUiGlassControlButton(
@@ -5076,6 +5344,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
           isSelected: _sharing,
           onTap: _toggleShare,
           lightControls: lightControls,
+          compact: compact,
           iconGradient: const [
             CallScreenUiColors.neonBlue,
             CallScreenUiColors.verifiedBlue,
@@ -5086,6 +5355,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
           icon: Icons.person_add_outlined,
           onTap: _showInvite,
           lightControls: lightControls,
+          compact: compact,
           iconGradient: const [
             CallScreenUiColors.neonBlue,
             CallScreenUiColors.neonPurple,
@@ -5097,6 +5367,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
           isSelected: _recording,
           onTap: _toggleRecord,
           lightControls: lightControls,
+          compact: compact,
           iconGradient: const [
             Color(0xFFFF6B6B),
             Color(0xFFFF4757),
@@ -5107,11 +5378,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
           icon: Icons.edit_note_outlined,
           onTap: _showCallNotes,
           lightControls: lightControls,
+          compact: compact,
         ),
-      ]),
-      const SizedBox(height: 18),
+      ], gap: rowGap),
+      SizedBox(height: compact ? 12 : 18),
       SizedBox(
-        height: 72,
+        height: actionBarHeight,
         child: Stack(
           alignment: Alignment.center,
           children: [
@@ -5123,39 +5395,26 @@ class _CallScreenState extends ConsumerState<CallScreen>
                     alignment: Alignment.center,
                     child: CallUiBottomActionButton(
                       icon: Icons.chat_bubble_outline,
-                      size: 48,
+                      size: actionSize,
                       onTap: _openCallChat,
+                      compact: compact,
                     ),
                   ),
                 ),
-                const SizedBox(width: _kPremiumControlColumnGap),
+                SizedBox(width: rowGap),
                 const Expanded(child: SizedBox()),
-                const SizedBox(width: _kPremiumControlColumnGap),
+                SizedBox(width: rowGap),
                 const Expanded(child: SizedBox()),
-                const SizedBox(width: _kPremiumControlColumnGap),
-                Expanded(
-                  child: Align(
-                    alignment: Alignment.center,
-                    child: Transform.translate(
-                      offset: const Offset(6, 0),
-                      child: CallUiBottomActionButton(
-                        icon: (!_videoEnabled || _cameraOff)
-                            ? Icons.videocam_off_outlined
-                            : Icons.videocam_outlined,
-                        size: 48,
-                        onTap: _toggleCamera,
-                      ),
-                    ),
-                  ),
-                ),
+                SizedBox(width: rowGap),
+                const Expanded(child: SizedBox()),
               ],
             ),
             _PressableCircle(
               onTap: _hangup,
-              size: 72,
+              size: centerSize,
               child: Container(
-                width: 72,
-                height: 72,
+                width: centerSize,
+                height: centerSize,
                 decoration: BoxDecoration(
                   color: CallScreenUiColors.endCallRed,
                   shape: BoxShape.circle,
@@ -5187,11 +5446,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
     ]);
   }
 
-  Widget _premiumControlRow(List<Widget> children) {
+  Widget _premiumControlRow(List<Widget> children,
+      {double gap = _kPremiumControlColumnGap}) {
     return Row(
       children: [
         for (var i = 0; i < children.length; i++) ...[
-          if (i > 0) const SizedBox(width: _kPremiumControlColumnGap),
+          if (i > 0) SizedBox(width: gap),
           Expanded(child: children[i]),
         ],
       ],
@@ -5213,47 +5473,70 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   Widget _controls() {
-    if (_isMeeting) return _meetingControls();
+    final mq = MediaQuery.of(context);
+    final compact = mq.size.width < 420 || mq.size.height < 760;
+    if (_isMeeting) return _meetingControls(compact: compact);
     // 3+ participants: WhatsApp-style single bottom row (fixed-size circles).
-    if (_useWhatsAppParticipantGrid) return _groupCallBottomControls();
+    if (_useWhatsAppParticipantGrid) {
+      return _groupCallBottomControls(compact: compact);
+    }
     // Premium grid for 1:1 voice; compact pill for video calls.
     final showingVideo = _isVideo && _remoteUids.isNotEmpty;
-    return showingVideo ? _callControls() : _premiumCallControls();
+    return showingVideo
+        ? _callControls(compact: compact)
+        : _premiumCallControls(compact: compact);
   }
 
   /// Bottom control bar for group calls (3+ people) — matches WhatsApp layout:
   /// more · video · speaker · mute · end. Fixed circle sizes; no FittedBox.
-  Widget _groupCallBottomControls() {
+  Widget _groupCallBottomControls({bool compact = false}) {
+    final buttonSize = compact ? 40.0 : 52.0;
+    final iconSize = compact ? 18.0 : 22.0;
+    final endSize = compact ? 48.0 : 52.0;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 12),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
           _ctrlCircle(
             icon: Icons.more_horiz_rounded,
             onTap: _showGroupMore,
+            size: buttonSize,
+            iconSize: iconSize,
           ),
           _ctrlCircle(
-            icon: (!_videoEnabled || _cameraOff)
-                ? Icons.videocam_off_rounded
-                : Icons.videocam_rounded,
-            onTap: _toggleCamera,
+            icon: _isVideo
+                ? ((!_videoEnabled || _cameraOff)
+                    ? Icons.videocam_off_rounded
+                    : Icons.videocam_rounded)
+                : (_sharing
+                    ? Icons.stop_screen_share_rounded
+                    : Icons.screen_share_rounded),
+            onTap: _isVideo ? _toggleCamera : _toggleShare,
             active: _isVideo && !_cameraOff,
+            size: buttonSize,
+            iconSize: iconSize,
           ),
           _ctrlCircle(
             icon: Icons.volume_up_rounded,
             onTap: _toggleSpeakerRoute,
             active: _route == CallAudioRoute.speaker,
+            size: buttonSize,
+            iconSize: iconSize,
           ),
           _ctrlCircle(
             icon: _muted ? Icons.mic_off_rounded : Icons.mic_rounded,
             onTap: _toggleMute,
             active: _muted,
+            size: buttonSize,
+            iconSize: iconSize,
           ),
           _ctrlCircle(
             icon: Icons.call_end_rounded,
             onTap: _hangup,
             background: BestieTokens.cDanger,
+            size: endSize,
+            iconSize: iconSize,
           ),
         ],
       ),
@@ -5297,7 +5580,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
                 ),
               ),
               tile(Icons.dialpad, 'Keypad', _showDialPad),
-              tile(Icons.person_add_alt_1_rounded, 'Add participant', _showInvite),
+              tile(Icons.person_add_alt_1_rounded, 'Add participant',
+                  _showInvite),
               tile(
                 _sharing
                     ? Icons.stop_screen_share_rounded
@@ -5332,11 +5616,14 @@ class _CallScreenState extends ConsumerState<CallScreen>
   /// WhatsApp call controls — one translucent rounded pill with 5 circles:
   /// more · camera · speaker · mic · end. Share / Record / Flip live in the
   /// `_showMore` sheet to keep the bar uncluttered.
-  Widget _callControls() {
+  Widget _callControls({bool compact = false}) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14),
+      padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 14),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 8 : 10,
+          vertical: compact ? 8 : 10,
+        ),
         decoration: BoxDecoration(
           color: Colors.black.withOpacity(0.55),
           borderRadius: BorderRadius.circular(40),
@@ -5349,6 +5636,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
                 : Icons.screen_share_rounded,
             onTap: _toggleShare,
             active: _sharing,
+            size: compact ? 42 : 52,
+            iconSize: compact ? 18 : 22,
           ),
           _ctrlCircle(
             icon: (!_videoEnabled || _cameraOff)
@@ -5356,21 +5645,29 @@ class _CallScreenState extends ConsumerState<CallScreen>
                 : Icons.videocam_rounded,
             onTap: _toggleCamera,
             active: !_videoEnabled || _cameraOff,
+            size: compact ? 42 : 52,
+            iconSize: compact ? 18 : 22,
           ),
           _ctrlCircle(
             icon: _audioRouteIcon(_route),
             onTap: _cycleAudioRoute,
             active: _route != CallAudioRoute.earpiece,
+            size: compact ? 42 : 52,
+            iconSize: compact ? 18 : 22,
           ),
           _ctrlCircle(
             icon: _muted ? Icons.mic_off_rounded : Icons.mic_rounded,
             onTap: _toggleMute,
             active: _muted,
+            size: compact ? 42 : 52,
+            iconSize: compact ? 18 : 22,
           ),
           _ctrlCircle(
             icon: Icons.call_end_rounded,
             onTap: _hangup,
             background: BestieTokens.cDanger,
+            size: compact ? 48 : 52,
+            iconSize: compact ? 20 : 22,
           ),
         ]),
       ),
@@ -5379,11 +5676,14 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   /// Google Meet meeting controls — six circles in a row: mic · camera ·
   /// share · raise hand · more · leave.
-  Widget _meetingControls() {
+  Widget _meetingControls({bool compact = false}) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8),
+      padding: EdgeInsets.symmetric(horizontal: compact ? 6 : 8),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 4 : 6,
+          vertical: compact ? 8 : 10,
+        ),
         decoration: BoxDecoration(
           color: Colors.black.withOpacity(0.62),
           borderRadius: BorderRadius.circular(40),
@@ -5394,6 +5694,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
             icon: _muted ? Icons.mic_off_rounded : Icons.mic_rounded,
             onTap: _toggleMute,
             active: _muted,
+            size: compact ? 42 : 52,
+            iconSize: compact ? 18 : 22,
           ),
           _ctrlCircle(
             icon: (!_videoEnabled || _cameraOff)
@@ -5401,6 +5703,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
                 : Icons.videocam_rounded,
             onTap: _toggleCamera,
             active: !_videoEnabled || _cameraOff,
+            size: compact ? 42 : 52,
+            iconSize: compact ? 18 : 22,
           ),
           _ctrlCircle(
             icon: _sharing
@@ -5408,22 +5712,28 @@ class _CallScreenState extends ConsumerState<CallScreen>
                 : Icons.present_to_all_rounded,
             onTap: _toggleShare,
             active: _sharing,
+            size: compact ? 42 : 52,
+            iconSize: compact ? 18 : 22,
           ),
           _ctrlCircle(
             icon: Icons.front_hand_outlined,
             onTap: () =>
                 bestieToast(context, 'Hand raised', kind: BestieToastKind.info),
+            size: compact ? 42 : 52,
+            iconSize: compact ? 18 : 22,
           ),
           _ctrlCircle(
             icon: Icons.more_vert_rounded,
             onTap: _showMore,
+            size: compact ? 42 : 52,
+            iconSize: compact ? 18 : 22,
           ),
           _ctrlCircle(
             icon: Icons.call_end_rounded,
             onTap: _hangup,
             background: BestieTokens.cDanger,
-            size: 56,
-            iconSize: 24,
+            size: compact ? 48 : 56,
+            iconSize: compact ? 20 : 24,
           ),
         ]),
       ),
@@ -5627,11 +5937,13 @@ class _CallUiAvatarStage extends StatefulWidget {
   final String? imageUrl;
   final bool connected;
   final double height;
+  final List<({String name, String? imageUrl})> companions;
   const _CallUiAvatarStage({
     required this.name,
     required this.imageUrl,
     required this.connected,
     required this.height,
+    this.companions = const [],
   });
 
   @override
@@ -5656,10 +5968,18 @@ class _CallUiAvatarStageState extends State<_CallUiAvatarStage>
     final ringOuter = widget.height * 0.92;
     final ringInner = widget.height * 0.84;
     final avatarSize = ringInner - 18;
+    final miniSize = max(24.0, min(34.0, widget.height * 0.18));
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, _) {
         final rotation = _controller.value * pi * 2;
+        final companionOffsets = <Offset>[
+          Offset(ringInner * 0.42, -ringInner * 0.18),
+          Offset(-ringInner * 0.42, -ringInner * 0.18),
+          Offset(ringInner * 0.36, ringInner * 0.28),
+          Offset(-ringInner * 0.36, ringInner * 0.28),
+          Offset(0, -ringInner * 0.50),
+        ];
         return SizedBox(
           width: double.infinity,
           height: widget.height,
@@ -5752,12 +6072,369 @@ class _CallUiAvatarStageState extends State<_CallUiAvatarStage>
                   ),
                 ],
               ),
+              for (var i = 0;
+                  i < widget.companions.length && i < companionOffsets.length;
+                  i++)
+                Align(
+                  alignment: Alignment.center,
+                  child: Transform.translate(
+                    offset: companionOffsets[i],
+                    child: _CallUiMiniAvatarBubble(
+                      name: widget.companions[i].name,
+                      imageUrl: widget.companions[i].imageUrl,
+                      size: miniSize,
+                    ),
+                  ),
+                ),
             ],
           ),
         );
       },
     );
   }
+}
+
+class _DesktopMeshAvatarStage extends StatefulWidget {
+  final String name;
+  final String? imageUrl;
+  final bool connected;
+  final double height;
+  final List<({String name, String? imageUrl})> companions;
+  const _DesktopMeshAvatarStage({
+    required this.name,
+    required this.imageUrl,
+    required this.connected,
+    required this.height,
+    this.companions = const [],
+  });
+
+  @override
+  State<_DesktopMeshAvatarStage> createState() =>
+      _DesktopMeshAvatarStageState();
+}
+
+class _DesktopMeshAvatarStageState extends State<_DesktopMeshAvatarStage>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 8),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final avatarSize = min(widget.height * 0.74, 160.0).toDouble();
+    final miniSize = max(22.0, min(32.0, widget.height * 0.14));
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        final companionOffsets = <Offset>[
+          Offset(78, -56),
+          Offset(-78, -56),
+          Offset(88, 52),
+          Offset(-88, 52),
+          Offset(0, -98),
+        ];
+        return SizedBox(
+          width: double.infinity,
+          height: widget.height + 112,
+          child: Stack(
+            clipBehavior: Clip.none,
+            fit: StackFit.expand,
+            children: [
+              Positioned.fill(
+                child: CustomPaint(
+                  painter: _ProfileWavePainter(progress: _controller.value),
+                ),
+              ),
+              Align(
+                alignment: const Alignment(0, -0.12),
+                child: SizedBox(
+                  width: 184,
+                  height: 184,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    alignment: Alignment.center,
+                    children: [
+                      Transform.rotate(
+                        angle: _controller.value * pi * 2,
+                        child: Container(
+                          width: 178,
+                          height: 178,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: const SweepGradient(
+                              colors: [
+                                Color(0xFF00F2FF),
+                                Color(0xFF1677FF),
+                                Color(0xFFFF00EA),
+                                Color(0xFF7B00FF),
+                                Color(0xFF00F2FF),
+                              ],
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF00F2FF)
+                                    .withValues(alpha: 0.88),
+                                blurRadius: 32,
+                                spreadRadius: 4,
+                              ),
+                              BoxShadow(
+                                color: const Color(0xFFFF00EA)
+                                    .withValues(alpha: 0.72),
+                                blurRadius: 52,
+                                spreadRadius: 5,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      Container(
+                        width: 166,
+                        height: 166,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.18),
+                            width: 1,
+                          ),
+                        ),
+                        child: ClipOval(
+                          child: BestieAvatar(
+                            name: widget.name,
+                            imageUrl: widget.imageUrl,
+                            size: avatarSize,
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        right: 7,
+                        bottom: 7,
+                        child: Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            color: widget.connected
+                                ? const Color(0xFF12D15E)
+                                : const Color(0xFF22C55E),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: const Color(0xFF071426),
+                              width: 3,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF12D15E)
+                                    .withValues(alpha: 0.8),
+                                blurRadius: 20,
+                              ),
+                            ],
+                          ),
+                          child: const Icon(
+                            Icons.call_rounded,
+                            color: Colors.white,
+                            size: 17,
+                          ),
+                        ),
+                      ),
+                      for (var i = 0;
+                          i < widget.companions.length &&
+                              i < companionOffsets.length;
+                          i++)
+                        Transform.translate(
+                          offset: companionOffsets[i],
+                          child: _CallUiMiniAvatarBubble(
+                            name: widget.companions[i].name,
+                            imageUrl: widget.companions[i].imageUrl,
+                            size: miniSize,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _CallUiMiniAvatarBubble extends StatelessWidget {
+  final String name;
+  final String? imageUrl;
+  final double size;
+  const _CallUiMiniAvatarBubble({
+    required this.name,
+    required this.imageUrl,
+    required this.size,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: const SweepGradient(
+          colors: [
+            CallScreenUiColors.neonBlue,
+            CallScreenUiColors.neonMagenta,
+            CallScreenUiColors.neonBlue,
+          ],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: CallScreenUiColors.neonBlue.withValues(alpha: 0.45),
+            blurRadius: 14,
+            spreadRadius: 1,
+          ),
+          BoxShadow(
+            color: CallScreenUiColors.neonMagenta.withValues(alpha: 0.35),
+            blurRadius: 16,
+            spreadRadius: 1,
+          ),
+        ],
+      ),
+      child: ClipOval(
+        child: BestieAvatar(
+          name: name,
+          imageUrl: imageUrl,
+          size: size - 4,
+        ),
+      ),
+    );
+  }
+}
+
+class _ProfileWavePainter extends CustomPainter {
+  final double progress;
+  const _ProfileWavePainter({required this.progress});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final topEdge = size.height * 0.10;
+    final bottomEdge = size.height * 0.70;
+    final centerX = size.width * 0.50;
+    final blurPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
+    final crispPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    const horizontalLineCount = 38;
+    const verticalLineCount = 34;
+    const horizontalAmplitude = 18.0;
+
+    double horizontalY(double x, double baseY, double phase) {
+      final position = x / size.width;
+      return baseY +
+          sin(position * pi * 2 + phase) * horizontalAmplitude +
+          sin(position * pi * 3 - phase * 0.65) * 5;
+    }
+
+    Path horizontalPath(
+      double startX,
+      double endX,
+      double baseY,
+      double phase,
+    ) {
+      const segments = 28;
+      final path = Path()..moveTo(startX, horizontalY(startX, baseY, phase));
+      for (var step = 1; step <= segments; step++) {
+        final x = startX + (endX - startX) * step / segments;
+        path.lineTo(x, horizontalY(x, baseY, phase));
+      }
+      return path;
+    }
+
+    for (var i = 0; i < horizontalLineCount; i++) {
+      final t = i / (horizontalLineCount - 1);
+      final phase = progress * pi * 2 + t * pi * 1.30;
+      final y = topEdge + (bottomEdge - topEdge) * t;
+      final leftPath = horizontalPath(0, centerX, y, phase);
+      final rightPath = horizontalPath(size.width, centerX, y, phase);
+
+      const leftColor = Color(0xFFFF00EA);
+      const rightColor = Color(0xFF00CFFF);
+
+      blurPaint
+        ..strokeWidth = 2.1
+        ..color = leftColor.withValues(alpha: 0.36);
+      canvas.drawPath(leftPath, blurPaint);
+      blurPaint.color = rightColor.withValues(alpha: 0.40);
+      canvas.drawPath(rightPath, blurPaint);
+
+      crispPaint
+        ..strokeWidth = 0.95
+        ..color = leftColor.withValues(alpha: 0.70);
+      canvas.drawPath(leftPath, crispPaint);
+      crispPaint.color = rightColor.withValues(alpha: 0.76);
+      canvas.drawPath(rightPath, crispPaint);
+    }
+
+    final topPhase = progress * pi * 2;
+    final bottomPhase = progress * pi * 2 + pi * 1.30;
+    final meshBounds = Path()..moveTo(0, horizontalY(0, topEdge, topPhase));
+    const boundarySegments = 56;
+    for (var step = 1; step <= boundarySegments; step++) {
+      final x = size.width * step / boundarySegments;
+      meshBounds.lineTo(x, horizontalY(x, topEdge, topPhase));
+    }
+    for (var step = boundarySegments; step >= 0; step--) {
+      final x = size.width * step / boundarySegments;
+      meshBounds.lineTo(x, horizontalY(x, bottomEdge, bottomPhase));
+    }
+    meshBounds.close();
+
+    canvas.save();
+    canvas.clipPath(meshBounds);
+    for (var i = 0; i < verticalLineCount; i++) {
+      final t = i / (verticalLineCount - 1);
+      final phase = progress * pi * 2 + t * pi * 1.20;
+      final x = size.width * t;
+      final verticalTop = horizontalY(x, topEdge, topPhase);
+      final verticalBottom = horizontalY(x, bottomEdge, bottomPhase);
+      final verticalPath = Path()
+        ..moveTo(x, verticalTop)
+        ..cubicTo(
+          x - 30 - sin(phase) * 13,
+          verticalTop + (verticalBottom - verticalTop) * 0.32,
+          x + 34 + cos(phase) * 13,
+          verticalTop + (verticalBottom - verticalTop) * 0.68,
+          x + sin(phase) * 3,
+          verticalBottom,
+        );
+
+      final color =
+          x <= centerX ? const Color(0xFFFF00EA) : const Color(0xFF00CFFF);
+
+      blurPaint
+        ..strokeWidth = 2.0
+        ..color = color.withValues(alpha: 0.34);
+      canvas.drawPath(verticalPath, blurPaint);
+
+      crispPaint
+        ..strokeWidth = 0.90
+        ..color = color.withValues(alpha: 0.68);
+      canvas.drawPath(verticalPath, crispPaint);
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _ProfileWavePainter oldDelegate) =>
+      oldDelegate.progress != progress;
 }
 
 class _PrototypeReconnectBanner extends StatelessWidget {
@@ -5862,7 +6539,8 @@ class _ConnectingDotsState extends State<_ConnectingDots>
             mainAxisAlignment: MainAxisAlignment.end,
             children: List.generate(3, (i) {
               final phase = (_ctrl.value + i * 0.2) % 1.0;
-              final opacity = 0.35 + 0.65 * (phase < 0.5 ? phase * 2 : (1 - phase) * 2);
+              final opacity =
+                  0.35 + 0.65 * (phase < 0.5 ? phase * 2 : (1 - phase) * 2);
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 2),
                 child: Opacity(
@@ -6052,9 +6730,11 @@ class _SpeakingWaveformState extends State<_SpeakingWaveform>
           crossAxisAlignment: CrossAxisAlignment.end,
           children: List.generate(5, (i) {
             final phase = (_ctrl.value + i * 0.18) % 1.0;
-            final h = minH + (maxH - minH) * (0.35 + 0.65 * sin(phase * pi * 2));
+            final h =
+                minH + (maxH - minH) * (0.35 + 0.65 * sin(phase * pi * 2));
             return Padding(
-              padding: EdgeInsets.symmetric(horizontal: widget.compact ? 1 : 1.5),
+              padding:
+                  EdgeInsets.symmetric(horizontal: widget.compact ? 1 : 1.5),
               child: Container(
                 width: barW,
                 height: h,

@@ -27,6 +27,8 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/logo.png
 
 # record's Linux federated package resolves to an old 0.7.2 that is
 # API-incompatible with record_platform_interface 1.6.0 (compile error in the
@@ -34,3 +36,13 @@ flutter:
 # 1.x line which implements the current interface.
 dependency_overrides:
   record_linux: ^1.0.0
+  firebase_core:
+    path: desktop_stubs/firebase_core
+  firebase_messaging:
+    path: desktop_stubs/firebase_messaging
+  flutter_tts:
+    path: desktop_stubs/flutter_tts
+  record_windows:
+    path: desktop_stubs/record_windows
+  flutter_secure_storage_windows:
+    path: desktop_stubs/flutter_secure_storage_windows

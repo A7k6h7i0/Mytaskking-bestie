@@ -505,6 +505,8 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
     final myState = mine['state'] as String?;
     final myScore = mine['score'] is int ? mine['score'] as int : null;
     final status = (t['status'] ?? 'TODO').toString();
+    final createdBy = (t['createdBy'] as Map?)?.cast<String, dynamic>();
+    final assignerName = (createdBy?['name'] ?? '').toString().trim();
 
     final priorityColor = switch (priority) {
       'urgent' => c.danger,
@@ -599,6 +601,28 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
                       TextStyle(color: c.textMuted, fontSize: 13, height: 1.35),
                 ),
               ],
+              if (assignerName.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Icon(Icons.assignment_ind_outlined,
+                        size: 14, color: c.textMuted),
+                    const SizedBox(width: 5),
+                    Expanded(
+                      child: Text(
+                        'Assigned by $assignerName',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: c.textMuted,
+                          fontSize: 12,
+                          fontWeight: BestieTokens.fwSemibold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
               if (myState != null) ...[
                 const SizedBox(height: 10),
                 _stateBadge(myState, myScore),
@@ -626,15 +650,16 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
                               child: Container(
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  border: Border.all(color: c.surface, width: 2),
+                                  border:
+                                      Border.all(color: c.surface, width: 2),
                                 ),
                                 child: BestieAvatar(
                                   name: (assignees[i]['user'] as Map?)?['name']
                                           ?.toString() ??
                                       '?',
-                                  imageUrl:
-                                      (assignees[i]['user'] as Map?)?['avatarUrl']
-                                          ?.toString(),
+                                  imageUrl: (assignees[i]['user']
+                                          as Map?)?['avatarUrl']
+                                      ?.toString(),
                                   isClient: (assignees[i]['user']
                                           as Map?)?['isClient'] ??
                                       false,

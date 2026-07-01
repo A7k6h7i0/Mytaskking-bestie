@@ -19,6 +19,8 @@ const TRACKABLE_ROLES = new Set([
   'EMPLOYEE',
   'TELECALLER',
 ]);
+const TRACK_INTERVAL_OPTIONS = [120, 300, 900, 1800, 3600];
+const DEFAULT_TRACK_INTERVAL_SECONDS = 300;
 
 function normalizedNote(value) {
   const text = String(value || '').trim();
@@ -35,6 +37,14 @@ function localDateKey(date = new Date(), timeZone = 'Asia/Kolkata') {
     }).formatToParts(date).map((part) => [part.type, part.value])
   );
   return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function localDateRange(dateKey) {
+  const start = new Date(`${dateKey}T00:00:00.000+05:30`);
+  return {
+    start,
+    end: new Date(start.getTime() + 24 * 60 * 60 * 1000),
+  };
 }
 
 function workSeconds(entry, now = new Date()) {
@@ -63,10 +73,27 @@ function shouldTrack({ user, presence }) {
   return availabilityFromPresence(presence) === 'WORKING';
 }
 
+async function workActivityIntervalSeconds() {
+  const row = await prisma.workspaceSetting.findUnique({
+    where: {
+      scope_key: {
+        scope: 'workActivity',
+        key: 'intervalSeconds',
+      },
+    },
+    select: { value: true },
+  });
+  const configured = Number(row?.value);
+  return TRACK_INTERVAL_OPTIONS.includes(configured)
+    ? configured
+    : DEFAULT_TRACK_INTERVAL_SECONDS;
+}
+
 router.get(
   '/me/state',
   requireInternal,
   asyncHandler(async (req, res) => {
+    const intervalSeconds = await workActivityIntervalSeconds();
     const presence = await prisma.userPresence.findUnique({
       where: { userId: req.user.id },
     });
@@ -74,7 +101,7 @@ router.get(
     res.json({
       shouldTrack: shouldTrack({ user: req.user, presence }),
       availability,
-      intervalSeconds: 600,
+      intervalSeconds,
       captureSeconds: 5,
       promptSeconds: 30,
       platform: 'desktop',
@@ -143,6 +170,8 @@ router.get(
   }),
   asyncHandler(async (req, res) => {
     const date = req.query.date || localDateKey(new Date(), req.query.timezone || 'Asia/Kolkata');
+    const { start, end } = localDateRange(date);
+    const intervalSeconds = await workActivityIntervalSeconds();
     const users = await prisma.user.findMany({
       where: tenant.scopedWhere(req, {
         isClient: false,
@@ -157,7 +186,10 @@ router.get(
       prisma.userPresence.findMany({ where: { userId: { in: userIds } } }),
       prisma.workdayLog.findMany({ where: { userId: { in: userIds }, localDate: date } }),
       prisma.workActivityClip.findMany({
-        where: tenant.scopedWhere(req, { userId: { in: userIds } }),
+        where: tenant.scopedWhere(req, {
+          userId: { in: userIds },
+          captureStartedAt: { gte: start, lt: end },
+        }),
         orderBy: { captureStartedAt: 'desc' },
         take: 250,
       }),
@@ -166,9 +198,16 @@ router.get(
     const workdayByUser = new Map(workdayRows.map((w) => [w.userId, w]));
     const latestByUser = new Map();
     const counts = new Map();
+    const activitySecondsByUser = new Map();
     for (const clip of clips) {
       counts.set(clip.userId, (counts.get(clip.userId) || 0) + 1);
       if (!latestByUser.has(clip.userId)) latestByUser.set(clip.userId, clip);
+      if (clip.promptRespondedAt && clip.status !== 'CAPTURE_FAILED') {
+        activitySecondsByUser.set(
+          clip.userId,
+          (activitySecondsByUser.get(clip.userId) || 0) + intervalSeconds
+        );
+      }
     }
     res.json({
       date,
@@ -179,7 +218,10 @@ router.get(
           user,
           availability,
           status: shouldTrack({ user, presence }) ? 'Working' : availability,
-          workingSeconds: workSeconds(workdayByUser.get(user.id)),
+          workingSeconds: Math.max(
+            workSeconds(workdayByUser.get(user.id)),
+            activitySecondsByUser.get(user.id) || 0
+          ),
           clipCount: counts.get(user.id) || 0,
           latestClip: latestByUser.get(user.id) || null,
         };

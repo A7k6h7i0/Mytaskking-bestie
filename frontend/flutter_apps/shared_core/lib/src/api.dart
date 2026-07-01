@@ -17,6 +17,10 @@ extension BestieApiExt on BestieApi {
   Future<List<Map<String, dynamic>>> listChannels() => get(
     '/channels',
   ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
+  Future<List<Map<String, dynamic>>> listChannelDirectory({String? q}) => get(
+    '/channels/directory',
+    query: {if (q != null) 'q': q},
+  ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
   Future<Map<String, dynamic>> getChannel(String id) => get('/channels/$id');
   Future<Map<String, dynamic>> createChannel({
     required String kind,
@@ -274,10 +278,7 @@ extension BestieApiExt on BestieApi {
   }) async {
     await dio.put(
       '/presence/me',
-      data: {
-        'status': status,
-        if (customStatus != null) 'customStatus': customStatus,
-      },
+      data: {'status': status, 'customStatus': customStatus},
     );
   }
 

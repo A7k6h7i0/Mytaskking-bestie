@@ -278,9 +278,9 @@ class _TrackHistory extends ConsumerWidget {
         if (items.isEmpty) {
           return const BestieEmptyState(
             icon: Icons.video_file_outlined,
-            title: 'No clips yet',
+            title: 'No captures yet',
             description:
-                'Activity clips will appear after the desktop cycle runs.',
+                'Activity captures will appear after the desktop cycle runs.',
           );
         }
         return ListView.separated(
@@ -350,7 +350,7 @@ class _TrackHistory extends ConsumerWidget {
                   const SizedBox(width: 12),
                   if (url.isNotEmpty)
                     IconButton.filledTonal(
-                      tooltip: 'Open recording',
+                      tooltip: 'Open capture',
                       onPressed: () => onOpenClip(url),
                       icon: const Icon(Icons.open_in_new_rounded),
                     )

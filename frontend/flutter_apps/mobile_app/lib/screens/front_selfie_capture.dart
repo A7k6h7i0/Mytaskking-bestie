@@ -1,6 +1,5 @@
-import 'dart:typed_data';
-
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 
@@ -16,6 +15,12 @@ class _FrontSelfieCaptureState extends State<FrontSelfieCapture> {
   String? _error;
   bool _capturing = false;
 
+  bool get _isDesktop =>
+      switch (defaultTargetPlatform) {
+        TargetPlatform.windows || TargetPlatform.linux || TargetPlatform.macOS => true,
+        TargetPlatform.android || TargetPlatform.iOS || TargetPlatform.fuchsia => false,
+      };
+
   @override
   void initState() {
     super.initState();
@@ -24,6 +29,9 @@ class _FrontSelfieCaptureState extends State<FrontSelfieCapture> {
 
   Future<void> _prepare() async {
     try {
+      if (_isDesktop) {
+        throw 'Selfie capture is not available on desktop. Please sign in from a mobile device or use the desktop sign-in flow.';
+      }
       final cameras = await availableCameras();
       final front = cameras.where(
         (camera) => camera.lensDirection == CameraLensDirection.front,

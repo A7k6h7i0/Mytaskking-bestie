@@ -1,4 +1,5 @@
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -16,34 +17,56 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  static const _trackActivityOptions = <int, String>{
+    120: '2 minutes',
+    300: '5 minutes',
+    900: '15 minutes',
+    1800: '30 minutes',
+    3600: '1 hour',
+  };
+
   bool _buzzerEnabled = true;
   String _headOfficeName = 'HQ India';
   String? _buzzerSoundUrl;
   String? _ringingSoundUrl;
   String? _uploadingSound;
+  int _trackActivitySeconds = 300;
 
   @override
   void initState() {
     super.initState();
-    _loadBuzzerSetting();
+    _loadAdminSettings();
   }
 
-  Future<void> _loadBuzzerSetting() async {
+  Future<void> _loadAdminSettings() async {
     try {
-      final data = await ref.read(apiProvider).settingsScope(scope: 'calls');
+      final api = ref.read(apiProvider);
+      final data = await api.settingsScope(scope: 'calls');
       final calls = (data['calls'] as Map?)?.cast<String, dynamic>();
-      if (mounted && calls != null) {
+      final workActivity = await api.settingsScope(scope: 'workActivity');
+      final workActivityMap =
+          (workActivity['workActivity'] as Map?)?.cast<String, dynamic>();
+      final configuredInterval =
+          (workActivityMap?['intervalSeconds'] as num?)?.toInt();
+      final emergencyBuzzerEnabled = calls?['emergencyBuzzerEnabled'];
+      if (mounted) {
         setState(() {
-          _buzzerEnabled = calls['emergencyBuzzerEnabled'] is bool
-              ? calls['emergencyBuzzerEnabled'] as bool
-              : true;
-          _headOfficeName = (calls['headOfficeName'] ?? 'HQ India').toString();
-          _buzzerSoundUrl = calls['emergencyBuzzerSoundUrl']?.toString();
-          _ringingSoundUrl = calls['ringingSoundUrl']?.toString();
+          _buzzerEnabled =
+              emergencyBuzzerEnabled is bool ? emergencyBuzzerEnabled : true;
+          _headOfficeName = (calls?['headOfficeName'] ?? 'HQ India').toString();
+          _buzzerSoundUrl = calls?['emergencyBuzzerSoundUrl']?.toString();
+          _ringingSoundUrl = calls?['ringingSoundUrl']?.toString();
+          _trackActivitySeconds =
+              _trackActivityOptions.containsKey(configuredInterval)
+                  ? configuredInterval!
+                  : 300;
         });
       }
     } catch (_) {}
   }
+
+  String get _trackActivityLabel =>
+      _trackActivityOptions[_trackActivitySeconds] ?? '5 minutes';
 
   Future<void> _uploadCallSound({
     required String key,
@@ -101,9 +124,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           .setSetting(scope: 'calls', key: 'headOfficeName', value: value);
       if (mounted) setState(() => _headOfficeName = value);
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         bestieToast(context, 'Could not update head office',
             body: formatApiError(e), kind: BestieToastKind.error);
+      }
     }
   }
 
@@ -124,6 +148,64 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
+  Future<void> _editTrackActivityInterval() async {
+    final selected = await showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Track activity every'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: _trackActivityOptions.entries
+              .map(
+                (entry) => ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    entry.key == _trackActivitySeconds
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_off,
+                  ),
+                  title: Text(entry.value),
+                  onTap: () => Navigator.pop(ctx, entry.key),
+                ),
+              )
+              .toList(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+    if (selected == null || selected == _trackActivitySeconds) return;
+    try {
+      await ref.read(apiProvider).setSetting(
+            scope: 'workActivity',
+            key: 'intervalSeconds',
+            value: selected,
+          );
+      if (!mounted) return;
+      setState(() => _trackActivitySeconds = selected);
+      bestieToast(
+        context,
+        'Track activity updated',
+        body:
+            'Desktop tracking will now run every ${_trackActivityOptions[selected]}.',
+        kind: BestieToastKind.success,
+      );
+    } catch (e) {
+      if (mounted) {
+        bestieToast(
+          context,
+          'Could not update tracking interval',
+          body: formatApiError(e),
+          kind: BestieToastKind.error,
+        );
+      }
+    }
+  }
+
   static const _shellRoutes = {
     '/chat',
     '/dashboard',
@@ -139,7 +221,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       context.pop();
       return;
     }
-    context.go('/chat');
+    final desktop = defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.linux ||
+        defaultTargetPlatform == TargetPlatform.macOS;
+    context.go(desktop ? '/dashboard' : '/chat');
   }
 
   void _openRoute(BuildContext context, String route) {
@@ -269,6 +354,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 icon: Icons.business_rounded,
                 label: 'Head office: $_headOfficeName',
                 onTap: _editHeadOffice,
+              ),
+            if (user?.role == 'ADMIN' || user?.role == 'SUPER_ADMIN')
+              _SettingTile(
+                colors: c,
+                icon: Icons.timer_outlined,
+                label: 'Track activity every: $_trackActivityLabel',
+                onTap: _editTrackActivityInterval,
               ),
             _SectionLabel('People', colors: c),
             if (!(user?.isClient ?? false))

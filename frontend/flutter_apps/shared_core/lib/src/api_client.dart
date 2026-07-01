@@ -95,6 +95,7 @@ class BestieApi {
   Future<Map<String, dynamic>> login({
     required String userId,
     required String password,
+    String loginSource = 'mobile',
     String? tenantSlug,
     String? selfieBase64,
     String? selfieMimeType,
@@ -109,7 +110,7 @@ class BestieApi {
           'tenantSlug': tenantSlug.trim(),
         'userId': userId,
         'password': password,
-        'loginSource': 'mobile',
+        'loginSource': loginSource,
         if (selfieBase64 != null) 'selfieBase64': selfieBase64,
         if (selfieMimeType != null) 'selfieMimeType': selfieMimeType,
         if (latitude != null) 'latitude': latitude,

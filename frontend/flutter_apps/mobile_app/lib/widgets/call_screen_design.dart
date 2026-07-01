@@ -132,6 +132,7 @@ class CallUiGlassControlButton extends StatelessWidget {
     this.iconBegin = Alignment.topCenter,
     this.iconEnd = Alignment.bottomCenter,
     this.lightControls = false,
+    this.compact = false,
   });
 
   final String label;
@@ -143,6 +144,7 @@ class CallUiGlassControlButton extends StatelessWidget {
   final AlignmentGeometry iconEnd;
   /// Light app theme: white borders/shadows instead of neon blue on Mute–Buzzer.
   final bool lightControls;
+  final bool compact;
 
   static const _radius = 18.0;
   static const _innerRadius = 16.4;
@@ -209,7 +211,7 @@ class CallUiGlassControlButton extends StatelessWidget {
     if (iconGradient != null) {
       return CallUiGradientIcon(
         icon: icon,
-        size: 30,
+        size: compact ? 24 : 30,
         begin: iconBegin,
         end: iconEnd,
         colors: iconGradient!,
@@ -222,6 +224,10 @@ class CallUiGlassControlButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final enabled = onTap != null;
+    final outerRadius = compact ? 15.5 : _radius;
+    final innerRadius = compact ? 14.2 : _innerRadius;
+    final iconSize = compact ? 24.0 : 30.0;
+    final labelSize = compact ? 8.5 : (label.length > 12 ? 8.5 : 10.0);
     return Opacity(
       opacity: enabled ? 1 : 0.45,
       child: Column(
@@ -233,7 +239,7 @@ class CallUiGlassControlButton extends StatelessWidget {
               onTap: onTap,
               child: Container(
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(_radius),
+                  borderRadius: BorderRadius.circular(outerRadius),
                   boxShadow: lightControls
                       ? _lightGlowShadows
                       : const [
@@ -249,21 +255,21 @@ class CallUiGlassControlButton extends StatelessWidget {
                         ],
                 ),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(_radius),
+                  borderRadius: BorderRadius.circular(outerRadius),
                   child: Container(
-                    padding: const EdgeInsets.all(1.6),
+                    padding: EdgeInsets.all(compact ? 1.2 : 1.6),
                     decoration: BoxDecoration(
                       gradient: lightControls
                           ? _lightBorderGradient
                           : _borderGradient,
                     ),
                     child: ClipRRect(
-                      borderRadius: BorderRadius.circular(_innerRadius),
+                      borderRadius: BorderRadius.circular(innerRadius),
                       child: Container(
                         decoration: _innerDecoration,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 4,
-                          vertical: 6,
+                        padding: EdgeInsets.symmetric(
+                          horizontal: compact ? 3 : 4,
+                          vertical: compact ? 4 : 6,
                         ),
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
@@ -273,7 +279,7 @@ class CallUiGlassControlButton extends StatelessWidget {
                             else
                               CallUiGradientIcon(
                                 icon: icon,
-                                size: 30,
+                                size: iconSize,
                                 begin: iconBegin,
                                 end: iconEnd,
                                 colors: const [
@@ -281,7 +287,7 @@ class CallUiGlassControlButton extends StatelessWidget {
                                   CallScreenUiColors.textSecondary,
                                 ],
                               ),
-                            const SizedBox(height: 6),
+                            SizedBox(height: compact ? 4 : 6),
                             FittedBox(
                               fit: BoxFit.scaleDown,
                               child: Text(
@@ -290,7 +296,7 @@ class CallUiGlassControlButton extends StatelessWidget {
                                 maxLines: 2,
                                 style: TextStyle(
                                   color: CallScreenUiColors.textPrimary,
-                                  fontSize: label.length > 12 ? 8.5 : 10,
+                                  fontSize: labelSize,
                                   fontWeight: FontWeight.w600,
                                   height: 1.05,
                                   letterSpacing: 0.05,
@@ -326,11 +332,13 @@ class CallUiSpeakerButton extends StatelessWidget {
     this.isSelected = false,
     this.onTap,
     this.lightControls = false,
+    this.compact = false,
   });
 
   final bool isSelected;
   final VoidCallback? onTap;
   final bool lightControls;
+  final bool compact;
 
   static const _radius = 18.0;
   static const _innerRadius = 16.2;
@@ -362,6 +370,10 @@ class CallUiSpeakerButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final enabled = onTap != null;
+    final outerRadius = compact ? 15.5 : _radius;
+    final innerRadius = compact ? 14.0 : _innerRadius;
+    final iconSize = compact ? 28.0 : 34.0;
+    final labelSize = compact ? 8.5 : 11.0;
     return Opacity(
       opacity: enabled ? 1 : 0.45,
       child: Column(
@@ -373,7 +385,7 @@ class CallUiSpeakerButton extends StatelessWidget {
               onTap: onTap,
               child: Container(
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(_radius),
+                  borderRadius: BorderRadius.circular(outerRadius),
                   boxShadow: lightControls
                       ? CallUiGlassControlButton._lightGlowShadows
                       : const [
@@ -389,9 +401,9 @@ class CallUiSpeakerButton extends StatelessWidget {
                         ],
                 ),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(_radius),
+                  borderRadius: BorderRadius.circular(outerRadius),
                   child: Container(
-                    padding: const EdgeInsets.all(1.8),
+                    padding: EdgeInsets.all(compact ? 1.3 : 1.8),
                     decoration: BoxDecoration(
                       gradient: lightControls
                           ? CallUiGlassControlButton._lightBorderGradient
@@ -408,30 +420,30 @@ class CallUiSpeakerButton extends StatelessWidget {
                             ),
                     ),
                     child: ClipRRect(
-                      borderRadius: BorderRadius.circular(_innerRadius),
+                      borderRadius: BorderRadius.circular(innerRadius),
                       child: Container(
                         decoration: _innerDecoration,
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
-                          children: const [
+                          children: [
                             CallUiGradientIcon(
                               icon: Icons.volume_up_rounded,
-                              size: 34,
+                              size: iconSize,
                               begin: Alignment.topRight,
                               end: Alignment.bottomLeft,
-                              colors: [
+                              colors: const [
                                 CallScreenUiColors.textPrimary,
                                 CallScreenUiColors.speakerIconShadow,
                                 CallScreenUiColors.textPrimary,
                               ],
                             ),
-                            SizedBox(height: 8),
+                            SizedBox(height: compact ? 5 : 8),
                             Text(
                               'Speaker',
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 color: CallScreenUiColors.textPrimary,
-                                fontSize: 11,
+                                fontSize: labelSize,
                                 fontWeight: FontWeight.w600,
                                 height: 1.0,
                                 letterSpacing: 0.15,
@@ -465,10 +477,12 @@ class CallUiRecordButton extends StatelessWidget {
     super.key,
     this.isSelected = false,
     this.onTap,
+    this.compact = false,
   });
 
   final bool isSelected;
   final VoidCallback? onTap;
+  final bool compact;
 
   static const _radius = 18.0;
   static const _innerRadius = 16.4;
@@ -498,6 +512,10 @@ class CallUiRecordButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final enabled = onTap != null;
+    final outerRadius = compact ? 15.5 : _radius;
+    final innerRadius = compact ? 14.2 : _innerRadius;
+    final iconSize = compact ? 28.0 : 34.0;
+    final labelSize = compact ? 8.5 : 11.0;
     return Opacity(
       opacity: enabled ? 1 : 0.45,
       child: Column(
@@ -509,7 +527,7 @@ class CallUiRecordButton extends StatelessWidget {
               onTap: onTap,
               child: Container(
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(_radius),
+                  borderRadius: BorderRadius.circular(outerRadius),
                   boxShadow: const [
                     BoxShadow(
                       color: CallScreenUiColors.recordGlowStrong,
@@ -523,9 +541,9 @@ class CallUiRecordButton extends StatelessWidget {
                   ],
                 ),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(_radius),
+                  borderRadius: BorderRadius.circular(outerRadius),
                   child: Container(
-                    padding: const EdgeInsets.all(1.6),
+                    padding: EdgeInsets.all(compact ? 1.2 : 1.6),
                     decoration: const BoxDecoration(
                       gradient: LinearGradient(
                         begin: Alignment.topLeft,
@@ -540,20 +558,20 @@ class CallUiRecordButton extends StatelessWidget {
                       ),
                     ),
                     child: ClipRRect(
-                      borderRadius: BorderRadius.circular(_innerRadius),
+                      borderRadius: BorderRadius.circular(innerRadius),
                       child: Container(
                         decoration: _innerDecoration,
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
-                          children: const [
-                            _CallUiRecordIcon(size: 34),
-                            SizedBox(height: 8),
+                          children: [
+                            _CallUiRecordIcon(size: iconSize),
+                            SizedBox(height: compact ? 5 : 8),
                             Text(
                               'Record Call',
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 color: CallScreenUiColors.textPrimary,
-                                fontSize: 11,
+                                fontSize: labelSize,
                                 fontWeight: FontWeight.w600,
                                 height: 1.0,
                                 letterSpacing: 0.1,
@@ -625,11 +643,13 @@ class CallUiBottomActionButton extends StatelessWidget {
     required this.icon,
     required this.size,
     required this.onTap,
+    this.compact = false,
   });
 
   final IconData icon;
   final double size;
   final VoidCallback? onTap;
+  final bool compact;
 
   static const _borderGradient = LinearGradient(
     begin: Alignment.topCenter,
@@ -655,6 +675,7 @@ class CallUiBottomActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final enabled = onTap != null;
+    final borderPadding = compact ? 1.2 : 1.6;
     return Opacity(
       opacity: enabled ? 1 : 0.45,
       child: GestureDetector(
@@ -678,7 +699,7 @@ class CallUiBottomActionButton extends StatelessWidget {
           ),
           child: ClipOval(
             child: Container(
-              padding: const EdgeInsets.all(1.6),
+              padding: EdgeInsets.all(borderPadding),
               decoration: const BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: _borderGradient,

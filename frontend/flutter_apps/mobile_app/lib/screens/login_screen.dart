@@ -1,5 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'dart:convert';
-import 'dart:typed_data';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -27,6 +28,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   String? _error;
   Uint8List? _selfie;
 
+  bool get _skipSelfieOnDesktop {
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.windows:
+      case TargetPlatform.linux:
+      case TargetPlatform.macOS:
+        return true;
+      case TargetPlatform.android:
+      case TargetPlatform.iOS:
+      case TargetPlatform.fuchsia:
+        return false;
+    }
+  }
+
   @override
   void dispose() {
     _tenantSlug.dispose();
@@ -51,10 +65,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     });
     try {
       final api = ref.read(apiProvider);
-      final requiresSelfie =
-          await api.loginRequiresSelfie(userId, tenantSlug: tenantSlug.isEmpty ? null : tenantSlug);
+      final requiresSelfie = await api.loginRequiresSelfie(userId,
+          tenantSlug: tenantSlug.isEmpty ? null : tenantSlug);
       if (!mounted) return;
-      if (requiresSelfie && _selfie == null) {
+      final shouldCaptureSelfie = requiresSelfie && !_skipSelfieOnDesktop;
+      if (shouldCaptureSelfie && _selfie == null) {
         final photo = await Navigator.of(context).push<Uint8List>(
           MaterialPageRoute(builder: (_) => const FrontSelfieCapture()),
         );
@@ -67,7 +82,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       double? latitude;
       double? longitude;
       String? address;
-      if (requiresSelfie) {
+      if (requiresSelfie && !_skipSelfieOnDesktop) {
         final enabled = await Geolocator.isLocationServiceEnabled();
         if (!enabled) throw 'Turn on location to complete employee sign-in.';
         var permission = await Geolocator.checkPermission();
@@ -106,6 +121,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       await api.login(
         userId: userId,
         password: _password.text,
+        loginSource: _skipSelfieOnDesktop ? 'web' : 'mobile',
         tenantSlug: tenantSlug.isEmpty ? null : tenantSlug,
         selfieBase64: _selfie == null ? null : base64Encode(_selfie!),
         selfieMimeType: _selfie == null ? null : 'image/jpeg',
@@ -115,7 +131,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       );
       setState(() => _success = true);
       await Future.delayed(const Duration(milliseconds: 700));
-      if (mounted) context.go('/chat');
+      if (mounted) context.go(_skipSelfieOnDesktop ? '/dashboard' : '/chat');
     } catch (e) {
       setState(() => _error = formatApiError(e));
     } finally {
@@ -126,6 +142,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
+    final size = MediaQuery.sizeOf(context);
+    final desktopLogin = _skipSelfieOnDesktop && size.width >= 900;
 
     if (_success) {
       return Scaffold(
@@ -144,12 +162,24 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           fontWeight: FontWeight.w700,
                           color: c.text)),
                   const SizedBox(height: 4),
-                  Text('Loading MyTaskKing…', style: TextStyle(color: c.textMuted)),
+                  Text('Loading MyTaskKing…',
+                      style: TextStyle(color: c.textMuted)),
                 ],
               ),
             ),
           ],
         ),
+      );
+    }
+
+    if (desktopLogin) {
+      return _DesktopLoginShell(
+        userId: _userId,
+        password: _password,
+        passwordFocus: _passwordFocus,
+        error: _error,
+        loading: _loading,
+        onSubmit: _submit,
       );
     }
 
@@ -359,6 +389,393 @@ class _LoginBackdrop extends StatelessWidget {
           gradient: RadialGradient(colors: [color, color.withValues(alpha: 0)]),
         ),
       );
+}
+
+class _DesktopLoginShell extends StatefulWidget {
+  final TextEditingController userId;
+  final TextEditingController password;
+  final FocusNode passwordFocus;
+  final String? error;
+  final bool loading;
+  final VoidCallback onSubmit;
+
+  const _DesktopLoginShell({
+    required this.userId,
+    required this.password,
+    required this.passwordFocus,
+    required this.error,
+    required this.loading,
+    required this.onSubmit,
+  });
+
+  @override
+  State<_DesktopLoginShell> createState() => _DesktopLoginShellState();
+}
+
+class _DesktopLoginShellState extends State<_DesktopLoginShell>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 14),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F7FC),
+      body: Row(
+        children: [
+          Expanded(
+            flex: 5,
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 46),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          const BestieLogo(size: 56),
+                          const SizedBox(width: 14),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: const [
+                              Text(
+                                'MyTaskKing',
+                                style: TextStyle(
+                                  color: Color(0xFF4C7DFF),
+                                  fontSize: 30,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: -0.8,
+                                ),
+                              ),
+                              Text(
+                                'WORKSPACE',
+                                style: TextStyle(
+                                  color: Color(0xFF7C879A),
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0.6,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 54),
+                      RichText(
+                        text: const TextSpan(
+                          style: TextStyle(
+                            color: Color(0xFF0D1320),
+                            fontSize: 36,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -1.1,
+                            height: 1.05,
+                          ),
+                          children: [
+                            TextSpan(text: 'Welcome '),
+                            TextSpan(
+                              text: 'back',
+                              style: TextStyle(color: Color(0xFF6868FF)),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      const Text(
+                        'Sign in with the credentials your admin assigned.',
+                        style: TextStyle(
+                          color: Color(0xFF4B5567),
+                          fontSize: 18,
+                          height: 1.45,
+                        ),
+                      ),
+                      const SizedBox(height: 42),
+                      _DesktopLoginField(
+                        label: 'User ID',
+                        controller: widget.userId,
+                        icon: Icons.person_outline_rounded,
+                        hint: 'e.g. priya.k',
+                        autofocus: true,
+                        textInputAction: TextInputAction.next,
+                        onSubmitted: (_) => widget.passwordFocus.requestFocus(),
+                      ),
+                      const SizedBox(height: 22),
+                      _DesktopLoginField(
+                        label: 'Password',
+                        controller: widget.password,
+                        focusNode: widget.passwordFocus,
+                        icon: Icons.key_rounded,
+                        obscureText: true,
+                        textInputAction: TextInputAction.done,
+                        onSubmitted: (_) => widget.onSubmit(),
+                      ),
+                      if (widget.error != null) ...[
+                        const SizedBox(height: 16),
+                        _ErrorBanner(message: widget.error!, colors: c),
+                      ],
+                      const SizedBox(height: 22),
+                      SizedBox(
+                        height: 56,
+                        child: FilledButton(
+                          onPressed: widget.loading ? null : widget.onSubmit,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF3F6DF4),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: widget.loading
+                              ? const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.4,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      'Sign in',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                    SizedBox(width: 8),
+                                    Icon(Icons.arrow_forward_rounded),
+                                  ],
+                                ),
+                        ),
+                      ),
+                      const SizedBox(height: 30),
+                      const Text(
+                        'No public registration. Contact your administrator for access.',
+                        style: TextStyle(
+                          color: Color(0xFF8A94A8),
+                          fontSize: 15,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 5,
+            child: AnimatedBuilder(
+              animation: _controller,
+              builder: (context, _) => CustomPaint(
+                painter: _DesktopLoginMeshPainter(_controller.value),
+                child: Stack(
+                  children: [
+                    Positioned(
+                      top: 26,
+                      left: 32,
+                      child: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(22),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Color(0x332D5BFF),
+                              blurRadius: 28,
+                              offset: Offset(0, 12),
+                            ),
+                          ],
+                        ),
+                        child: const BestieLogo(size: 52),
+                      ),
+                    ),
+                    const Positioned(
+                      left: 56,
+                      bottom: 38,
+                      child: Text(
+                        'Your team, one workspace.',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 26,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -0.5,
+                          shadows: [
+                            Shadow(
+                              color: Color(0x66000000),
+                              blurRadius: 20,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DesktopLoginField extends StatelessWidget {
+  final String label;
+  final TextEditingController controller;
+  final FocusNode? focusNode;
+  final IconData icon;
+  final String? hint;
+  final bool obscureText;
+  final bool autofocus;
+  final TextInputAction textInputAction;
+  final ValueChanged<String>? onSubmitted;
+
+  const _DesktopLoginField({
+    required this.label,
+    required this.controller,
+    required this.icon,
+    this.focusNode,
+    this.hint,
+    this.obscureText = false,
+    this.autofocus = false,
+    this.textInputAction = TextInputAction.next,
+    this.onSubmitted,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            color: Color(0xFF3E4657),
+            fontSize: 15,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: controller,
+          focusNode: focusNode,
+          autofocus: autofocus,
+          obscureText: obscureText,
+          textInputAction: textInputAction,
+          onSubmitted: onSubmitted,
+          decoration: InputDecoration(
+            hintText: hint,
+            prefixIcon: Icon(icon, color: const Color(0xFF7C879A)),
+            filled: true,
+            fillColor: Colors.white,
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Color(0xFFDDE4F1)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Color(0xFF3F6DF4), width: 2),
+            ),
+          ),
+          style: const TextStyle(
+            color: Color(0xFF0D1320),
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DesktopLoginMeshPainter extends CustomPainter {
+  final double t;
+  const _DesktopLoginMeshPainter(this.t);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final bg = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          Color(0xFF8EA7FF),
+          Color(0xFF6FA3ED),
+          Color(0xFF8D80D1),
+        ],
+      ).createShader(rect);
+    canvas.drawRect(rect, bg);
+
+    final glowPaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          Colors.white.withValues(alpha: 0.58),
+          Colors.white.withValues(alpha: 0.10),
+          Colors.transparent,
+        ],
+      ).createShader(
+        Rect.fromCircle(
+          center: Offset(size.width * 0.48, size.height * 0.48),
+          radius: size.shortestSide * 0.44,
+        ),
+      );
+    canvas.drawRect(rect, glowPaint);
+
+    final points = <Offset>[
+      Offset(size.width * 0.10, size.height * 0.10),
+      Offset(size.width * 0.24,
+          size.height * (0.08 + 0.02 * math.sin(t * math.pi * 2))),
+      Offset(size.width * 0.36, size.height * 0.14),
+      Offset(size.width * 0.80, size.height * 0.03),
+      Offset(size.width * 0.93, size.height * 0.18),
+      Offset(size.width * 0.86, size.height * 0.30),
+      Offset(size.width * 0.60, size.height * 0.36),
+      Offset(size.width * 0.50, size.height * 0.72),
+      Offset(size.width * 0.70, size.height * 0.76),
+      Offset(size.width * 0.76, size.height * 0.94),
+      Offset(size.width * 0.18, size.height * 0.88),
+      Offset(size.width * 0.02, size.height * 0.78),
+    ];
+    final line = Paint()
+      ..color = Colors.white.withValues(alpha: 0.18)
+      ..strokeWidth = 1.1;
+    final dot = Paint()..color = Colors.white.withValues(alpha: 0.62);
+    for (var i = 0; i < points.length - 1; i++) {
+      final a = points[i];
+      final b = points[i + 1];
+      canvas.drawLine(a, b, line);
+      if (i % 2 == 0 && i + 2 < points.length) {
+        canvas.drawLine(a, points[i + 2],
+            line..color = Colors.white.withValues(alpha: 0.10));
+        line.color = Colors.white.withValues(alpha: 0.18);
+      }
+    }
+    for (final p in points) {
+      final pulse = 1.0 + 0.35 * math.sin((t * math.pi * 2) + p.dx / 90);
+      canvas.drawCircle(p, 2.4 * pulse, dot);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DesktopLoginMeshPainter oldDelegate) =>
+      oldDelegate.t != t;
 }
 
 class _ErrorBanner extends StatelessWidget {

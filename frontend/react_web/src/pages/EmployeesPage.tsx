@@ -23,7 +23,7 @@ const EMPLOYEE_DESIGNATIONS = [
 export default function EmployeesPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const confirm = useConfirm();
+  const { confirm, ConfirmRenderer } = useConfirm();
   const user = useAuthStore((s) => s.user);
   const [q, setQ] = useState('');
   const [showNew, setShowNew] = useState(false);
@@ -145,6 +145,7 @@ export default function EmployeesPage() {
 
   return (
     <div className="pp">
+      <ConfirmRenderer />
       <header className="pp__head">
         <div>
           <h1>Employees</h1>

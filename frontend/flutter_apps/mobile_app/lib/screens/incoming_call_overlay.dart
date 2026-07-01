@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
@@ -10,6 +11,7 @@ import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../call_app.dart';
 import '../active_call_state.dart';
+import '../app_sounds.dart';
 import '../router.dart';
 import '../state.dart';
 import 'call_screen.dart';
@@ -419,8 +421,8 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
       _customRingtone.stop();
     }
     // Don't ring myself for outbound calls / meetings I'm hosting.
-    final callerId = data['callerId']?.toString() ??
-        call['initiator']?['id']?.toString();
+    final callerId =
+        data['callerId']?.toString() ?? call['initiator']?['id']?.toString();
     if (callerId != null && callerId.isNotEmpty && callerId == me?.id) return;
     if (call['initiator']?['id'] == me?.id) return;
     if ((call['host'] as Map?)?['id'] == me?.id) return;
@@ -570,10 +572,15 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
 
   Future<void> _playRingtone() async {
     try {
-      // Loop the *device's* default ringtone — what the user expects, vs
-      // a generic synth tone. flutter_ringtone_player wraps RingtoneManager
-      // on Android and AudioServicesPlay on iOS so it respects volume +
-      // silent mode automatically.
+      if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+        await _customRingtone.stop();
+        await _customRingtone.setReleaseMode(ReleaseMode.loop);
+        await _customRingtone.play(
+          BytesSource(AppSounds.desktopRingtoneBytes()),
+          volume: 1,
+        );
+        return;
+      }
       await _ringtone.play(
         android: AndroidSounds.ringtone,
         ios: IosSounds.electronic,
@@ -581,7 +588,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
         volume: 1.0,
         asAlarm: false,
       );
-    } catch (_) {/* best-effort — silent fall back to haptics */}
+    } catch (_) {/* best-effort */}
   }
 
   Future<void> _ensureNativeIncomingNotification() async {
@@ -678,11 +685,12 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
       _cancelNativeIncomingNotification(callId: callId);
       if (mounted) setState(() => _pending = null);
       try {
-        await ref.read(apiProvider).post('/calls/$callId/waiting/accept',
-            body: {
-              'mode': mode.toUpperCase(),
-              'activeCallId': CallSession.activeCallId,
-            });
+        await ref
+            .read(apiProvider)
+            .post('/calls/$callId/waiting/accept', body: {
+          'mode': mode.toUpperCase(),
+          'activeCallId': CallSession.activeCallId,
+        });
         if (mounted) {
           bestieToast(context, 'Caller added',
               body: 'The waiting caller can now join this call.',
