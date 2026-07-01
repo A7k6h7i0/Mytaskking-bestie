@@ -7,8 +7,7 @@ const tenant = require('../../services/tenant');
 const { NotFound, BadRequest, Forbidden } = require('../../utils/errors');
 
 async function listLeads({ user, q, status, ownerId, page = 1, pageSize = 25 }) {
-  const where = {
-    ...(tenant.MULTI_TENANT ? { tenantId: tenant.userTenantId(user) } : {}),
+  const where = tenant.tenantClause(user, {
     ...(status ? { status } : {}),
     ...(ownerId ? { ownerId } : {}),
     ...(user.role === 'TELECALLER' ? { ownerId: user.id } : {}),
@@ -21,7 +20,7 @@ async function listLeads({ user, q, status, ownerId, page = 1, pageSize = 25 }) 
           ],
         }
       : {}),
-  };
+  });
   const [total, items] = await prisma.$transaction([
     prisma.lead.count({ where }),
     prisma.lead.findMany({
@@ -44,8 +43,8 @@ async function getLead(id, user) {
     },
   });
   if (!lead) throw NotFound('Lead not found');
-  if (tenant.MULTI_TENANT && user && lead.tenantId !== tenant.userTenantId(user)) {
-    throw NotFound('Lead not found');
+  if (tenant.MULTI_TENANT && user) {
+    tenant.assertSameTenant(user, lead.tenantId);
   }
   return lead;
 }
@@ -62,7 +61,7 @@ async function createLead(input, creator) {
       source: input.source || null,
       notes: input.notes || null,
       tags: input.tags || [],
-      tenantId: creator.tenantId,
+      tenantId: tenant.userTenantId(creator),
       nextFollowAt: input.nextFollowAt ? new Date(input.nextFollowAt) : null,
     },
   });
@@ -79,7 +78,7 @@ async function updateLead(id, input, user) {
 async function clickToCall({ leadId, agent }) {
   const lead = await getLead(leadId, agent);
   if (!lead.phone) throw BadRequest('Lead has no phone number');
-  if (!agent.phone && !agent.email) throw BadRequest('Agent has no phone configured');
+  if (!agent.phone) throw BadRequest('Add your calling phone number in Profile before making telecaller calls');
 
   const result = await exotel.connectCall({
     from: agent.phone,
@@ -145,10 +144,10 @@ async function followupsDueToday(user) {
   const start = new Date(); start.setHours(0, 0, 0, 0);
   const end = new Date(); end.setHours(23, 59, 59, 999);
   return prisma.lead.findMany({
-    where: {
+    where: tenant.tenantClause(user, {
       ...(user.role === 'TELECALLER' ? { ownerId: user.id } : {}),
       nextFollowAt: { gte: start, lte: end },
-    },
+    }),
     orderBy: { nextFollowAt: 'asc' },
   });
 }

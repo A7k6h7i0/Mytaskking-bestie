@@ -6,6 +6,7 @@ const asyncHandler = require('../../utils/asyncHandler');
 const validate = require('../../middleware/validate');
 const { requireAuth, requireRole } = require('../../middleware/auth');
 const service = require('./telecaller.service');
+const dailyReport = require('../../services/telecallerDailyReport');
 
 const router = Router();
 
@@ -21,6 +22,7 @@ router.post(
 router.use(requireAuth);
 
 const telecallerOrAdmin = requireRole('SUPER_ADMIN', 'ADMIN', 'TELECALLER');
+const telecallerAdmin = requireRole('SUPER_ADMIN', 'ADMIN');
 
 router.get(
   '/leads',
@@ -98,6 +100,28 @@ router.get(
     }),
   }),
   asyncHandler(async (req, res) => res.json(await service.callHistory({ user: req.user, ...req.query })))
+);
+
+router.get(
+  '/calls/daily-report.xlsx',
+  telecallerAdmin,
+  validate({
+    query: Joi.object({
+      date: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      scope: Joi.string().valid('org', 'all').default('org'),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    const report = await dailyReport.buildDailyReportForUser({
+      user: req.user,
+      date: req.query.date,
+      scope: req.query.scope,
+    });
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${report.filename}"`);
+    res.setHeader('X-Report-Call-Count', String(report.calls));
+    res.send(report.buffer);
+  })
 );
 
 router.get(

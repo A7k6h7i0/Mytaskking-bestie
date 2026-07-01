@@ -61,14 +61,18 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
       ref.invalidate(channelsProvider);
       if (mounted) context.push('/chat/${ch['id']}');
     } catch (e) {
-      if (mounted) bestieToast(context, 'Could not open channel',
-          body: formatApiError(e), kind: BestieToastKind.error);
+      if (mounted) {
+        bestieToast(context, 'Could not open channel',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
+    final user = ref.watch(authStoreProvider).user;
+    final canCreate = user?.role == 'ADMIN' || user?.role == 'SUPER_ADMIN';
 
     return Scaffold(
       backgroundColor: c.bg,
@@ -77,6 +81,14 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
         backgroundColor: c.surface,
         foregroundColor: c.text,
         title: const Text('Clients'),
+        actions: [
+          if (canCreate)
+            IconButton(
+              tooltip: 'Create client',
+              icon: const Icon(Icons.add_rounded),
+              onPressed: _showCreateClientSheet,
+            ),
+        ],
       ),
       body: Column(children: [
         Padding(
@@ -148,6 +160,219 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
                         ),
         ),
       ]),
+    );
+  }
+
+  Future<void> _showCreateClientSheet() async {
+    final created = await bestieBottomSheet<bool>(
+      context,
+      title: 'Create client',
+      builder: (_) => _CreateClientSheet(ref: ref),
+    );
+    if (created == true) {
+      await _fetch(_search.text);
+    }
+  }
+}
+
+class _CreateClientSheet extends StatefulWidget {
+  const _CreateClientSheet({required this.ref});
+
+  final WidgetRef ref;
+
+  @override
+  State<_CreateClientSheet> createState() => _CreateClientSheetState();
+}
+
+class _CreateClientSheetState extends State<_CreateClientSheet> {
+  final _userId = TextEditingController();
+  final _password = TextEditingController();
+  final _name = TextEditingController();
+  final _company = TextEditingController();
+  final _email = TextEditingController();
+  final _phone = TextEditingController();
+  DateTime? _accessEndsAt;
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _userId.dispose();
+    _password.dispose();
+    _name.dispose();
+    _company.dispose();
+    _email.dispose();
+    _phone.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickAccessEndDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _accessEndsAt ?? now.add(const Duration(days: 30)),
+      firstDate: now,
+      lastDate: DateTime(now.year + 5),
+    );
+    if (picked != null) {
+      setState(() => _accessEndsAt = picked);
+    }
+  }
+
+  Future<void> _save() async {
+    final userId = _userId.text.trim();
+    final password = _password.text;
+    final name = _name.text.trim();
+    if (userId.length < 2 || name.isEmpty || password.length < 8) {
+      bestieToast(context, 'Fill required fields',
+          body: 'User ID, name, and password min 8 chars are required.',
+          kind: BestieToastKind.warning);
+      return;
+    }
+
+    setState(() => _saving = true);
+    try {
+      await widget.ref.read(apiProvider).createClient({
+        'userId': userId,
+        'password': password,
+        'name': name,
+        if (_company.text.trim().isNotEmpty)
+          'clientCompany': _company.text.trim(),
+        if (_email.text.trim().isNotEmpty) 'email': _email.text.trim(),
+        if (_phone.text.trim().isNotEmpty) 'phone': _phone.text.trim(),
+        if (_accessEndsAt != null)
+          'accessEndsAt': _accessEndsAt!.toIso8601String(),
+      });
+      if (!mounted) return;
+      bestieToast(context, 'Client created', kind: BestieToastKind.success);
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not create client',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  String _formatDate(DateTime value) {
+    final day = value.day.toString().padLeft(2, '0');
+    final month = value.month.toString().padLeft(2, '0');
+    return '$day/$month/${value.year}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _ClientField(controller: _userId, label: 'User ID *'),
+              const SizedBox(height: 10),
+              _ClientField(
+                controller: _password,
+                label: 'Password *',
+                obscureText: true,
+              ),
+              const SizedBox(height: 10),
+              _ClientField(controller: _name, label: 'Client name *'),
+              const SizedBox(height: 10),
+              _ClientField(controller: _company, label: 'Client company'),
+              const SizedBox(height: 10),
+              _ClientField(
+                controller: _email,
+                label: 'Email',
+                keyboardType: TextInputType.emailAddress,
+              ),
+              const SizedBox(height: 10),
+              _ClientField(
+                controller: _phone,
+                label: 'Phone',
+                keyboardType: TextInputType.phone,
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: _saving ? null : _pickAccessEndDate,
+                icon: const Icon(Icons.event_outlined),
+                label: Text(_accessEndsAt == null
+                    ? 'Set access end date'
+                    : 'Access ends ${_formatDate(_accessEndsAt!)}'),
+              ),
+              if (_accessEndsAt != null)
+                TextButton(
+                  onPressed: _saving
+                      ? null
+                      : () => setState(() => _accessEndsAt = null),
+                  child: Text('Remove expiry',
+                      style: TextStyle(color: c.textMuted)),
+                ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: _saving ? null : _save,
+                icon: _saving
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.person_add_alt_1_rounded),
+                label: Text(_saving ? 'Saving...' : 'Create client'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ClientField extends StatelessWidget {
+  const _ClientField({
+    required this.controller,
+    required this.label,
+    this.keyboardType,
+    this.obscureText = false,
+  });
+
+  final TextEditingController controller;
+  final String label;
+  final TextInputType? keyboardType;
+  final bool obscureText;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
+    return TextField(
+      controller: controller,
+      keyboardType: keyboardType,
+      obscureText: obscureText,
+      decoration: InputDecoration(
+        labelText: label,
+        filled: true,
+        fillColor: c.surface2,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(BestieTokens.rSm),
+          borderSide: BorderSide(color: c.border),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(BestieTokens.rSm),
+          borderSide: BorderSide(color: c.border),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(BestieTokens.rSm),
+          borderSide: BorderSide(color: c.brand),
+        ),
+      ),
     );
   }
 }

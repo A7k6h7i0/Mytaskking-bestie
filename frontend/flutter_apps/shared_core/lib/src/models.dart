@@ -5,6 +5,7 @@ class BestieUser {
   final String role;
   final bool isClient;
   final String? avatarUrl;
+  final String? phone;
   final String? clientCompany;
   final DateTime? accessEndsAt;
   final String status;
@@ -17,6 +18,7 @@ class BestieUser {
     required this.role,
     required this.isClient,
     this.avatarUrl,
+    this.phone,
     this.clientCompany,
     this.accessEndsAt,
     required this.status,
@@ -35,6 +37,7 @@ class BestieUser {
         role: j['role'] as String,
         isClient: (j['isClient'] as bool?) ?? false,
         avatarUrl: j['avatarUrl'] as String?,
+        phone: j['phone'] as String?,
         clientCompany: j['clientCompany'] as String?,
         accessEndsAt: j['accessEndsAt'] != null ? DateTime.parse(j['accessEndsAt']) : null,
         status: (j['status'] as String?) ?? 'ACTIVE',

@@ -18,6 +18,7 @@ class ProfileScreen extends ConsumerStatefulWidget {
 
 class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   bool _uploadingAvatar = false;
+  bool _savingPhone = false;
   String _availability = 'ACTIVE';
 
   @override
@@ -55,7 +56,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       );
       if (result == null ||
           result.files.isEmpty ||
-          result.files.first.bytes == null) return;
+          result.files.first.bytes == null) {
+        return;
+      }
       final image = result.files.first;
       setState(() => _uploadingAvatar = true);
       final asset = await ref.read(apiProvider).uploadFile(
@@ -69,9 +72,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       await ref.read(authStoreProvider).updateUser(
             Map<String, dynamic>.from(response['user'] as Map),
           );
-      if (mounted)
+      if (mounted) {
         bestieToast(context, 'Profile photo updated',
             kind: BestieToastKind.success);
+      }
     } catch (e) {
       if (mounted) {
         bestieToast(context, 'Could not update profile photo',
@@ -89,6 +93,60 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         'webp' => 'image/webp',
         _ => 'image/jpeg',
       };
+
+  Future<void> _editPhone() async {
+    final user = ref.read(authStoreProvider).user;
+    final controller = TextEditingController(text: user?.phone ?? '');
+    final phone = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Calling phone number'),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.phone,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Phone number',
+            hintText: '+91 98765 43210',
+            helperText: 'Used as your agent number for telecaller calls.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (phone == null) return;
+
+    setState(() => _savingPhone = true);
+    try {
+      final response = await ref.read(apiProvider).updateMyProfile({
+        'phone': phone.isEmpty ? null : phone,
+      });
+      await ref.read(authStoreProvider).updateUser(
+            Map<String, dynamic>.from(response['user'] as Map),
+          );
+      if (mounted) {
+        bestieToast(context, 'Phone number saved',
+            kind: BestieToastKind.success);
+      }
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not save phone number',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    } finally {
+      if (mounted) setState(() => _savingPhone = false);
+    }
+  }
 
   Future<void> _setAvailability(String value) async {
     final (status, customStatus) = switch (value) {
@@ -184,6 +242,24 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           title: const Text('Change profile photo'),
           subtitle: const Text('Choose an image from your phone'),
           onTap: _uploadingAvatar ? null : _pickAvatar,
+        ),
+
+        ListTile(
+          leading: _savingPhone
+              ? const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.phone_outlined),
+          title: const Text('Calling phone number'),
+          subtitle: Text(
+            (user?.phone?.isNotEmpty == true)
+                ? user!.phone!
+                : 'Add this to make telecaller calls work',
+          ),
+          trailing: const Icon(Icons.edit_outlined),
+          onTap: _savingPhone ? null : _editPhone,
         ),
 
         // ----- score summary -----
@@ -304,15 +380,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     if (!ok) return;
                     try {
                       await ref.read(apiProvider).signOutEverywhere();
-                      if (context.mounted)
+                      if (context.mounted) {
                         bestieToast(context, 'Done',
                             kind: BestieToastKind.success);
+                      }
                       ref.invalidate(mySessionsProvider);
                     } catch (e) {
-                      if (context.mounted)
+                      if (context.mounted) {
                         bestieToast(context, 'Failed',
                             body: formatApiError(e),
                             kind: BestieToastKind.error);
+                      }
                     }
                   },
                 ),

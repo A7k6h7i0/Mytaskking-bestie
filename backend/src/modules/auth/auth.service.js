@@ -167,12 +167,15 @@ async function changePassword({ user, currentPassword, newPassword }) {
   return { ok: true };
 }
 
-async function updateProfile({ user, avatarUrl }) {
+async function updateProfile({ user, avatarUrl, phone }) {
+  const data = {};
+  if (avatarUrl !== undefined) data.avatarUrl = avatarUrl || null;
+  if (phone !== undefined) data.phone = phone || null;
   const updated = await prisma.user.update({
     where: { id: user.id },
-    data: { avatarUrl: avatarUrl || null },
+    data,
   });
-  return sanitize(updated);
+  return sanitizeWithTenant(updated);
 }
 
 function sanitize(user) {
