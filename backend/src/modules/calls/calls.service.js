@@ -4,6 +4,7 @@ const { nanoid } = require('nanoid');
 const prisma = require('../../database/prisma');
 const { NotFound, Forbidden, BadRequest } = require('../../utils/errors');
 const agora = require('../../services/agora');
+const tenant = require('../../services/tenant');
 const LIVE_RINGING_WINDOW_MS = 90 * 1000;
 const MAX_ACTIVE_CALL_AGE_MS = 24 * 60 * 60 * 1000;
 /** Outbound ring with no answer → MISSED after this many ms (WhatsApp-style). */
@@ -122,9 +123,21 @@ async function postCallEventMessage({ call, kind, actor }) {
   }
 }
 
-async function initiate({ initiator, participantIds, kind = 'ONE_TO_ONE', channelId = null }) {
+async function initiate({ initiator, participantIds, kind = 'ONE_TO_ONE', channelId = null, mode = 'VIDEO' }) {
   if (!participantIds || participantIds.length === 0) throw BadRequest('Need at least one participant');
   const uniqueParticipantIds = [...new Set(participantIds.filter(Boolean))];
+  if (tenant.MULTI_TENANT) {
+    const allowed = await prisma.user.findMany({
+      where: tenant.tenantClause(initiator, {
+        id: { in: uniqueParticipantIds },
+        status: 'ACTIVE',
+      }),
+      select: { id: true },
+    });
+    if (allowed.length !== uniqueParticipantIds.length) {
+      throw Forbidden('All call participants must belong to your organisation');
+    }
+  }
   if (!['ADMIN', 'SUPER_ADMIN'].includes(initiator.role)) {
     const protectedTargets = await prisma.user.count({
       where: {
@@ -246,14 +259,15 @@ async function initiate({ initiator, participantIds, kind = 'ONE_TO_ONE', channe
     },
     include: callInclude,
   });
+  const callWithMode = { ...call, mode };
 
   // Wildcard tokens: each device picks its own random uid at join time so the
   // same account can be in the call from multiple devices without colliding.
   const tokenForUser = () => agora.generateRtcToken({ channelName: call.channelName, wildcard: true });
-  if (!targetPresence) await postCallEventMessage({ call, kind: 'STARTED', actor: initiator });
+  if (!targetPresence) await postCallEventMessage({ call: callWithMode, kind: 'STARTED', actor: initiator });
 
   return {
-    call,
+    call: callWithMode,
     targetPresence,
     suppressRinging: !!targetPresence,
     tokens: Object.fromEntries(all.map((uid) => [uid, tokenForUser(uid)])),
@@ -670,9 +684,10 @@ async function transfer({ callId, targetUserId, actor }) {
   if (targetUserId === actor.id) throw BadRequest('Choose another person');
   const target = await prisma.user.findUnique({
     where: { id: targetUserId },
-    select: { id: true, name: true, role: true },
+    select: { id: true, name: true, role: true, tenantId: true },
   });
   if (!target) throw NotFound('Target user not found');
+  tenant.assertSameTenant(actor, target.tenantId);
   if (
     !['ADMIN', 'SUPER_ADMIN'].includes(actor.role) &&
     ['ADMIN', 'SUPER_ADMIN'].includes(target.role)
@@ -691,7 +706,10 @@ async function transfer({ callId, targetUserId, actor }) {
 async function updateNotes({ callId, notes, user }) {
   const call = await prisma.call.findUnique({ where: { id: callId }, include: { participants: true } });
   if (!call) throw NotFound('Call not found');
-  const allowed = call.participants.some((p) => p.userId === user.id) || ['SUPER_ADMIN', 'ADMIN'].includes(user.role);
+  tenant.assertSameTenant(user, call.tenantId);
+  const allowed =
+    call.participants.some((p) => p.userId === user.id) ||
+    tenant.canAdministerTenant(user, call.tenantId);
   if (!allowed) throw Forbidden('Not a participant of this call');
   return prisma.call.update({
     where: { id: callId },
@@ -845,10 +863,12 @@ async function talkTimeForUser({ userId, from, to }) {
 }
 
 /** Org-wide talk-time: per-employee rows, ranking, total and average. */
-async function talkTimeOrg({ from, to }) {
+async function talkTimeOrg({ user, from, to }) {
   const now = new Date();
   const parts = await prisma.callParticipant.findMany({
-    where: { call: { createdAt: { gte: from, lte: to } } },
+    where: {
+      call: tenant.tenantClause(user, { createdAt: { gte: from, lte: to } }),
+    },
     include: {
       call: { select: { initiatorId: true, endedAt: true } },
       user: {

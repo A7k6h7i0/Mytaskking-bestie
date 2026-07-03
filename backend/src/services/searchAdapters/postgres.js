@@ -1,6 +1,7 @@
 'use strict';
 
 const prisma = require('../../database/prisma');
+const tenant = require('../../services/tenant');
 
 /**
  * Postgres-backed search adapter — case-insensitive contains + a small
@@ -36,7 +37,11 @@ function parseQuery(raw) {
 
 async function search({ user, q, kinds, perEntity = 6, recentBoost = true }) {
   const isClient = user.isClient;
-  const isAdmin = ['SUPER_ADMIN', 'ADMIN'].includes(user.role);
+  const isAdmin = tenant.isOrgAdmin(user);
+  const orgUsers = tenant.tenantClause(user, {});
+  const orgTasks = tenant.tenantClause(user, {});
+  const orgLeads = tenant.tenantClause(user, {});
+  const orgChannels = tenant.tenantClause(user, {});
   const wants = (k) => !kinds || kinds.includes(k);
   const { term, filters } = parseQuery(q);
 
@@ -49,6 +54,7 @@ async function search({ user, q, kinds, perEntity = 6, recentBoost = true }) {
   if (filters.from) {
     const matches = await prisma.user.findMany({
       where: {
+        ...orgUsers,
         OR: [
           { userId: { contains: filters.from, mode: 'insensitive' } },
           { name:   { contains: filters.from, mode: 'insensitive' } },
@@ -67,6 +73,7 @@ async function search({ user, q, kinds, perEntity = 6, recentBoost = true }) {
   if (filters.in) {
     const matches = await prisma.channel.findMany({
       where: {
+        ...orgChannels,
         ...(isAdmin ? {} : { id: { in: myChannelIds } }),
         name: { contains: filters.in, mode: 'insensitive' },
       },
@@ -100,13 +107,14 @@ async function search({ user, q, kinds, perEntity = 6, recentBoost = true }) {
           .findMany({
             where: containsTerm
               ? {
+                  ...orgUsers,
                   OR: [
                     { userId: containsTerm },
                     { name:   containsTerm },
                     { email:  containsTerm },
                   ],
                 }
-              : {},
+              : orgUsers,
             orderBy: recentBoost ? { lastSeenAt: 'desc' } : { createdAt: 'desc' },
             take: perEntity,
             select: {
@@ -127,6 +135,7 @@ async function search({ user, q, kinds, perEntity = 6, recentBoost = true }) {
         .findMany({
           where: {
             archived: false,
+            ...orgChannels,
             ...(isAdmin ? {} : { id: { in: myChannelIds } }),
             ...(inChannelIds ? { id: { in: inChannelIds } } : {}),
             ...(containsTerm
@@ -150,6 +159,7 @@ async function search({ user, q, kinds, perEntity = 6, recentBoost = true }) {
       prisma.task
         .findMany({
           where: {
+            ...orgTasks,
             ...(containsTerm
               ? { OR: [{ title: containsTerm }, { description: containsTerm }] }
               : {}),
@@ -177,7 +187,10 @@ async function search({ user, q, kinds, perEntity = 6, recentBoost = true }) {
   if (wants('messages')) {
     const channelScope = inChannelIds
       ? { in: inChannelIds }
-      : (isAdmin ? undefined : { in: myChannelIds });
+      : (isAdmin ? { in: (await prisma.channel.findMany({
+          where: orgChannels,
+          select: { id: true },
+        })).map((c) => c.id) } : { in: myChannelIds });
 
     tasks.push(
       prisma.message
@@ -236,7 +249,7 @@ async function search({ user, q, kinds, perEntity = 6, recentBoost = true }) {
     // Non-admins see files they uploaded OR files attached to messages in
     // channels they belong to.
     const visibility = isAdmin
-      ? null
+      ? { tenantId: tenant.MULTI_TENANT ? tenant.userTenantId(user) : undefined }
       : {
           OR: [
             { uploadedById: user.id },
@@ -251,7 +264,7 @@ async function search({ user, q, kinds, perEntity = 6, recentBoost = true }) {
             AND: [
               textFilter || {},
               typeFilter || {},
-              visibility || {},
+              visibility && Object.keys(visibility).length ? visibility : {},
               fromUserIds ? { uploadedById: { in: fromUserIds } } : {},
             ].filter((c) => Object.keys(c).length > 0),
           },
@@ -282,6 +295,7 @@ async function search({ user, q, kinds, perEntity = 6, recentBoost = true }) {
       prisma.lead
         .findMany({
           where: {
+            ...orgLeads,
             ...(user.role === 'TELECALLER' ? { ownerId: user.id } : {}),
             ...(containsTerm
               ? {

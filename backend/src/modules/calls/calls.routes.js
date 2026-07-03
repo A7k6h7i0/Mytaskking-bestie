@@ -12,6 +12,8 @@ const prisma = require('../../database/prisma');
 const agora = require('../../services/agora');
 const notificationActions = require('../../services/notificationActions');
 const cache = require('../../services/cache');
+const tenant = require('../../services/tenant');
+const { Forbidden } = require('../../utils/errors');
 const { APP_WEB } = require('../../utils/clientApp');
 const {
   clientAppFromUserAgent,
@@ -71,6 +73,7 @@ router.post(
       participantIds: req.body.participantIds,
       kind: req.body.kind,
       channelId: req.body.channelId,
+      mode,
     });
     const io = req.app.get('io');
 
@@ -251,7 +254,16 @@ router.post('/:id/leave', asyncHandler(async (req, res) => {
     userId: req.user.id,
     status: call.status,
   }, clientApp);
-  if (call.status === 'ENDED') {
+  // Caller hung up while still ringing → MISSED. Mirror /decline + the 60s
+  // timeout so the callee stops ringing and FCM clears the push notification.
+  if (call.status === 'MISSED') {
+    emitToCallParticipants(req.app.get('io'), call, 'call.declined', {
+      callId: call.id,
+      userId: req.user.id,
+      status: call.status,
+    }, clientApp);
+  }
+  if (call.status === 'ENDED' || call.status === 'MISSED') {
     emitToCallParticipants(req.app.get('io'), call, 'call.ended', {
       callId: call.id,
       userId: req.user.id,
@@ -554,7 +566,7 @@ router.get(
   requireAdmin,
   validate(talkTimeRange),
   asyncHandler(async (req, res) =>
-    res.json(await service.talkTimeOrg({ from: req.query.from, to: req.query.to })))
+    res.json(await service.talkTimeOrg({ user: req.user, from: req.query.from, to: req.query.to })))
 );
 
 // Individual report for a specific user — self, or any admin.
@@ -564,6 +576,12 @@ router.get(
   asyncHandler(async (req, res) => {
     if (req.params.userId !== req.user.id && !isAdminRole(req.user)) {
       throw Forbidden('You can only view your own talk-time report');
+    }
+    if (req.params.userId !== req.user.id) {
+      await tenant.assertSameTenant(req.user, (await prisma.user.findUnique({
+        where: { id: req.params.userId },
+        select: { tenantId: true },
+      }))?.tenantId);
     }
     res.json(await service.talkTimeForUser({ userId: req.params.userId, from: req.query.from, to: req.query.to }));
   })

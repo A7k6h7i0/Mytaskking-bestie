@@ -116,13 +116,15 @@ router.patch(
   requireAuth,
   validate({
     body: Joi.object({
-      avatarUrl: Joi.string().uri().allow('', null).required(),
-    }),
+      avatarUrl: Joi.string().uri().allow('', null),
+      phone: Joi.string().allow('', null),
+    }).or('avatarUrl', 'phone'),
   }),
   asyncHandler(async (req, res) => {
     const user = await authService.updateProfile({
       user: req.user,
       avatarUrl: req.body.avatarUrl,
+      phone: req.body.phone,
     });
     audit.record({
       actorId: req.user.id,

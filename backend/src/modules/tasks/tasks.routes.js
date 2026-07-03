@@ -142,7 +142,7 @@ router.get(
       sinceDays: Joi.number().integer().min(1).max(365).default(30),
     }),
   }),
-  asyncHandler(async (req, res) => res.json(await service.leaderboard(req.query)))
+  asyncHandler(async (req, res) => res.json(await service.leaderboard({ user: req.user, ...req.query })))
 );
 
 router.get('/:id', asyncHandler(async (req, res) => res.json(await service.getById(req.params.id, req.user))));
@@ -413,7 +413,7 @@ router.post(
     }),
   }),
   asyncHandler(async (req, res) => {
-    await reportsService.validateReportInput(req.body.reportBody, req.body.reportRecipientIds);
+    await reportsService.validateReportInput(req.body.reportBody, req.body.reportRecipientIds, req.user);
     const { assignment: row, autoCompleted, autoPromotedTask } = await service.complete({
       taskId: req.params.id,
       userId: req.user.id,

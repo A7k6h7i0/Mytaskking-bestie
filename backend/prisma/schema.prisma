@@ -515,6 +515,7 @@ model Lead {
   source       String?
   notes        String?
   nextFollowAt DateTime?
+  assignedFor  DateTime?
   tags         String[]
   tenantId     String?
   calls        TelecallerCall[]
@@ -522,6 +523,7 @@ model Lead {
   updatedAt    DateTime     @updatedAt
 
   @@index([ownerId, status])
+  @@index([ownerId, assignedFor])
   @@index([phone])
   @@index([tenantId])
 }

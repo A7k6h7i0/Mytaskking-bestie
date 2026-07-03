@@ -15,12 +15,7 @@ const messageInclude = {
 };
 
 async function listMessages(channelId, user, { cursor, limit = 40 } = {}) {
-  await channelsService.ensureMember(channelId, user.id).catch((e) => {
-    if (!['SUPER_ADMIN', 'ADMIN'].includes(user.role)) throw e;
-  });
-  const channel = await prisma.channel.findUnique({ where: { id: channelId }, select: { kind: true } });
-  if (!channel) throw NotFound('Channel not found');
-  if (user.isClient && channel.kind !== 'CLIENT') throw Forbidden('Clients can only access client channels');
+  const channel = await channelsService.assertChannelAccess(channelId, user);
 
   const messages = await prisma.message.findMany({
     where: { channelId, deletedAt: null, ...(cursor ? { id: { lt: cursor } } : {}) },
@@ -47,9 +42,7 @@ async function _promoteStatus(messageId, state) {
 }
 
 async function sendMessage({ channelId, user, body, kind = 'TEXT', attachmentIds = [], replyToId = null, threadRootId = null, io = null }) {
-  await channelsService.ensureMember(channelId, user.id).catch((e) => {
-    if (!['SUPER_ADMIN', 'ADMIN'].includes(user.role)) throw e;
-  });
+  await channelsService.assertChannelAccess(channelId, user);
   const channel = await prisma.channel.findUnique({
     where: { id: channelId },
     include: {
@@ -197,12 +190,7 @@ async function listThread({ rootId, user, limit = 100 }) {
     },
   });
   if (!root) throw NotFound('Thread not found');
-  await channelsService.ensureMember(root.channelId, user.id).catch((e) => {
-    if (!['SUPER_ADMIN', 'ADMIN'].includes(user.role)) throw e;
-  });
-  const channel = await prisma.channel.findUnique({ where: { id: root.channelId }, select: { kind: true } });
-  if (!channel) throw NotFound('Channel not found');
-  if (user.isClient && channel.kind !== 'CLIENT') throw Forbidden('Clients can only access client channels');
+  await channelsService.assertChannelAccess(root.channelId, user);
 
   const replies = await prisma.message.findMany({
     where: { threadRootId: rootId, deletedAt: null },
@@ -226,11 +214,17 @@ async function editMessage({ id, user, body }) {
 }
 
 async function deleteMessage({ id, user }) {
-  const m = await prisma.message.findUnique({ where: { id } });
+  const m = await prisma.message.findUnique({
+    where: { id },
+    include: { channel: { select: { tenantId: true } } },
+  });
   if (!m) throw NotFound('Message not found');
-  const canDelete = m.authorId === user.id || ['SUPER_ADMIN', 'ADMIN'].includes(user.role);
+  const tenant = require('../../services/tenant');
+  const canDelete =
+    m.authorId === user.id ||
+    tenant.canAdministerTenant(user, m.channel?.tenantId);
   if (!canDelete) throw Forbidden();
-  return prisma.message.update({ where: { id }, data: { deletedAt: new Date(), body: null } });
+  return prisma.message.update({ where: { id }, data: { deletedAt: new Date() } });
 }
 
 async function react({ messageId, userId, emoji }) {
@@ -347,6 +341,55 @@ async function markDeliveredForUser({ userId, channelIds, limit = 500 }) {
   }));
 }
 
+async function listDeletedMessages({ user, page = 1, pageSize = 50, tenantId }) {
+  const tenant = require('../../services/tenant');
+  
+  let targetTenantId = tenant.userTenantId(user);
+  const isPlatformAdmin = tenant.isPlatformSuperAdmin(user);
+
+  if (isPlatformAdmin) {
+    if (tenantId) {
+      targetTenantId = tenantId;
+    } else {
+      targetTenantId = null;
+    }
+  }
+
+  const where = {
+    deletedAt: { not: null },
+    ...(targetTenantId ? { channel: { tenantId: targetTenantId } } : {}),
+  };
+
+  const [total, items] = await prisma.$transaction([
+    prisma.message.count({ where }),
+    prisma.message.findMany({
+      where,
+      orderBy: { deletedAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      include: {
+        author: { select: { id: true, name: true, userId: true, role: true, avatarUrl: true, isClient: true } },
+        channel: {
+          select: {
+            id: true,
+            name: true,
+            kind: true,
+            tenantId: true,
+            members: {
+              select: {
+                user: { select: { id: true, name: true, userId: true, role: true, avatarUrl: true, isClient: true } },
+              },
+            },
+          },
+        },
+        attachments: true,
+      },
+    }),
+  ]);
+
+  return { total, page, pageSize, items };
+}
+
 module.exports = {
   listMessages,
   sendMessage,
@@ -360,4 +403,5 @@ module.exports = {
   recordReceiptsBulk,
   markDeliveredForUser,
   listThread,
+  listDeletedMessages,
 };

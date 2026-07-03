@@ -26,6 +26,9 @@ const taskInclude = {
 };
 
 async function ensureVisible(task, user) {
+  if (tenant.MULTI_TENANT) {
+    tenant.assertSameTenant(user, task.tenantId);
+  }
   if (['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'PROJECT_COORDINATOR_MANAGER'].includes(user.role)) return;
   const assigned = task.assignees.some((a) => a.userId === user.id) || task.createdById === user.id;
   if (!assigned) throw Forbidden('Not allowed to access this task');
@@ -48,37 +51,34 @@ async function promoteDueScheduledTasks() {
 async function list({ user, status, assigneeId, q, page = 1, pageSize = 50, view = 'list' }) {
   await promoteDueScheduledTasks();
   const isAdmin = ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'PROJECT_COORDINATOR_MANAGER'].includes(user.role);
-  const where = {
-    ...(tenant.MULTI_TENANT ? { tenantId: user.tenantId } : {}),
-    ...(status ? { status } : {}),
-    ...(assigneeId ? { assignees: { some: { userId: assigneeId } } } : {}),
-    ...(q
-      ? {
-          OR: [
-            { title: { contains: q, mode: 'insensitive' } },
-            { description: { contains: q, mode: 'insensitive' } },
-          ],
-        }
-      : {}),
-    // Non-admins see only their tasks
-    ...(!isAdmin
-      ? { OR: [{ createdById: user.id }, { assignees: { some: { userId: user.id } } }] }
-      : {}),
-    // SCHEDULED tasks are hidden from assignees until the scheduler flips
-    // them. The creator still sees them so they can edit or cancel before
-    // delivery. An explicit `?status=SCHEDULED` filter overrides this so
-    // admins can still drill into the queue.
-    ...(status
-      ? {}
-      : {
-          NOT: {
-            AND: [
-              { status: 'SCHEDULED' },
-              { createdById: { not: user.id } },
-            ],
-          },
-        }),
-  };
+  const filters = [];
+  if (status) filters.push({ status });
+  if (assigneeId) filters.push({ assignees: { some: { userId: assigneeId } } });
+  if (q) {
+    filters.push({
+      OR: [
+        { title: { contains: q, mode: 'insensitive' } },
+        { description: { contains: q, mode: 'insensitive' } },
+      ],
+    });
+  }
+  // Non-admins see only their tasks.
+  if (!isAdmin) {
+    filters.push({ OR: [{ createdById: user.id }, { assignees: { some: { userId: user.id } } }] });
+  }
+  // SCHEDULED tasks are hidden from assignees until the scheduler flips them.
+  // The creator still sees them so they can edit or cancel before delivery.
+  if (!status) {
+    filters.push({
+      NOT: {
+        AND: [
+          { status: 'SCHEDULED' },
+          { createdById: { not: user.id } },
+        ],
+      },
+    });
+  }
+  const where = tenant.tenantClause(user, filters.length ? { AND: filters } : {});
 
   if (view === 'kanban') {
     const items = await prisma.task.findMany({
@@ -135,7 +135,7 @@ async function create(input, creator) {
       createdById: creator.id,
       channelId: input.channelId || null,
       boardId: input.boardId || null,
-      tenantId: creator.tenantId,
+      tenantId: tenant.userTenantId(creator),
       assignees: input.assigneeIds?.length
         ? { create: input.assigneeIds.map((uid) => ({ userId: uid })) }
         : undefined,
@@ -324,11 +324,17 @@ async function promoteNextTaskForUser({ userId, excludingTaskId }) {
   return prisma.task.findUnique({ where: { id: next.id }, include: taskInclude });
 }
 
-async function leaderboard({ limit = 20, sinceDays = 30 }) {
+async function leaderboard({ user, limit = 20, sinceDays = 30 }) {
   const since = new Date(Date.now() - sinceDays * 86_400_000);
   const grouped = await prisma.taskAssignee.groupBy({
     by: ['userId'],
-    where: { state: 'COMPLETED', completedAt: { gte: since } },
+    where: {
+      state: 'COMPLETED',
+      completedAt: { gte: since },
+      ...(tenant.MULTI_TENANT
+        ? { task: { tenantId: tenant.userTenantId(user) } }
+        : {}),
+    },
     _avg: { score: true },
     _count: { _all: true },
     _max: { completedAt: true },
@@ -338,23 +344,25 @@ async function leaderboard({ limit = 20, sinceDays = 30 }) {
   if (grouped.length === 0) return { items: [] };
   const userIds = grouped.map((g) => g.userId);
   const users = await prisma.user.findMany({
-    where: { id: { in: userIds } },
+    where: tenant.tenantClause(user, { id: { in: userIds } }),
     select: { id: true, name: true, userId: true, avatarUrl: true, role: true, isClient: true, departmentId: true },
   });
   const byId = Object.fromEntries(users.map((u) => [u.id, u]));
 
   // Per-user on-time rate + streak — cheap N+1 since N ≤ limit (≤20 by default).
-  const items = await Promise.all(grouped.map(async (g) => {
+  const items = (await Promise.all(grouped.map(async (g) => {
+    const u = byId[g.userId];
+    if (!u) return null;
     const summary = await scoring.userSummary(prisma, g.userId);
     return {
-      user: byId[g.userId],
+      user: u,
       avgScore: Math.round(g._avg.score ?? 0),
       completed: g._count._all,
       lastCompletedAt: g._max.completedAt,
       onTimeRate: summary.onTimeRate,
       streak: summary.streak,
     };
-  }));
+  }))).filter(Boolean);
 
   return { items, sinceDays };
 }

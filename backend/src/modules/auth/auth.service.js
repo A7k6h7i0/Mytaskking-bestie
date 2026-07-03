@@ -92,7 +92,11 @@ async function login({
   const accessToken = tokens.signAccessToken(user);
   const { token: refreshToken, expiresAt, row } = await tokens.issueRefreshToken(user, { userAgent, ip });
 
-  await prisma.user.update({ where: { id: user.id }, data: { lastSeenAt: new Date() } });
+  await prisma.user
+    .update({ where: { id: user.id }, data: { lastSeenAt: new Date() } })
+    .catch(() => prisma.$executeRaw`
+      UPDATE "User" SET "lastSeenAt" = NOW() WHERE id = ${user.id}
+    `.catch(() => {}));
   const session = await sessions.startSession({
     user,
     refreshTokenRow: row,
@@ -163,12 +167,15 @@ async function changePassword({ user, currentPassword, newPassword }) {
   return { ok: true };
 }
 
-async function updateProfile({ user, avatarUrl }) {
+async function updateProfile({ user, avatarUrl, phone }) {
+  const data = {};
+  if (avatarUrl !== undefined) data.avatarUrl = avatarUrl || null;
+  if (phone !== undefined) data.phone = phone || null;
   const updated = await prisma.user.update({
     where: { id: user.id },
-    data: { avatarUrl: avatarUrl || null },
+    data,
   });
-  return sanitize(updated);
+  return sanitizeWithTenant(updated);
 }
 
 function sanitize(user) {
@@ -179,11 +186,24 @@ function sanitize(user) {
 
 async function sanitizeWithTenant(user) {
   const safe = sanitize(user);
-  const t = await prisma.tenant.findUnique({
-    where: { id: user.tenantId },
-    select: { id: true, slug: true, name: true },
-  });
-  return { ...safe, tenant: t };
+  const tenantId = user.tenantId || tenantService.DEFAULT_TENANT_ID;
+  try {
+    const t = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { id: true, slug: true, name: true },
+    });
+    if (t) return { ...safe, tenant: t };
+  } catch (_) {
+    /* pre-migration DB */
+  }
+  return {
+    ...safe,
+    tenant: {
+      id: tenantId,
+      slug: 'default',
+      name: process.env.WORKSPACE_NAME || 'MyTaskKing',
+    },
+  };
 }
 
 async function loginRequirements({ tenantSlug, userId }) {

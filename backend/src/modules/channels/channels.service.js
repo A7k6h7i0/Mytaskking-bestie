@@ -3,6 +3,7 @@
 const prisma = require('../../database/prisma');
 const { NotFound, Forbidden, BadRequest } = require('../../utils/errors');
 const cache = require('../../services/cache');
+const tenant = require('../../services/tenant');
 
 const memberUserSelect = {
   id: true,
@@ -46,12 +47,33 @@ async function ensureMember(channelId, userId) {
   return m;
 }
 
+/** Member, or org admin within the same tenant. */
+async function assertChannelAccess(channelId, user) {
+  const channel = await prisma.channel.findUnique({
+    where: { id: channelId },
+    select: { id: true, tenantId: true, kind: true },
+  });
+  if (!channel) throw NotFound('Channel not found');
+  tenant.assertSameTenant(user, channel.tenantId);
+  const member = await prisma.channelMember.findUnique({
+    where: { channelId_userId: { channelId, userId: user.id } },
+  });
+  if (!member && !tenant.canAdministerTenant(user, channel.tenantId)) {
+    throw Forbidden('Not a member of this channel');
+  }
+  if (user.isClient && channel.kind !== 'CLIENT') {
+    throw Forbidden('Clients can only access client channels');
+  }
+  return channel;
+}
+
 async function listForUser(user) {
   // Clients only see channels they're explicitly added to
   const channels = await prisma.channel.findMany({
     where: {
       archived: false,
       members: { some: { userId: user.id } },
+      ...(tenant.MULTI_TENANT ? { tenantId: tenant.userTenantId(user) } : {}),
       ...(user.isClient ? { kind: 'CLIENT' } : {}),
     },
     include: {
@@ -106,35 +128,22 @@ async function listForUser(user) {
 }
 
 async function directoryForUser(user, q = '') {
-  const where = user.isClient
-    ? {
-        isClient: false,
-        status: 'ACTIVE',
-        ...(q
-          ? {
-              OR: [
-                { name: { contains: q, mode: 'insensitive' } },
-                { userId: { contains: q, mode: 'insensitive' } },
-                { customTitle: { contains: q, mode: 'insensitive' } },
-              ],
-            }
-          : {}),
-      }
-    : {
-        status: 'ACTIVE',
-        ...(q
-          ? {
-              OR: [
-                { name: { contains: q, mode: 'insensitive' } },
-                { userId: { contains: q, mode: 'insensitive' } },
-                { customTitle: { contains: q, mode: 'insensitive' } },
-              ],
-            }
-          : {}),
-      };
+  const base = tenant.tenantClause(user, {
+    status: 'ACTIVE',
+    ...(user.isClient ? { isClient: false } : {}),
+    ...(q
+      ? {
+          OR: [
+            { name: { contains: q, mode: 'insensitive' } },
+            { userId: { contains: q, mode: 'insensitive' } },
+            { customTitle: { contains: q, mode: 'insensitive' } },
+          ],
+        }
+      : {}),
+  });
 
   return prisma.user.findMany({
-    where,
+    where: base,
     orderBy: { name: 'asc' },
     take: 30,
     select: {
@@ -253,7 +262,9 @@ async function getById(id, user) {
     },
   });
   if (!channel) throw NotFound('Channel not found');
-  if (!channel.members.some((m) => m.userId === user.id) && !['SUPER_ADMIN', 'ADMIN'].includes(user.role)) {
+  tenant.assertSameTenant(user, channel.tenantId);
+  const isMember = channel.members.some((m) => m.userId === user.id);
+  if (!isMember && !tenant.canAdministerTenant(user, channel.tenantId)) {
     throw Forbidden('Not a member of this channel');
   }
   return withOnlineMembers(channel, user);
@@ -262,11 +273,14 @@ async function getById(id, user) {
 async function addMembers(channelId, memberIds, actor) {
   const channel = await prisma.channel.findUnique({ where: { id: channelId }, include: { members: true } });
   if (!channel) throw NotFound('Channel not found');
+  tenant.assertSameTenant(actor, channel.tenantId);
 
   const isOwner = channel.members.some((m) => m.userId === actor.id && (m.role === 'owner' || m.role === 'admin'));
-  if (!isOwner && !['SUPER_ADMIN', 'ADMIN'].includes(actor.role)) throw Forbidden('Not allowed');
+  if (!isOwner && !tenant.canAdministerTenant(actor, channel.tenantId)) throw Forbidden('Not allowed');
 
-  const newMembers = await prisma.user.findMany({ where: { id: { in: memberIds } } });
+  const newMembers = await prisma.user.findMany({
+    where: tenant.tenantClause(actor, { id: { in: memberIds } }),
+  });
   const includesClient = newMembers.some((u) => u.isClient);
 
   await prisma.$transaction([
@@ -286,8 +300,11 @@ async function addMembers(channelId, memberIds, actor) {
 }
 
 async function removeMember(channelId, memberId, actor) {
+  const channel = await prisma.channel.findUnique({ where: { id: channelId }, select: { tenantId: true } });
+  if (!channel) throw NotFound('Channel not found');
+  tenant.assertSameTenant(actor, channel.tenantId);
   await ensureMember(channelId, actor.id).catch(() => {
-    if (!['SUPER_ADMIN', 'ADMIN'].includes(actor.role)) throw Forbidden();
+    if (!tenant.canAdministerTenant(actor, channel.tenantId)) throw Forbidden();
   });
   await prisma.channelMember.delete({
     where: { channelId_userId: { channelId, userId: memberId } },
@@ -304,7 +321,10 @@ async function archive(id, value) {
 }
 
 async function setPolicy(id, policy, actor) {
-  if (!['SUPER_ADMIN', 'ADMIN'].includes(actor.role)) {
+  const channel = await prisma.channel.findUnique({ where: { id }, select: { tenantId: true } });
+  if (!channel) throw NotFound('Channel not found');
+  tenant.assertSameTenant(actor, channel.tenantId);
+  if (!tenant.canAdministerTenant(actor, channel.tenantId)) {
     const m = await prisma.channelMember.findUnique({
       where: { channelId_userId: { channelId: id, userId: actor.id } },
     });
@@ -314,7 +334,10 @@ async function setPolicy(id, policy, actor) {
 }
 
 async function setMemberPermissions(channelId, userId, perms, actor) {
-  if (!['SUPER_ADMIN', 'ADMIN'].includes(actor.role)) {
+  const channel = await prisma.channel.findUnique({ where: { id: channelId }, select: { tenantId: true } });
+  if (!channel) throw NotFound('Channel not found');
+  tenant.assertSameTenant(actor, channel.tenantId);
+  if (!tenant.canAdministerTenant(actor, channel.tenantId)) {
     const m = await prisma.channelMember.findUnique({
       where: { channelId_userId: { channelId, userId: actor.id } },
     });
@@ -328,6 +351,7 @@ async function setMemberPermissions(channelId, userId, perms, actor) {
 
 module.exports = {
   ensureMember,
+  assertChannelAccess,
   listForUser,
   directoryForUser,
   create,

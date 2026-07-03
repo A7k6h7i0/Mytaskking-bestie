@@ -4,10 +4,17 @@ const { Router } = require('express');
 const Joi = require('joi');
 const asyncHandler = require('../../utils/asyncHandler');
 const validate = require('../../middleware/validate');
-const { requireAuth, requireSuperAdmin } = require('../../middleware/auth');
+const { requireAuth } = require('../../middleware/auth');
 const { authLimiter } = require('../../middleware/rateLimit');
 const service = require('./tenants.service');
 const audit = require('../../services/audit');
+const tenant = require('../../services/tenant');
+const { Forbidden } = require('../../utils/errors');
+
+function requirePlatformSuperAdmin(req, _res, next) {
+  if (!tenant.isPlatformSuperAdmin(req.user)) return next(Forbidden('Platform super admin only'));
+  next();
+}
 
 const router = Router();
 
@@ -21,7 +28,7 @@ router.get(
   })
 );
 
-router.use(requireAuth, requireSuperAdmin);
+router.use(requireAuth, requirePlatformSuperAdmin);
 
 router.get(
   '/',

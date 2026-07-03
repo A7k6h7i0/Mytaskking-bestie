@@ -1,6 +1,7 @@
 'use strict';
 
 const prisma = require('../database/prisma');
+const tenant = require('./tenant');
 
 /**
  * Resolves whether `user` can access `file`, given an optional explicit channel
@@ -10,7 +11,7 @@ const prisma = require('../database/prisma');
 async function canAccess({ file, user, channelId }) {
   if (!file) return false;
   if (file.uploadedById === user.id) return true;
-  if (['SUPER_ADMIN', 'ADMIN'].includes(user.role)) return true;
+  if (tenant.canAdministerTenant(user, file.tenantId)) return true;
 
   const policy = await prisma.fileAccessPolicy.findUnique({ where: { fileId: file.id } }).catch(() => null);
   if (policy?.expiresAt && policy.expiresAt < new Date()) return false;

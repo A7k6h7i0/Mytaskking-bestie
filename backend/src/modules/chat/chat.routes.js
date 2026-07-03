@@ -4,7 +4,7 @@ const { Router } = require('express');
 const Joi = require('joi');
 const asyncHandler = require('../../utils/asyncHandler');
 const validate = require('../../middleware/validate');
-const { requireAuth } = require('../../middleware/auth');
+const { requireAuth, requireAdmin } = require('../../middleware/auth');
 const service = require('./chat.service');
 const audit = require('../../services/audit');
 
@@ -194,6 +194,26 @@ router.post(
       messageIds: req.body.messageIds,
     });
     res.json({ ok: true });
+  })
+);
+
+router.get(
+  '/deleted-messages',
+  requireAdmin,
+  validate({
+    query: Joi.object({
+      page: Joi.number().integer().min(1).default(1),
+      pageSize: Joi.number().integer().min(1).max(100).default(50),
+      tenantId: Joi.string().optional(),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    res.json(await service.listDeletedMessages({
+      user: req.user,
+      page: req.query.page,
+      pageSize: req.query.pageSize,
+      tenantId: req.query.tenantId,
+    }));
   })
 );
 

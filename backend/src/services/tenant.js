@@ -13,7 +13,49 @@ const MULTI_TENANT = process.env.MULTI_TENANT !== 'false';
 const DEFAULT_TENANT_ID = process.env.DEFAULT_TENANT_ID || 'default';
 
 function isPlatformSuperAdmin(user) {
-  return user?.role === 'SUPER_ADMIN';
+  if (!user || user.role !== 'SUPER_ADMIN') return false;
+  if (!MULTI_TENANT) return true;
+  return (user.tenantId || DEFAULT_TENANT_ID) === DEFAULT_TENANT_ID;
+}
+
+/** Resolved tenant for any authenticated user. */
+function userTenantId(user) {
+  if (!MULTI_TENANT) return null;
+  return user?.tenantId || DEFAULT_TENANT_ID;
+}
+
+function isOrgAdmin(user) {
+  return !!user && ['SUPER_ADMIN', 'ADMIN'].includes(user.role);
+}
+
+/** Org admin powers apply only within the caller's organisation (not cross-tenant). */
+function canAdministerTenant(user, resourceTenantId) {
+  if (!isOrgAdmin(user)) return false;
+  if (!MULTI_TENANT) return true;
+  if (isPlatformSuperAdmin(user)) return true;
+  const resource = resourceTenantId || DEFAULT_TENANT_ID;
+  return userTenantId(user) === resource;
+}
+
+function assertSameTenant(user, resourceTenantId) {
+  if (!MULTI_TENANT) return;
+  const actorTenant = userTenantId(user);
+  const resource = resourceTenantId || DEFAULT_TENANT_ID;
+  if (actorTenant === resource) return;
+  if (isPlatformSuperAdmin(user)) return;
+  throw Forbidden('That resource belongs to another organisation');
+}
+
+/** Prisma where fragment `{ tenantId }` for models stamped with tenantId. */
+function tenantClause(userOrTenantId, where = {}) {
+  if (!MULTI_TENANT) return where;
+  const tenantId =
+    typeof userOrTenantId === 'string'
+      ? userOrTenantId || DEFAULT_TENANT_ID
+      : userTenantId(userOrTenantId);
+  const tenantWhere = { tenantId };
+  if (!where || Object.keys(where).length === 0) return tenantWhere;
+  return { AND: [tenantWhere, where] };
 }
 
 function resolveTenantId(req) {
@@ -22,8 +64,8 @@ function resolveTenantId(req) {
 }
 
 async function ensureDefaultTenant() {
-  if (await prisma.tenant.findUnique({ where: { id: DEFAULT_TENANT_ID } })) return;
   try {
+    if (await prisma.tenant.findUnique({ where: { id: DEFAULT_TENANT_ID } })) return;
     await prisma.tenant.create({
       data: {
         id: DEFAULT_TENANT_ID,
@@ -34,8 +76,45 @@ async function ensureDefaultTenant() {
       },
     });
     logger.info({ id: DEFAULT_TENANT_ID }, 'tenant.default.created');
-  } catch {
-    // race: another worker created it first
+  } catch (err) {
+    logger.warn({ err: err.message }, 'tenant.ensure_default.failed');
+  }
+}
+
+/** Last-resort lookup when Prisma model/DB are out of sync (pre-migration prod). */
+async function findUserByLoginIdRaw(userId) {
+  const uid = String(userId || '').trim();
+  if (!uid) return null;
+  try {
+    const rows = await prisma.$queryRaw`
+      SELECT id, "userId", "passwordHash", role, status, "isClient",
+             "accessEndsAt", "tenantId", name, email, phone, "avatarUrl",
+             "customTitle", "clientCompany", "accessStartsAt", "createdById",
+             "lastSeenAt", "createdAt", "updatedAt", "departmentId"
+      FROM "User"
+      WHERE LOWER("userId") = LOWER(${uid})
+      LIMIT 1
+    `;
+    const row = rows[0];
+    if (row && row.tenantId == null) row.tenantId = DEFAULT_TENANT_ID;
+    return row || null;
+  } catch (err) {
+    if (!String(err.message).includes('tenantId')) {
+      logger.warn({ err: err.message }, 'login.raw_user_lookup_failed');
+      return null;
+    }
+    const rows = await prisma.$queryRaw`
+      SELECT id, "userId", "passwordHash", role, status, "isClient",
+             "accessEndsAt", name, email, phone, "avatarUrl",
+             "customTitle", "clientCompany", "accessStartsAt", "createdById",
+             "lastSeenAt", "createdAt", "updatedAt", "departmentId"
+      FROM "User"
+      WHERE LOWER("userId") = LOWER(${uid})
+      LIMIT 1
+    `;
+    const row = rows[0];
+    if (row) row.tenantId = DEFAULT_TENANT_ID;
+    return row || null;
   }
 }
 
@@ -81,23 +160,73 @@ async function findTenantBySlug(slug) {
 }
 
 async function findUserForLogin({ tenantSlug, userId }) {
-  const slug = tenantSlug ? slugify(tenantSlug) : DEFAULT_TENANT_ID;
-  let tenant;
-  if (slug === DEFAULT_TENANT_ID || slug === 'default') {
-    tenant = await prisma.tenant.findUnique({ where: { id: DEFAULT_TENANT_ID } });
-  } else {
-    tenant = await prisma.tenant.findUnique({ where: { slug } });
-  }
-  if (!tenant) return { tenant: null, user: null };
-  if (tenant.status === 'SUSPENDED') return { tenant, user: null };
+  const normalizedUserId = String(userId || '').trim();
+  if (!normalizedUserId) return { tenant: null, user: null };
 
-  const user = await prisma.user.findUnique({
-    where: { tenantId_userId: { tenantId: tenant.id, userId } },
+  const syntheticDefault = () => ({
+    id: DEFAULT_TENANT_ID,
+    slug: 'default',
+    name: process.env.WORKSPACE_NAME || 'MyTaskKing',
+    status: 'ACTIVE',
   });
+
+  const wantSlug = tenantSlug ? slugify(tenantSlug) : 'default';
+  const isDefaultOrg =
+    !tenantSlug || wantSlug === 'default' || wantSlug === DEFAULT_TENANT_ID;
+
+  let tenant = null;
+  try {
+    await ensureDefaultTenant();
+    tenant = isDefaultOrg
+      ? await prisma.tenant.findUnique({ where: { id: DEFAULT_TENANT_ID } })
+      : await prisma.tenant.findUnique({ where: { slug: wantSlug } });
+  } catch (err) {
+    logger.warn({ err: err.message }, 'login.tenant_lookup_failed');
+  }
+
+  const legacyDb = !tenant;
+  if (legacyDb) {
+    if (!isDefaultOrg) return { tenant: null, user: null };
+    tenant = syntheticDefault();
+  } else if (tenant.status === 'SUSPENDED') {
+    return { tenant, user: null };
+  }
+
+  let user = null;
+  if (!legacyDb) {
+    try {
+      user = await prisma.user.findUnique({
+        where: { tenantId_userId: { tenantId: tenant.id, userId: normalizedUserId } },
+      });
+    } catch (err) {
+      logger.warn({ err: err.message }, 'login.composite_user_lookup_failed');
+    }
+  }
+
+  if (!user) {
+    try {
+      user = await prisma.user.findFirst({
+        where: { userId: { equals: normalizedUserId, mode: 'insensitive' } },
+      });
+      if (user && !isDefaultOrg && user.tenantId && user.tenantId !== tenant.id) {
+        user = null;
+      }
+    } catch (err) {
+      logger.warn({ err: err.message }, 'login.legacy_user_lookup_failed');
+    }
+  }
+
+  if (!user) {
+    user = await findUserByLoginIdRaw(normalizedUserId);
+    if (user && !isDefaultOrg && user.tenantId && user.tenantId !== tenant.id) {
+      user = null;
+    }
+  }
+
   return { tenant, user };
 }
 
-async function assertSameTenant(req, userId) {
+async function assertUserSameTenant(req, userId) {
   if (!MULTI_TENANT || !userId) return;
   const actorTenant = resolveTenantId(req);
   const target = await prisma.user.findUnique({
@@ -124,6 +253,11 @@ module.exports = {
   MULTI_TENANT,
   DEFAULT_TENANT_ID,
   isPlatformSuperAdmin,
+  userTenantId,
+  isOrgAdmin,
+  canAdministerTenant,
+  assertSameTenant,
+  tenantClause,
   resolveTenantId,
   ensureDefaultTenant,
   attachTenant,
@@ -132,6 +266,6 @@ module.exports = {
   slugify,
   findTenantBySlug,
   findUserForLogin,
-  assertSameTenant,
   filterUserIdsInTenant,
+  assertUserSameTenant,
 };
