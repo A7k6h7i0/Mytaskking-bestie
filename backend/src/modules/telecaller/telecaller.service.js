@@ -530,6 +530,30 @@ async function followupsDueToday(user) {
   });
 }
 
+async function attachCallRecording(callId, input, user) {
+  const call = await prisma.telecallerCall.findUnique({
+    where: { id: callId },
+    include: { agent: { select: { id: true, tenantId: true } } },
+  });
+  if (!call) throw NotFound('Call not found');
+  if (user.role === 'TELECALLER' && call.agentId !== user.id) throw Forbidden();
+  if (tenant.MULTI_TENANT && user.role !== 'TELECALLER') {
+    tenant.assertSameTenant(user, call.agent?.tenantId);
+  }
+
+  let url = input.url || null;
+  if (!url && input.fileId) {
+    const file = await prisma.fileAsset.findUnique({ where: { id: input.fileId } });
+    url = file?.url || null;
+  }
+  if (!url) throw BadRequest('Recording url required');
+
+  return prisma.telecallerCall.update({
+    where: { id: callId },
+    data: { recordingUrl: url },
+  });
+}
+
 module.exports = {
   listLeads,
   getLead,
@@ -540,6 +564,7 @@ module.exports = {
   clickToCall,
   logPhoneDial,
   updateCallOutcome,
+  attachCallRecording,
   handleWebhook,
   callHistory,
   followupsDueToday,

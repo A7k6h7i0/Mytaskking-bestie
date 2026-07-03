@@ -177,6 +177,21 @@ router.patch(
   asyncHandler(async (req, res) => res.json(await service.updateCallOutcome(req.params.id, req.body, req.user)))
 );
 
+router.post(
+  '/calls/:id/recording',
+  telecallerOrAdmin,
+  validate({
+    body: Joi.object({
+      fileId: Joi.string().allow(null, ''),
+      url: Joi.string().allow(null, ''),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    const updated = await service.attachCallRecording(req.params.id, req.body, req.user);
+    res.json({ ok: true, recordingUrl: updated.recordingUrl });
+  })
+);
+
 router.get(
   '/calls/daily-report.xlsx',
   telecallerAdmin,
