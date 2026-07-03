@@ -254,7 +254,16 @@ router.post('/:id/leave', asyncHandler(async (req, res) => {
     userId: req.user.id,
     status: call.status,
   }, clientApp);
-  if (call.status === 'ENDED') {
+  // Caller hung up while still ringing → MISSED. Mirror /decline + the 60s
+  // timeout so the callee stops ringing and FCM clears the push notification.
+  if (call.status === 'MISSED') {
+    emitToCallParticipants(req.app.get('io'), call, 'call.declined', {
+      callId: call.id,
+      userId: req.user.id,
+      status: call.status,
+    }, clientApp);
+  }
+  if (call.status === 'ENDED' || call.status === 'MISSED') {
     emitToCallParticipants(req.app.get('io'), call, 'call.ended', {
       callId: call.id,
       userId: req.user.id,
