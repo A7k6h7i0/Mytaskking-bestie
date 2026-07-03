@@ -105,6 +105,19 @@ extension BestieApiExt on BestieApi {
   Future<Map<String, dynamic>> correctText(String text) =>
       post('/chat/ai/correct', body: {'text': text});
 
+  Future<Map<String, dynamic>> listDeletedMessages({
+    int page = 1,
+    int pageSize = 50,
+    String? tenantId,
+  }) => get(
+    '/chat/deleted-messages',
+    query: {
+      'page': page,
+      'pageSize': pageSize,
+      if (tenantId != null) 'tenantId': tenantId,
+    },
+  );
+
   Future<Map<String, dynamic>> createTask({
     required String title,
     String? description,
@@ -324,18 +337,75 @@ extension BestieApiExt on BestieApi {
   Future<Map<String, dynamic>> myFlags() => get('/flags/mine');
 
   // ---- telecaller ----
-  Future<List<Map<String, dynamic>>> listLeads({String? q, String? status}) =>
+  Future<List<Map<String, dynamic>>> listLeads({
+    String? q,
+    String? status,
+    String? assignedDate,
+  }) =>
       get(
         '/telecaller/leads',
-        query: {if (q != null) 'q': q, if (status != null) 'status': status},
+        query: {
+          if (q != null) 'q': q,
+          if (status != null) 'status': status,
+          if (assignedDate != null) 'assignedDate': assignedDate,
+        },
       ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
-  Future<Map<String, dynamic>> callLead(String leadId) =>
-      post('/telecaller/leads/$leadId/call');
+  Future<Map<String, dynamic>> createLead(Map<String, dynamic> data) =>
+      post('/telecaller/leads', body: data);
+  Future<Map<String, dynamic>> updateLeadStatus(String leadId, String status) async {
+    final r = await dio.patch('/telecaller/leads/$leadId', data: {'status': status});
+    return r.data as Map<String, dynamic>;
+  }
+  Future<Map<String, dynamic>> callLead(String leadId, {String mode = 'EXOTEL'}) =>
+      post('/telecaller/leads/$leadId/call', body: {'mode': mode});
+  Future<Map<String, dynamic>> updateTelecallerCallOutcome(
+    String callId, {
+    required String outcome,
+    String? notes,
+  }) async {
+    final r = await dio.patch(
+      '/telecaller/calls/$callId/outcome',
+      data: {'outcome': outcome, if (notes != null) 'notes': notes},
+    );
+    return r.data as Map<String, dynamic>;
+  }
+  Future<Map<String, dynamic>> bulkDistributeLeads(
+    Map<String, dynamic> data,
+  ) =>
+      post('/telecaller/leads/bulk-distribute', body: data);
+  Future<Map<String, dynamic>> bulkDistributeLeadsFile({
+    required List<int> bytes,
+    required String filename,
+    required List<String> telecallerIds,
+    required String startDate,
+    required String endDate,
+    int recordsPerTelecallerPerDay = 100,
+    String? source,
+  }) async {
+    final form = FormData.fromMap({
+      'file': MultipartFile.fromBytes(bytes, filename: filename),
+      'telecallerIds': telecallerIds.join(','),
+      'startDate': startDate,
+      'endDate': endDate,
+      'recordsPerTelecallerPerDay': recordsPerTelecallerPerDay.toString(),
+      if (source != null) 'source': source,
+    });
+    final r = await dio.post('/telecaller/leads/bulk-distribute-file', data: form);
+    return r.data as Map<String, dynamic>;
+  }
 
   // ---- employees + clients (admin) ----
-  Future<List<Map<String, dynamic>>> listEmployees({String? q}) => get(
+  Future<List<Map<String, dynamic>>> listEmployees({
+    String? q,
+    String? role,
+    int? pageSize,
+  }) => get(
     '/employees',
-    query: {if (q != null) 'q': q},
+    query: {
+      if (q != null) 'q': q,
+      if (role != null) 'role': role,
+      if (pageSize != null) 'pageSize': pageSize,
+    },
   ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
   Future<Map<String, dynamic>> createEmployee(Map<String, dynamic> data) =>
       post('/employees', body: data);
@@ -380,15 +450,20 @@ extension BestieApiExt on BestieApi {
     await dio.delete('/recordings/${source.toUpperCase()}/$id');
   }
 
-  Future<Map<String, dynamic>> updateMyAvatar(String avatarUrl) async {
-    final r = await dio.patch('/auth/me', data: {'avatarUrl': avatarUrl});
+  Future<Map<String, dynamic>> updateMyProfile(Map<String, dynamic> data) async {
+    final r = await dio.patch('/auth/me', data: data);
     return Map<String, dynamic>.from(r.data as Map);
   }
+
+  Future<Map<String, dynamic>> updateMyAvatar(String avatarUrl) =>
+      updateMyProfile({'avatarUrl': avatarUrl});
 
   Future<List<Map<String, dynamic>>> listClients({String? q}) => get(
     '/clients',
     query: {if (q != null) 'q': q},
   ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
+  Future<Map<String, dynamic>> createClient(Map<String, dynamic> data) =>
+      post('/clients', body: data);
 
   // ---- chat message lifecycle ----
   /// Edit an existing text message in place. Backend uses PATCH so we hit
