@@ -2,7 +2,6 @@
 
 const axios = require('axios');
 const config = require('../config');
-const logger = require('../utils/logger');
 
 function exotelClient() {
   if (!config.exotel.sid || !config.exotel.apiKey || !config.exotel.apiToken) {
@@ -18,8 +17,7 @@ function exotelClient() {
 async function connectCall({ from, to, callerId, statusCallback }) {
   const client = exotelClient();
   if (!client) {
-    logger.warn('exotel.disabled — returning mock call');
-    return { Sid: `mock_${Date.now()}`, Status: 'queued', mock: true };
+    throw new Error('Exotel is not configured');
   }
   const params = new URLSearchParams();
   params.append('From', from);
@@ -29,7 +27,16 @@ async function connectCall({ from, to, callerId, statusCallback }) {
   params.append('Record', 'true');
 
   const { data } = await client.post('/Calls/connect.json', params);
-  return data.Call || data;
+  if (data?.RestException) {
+    const message = data.RestException.Message || data.RestException.message || 'Exotel rejected the call request';
+    throw new Error(message);
+  }
+  const call = data.Call || data;
+  const sid = call.Sid || call.sid;
+  if (!sid) {
+    throw new Error('Exotel did not return a call SID');
+  }
+  return call;
 }
 
 module.exports = { connectCall };

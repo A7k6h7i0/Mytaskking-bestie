@@ -29,26 +29,38 @@ class BestieAuthStore {
   Stream<BestieUser?> get changes => _controller.stream;
 
   Future<void> load() async {
-    _accessToken = await _storage.read(key: _kAccess);
-    _refreshToken = await _storage.read(key: _kRefresh);
-    final raw = await _storage.read(key: _kUser);
-    if (raw != null && raw.isNotEmpty) {
-      try {
-        // Stored via `jsonEncode` in setSession — round-trip with jsonDecode.
-        // Older builds wrote the user via `.toString()` which produces a
-        // Dart-map literal (not valid JSON). We catch that and discard the
-        // junk so the user signs in fresh instead of hitting parse errors
-        // forever.
-        final decoded = jsonDecode(raw);
-        if (decoded is Map<String, dynamic>) {
-          _user = BestieUser.fromJson(decoded);
-        } else if (decoded is Map) {
-          _user = BestieUser.fromJson(Map<String, dynamic>.from(decoded));
+    try {
+      _accessToken = await _storage.read(key: _kAccess);
+      _refreshToken = await _storage.read(key: _kRefresh);
+      final raw = await _storage.read(key: _kUser);
+      if (raw != null && raw.isNotEmpty) {
+        try {
+          // Stored via `jsonEncode` in setSession — round-trip with jsonDecode.
+          // Older builds wrote the user via `.toString()` which produces a
+          // Dart-map literal (not valid JSON). We catch that and discard the
+          // junk so the user signs in fresh instead of hitting parse errors
+          // forever.
+          final decoded = jsonDecode(raw);
+          if (decoded is Map<String, dynamic>) {
+            _user = BestieUser.fromJson(decoded);
+          } else if (decoded is Map) {
+            _user = BestieUser.fromJson(Map<String, dynamic>.from(decoded));
+          }
+        } catch (_) {
+          // Corrupt cache from an older build — wipe so we don't loop on it.
+          await _storage.delete(key: _kUser);
         }
-      } catch (_) {
-        // Corrupt cache from an older build — wipe so we don't loop on it.
-        await _storage.delete(key: _kUser);
       }
+    } catch (_) {
+      // Some Android devices can invalidate secure-storage keys after app
+      // upgrades, OS updates, or biometric/security changes. Boot to login
+      // instead of leaving the native launch screen visible forever.
+      _accessToken = null;
+      _refreshToken = null;
+      _user = null;
+      try {
+        await _storage.deleteAll();
+      } catch (_) {}
     }
     _controller.add(_user);
   }

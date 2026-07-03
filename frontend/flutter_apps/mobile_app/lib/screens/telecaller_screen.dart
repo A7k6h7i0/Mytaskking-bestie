@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
@@ -13,27 +14,44 @@ class TelecallerScreen extends ConsumerStatefulWidget {
   ConsumerState<TelecallerScreen> createState() => _TelecallerScreenState();
 }
 
-class _TelecallerScreenState extends ConsumerState<TelecallerScreen> {
+class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
+    with WidgetsBindingObserver {
   final _search = TextEditingController();
   String? _status;
   Timer? _debounce;
   List<Map<String, dynamic>> _leads = const [];
   bool _loading = true;
+  bool _showingOutcomeSheet = false;
   String? _error;
+  String? _pendingCallId;
+  Map<String, dynamic>? _pendingCallLead;
 
   static const _statuses = ['ALL', 'NEW', 'CONTACTED', 'INTERESTED', 'FOLLOWUP', 'WON', 'LOST'];
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _fetch();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _search.dispose();
     _debounce?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed &&
+        _pendingCallId != null &&
+        !_showingOutcomeSheet) {
+      Future<void>.delayed(const Duration(milliseconds: 450), () {
+        if (mounted) _showCallOutcomeSheet();
+      });
+    }
   }
 
   void _onQuery(String _) {
@@ -69,17 +87,24 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen> {
     }
 
     try {
-      await ref.read(apiProvider).callLead(leadId, mode: 'PHONE');
+      final response = await ref.read(apiProvider).callLead(leadId, mode: 'PHONE');
+      final call = response['call'] as Map?;
+      _pendingCallId = call?['id']?.toString();
+      _pendingCallLead = lead;
       final launched = await launchUrl(
         Uri(scheme: 'tel', path: phone),
         mode: LaunchMode.externalApplication,
       );
-      if (!launched) throw 'Could not open phone app';
+      if (!launched) {
+        _pendingCallId = null;
+        _pendingCallLead = null;
+        throw 'Could not open phone app';
+      }
       if (mounted) {
         bestieToast(
           context,
           'Phone call opened',
-          body: 'This call is logged in MyTaskKing for the admin report.',
+          body: 'Select the call outcome when you return to MyTaskKing.',
           kind: BestieToastKind.info,
         );
       }
@@ -91,9 +116,30 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen> {
     }
   }
 
+  Future<void> _showCallOutcomeSheet() async {
+    final callId = _pendingCallId;
+    final lead = _pendingCallLead;
+    if (callId == null || lead == null || _showingOutcomeSheet) return;
+
+    _showingOutcomeSheet = true;
+    final saved = await bestieBottomSheet<bool>(
+      context,
+      title: 'Call outcome',
+      builder: (_) => _CallOutcomeSheet(ref: ref, callId: callId, lead: lead),
+    );
+    _showingOutcomeSheet = false;
+    if (saved == true) {
+      _pendingCallId = null;
+      _pendingCallLead = null;
+      await _fetch();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
+    final user = ref.watch(authStoreProvider).user;
+    final canManageLeads = user?.role == 'ADMIN' || user?.role == 'SUPER_ADMIN';
 
     return Scaffold(
       backgroundColor: c.bg,
@@ -103,6 +149,12 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen> {
         foregroundColor: c.text,
         title: const Text('Telecaller'),
         actions: [
+          if (canManageLeads)
+            IconButton(
+              tooltip: 'Bulk assign leads',
+              icon: const Icon(Icons.upload_file_rounded),
+              onPressed: _showBulkAssignSheet,
+            ),
           IconButton(
             tooltip: 'Add lead',
             icon: const Icon(Icons.add_rounded),
@@ -203,7 +255,13 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen> {
                                   style: TextStyle(color: c.textMuted, fontSize: 12),
                                 ),
                                 trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                                  BestieBadge(tone: _toneFor(st), child: Text(st)),
+                                  GestureDetector(
+                                    onTap: () => _showStatusSheet(l),
+                                    child: BestieBadge(
+                                      tone: _toneFor(st),
+                                      child: Text(st),
+                                    ),
+                                  ),
                                   const SizedBox(width: 4),
                                   IconButton(
                                     icon: Icon(Icons.call_rounded, color: c.success),
@@ -211,7 +269,8 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen> {
                                     onPressed: () => _call(l),
                                   ),
                                 ]),
-                                onTap: () => _showStatusSheet(l),
+                                onTap: () => _call(l),
+                                onLongPress: () => _showStatusSheet(l),
                               );
                             },
                           ),
@@ -237,6 +296,17 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen> {
       builder: (_) => _CreateLeadSheet(ref: ref),
     );
     if (created == true) {
+      await _fetch();
+    }
+  }
+
+  Future<void> _showBulkAssignSheet() async {
+    final assigned = await bestieBottomSheet<bool>(
+      context,
+      title: 'Bulk assign leads',
+      builder: (_) => _BulkAssignLeadsSheet(ref: ref),
+    );
+    if (assigned == true) {
       await _fetch();
     }
   }
@@ -360,6 +430,520 @@ class _CreateLeadSheetState extends State<_CreateLeadSheet> {
                       )
                     : const Icon(Icons.add_rounded),
                 label: Text(_saving ? 'Saving...' : 'Create lead'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BulkAssignLeadsSheet extends StatefulWidget {
+  const _BulkAssignLeadsSheet({required this.ref});
+
+  final WidgetRef ref;
+
+  @override
+  State<_BulkAssignLeadsSheet> createState() => _BulkAssignLeadsSheetState();
+}
+
+class _BulkAssignLeadsSheetState extends State<_BulkAssignLeadsSheet> {
+  final _quota = TextEditingController(text: '100');
+  final _source = TextEditingController(text: 'mobile-admin-upload');
+  final _rows = TextEditingController();
+  final Set<String> _selectedTelecallerIds = {};
+  List<Map<String, dynamic>> _telecallers = const [];
+  PlatformFile? _pickedFile;
+  DateTime _startDate = DateTime.now();
+  DateTime _endDate = DateTime.now();
+  bool _loadingTelecallers = true;
+  bool _saving = false;
+  String? _assignError;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTelecallers();
+  }
+
+  @override
+  void dispose() {
+    _quota.dispose();
+    _source.dispose();
+    _rows.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadTelecallers() async {
+    try {
+      final items = await widget.ref.read(apiProvider).listEmployees(
+            role: 'TELECALLER',
+            pageSize: 100,
+          );
+      if (!mounted) return;
+      setState(() {
+        _telecallers = items;
+        _loadingTelecallers = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loadingTelecallers = false);
+      bestieToast(context, 'Could not load telecallers',
+          body: formatApiError(e), kind: BestieToastKind.error);
+    }
+  }
+
+  String _dateLabel(DateTime value) {
+    final local = DateTime(value.year, value.month, value.day);
+    return [
+      local.year.toString().padLeft(4, '0'),
+      local.month.toString().padLeft(2, '0'),
+      local.day.toString().padLeft(2, '0'),
+    ].join('-');
+  }
+
+  Future<void> _pickDate({required bool start}) async {
+    final initial = start ? _startDate : _endDate;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime.now().subtract(const Duration(days: 1)),
+      lastDate: DateTime(DateTime.now().year + 2),
+    );
+    if (picked == null) return;
+    setState(() {
+      if (start) {
+        _startDate = picked;
+        if (_endDate.isBefore(_startDate)) _endDate = picked;
+      } else {
+        _endDate = picked;
+      }
+    });
+  }
+
+  String _leadFileExtension(PlatformFile file) {
+    final rawExtension = file.extension;
+    if (rawExtension != null && rawExtension.trim().isNotEmpty) {
+      return rawExtension.toLowerCase().trim();
+    }
+    final name = file.name.toLowerCase().trim();
+    final dot = name.lastIndexOf('.');
+    return dot >= 0 && dot < name.length - 1 ? name.substring(dot + 1) : '';
+  }
+
+  bool _looksLikeOpenXmlExcel(PlatformFile file) {
+    final bytes = file.bytes;
+    if (bytes == null || bytes.length < 4) return false;
+    return bytes[0] == 0x50 &&
+        bytes[1] == 0x4b &&
+        (bytes[2] == 0x03 || bytes[2] == 0x05 || bytes[2] == 0x07) &&
+        (bytes[3] == 0x04 || bytes[3] == 0x06 || bytes[3] == 0x08);
+  }
+
+  bool _isSupportedLeadFile(PlatformFile file) {
+    final extension = _leadFileExtension(file);
+    return extension == 'xlsx' ||
+        extension == 'xlsm' ||
+        extension == 'csv' ||
+        _looksLikeOpenXmlExcel(file);
+  }
+
+  Future<void> _pickLeadFile() async {
+    final result = await FilePicker.platform.pickFiles(
+      // Use the broad Android picker so providers like WPS Office can appear.
+      // We validate the selected extension below before uploading.
+      type: FileType.any,
+      withData: true,
+    );
+    final file = result?.files.single;
+    if (file == null) return;
+    if (!_isSupportedLeadFile(file)) {
+      if (!mounted) return;
+      bestieToast(
+        context,
+        'Unsupported file',
+        body: 'Please choose an Excel .xlsx/.xlsm or CSV .csv file.',
+        kind: BestieToastKind.warning,
+      );
+      return;
+    }
+    setState(() => _pickedFile = file);
+  }
+
+  List<Map<String, dynamic>> _parseRows() {
+    final lines = _rows.text
+        .split(RegExp(r'\r?\n'))
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
+    final dataLines =
+        lines.isNotEmpty && lines.first.toLowerCase().contains('phone')
+            ? lines.skip(1)
+            : lines;
+    final records = <Map<String, dynamic>>[];
+    for (final line in dataLines) {
+      final parts = line.split(',').map((part) => part.trim()).toList();
+      final name = parts.isNotEmpty ? parts[0] : '';
+      final phone = parts.length > 1 ? parts[1] : '';
+      if (name.isEmpty || phone.isEmpty) {
+        throw 'Use format: name, phone, company, email, notes';
+      }
+      records.add({
+        'name': name,
+        'phone': phone,
+        if (parts.length > 2 && parts[2].isNotEmpty) 'company': parts[2],
+        if (parts.length > 3 && parts[3].isNotEmpty) 'email': parts[3],
+        if (parts.length > 4 && parts.skip(4).join(', ').trim().isNotEmpty)
+          'notes': parts.skip(4).join(', ').trim(),
+      });
+    }
+    if (records.isEmpty) throw 'Paste at least one customer row';
+    return records;
+  }
+
+  Future<void> _assign() async {
+    if (_selectedTelecallerIds.isEmpty) {
+      bestieToast(context, 'Select at least one telecaller',
+          kind: BestieToastKind.warning);
+      return;
+    }
+
+    final quota = int.tryParse(_quota.text.trim()) ?? 100;
+    setState(() {
+      _saving = true;
+      _assignError = null;
+    });
+    try {
+      late final Map<String, dynamic> result;
+      if (_pickedFile != null) {
+        final bytes = _pickedFile!.bytes;
+        if (bytes == null) throw 'Could not read selected file';
+        result = await widget.ref.read(apiProvider).bulkDistributeLeadsFile(
+              bytes: bytes,
+              filename: _pickedFile!.name,
+              telecallerIds: _selectedTelecallerIds.toList(),
+              startDate: _dateLabel(_startDate),
+              endDate: _dateLabel(_endDate),
+              recordsPerTelecallerPerDay: quota,
+              source: _source.text.trim().isEmpty ? null : _source.text.trim(),
+            );
+      } else {
+        late final List<Map<String, dynamic>> records;
+        try {
+          records = _parseRows();
+        } catch (e) {
+          bestieToast(context, 'Invalid customer data',
+              body: e.toString(), kind: BestieToastKind.warning);
+          return;
+        }
+        result = await widget.ref.read(apiProvider).bulkDistributeLeads({
+          'telecallerIds': _selectedTelecallerIds.toList(),
+          'startDate': _dateLabel(_startDate),
+          'endDate': _dateLabel(_endDate),
+          'recordsPerTelecallerPerDay': quota,
+          if (_source.text.trim().isNotEmpty) 'source': _source.text.trim(),
+          'records': records,
+        });
+      }
+      if (!mounted) return;
+      bestieToast(
+        context,
+        'Leads assigned',
+        body:
+            '${result['assigned'] ?? 0} leads distributed to ${_selectedTelecallerIds.length} telecaller(s).',
+        kind: BestieToastKind.success,
+      );
+      Navigator.pop(context, true);
+    } catch (e) {
+      final message = formatApiError(e);
+      setState(() => _assignError = message);
+      if (mounted) {
+        bestieToast(context, 'Could not assign leads',
+            body: message, kind: BestieToastKind.error);
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Select telecallers',
+                style: TextStyle(
+                  color: c.text,
+                  fontWeight: BestieTokens.fwBold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (_loadingTelecallers)
+                const Center(child: BestieSpinner())
+              else if (_telecallers.isEmpty)
+                Text(
+                  'No TELECALLER users found. Create them from Employees first.',
+                  style: TextStyle(color: c.textMuted),
+                )
+              else
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 180),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: _telecallers.length,
+                    itemBuilder: (_, index) {
+                      final person = _telecallers[index];
+                      final id = person['id']?.toString();
+                      final name = (person['name'] ?? person['userId'] ?? '')
+                          .toString();
+                      if (id == null) return const SizedBox.shrink();
+                      return CheckboxListTile(
+                        value: _selectedTelecallerIds.contains(id),
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(name),
+                        subtitle: Text(
+                          (person['userId'] ?? '').toString(),
+                          style: TextStyle(color: c.textMuted),
+                        ),
+                        onChanged: _saving
+                            ? null
+                            : (checked) => setState(() {
+                                  if (checked == true) {
+                                    _selectedTelecallerIds.add(id);
+                                  } else {
+                                    _selectedTelecallerIds.remove(id);
+                                  }
+                                }),
+                      );
+                    },
+                  ),
+                ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _saving ? null : () => _pickDate(start: true),
+                      icon: const Icon(Icons.event_rounded),
+                      label: Text('From ${_dateLabel(_startDate)}'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _saving ? null : () => _pickDate(start: false),
+                      icon: const Icon(Icons.event_available_rounded),
+                      label: Text('To ${_dateLabel(_endDate)}'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              _LeadField(
+                controller: _quota,
+                label: 'Records per telecaller per day',
+                keyboardType: TextInputType.number,
+              ),
+              const SizedBox(height: 10),
+              _LeadField(controller: _source, label: 'Source'),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: _saving ? null : _pickLeadFile,
+                icon: const Icon(Icons.attach_file_rounded),
+                label: Text(_pickedFile == null
+                    ? 'Browse Excel/CSV from phone, Drive, or WPS'
+                    : _pickedFile!.name),
+              ),
+              const SizedBox(height: 8),
+              _LeadField(
+                controller: _rows,
+                label: _pickedFile == null
+                    ? 'Customer data: name, phone, company, email, notes'
+                    : 'Customer data disabled because file is selected',
+                maxLines: 8,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Paste one customer per line. Example: Ravi Kumar, 9876543210, ABC Traders, ravi@example.com, interested',
+                style: TextStyle(color: c.textMuted, fontSize: 12),
+              ),
+              if (_assignError != null) ...[
+                const SizedBox(height: 10),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: c.danger.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(BestieTokens.rMd),
+                    border: Border.all(color: c.danger.withValues(alpha: 0.2)),
+                  ),
+                  child: Text(
+                    _assignError!,
+                    style: TextStyle(
+                      color: c.danger,
+                      fontWeight: BestieTokens.fwSemibold,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: _saving ? null : _assign,
+                icon: _saving
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.upload_file_rounded),
+                label: Text(_saving ? 'Assigning...' : 'Assign leads'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CallOutcomeSheet extends StatefulWidget {
+  const _CallOutcomeSheet({
+    required this.ref,
+    required this.callId,
+    required this.lead,
+  });
+
+  final WidgetRef ref;
+  final String callId;
+  final Map<String, dynamic> lead;
+
+  @override
+  State<_CallOutcomeSheet> createState() => _CallOutcomeSheetState();
+}
+
+class _CallOutcomeSheetState extends State<_CallOutcomeSheet> {
+  static const _outcomes = [
+    ('REACHABLE', 'Reachable'),
+    ('NO_ANSWER', 'No answer'),
+    ('NOT_RESPONDED', 'Call not responded'),
+    ('BUSY', 'Busy'),
+    ('SWITCHED_OFF', 'Switched off'),
+    ('FOLLOWUP_REQUIRED', 'Follow-up required'),
+    ('WRONG_NUMBER', 'Wrong number'),
+    ('NOT_INTERESTED', 'Not interested'),
+  ];
+
+  final _notes = TextEditingController();
+  String _outcome = 'REACHABLE';
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _notes.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    try {
+      await widget.ref.read(apiProvider).updateTelecallerCallOutcome(
+            widget.callId,
+            outcome: _outcome,
+            notes: _notes.text.trim().isEmpty ? null : _notes.text.trim(),
+          );
+      if (!mounted) return;
+      bestieToast(context, 'Call outcome saved',
+          body: 'Admin report will include this result.',
+          kind: BestieToastKind.success);
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not save outcome',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
+    final name = (widget.lead['name'] ?? 'Lead').toString();
+    final phone = (widget.lead['phone'] ?? '').toString();
+
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                name,
+                style: TextStyle(
+                  color: c.text,
+                  fontWeight: BestieTokens.fwBold,
+                  fontSize: 18,
+                ),
+              ),
+              if (phone.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(phone, style: TextStyle(color: c.textMuted)),
+              ],
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                initialValue: _outcome,
+                isExpanded: true,
+                decoration: _fieldDecoration(c, 'What happened in the call?'),
+                items: _outcomes
+                    .map((item) => DropdownMenuItem(
+                          value: item.$1,
+                          child: Text(item.$2),
+                        ))
+                    .toList(),
+                onChanged: _saving
+                    ? null
+                    : (value) => setState(() => _outcome = value ?? _outcome),
+              ),
+              const SizedBox(height: 12),
+              _LeadField(
+                controller: _notes,
+                label: 'Notes (optional)',
+                maxLines: 3,
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: _saving ? null : _save,
+                icon: _saving
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.check_rounded),
+                label: Text(_saving ? 'Saving...' : 'Save outcome'),
               ),
             ],
           ),

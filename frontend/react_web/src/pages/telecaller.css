@@ -73,6 +73,10 @@
   padding: 18px;
 }
 
+.tc__modal--wide {
+  width: min(820px, 100%);
+}
+
 .tc__modal-head h3 { margin: 0; font-size: var(--fs-lg); font-weight: 750; }
 .tc__modal-head p { margin: 4px 0 0; color: var(--c-text-muted); font-size: var(--fs-sm); }
 
@@ -84,6 +88,7 @@
 }
 
 .tc__select,
+.tc__file,
 .tc__textarea {
   display: grid;
   gap: 6px;
@@ -92,6 +97,7 @@
 }
 
 .tc__select > span,
+.tc__file > span,
 .tc__textarea > span {
   font-size: var(--fs-xs);
   font-weight: 650;
@@ -99,6 +105,7 @@
 }
 
 .tc__select select,
+.tc__file input,
 .tc__textarea textarea {
   width: 100%;
   border: 1px solid var(--c-border);
@@ -109,8 +116,61 @@
   font: inherit;
 }
 
+.tc__file {
+  margin-top: 14px;
+}
+
+.tc__file small {
+  color: var(--c-text-muted);
+  font-size: var(--fs-xs);
+}
+
 .tc__textarea { grid-column: 1 / -1; }
 .tc__textarea textarea { resize: vertical; min-height: 92px; }
+.tc__textarea--bulk { margin-top: 14px; }
+.tc__textarea--bulk textarea {
+  min-height: 220px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.tc__bulk-section {
+  margin-top: 16px;
+}
+
+.tc__bulk-title {
+  color: var(--c-text-soft);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.tc__telecaller-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.tc__check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  background: var(--c-surface-1);
+  padding: 9px 10px;
+  font-size: var(--fs-sm);
+}
+
+.tc__check input {
+  margin: 0;
+}
+
+.tc__helper {
+  color: var(--c-text-muted);
+  font-size: var(--fs-xs);
+  margin: 8px 0 0;
+}
 
 .tc__modal-actions {
   display: flex;

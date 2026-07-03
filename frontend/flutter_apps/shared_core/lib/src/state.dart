@@ -263,7 +263,12 @@ String formatApiError(Object err) {
     final body = err.response?.data;
     if (body is Map && body['error'] is Map) {
       final m = (body['error']['message'] as String?);
-      if (m != null && m.isNotEmpty) return m;
+      if (m != null && m.isNotEmpty) {
+        if (m.startsWith('Route ') && m.endsWith(' not found')) {
+          return 'This feature needs the latest server update. Please restart or deploy the backend and try again.';
+        }
+        return m;
+      }
     }
     // 2. Plain-string body (some routes return `{"message":"..."}`).
     if (body is Map && body['message'] is String) {

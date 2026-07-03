@@ -1761,13 +1761,14 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     required String tooltip,
     required VoidCallback onPressed,
   }) {
+    final c = BestieColors.of(context);
     return Padding(
       padding: const EdgeInsets.only(right: 4),
       child: Material(
-        color: BestieTokens.cSuccess.withValues(alpha: 0.14),
+        color: c.text.withValues(alpha: 0.10),
         shape: const CircleBorder(),
         child: IconButton(
-          icon: Icon(icon, color: BestieTokens.cSuccess, size: 22),
+          icon: Icon(icon, color: c.text, size: 22),
           tooltip: tooltip,
           visualDensity: VisualDensity.compact,
           padding: const EdgeInsets.all(8),

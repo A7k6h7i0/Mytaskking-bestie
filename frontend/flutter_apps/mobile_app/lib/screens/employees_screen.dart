@@ -71,10 +71,14 @@ class _EmployeesScreenState extends ConsumerState<EmployeesScreen> {
         memberIds: [user['id'] as String],
       );
       ref.invalidate(channelsProvider);
-      if (mounted) context.push('/chat/${ch['id']}');
+      if (mounted) {
+        context.push('/chat/${ch['id']}');
+      }
     } catch (e) {
-      if (mounted) bestieToast(context, 'Could not open chat',
-          body: formatApiError(e), kind: BestieToastKind.error);
+      if (mounted) {
+        bestieToast(context, 'Could not open chat',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
     }
   }
 
@@ -280,6 +284,7 @@ class _EmployeeFormDialogState extends ConsumerState<_EmployeeFormDialog> {
   late final Set<String> _supervisorIds;
   late String _role;
   late String _status;
+  bool _showPassword = false;
   bool _saving = false;
   String? _error;
 
@@ -322,7 +327,11 @@ class _EmployeeFormDialogState extends ConsumerState<_EmployeeFormDialog> {
   }
 
   InputDecoration _decoration(String label, {String? hint}) =>
-      InputDecoration(labelText: label, hintText: hint);
+      InputDecoration(
+        labelText: label,
+        hintText: hint,
+        isDense: true,
+      );
 
   String? _optional(TextEditingController controller) {
     final value = controller.text.trim();
@@ -380,58 +389,81 @@ class _EmployeeFormDialogState extends ConsumerState<_EmployeeFormDialog> {
   @override
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
-    final maxWidth = MediaQuery.sizeOf(context).width - 48;
+    final size = MediaQuery.sizeOf(context);
+    final maxWidth = size.width - 48;
+    final maxHeight = size.height * 0.72;
     final reportCandidates = widget.candidates
         .where((item) => item['id'] != widget.employee?['id'])
         .toList();
 
     return AlertDialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       title: Text(_editing ? 'Edit employee' : 'Add employee'),
       content: SizedBox(
         width: maxWidth.clamp(280, 440),
+        height: maxHeight,
         child: SingleChildScrollView(
+          padding: const EdgeInsets.only(top: 4, bottom: 8),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             TextField(
               controller: _userId,
               decoration: _decoration('User ID'),
               textInputAction: TextInputAction.next,
             ),
+            const SizedBox(height: 12),
             TextField(
               controller: _password,
-              obscureText: true,
+              obscureText: !_showPassword,
               decoration: _decoration(
                 _editing ? 'New password (optional)' : 'Password',
                 hint: _editing ? 'Leave blank to keep current password' : null,
+              ).copyWith(
+                suffixIcon: IconButton(
+                  tooltip: _showPassword ? 'Hide password' : 'Show password',
+                  icon: Icon(
+                    _showPassword
+                        ? Icons.visibility_off_outlined
+                        : Icons.visibility_outlined,
+                  ),
+                  onPressed: () =>
+                      setState(() => _showPassword = !_showPassword),
+                ),
               ),
               textInputAction: TextInputAction.next,
             ),
+            const SizedBox(height: 12),
             TextField(
               controller: _name,
               decoration: _decoration('Full name'),
               textInputAction: TextInputAction.next,
             ),
+            const SizedBox(height: 12),
             TextField(
               controller: _customTitle,
               decoration: _decoration('Job title'),
               textInputAction: TextInputAction.next,
             ),
+            const SizedBox(height: 12),
             TextField(
               controller: _email,
               decoration: _decoration('Email'),
               keyboardType: TextInputType.emailAddress,
               textInputAction: TextInputAction.next,
             ),
+            const SizedBox(height: 12),
             TextField(
               controller: _phone,
               decoration: _decoration('Phone'),
               keyboardType: TextInputType.phone,
             ),
+            const SizedBox(height: 12),
             TextField(
               controller: _avatarUrl,
               decoration: _decoration('Avatar URL'),
               keyboardType: TextInputType.url,
               textInputAction: TextInputAction.next,
             ),
+            const SizedBox(height: 12),
             TextField(
               controller: _departmentId,
               decoration: _decoration('Department ID'),
@@ -439,7 +471,7 @@ class _EmployeeFormDialogState extends ConsumerState<_EmployeeFormDialog> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
-              value: _role,
+              initialValue: _role,
               isExpanded: true,
               decoration: _decoration('Role'),
               items: _EmployeesScreenState._roles
@@ -458,7 +490,7 @@ class _EmployeeFormDialogState extends ConsumerState<_EmployeeFormDialog> {
             if (_editing) ...[
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                value: _status,
+                initialValue: _status,
                 isExpanded: true,
                 decoration: _decoration('Status'),
                 items: const [

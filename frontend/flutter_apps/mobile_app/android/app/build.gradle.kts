@@ -69,12 +69,11 @@ android {
                 signingConfigs.getByName("release")
             else
                 signingConfigs.getByName("debug")
-            // R8 in full mode + resource shrinking drops the APK by ~25-30 MB.
-            // Flutter ships a stub proguard config; we keep our own at
-            // proguard-rules.pro so the SDK's reflection-heavy packages
-            // (agora, firebase, audioplayers) survive obfuscation.
-            isMinifyEnabled = true
-            isShrinkResources = true
+            // Keep release builds unshrunk for older Samsung compatibility.
+            // A larger APK is better than a device-specific white screen caused
+            // by aggressive R8/resource shrinking around native plugins.
+            isMinifyEnabled = false
+            isShrinkResources = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

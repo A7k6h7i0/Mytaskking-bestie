@@ -1,6 +1,6 @@
 import { type FormEvent, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Download, Phone, Plus, Search } from 'lucide-react';
+import { Download, Phone, Plus, Search, Upload } from 'lucide-react';
 import { api } from '@/services/api';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
@@ -15,18 +15,40 @@ type Lead = {
   owner?: { name: string; avatarUrl?: string | null } | null;
 };
 
+type Employee = {
+  id: string;
+  userId: string;
+  name: string;
+  role: string;
+};
+
 const LEAD_STATUSES = ['NEW', 'CONTACTED', 'INTERESTED', 'FOLLOWUP', 'WON', 'LOST'] as const;
+
+function todayLabel() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+}
 
 export default function TelecallerPage() {
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const canDownloadReports = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
+  const canManageLeads = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
   const downloadsAllReports =
     user?.role === 'SUPER_ADMIN' &&
     (!user.tenant?.slug || user.tenant.slug === 'default' || user.tenantId === 'default');
   const [q, setQ] = useState('');
   const [selected, setSelected] = useState<Lead | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [showBulkAssign, setShowBulkAssign] = useState(false);
+  const [selectedTelecallerIds, setSelectedTelecallerIds] = useState<string[]>([]);
+  const [bulkFile, setBulkFile] = useState<File | null>(null);
+  const [bulkRows, setBulkRows] = useState('');
+  const [bulkForm, setBulkForm] = useState({
+    startDate: todayLabel(),
+    endDate: todayLabel(),
+    recordsPerTelecallerPerDay: '100',
+    source: 'admin-upload',
+  });
   const [form, setForm] = useState({
     name: '',
     phone: '',
@@ -40,6 +62,14 @@ export default function TelecallerPage() {
     queryKey: ['telecaller.leads', q],
     queryFn: async () => (await api.get('/telecaller/leads', { params: { q } })).data,
   });
+
+  const { data: telecallersData } = useQuery<{ items: Employee[] }>({
+    queryKey: ['employees.telecallers'],
+    queryFn: async () =>
+      (await api.get('/employees', { params: { role: 'TELECALLER', pageSize: 100 } })).data,
+    enabled: canManageLeads,
+  });
+  const telecallers = telecallersData?.items ?? [];
 
   const callMut = useMutation({
     mutationFn: async (leadId: string) => (await api.post(`/telecaller/leads/${leadId}/call`)).data,
@@ -84,8 +114,92 @@ export default function TelecallerPage() {
     },
   });
 
+  const bulkAssignMut = useMutation({
+    mutationFn: async () => {
+      if (bulkFile) {
+        const form = new FormData();
+        form.append('file', bulkFile);
+        form.append('telecallerIds', selectedTelecallerIds.join(','));
+        form.append('startDate', bulkForm.startDate);
+        form.append('endDate', bulkForm.endDate);
+        form.append('recordsPerTelecallerPerDay', bulkForm.recordsPerTelecallerPerDay || '100');
+        if (bulkForm.source.trim()) form.append('source', bulkForm.source.trim());
+        return (await api.post('/telecaller/leads/bulk-distribute-file', form)).data as {
+          assigned: number;
+          skipped: number;
+          telecallers: number;
+          workingDays: number;
+        };
+      }
+      const records = parseBulkRows();
+      return (await api.post('/telecaller/leads/bulk-distribute', {
+        telecallerIds: selectedTelecallerIds,
+        startDate: bulkForm.startDate,
+        endDate: bulkForm.endDate,
+        recordsPerTelecallerPerDay: Number(bulkForm.recordsPerTelecallerPerDay || 100),
+        source: bulkForm.source.trim() || null,
+        records,
+      })).data as {
+        assigned: number;
+        skipped: number;
+        telecallers: number;
+        workingDays: number;
+      };
+    },
+    onSuccess: (result) => {
+      toast.success(
+        `Assigned ${result.assigned} leads to ${result.telecallers} telecaller(s) across ${result.workingDays} working day(s)`,
+      );
+      setShowBulkAssign(false);
+      setBulkRows('');
+      setBulkFile(null);
+      setSelectedTelecallerIds([]);
+      qc.invalidateQueries({ queryKey: ['telecaller.leads'] });
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.error?.message || err?.message || 'Could not assign leads');
+    },
+  });
+
   function updateForm(key: keyof typeof form, value: string) {
     setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function updateBulkForm(key: keyof typeof bulkForm, value: string) {
+    setBulkForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function toggleTelecaller(id: string) {
+    setSelectedTelecallerIds((prev) =>
+      prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id],
+    );
+  }
+
+  function parseBulkRows() {
+    if (!selectedTelecallerIds.length) {
+      throw new Error('Select at least one telecaller');
+    }
+    const lines = bulkRows
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const dataLines = lines[0]?.toLowerCase().includes('phone') ? lines.slice(1) : lines;
+    const records = dataLines.map((line) => {
+      const [name = '', phone = '', company = '', email = '', ...notes] =
+        line.split(',').map((part) => part.trim());
+      return {
+        name,
+        phone,
+        company: company || null,
+        email: email || null,
+        notes: notes.join(', ').trim() || null,
+      };
+    });
+    const invalid = records.find((record) => !record.name || !record.phone);
+    if (!records.length || invalid) {
+      throw new Error('Paste rows as: name, phone, company, email, notes');
+    }
+    return records;
   }
 
   function submitLead(e: FormEvent) {
@@ -132,6 +246,9 @@ export default function TelecallerPage() {
           <div className="tc__head-actions">
             {canDownloadReports && (
               <Button size="sm" variant="ghost" onClick={downloadDailyReport}><Download size={14}/> Report</Button>
+            )}
+            {canManageLeads && (
+              <Button size="sm" variant="ghost" onClick={() => setShowBulkAssign(true)}><Upload size={14}/> Bulk assign</Button>
             )}
             <Button size="sm" variant="secondary" onClick={() => setShowCreate(true)}><Plus size={14}/> Add lead</Button>
           </div>
@@ -202,7 +319,7 @@ export default function TelecallerPage() {
             <header className="tc__modal-head">
               <div>
                 <h3>Add lead</h3>
-                <p>Create a lead for Lakshmiraj telecalling workflow.</p>
+                <p>Create a lead for this organisation's telecalling workflow.</p>
               </div>
             </header>
             <div className="tc__form-grid">
@@ -219,6 +336,102 @@ export default function TelecallerPage() {
             <footer className="tc__modal-actions">
               <Button type="button" variant="ghost" onClick={() => setShowCreate(false)}>Cancel</Button>
               <Button type="submit" loading={createMut.isPending}>Create lead</Button>
+            </footer>
+          </form>
+        </div>
+      )}
+
+      {showBulkAssign && (
+        <div className="tc__modal-backdrop" onMouseDown={() => setShowBulkAssign(false)}>
+          <form
+            className="tc__modal tc__modal--wide"
+            onSubmit={(e) => {
+              e.preventDefault();
+              bulkAssignMut.mutate();
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <header className="tc__modal-head">
+              <div>
+                <h3>Bulk assign leads</h3>
+                <p>Paste customer rows and distribute them date-wise to selected telecallers.</p>
+              </div>
+            </header>
+
+            <div className="tc__form-grid">
+              <Input
+                label="Start date"
+                type="date"
+                value={bulkForm.startDate}
+                onChange={(e) => updateBulkForm('startDate', e.target.value)}
+              />
+              <Input
+                label="End date"
+                type="date"
+                value={bulkForm.endDate}
+                onChange={(e) => updateBulkForm('endDate', e.target.value)}
+              />
+              <Input
+                label="Records per telecaller per day"
+                type="number"
+                min="1"
+                max="500"
+                value={bulkForm.recordsPerTelecallerPerDay}
+                onChange={(e) => updateBulkForm('recordsPerTelecallerPerDay', e.target.value)}
+              />
+              <Input
+                label="Source"
+                value={bulkForm.source}
+                onChange={(e) => updateBulkForm('source', e.target.value)}
+              />
+            </div>
+
+            <div className="tc__bulk-section">
+              <div className="tc__bulk-title">Telecallers</div>
+              <div className="tc__telecaller-grid">
+                {telecallers.map((person) => (
+                  <label key={person.id} className="tc__check">
+                    <input
+                      type="checkbox"
+                      checked={selectedTelecallerIds.includes(person.id)}
+                      onChange={() => toggleTelecaller(person.id)}
+                    />
+                    <span>{person.name || person.userId}</span>
+                  </label>
+                ))}
+                {!telecallers.length && (
+                  <div className="tc__helper">No TELECALLER users found. Create them from Employees first.</div>
+                )}
+              </div>
+            </div>
+
+            <label className="tc__file">
+              <span>Excel / CSV file</span>
+              <input
+                type="file"
+                accept=".xlsx,.xlsm,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroEnabled.12,text/csv"
+                onChange={(e) => setBulkFile(e.target.files?.[0] ?? null)}
+              />
+              <small>{bulkFile ? bulkFile.name : 'Upload .xlsx/.xlsm/.csv columns: name, phone, company, email, notes'}</small>
+            </label>
+
+            <label className="tc__textarea tc__textarea--bulk">
+              <span>Customer data</span>
+              <textarea
+                value={bulkRows}
+                onChange={(e) => setBulkRows(e.target.value)}
+                rows={10}
+                disabled={!!bulkFile}
+                placeholder={'name, phone, company, email, notes\nRavi Kumar, 9876543210, ABC Traders, ravi@example.com, interested in demo'}
+              />
+            </label>
+            <p className="tc__helper">
+              Upload Excel/CSV or paste rows manually. The system assigns up to 100 records per selected telecaller for each working day.
+            </p>
+
+            <footer className="tc__modal-actions">
+              <Button type="button" variant="ghost" onClick={() => setShowBulkAssign(false)}>Cancel</Button>
+              <Button type="submit" loading={bulkAssignMut.isPending}>Assign leads</Button>
             </footer>
           </form>
         </div>
