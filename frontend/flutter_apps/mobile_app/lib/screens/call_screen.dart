@@ -1890,6 +1890,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
       });
     } catch (e) {
       if (!mounted) return;
+      if (_isCallEndedError(e)) {
+        await _teardown(notifyServer: false);
+        if (mounted) context.go('/chat');
+        return;
+      }
       setState(() {
         _error = formatApiError(e);
         _status = 'Failed';

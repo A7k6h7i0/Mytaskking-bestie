@@ -214,6 +214,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     '/meetings',
     '/notifications',
     '/profile',
+    '/telecaller',
+    '/calls',
   };
 
   void _goBack(BuildContext context) {

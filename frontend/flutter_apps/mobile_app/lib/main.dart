@@ -167,6 +167,11 @@ Future<void> _wirePushNotifications(
   // listening lets us reconnect the socket if a push lands while we're
   // in the foreground with a dropped connection.
   FirebaseMessaging.onMessage.listen((message) {
+    final type = message.data['type']?.toString();
+    if (type == 'call.ended') {
+      showIncomingCallFromPush(Map<String, dynamic>.from(message.data));
+      return;
+    }
     if (_isIncomingCallPush(message.data)) {
       showIncomingCallFromPush(message.data);
       return;
@@ -548,6 +553,10 @@ class _BestieAppState extends ConsumerState<BestieApp> {
       showIncomingCallFromPush(raw);
       return;
     }
+    if (accepted && callId != null && callId.isNotEmpty) {
+      unawaited(_openAcceptedCall(callId, mode));
+      return;
+    }
     final route = _routeForPush(raw);
     if (route != null) ref.read(routerProvider).go(route);
   }
@@ -560,6 +569,7 @@ class _BestieAppState extends ConsumerState<BestieApp> {
 
   String? _routeForPush(Map<String, dynamic> data) {
     final type = data['type']?.toString();
+    if (type == 'call.ended') return null;
     if (type == 'call.active' || type == 'call.incoming') {
       final callId = data['callId']?.toString();
       if (callId == null || callId.isEmpty) return null;
@@ -586,6 +596,18 @@ class _BestieAppState extends ConsumerState<BestieApp> {
     if (kind == 'LEAD_FOLLOWUP') return '/telecaller';
     if (kind != null && kind.isNotEmpty) return '/notifications';
     return null;
+  }
+
+  Future<void> _openAcceptedCall(String callId, String mode) async {
+    try {
+      await ref.read(apiProvider).get('/calls/$callId/token');
+    } catch (_) {
+      if (!mounted) return;
+      ref.read(routerProvider).go('/chat');
+      return;
+    }
+    if (!mounted) return;
+    ref.read(routerProvider).go('/call/$callId?mode=$mode');
   }
 
   @override

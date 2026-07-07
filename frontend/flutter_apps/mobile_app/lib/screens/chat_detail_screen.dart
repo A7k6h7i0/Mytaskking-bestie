@@ -15,11 +15,14 @@ import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:video_player/video_player.dart';
 
 import '../call_event_text.dart';
 import '../app_sounds.dart';
 import '../chat_clear.dart';
 import '../chat_mute.dart';
+import '../chat_media_saver.dart';
 import '../state.dart';
 import 'call_screen.dart';
 import '../widgets/profile_avatar_viewer.dart';
@@ -3368,6 +3371,11 @@ class _MessageBubble extends ConsumerWidget {
     final c = BestieColors.of(context);
     final canEdit = mine && (message['body'] ?? '').toString().isNotEmpty;
     final canDeleteForEveryone = mine;
+    final attachments =
+        (message['attachments'] as List?)?.cast<Map<String, dynamic>>() ??
+            const [];
+    final body = (message['body'] ?? '').toString();
+    final linkUrl = _firstUrl(body);
     // Pre-load the recents MRU before opening the sheet so the row paints
     // immediately rather than flashing the default set first.
     final recents = await _RecentEmojis.read();
@@ -3432,13 +3440,87 @@ class _MessageBubble extends ConsumerWidget {
                     title: Text('Copy', style: TextStyle(color: c.text)),
                     onTap: () async {
                       Navigator.pop(ctx);
-                      await Clipboard.setData(ClipboardData(
-                          text: (message['body'] ?? '').toString()));
+                      await Clipboard.setData(ClipboardData(text: body));
                       if (context.mounted)
                         bestieToast(context, 'Copied',
                             kind: BestieToastKind.success);
                     },
                   ),
+                  if (attachments.isNotEmpty)
+                    ListTile(
+                      leading:
+                          Icon(Icons.download_rounded, color: c.textSoft),
+                      title: Text(
+                        attachments.length == 1
+                            ? 'Save to device'
+                            : 'Save all attachments',
+                        style: TextStyle(color: c.text),
+                      ),
+                      onTap: () async {
+                        Navigator.pop(ctx);
+                        try {
+                          await ChatMediaSaver.saveAllAttachments(
+                            api: ref.read(apiProvider),
+                            assets: attachments,
+                          );
+                          if (context.mounted) {
+                            bestieToast(
+                              context,
+                              attachments.length == 1
+                                  ? 'Saved to your device'
+                                  : 'Saved ${attachments.length} files',
+                              kind: BestieToastKind.success,
+                            );
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            bestieToast(
+                              context,
+                              'Could not save',
+                              body: formatApiError(e),
+                              kind: BestieToastKind.error,
+                            );
+                          }
+                        }
+                      },
+                    ),
+                  if (linkUrl != null)
+                    ListTile(
+                      leading:
+                          Icon(Icons.link_rounded, color: c.textSoft),
+                      title: Text(
+                        ChatMediaSaver.looksLikeDownloadableFile(linkUrl)
+                            ? 'Save link file'
+                            : 'Copy link',
+                        style: TextStyle(color: c.text),
+                      ),
+                      onTap: () async {
+                        Navigator.pop(ctx);
+                        try {
+                          if (ChatMediaSaver.looksLikeDownloadableFile(
+                              linkUrl)) {
+                            await ChatMediaSaver.saveUrlAsFile(linkUrl);
+                            if (context.mounted) {
+                              bestieToast(context, 'Saved to your device',
+                                  kind: BestieToastKind.success);
+                            }
+                          } else {
+                            await Clipboard.setData(
+                                ClipboardData(text: linkUrl));
+                            if (context.mounted) {
+                              bestieToast(context, 'Link copied',
+                                  kind: BestieToastKind.success);
+                            }
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            bestieToast(context, 'Could not save link',
+                                body: formatApiError(e),
+                                kind: BestieToastKind.error);
+                          }
+                        }
+                      },
+                    ),
                   // Edit sits right under Copy for own text messages so it's
                   // always visible, not buried at the bottom of the sheet.
                   if (canEdit)
@@ -4161,32 +4243,82 @@ class _DoubleTick extends StatelessWidget {
   }
 }
 
-class _Attachment extends StatelessWidget {
+class _Attachment extends ConsumerWidget {
   final Map<String, dynamic> asset;
   final bool mine;
   final BestieColors colors;
   const _Attachment(
       {required this.asset, required this.mine, required this.colors});
 
+  Future<String> _resolveUrl(WidgetRef ref) async {
+    final id = asset['id']?.toString();
+    final direct = asset['url']?.toString() ?? '';
+    if (id != null && id.isNotEmpty) {
+      try {
+        return await ref.read(apiProvider).getFileDownloadUrl(id);
+      } catch (_) {
+        if (direct.isNotEmpty) return direct;
+        rethrow;
+      }
+    }
+    if (direct.isEmpty) throw 'File has no URL';
+    return direct;
+  }
+
+  Future<void> _openExternal(BuildContext context, WidgetRef ref) async {
+    try {
+      final url = await _resolveUrl(ref);
+      final uri = Uri.tryParse(url);
+      if (uri == null) throw 'Invalid file URL';
+      final opened =
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!opened && context.mounted) {
+        bestieToast(context, 'Could not open file',
+            kind: BestieToastKind.error);
+      }
+    } catch (e) {
+      if (context.mounted) {
+        bestieToast(context, 'Could not open file',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    }
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final mime = (asset['mimeType'] ?? '').toString();
     final url = asset['url']?.toString() ?? '';
     final name = (asset['originalName'] ?? 'file').toString();
     final size = asset['size'];
     final isImage = mime.startsWith('image/');
     final isAudio = mime.startsWith('audio/');
+    final isVideo = mime.startsWith('video/');
     if (isImage && url.isNotEmpty) {
       final tag = 'img-${asset['id'] ?? url}';
       return GestureDetector(
-        onTap: () => Navigator.of(context).push(PageRouteBuilder(
-          opaque: false,
-          barrierColor: Colors.black87,
-          pageBuilder: (_, __, ___) =>
-              _FullscreenImage(url: url, heroTag: tag, name: name),
-          transitionsBuilder: (_, anim, __, child) =>
-              FadeTransition(opacity: anim, child: child),
-        )),
+        onTap: () async {
+          try {
+            final resolved = await _resolveUrl(ref);
+            if (!context.mounted) return;
+            Navigator.of(context).push(PageRouteBuilder(
+              opaque: false,
+              barrierColor: Colors.black87,
+              pageBuilder: (_, __, ___) => _FullscreenImage(
+                url: resolved,
+                heroTag: tag,
+                name: name,
+                asset: asset,
+              ),
+              transitionsBuilder: (_, anim, __, child) =>
+                  FadeTransition(opacity: anim, child: child),
+            ));
+          } catch (e) {
+            if (context.mounted) {
+              bestieToast(context, 'Could not open image',
+                  body: formatApiError(e), kind: BestieToastKind.error);
+            }
+          }
+        },
         child: Hero(
           tag: tag,
           child: ClipRRect(
@@ -4195,7 +4327,8 @@ class _Attachment extends StatelessWidget {
               constraints: const BoxConstraints(maxHeight: 220, maxWidth: 240),
               child: Image.network(url,
                   fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => _fileChip(mime, name, size)),
+                  errorBuilder: (_, __, ___) =>
+                      _fileChip(context, ref, mime, name, size)),
             ),
           ),
         ),
@@ -4204,10 +4337,71 @@ class _Attachment extends StatelessWidget {
     if (isAudio && url.isNotEmpty) {
       return _VoiceNote(url: url, mine: mine, colors: colors);
     }
-    return _fileChip(mime, name, size);
+    if (isVideo) {
+      return GestureDetector(
+        onTap: () => _openVideoPlayer(context, ref, name),
+        onLongPress: () => _saveAsset(context, ref),
+        child: _fileChip(context, ref, mime, name, size, tappable: true),
+      );
+    }
+    return GestureDetector(
+      onTap: () => _openExternal(context, ref),
+      onLongPress: () => _saveAsset(context, ref),
+      child: _fileChip(context, ref, mime, name, size, tappable: true),
+    );
   }
 
-  Widget _fileChip(String mime, String name, Object? size) {
+  Future<void> _saveAsset(BuildContext context, WidgetRef ref) async {
+    try {
+      await ChatMediaSaver.saveAttachment(
+        api: ref.read(apiProvider),
+        asset: asset,
+      );
+      if (context.mounted) {
+        bestieToast(context, 'Saved to your device',
+            kind: BestieToastKind.success);
+      }
+    } catch (e) {
+      if (context.mounted) {
+        bestieToast(context, 'Could not save',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    }
+  }
+
+  Future<void> _openVideoPlayer(
+    BuildContext context,
+    WidgetRef ref,
+    String name,
+  ) async {
+    try {
+      final url = await _resolveUrl(ref);
+      if (!context.mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => _FullscreenVideo(
+            url: url,
+            name: name,
+            asset: asset,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (context.mounted) {
+        bestieToast(context, 'Could not play video',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    }
+  }
+
+  Widget _fileChip(
+    BuildContext context,
+    WidgetRef ref,
+    String mime,
+    String name,
+    Object? size, {
+    bool tappable = false,
+  }) {
     final accent = mine ? Colors.white : BestieTokens.cBrand;
     final fg = mine ? Colors.white : colors.text;
     final sizeStr = size is int ? _formatBytes(size) : '';
@@ -4225,6 +4419,10 @@ class _Attachment extends StatelessWidget {
         color: (mine ? Colors.white : colors.surface2)
             .withOpacity(mine ? 0.16 : 1),
         borderRadius: BorderRadius.circular(BestieTokens.rSm),
+        border: tappable
+            ? Border.all(
+                color: (mine ? Colors.white : colors.brand).withOpacity(0.2))
+            : null,
       ),
       child: Row(children: [
         Container(
@@ -4255,6 +4453,15 @@ class _Attachment extends StatelessWidget {
                           TextStyle(color: fg.withOpacity(0.7), fontSize: 11)),
               ]),
         ),
+        if (tappable)
+          IconButton(
+            tooltip: 'Save',
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            icon: Icon(Icons.download_rounded, size: 18, color: accent),
+            onPressed: () => _saveAsset(context, ref),
+          ),
       ]),
     );
   }
@@ -4472,7 +4679,8 @@ class _ReplyQuote extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final body = (replyTo['body'] ?? '').toString();
-    final author = replyTo['authorId']?.toString() ?? 'message';
+    final authorName = (replyTo['author'] as Map?)?['name']?.toString() ??
+        'Unknown';
     final bg = mine ? Colors.white.withOpacity(0.16) : colors.surface2;
     final accent = mine ? Colors.white.withOpacity(0.6) : colors.brand;
     final fg = mine ? Colors.white : colors.text;
@@ -4488,7 +4696,7 @@ class _ReplyQuote extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              author,
+              authorName,
               style: TextStyle(
                   fontSize: 10, fontWeight: BestieTokens.fwBold, color: accent),
             ),
@@ -4911,18 +5119,20 @@ class _RecentEmojis {
 /// hero animation from the inline thumbnail, and a translucent close
 /// button. Wraps an InteractiveViewer so pinch / pan / fling all work
 /// natively without an extra package dependency.
-class _FullscreenImage extends StatelessWidget {
+class _FullscreenImage extends ConsumerWidget {
   final String url;
   final String heroTag;
   final String name;
+  final Map<String, dynamic>? asset;
   const _FullscreenImage({
     required this.url,
     required this.heroTag,
     required this.name,
+    this.asset,
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final transform = TransformationController();
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -4967,14 +5177,47 @@ class _FullscreenImage extends StatelessWidget {
         Positioned(
           top: MediaQuery.of(context).padding.top + 8,
           right: 8,
-          child: Material(
-            color: Colors.black54,
-            shape: const CircleBorder(),
-            child: IconButton(
-              icon: const Icon(Icons.close_rounded, color: Colors.white),
-              onPressed: () => Navigator.of(context).pop(),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Material(
+              color: Colors.black54,
+              shape: const CircleBorder(),
+              child: IconButton(
+                icon: const Icon(Icons.download_rounded, color: Colors.white),
+                tooltip: 'Save to gallery',
+                onPressed: () async {
+                  try {
+                    if (asset != null) {
+                      await ChatMediaSaver.saveAttachment(
+                        api: ref.read(apiProvider),
+                        asset: asset!,
+                      );
+                    } else {
+                      await ChatMediaSaver.saveImageUrl(url, name: name);
+                    }
+                    if (context.mounted) {
+                      bestieToast(context, 'Saved to gallery',
+                          kind: BestieToastKind.success);
+                    }
+                  } catch (e) {
+                    if (context.mounted) {
+                      bestieToast(context, 'Could not save',
+                          body: formatApiError(e),
+                          kind: BestieToastKind.error);
+                    }
+                  }
+                },
+              ),
             ),
-          ),
+            const SizedBox(width: 8),
+            Material(
+              color: Colors.black54,
+              shape: const CircleBorder(),
+              child: IconButton(
+                icon: const Icon(Icons.close_rounded, color: Colors.white),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ),
+          ]),
         ),
         if (name.isNotEmpty)
           Positioned(
@@ -4999,6 +5242,116 @@ class _FullscreenImage extends StatelessWidget {
             ),
           ),
       ]),
+    );
+  }
+}
+
+class _FullscreenVideo extends ConsumerStatefulWidget {
+  const _FullscreenVideo({
+    required this.url,
+    required this.name,
+    this.asset,
+  });
+
+  final String url;
+  final String name;
+  final Map<String, dynamic>? asset;
+
+  @override
+  ConsumerState<_FullscreenVideo> createState() => _FullscreenVideoState();
+}
+
+class _FullscreenVideoState extends ConsumerState<_FullscreenVideo> {
+  late final VideoPlayerController _controller;
+  bool _ready = false;
+  Object? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url))
+      ..initialize().then((_) {
+        if (!mounted) return;
+        setState(() => _ready = true);
+        _controller.play();
+      }).catchError((e) {
+        if (!mounted) return;
+        setState(() => _error = e);
+      });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: Text(widget.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+        actions: [
+          IconButton(
+            tooltip: 'Save to gallery',
+            icon: const Icon(Icons.download_rounded),
+            onPressed: () async {
+              try {
+                if (widget.asset != null) {
+                  await ChatMediaSaver.saveAttachment(
+                    api: ref.read(apiProvider),
+                    asset: widget.asset!,
+                  );
+                } else {
+                  await ChatMediaSaver.saveVideoUrl(
+                    widget.url,
+                    name: widget.name,
+                  );
+                }
+                if (mounted) {
+                  bestieToast(context, 'Saved to gallery',
+                      kind: BestieToastKind.success);
+                }
+              } catch (e) {
+                if (mounted) {
+                  bestieToast(context, 'Could not save',
+                      body: formatApiError(e), kind: BestieToastKind.error);
+                }
+              }
+            },
+          ),
+        ],
+      ),
+      body: Center(
+        child: _error != null
+            ? const Icon(Icons.videocam_off_outlined,
+                color: Colors.white54, size: 64)
+            : !_ready
+                ? const CircularProgressIndicator()
+                : AspectRatio(
+                    aspectRatio: _controller.value.aspectRatio,
+                    child: VideoPlayer(_controller),
+                  ),
+      ),
+      floatingActionButton: _ready
+          ? FloatingActionButton(
+              onPressed: () {
+                setState(() {
+                  _controller.value.isPlaying
+                      ? _controller.pause()
+                      : _controller.play();
+                });
+              },
+              child: Icon(
+                _controller.value.isPlaying
+                    ? Icons.pause_rounded
+                    : Icons.play_arrow_rounded,
+              ),
+            )
+          : null,
     );
   }
 }
@@ -5155,7 +5508,33 @@ class _LinkPreview extends ConsumerWidget {
         }
         return Padding(
           padding: const EdgeInsets.only(top: 6),
-          child: ClipRRect(
+          child: GestureDetector(
+            onLongPress: () async {
+              try {
+                if (image != null && image.isNotEmpty) {
+                  await ChatMediaSaver.saveImageUrl(image, name: '$host.jpg');
+                } else if (ChatMediaSaver.looksLikeDownloadableFile(url)) {
+                  await ChatMediaSaver.saveUrlAsFile(url);
+                } else {
+                  await Clipboard.setData(ClipboardData(text: url));
+                }
+                if (context.mounted) {
+                  bestieToast(
+                    context,
+                    image != null && image.isNotEmpty
+                        ? 'Preview saved to gallery'
+                        : 'Link copied',
+                    kind: BestieToastKind.success,
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  bestieToast(context, 'Could not save',
+                      body: formatApiError(e), kind: BestieToastKind.error);
+                }
+              }
+            },
+            child: ClipRRect(
             borderRadius: BorderRadius.circular(BestieTokens.rSm),
             child: Container(
               constraints: const BoxConstraints(maxWidth: 280, minWidth: 200),
@@ -5233,6 +5612,7 @@ class _LinkPreview extends ConsumerWidget {
                 ],
               ),
             ),
+          ),
           ),
         );
       },

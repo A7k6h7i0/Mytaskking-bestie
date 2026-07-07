@@ -344,6 +344,12 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
   void _onPushInvite(Map<String, dynamic> data) {
     if (!isCallEventForThisApp(data)) return;
     final type = data['type']?.toString();
+
+    if (type == 'call.ended') {
+      _dismissPendingIncomingForCall(data['callId']?.toString());
+      return;
+    }
+
     final mode = (data['mode'] ?? 'VIDEO').toString().toUpperCase();
     final fromName =
         (data['fromName'] ?? data['title'] ?? 'Someone').toString();
@@ -355,19 +361,12 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     if (type == 'call.incoming') {
       final callId = data['callId']?.toString();
       if (callId == null || callId.isEmpty) return;
-      _onIncoming({
-        'call': {
-          'id': callId,
-          'kind': 'ONE_TO_ONE',
-          'mode': mode,
-          'initiator': {
-            'id': callerId,
-            'name': fromName,
-          },
-        },
-        'mode': mode,
-        'callerId': callerId,
-      });
+      unawaited(_showIncomingFromPush(
+        callId: callId,
+        mode: mode,
+        fromName: fromName,
+        callerId: callerId,
+      ));
       return;
     }
 
@@ -388,6 +387,34 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
         'meetingName': meetingName,
       });
     }
+  }
+
+  Future<void> _showIncomingFromPush({
+    required String callId,
+    required String mode,
+    required String fromName,
+    String? callerId,
+  }) async {
+    try {
+      await ref.read(apiProvider).get('/calls/$callId/token');
+    } catch (e) {
+      await _cancelNativeIncomingNotification(callId: callId);
+      return;
+    }
+    if (!mounted) return;
+    _onIncoming({
+      'call': {
+        'id': callId,
+        'kind': 'ONE_TO_ONE',
+        'mode': mode,
+        'initiator': {
+          'id': callerId,
+          'name': fromName,
+        },
+      },
+      'mode': mode,
+      'callerId': callerId,
+    });
   }
 
   void _onIncoming(dynamic data) {

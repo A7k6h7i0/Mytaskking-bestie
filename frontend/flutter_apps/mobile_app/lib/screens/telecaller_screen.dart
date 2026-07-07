@@ -357,6 +357,9 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
                         ),
         ),
       ]),
+      bottomNavigationBar: SizedBox(
+        height: 70.0 + MediaQuery.of(context).padding.bottom - 18,
+      ),
     );
   }
 

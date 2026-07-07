@@ -60,11 +60,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         return;
       }
       final image = result.files.first;
+      final cropped = await showAvatarCropSheet(
+        context,
+        imageBytes: image.bytes!,
+      );
+      if (cropped == null || !mounted) return;
+
       setState(() => _uploadingAvatar = true);
       final asset = await ref.read(apiProvider).uploadFile(
-            bytes: image.bytes!,
-            filename: image.name,
-            mimeType: _imageMimeType(image.extension),
+            bytes: cropped,
+            filename: _croppedFilename(image.name),
+            mimeType: 'image/jpeg',
           );
       final url = asset['url']?.toString();
       if (url == null || url.isEmpty) throw 'Upload returned no image URL';
@@ -86,6 +92,38 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     }
   }
 
+  Future<void> _removeAvatar() async {
+    final user = ref.read(authStoreProvider).user;
+    if (user?.avatarUrl == null || user!.avatarUrl!.isEmpty) return;
+
+    final ok = await bestieConfirm(
+      context,
+      title: 'Remove profile photo?',
+      description: 'Your account will use the default avatar again.',
+      confirmLabel: 'Remove',
+    );
+    if (!ok) return;
+
+    setState(() => _uploadingAvatar = true);
+    try {
+      final response = await ref.read(apiProvider).clearMyAvatar();
+      await ref.read(authStoreProvider).updateUser(
+            Map<String, dynamic>.from(response['user'] as Map),
+          );
+      if (mounted) {
+        bestieToast(context, 'Profile photo removed',
+            kind: BestieToastKind.success);
+      }
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not remove profile photo',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    } finally {
+      if (mounted) setState(() => _uploadingAvatar = false);
+    }
+  }
+
   String _imageMimeType(String? extension) =>
       switch (extension?.toLowerCase()) {
         'png' => 'image/png',
@@ -93,6 +131,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         'webp' => 'image/webp',
         _ => 'image/jpeg',
       };
+
+  String _croppedFilename(String original) {
+    final base = original.contains('.')
+        ? original.substring(0, original.lastIndexOf('.'))
+        : original;
+    return '$base-cropped.jpg';
+  }
 
   Future<void> _editPhone() async {
     final user = ref.read(authStoreProvider).user;
@@ -216,9 +261,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 )
               : const Icon(Icons.add_a_photo_outlined),
           title: const Text('Change profile photo'),
-          subtitle: const Text('Choose an image from your phone'),
+          subtitle: const Text('Choose an image and crop before upload'),
           onTap: _uploadingAvatar ? null : _pickAvatar,
         ),
+        if (user?.avatarUrl != null && user!.avatarUrl!.isNotEmpty)
+          ListTile(
+            leading: const Icon(Icons.delete_outline_rounded, color: BestieTokens.cDanger),
+            title: const Text('Remove profile photo',
+                style: TextStyle(color: BestieTokens.cDanger)),
+            subtitle: const Text('Go back to the default avatar'),
+            onTap: _uploadingAvatar ? null : _removeAvatar,
+          ),
 
         ListTile(
           leading: _savingPhone

@@ -100,15 +100,12 @@ final routerProvider = Provider<GoRouter>((ref) {
       // ----- "more" screens (outside the bottom-nav shell) -----
       GoRoute(path: '/employees', builder: (_, __) => const EmployeesScreen()),
       GoRoute(path: '/clients', builder: (_, __) => const ClientsScreen()),
-      GoRoute(path: '/calls', builder: (_, __) => const CallsScreen()),
       GoRoute(path: '/calendar', builder: (_, __) => const CalendarScreen()),
       GoRoute(
           path: '/announcements',
           builder: (_, __) => const AnnouncementsScreen()),
       GoRoute(path: '/saved', builder: (_, __) => const SavedScreen()),
       GoRoute(path: '/sessions', builder: (_, __) => const SessionsScreen()),
-      GoRoute(
-          path: '/telecaller', builder: (_, __) => const TelecallerScreen()),
       GoRoute(
           path: '/telecaller/setup',
           builder: (_, __) => const TelecallerOnboardingScreen()),
@@ -145,6 +142,9 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
               path: '/dashboard', builder: (_, __) => const DashboardScreen()),
           GoRoute(path: '/chat', builder: (_, __) => const ChatListScreen()),
+          GoRoute(
+              path: '/telecaller', builder: (_, __) => const TelecallerScreen()),
+          GoRoute(path: '/calls', builder: (_, __) => const CallsScreen()),
           GoRoute(path: '/tasks', builder: (_, __) => const TasksScreen()),
           GoRoute(
               path: '/attendance',

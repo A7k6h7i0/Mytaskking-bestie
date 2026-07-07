@@ -81,7 +81,9 @@ class ShellScreen extends ConsumerWidget {
   }
 
   void _openMoreRoute(BuildContext context, String route) {
-    if (route == '/dashboard') {
+    if (route == '/dashboard' ||
+        route == '/telecaller' ||
+        route == '/calls') {
       context.go(route);
       return;
     }

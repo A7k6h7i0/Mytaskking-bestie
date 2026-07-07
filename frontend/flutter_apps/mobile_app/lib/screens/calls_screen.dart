@@ -76,23 +76,21 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
   @override
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
+    final canPop = context.canPop();
     return Scaffold(
       backgroundColor: c.bg,
       appBar: AppBar(
         elevation: 0,
         backgroundColor: c.surface,
         foregroundColor: c.text,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded),
-          tooltip: 'Back',
-          onPressed: () {
-            if (context.canPop()) {
-              context.pop();
-            } else {
-              context.go('/chat');
-            }
-          },
-        ),
+        automaticallyImplyLeading: canPop,
+        leading: canPop
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back_rounded),
+                tooltip: 'Back',
+                onPressed: () => context.pop(),
+              )
+            : null,
         title: const Text('Calls'),
       ),
       body: _items.isEmpty && _loading
@@ -154,6 +152,9 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
                         },
                       ),
                     ))),
+      bottomNavigationBar: SizedBox(
+        height: 70.0 + MediaQuery.of(context).padding.bottom - 18,
+      ),
     );
   }
 }
