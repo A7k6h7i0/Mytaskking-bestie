@@ -25,8 +25,8 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
 
-    <!-- Photo + video access for attaching media to chats (image_picker). -->
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
+    <!-- Audio files (call recordings in shared storage, Android 13+). -->
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
     <!-- Legacy gallery access on Android 12 and below. -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
@@ -79,6 +79,11 @@
         </service>
         <service
             android:name=".CallForegroundService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="microphone" />
+        <service
+            android:name=".TelecallerRecordingForegroundService"
             android:exported="false"
             android:stopWithTask="false"
             android:foregroundServiceType="microphone" />

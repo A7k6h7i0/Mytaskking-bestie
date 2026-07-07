@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,6 +7,10 @@ import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../state.dart';
+import '../telecaller_pending_call.dart';
+import '../telecaller_phone_recorder.dart';
+import '../telecaller_recording_setup.dart';
+import '../telecaller_recording_uploader.dart';
 
 /// Telecaller leads — searchable, status-filtered list with a one-tap call.
 class TelecallerScreen extends ConsumerStatefulWidget {
@@ -25,6 +30,9 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
   String? _error;
   String? _pendingCallId;
   Map<String, dynamic>? _pendingCallLead;
+  bool _phoneRecordingActive = false;
+  Timer? _resumeTimer;
+  DateTime? _callStartedAt;
 
   static const _statuses = ['ALL', 'NEW', 'CONTACTED', 'INTERESTED', 'FOLLOWUP', 'WON', 'LOST'];
 
@@ -33,13 +41,28 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _fetch();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _recoverPendingCall());
+  }
+
+  /// Restore call state if Android killed the app during a phone call.
+  Future<void> _recoverPendingCall() async {
+    if (_pendingCallId != null || _showingOutcomeSheet) return;
+    final saved = await TelecallerPendingCall.load();
+    if (saved == null || !mounted) return;
+    _pendingCallId = saved.callId;
+    _pendingCallLead = saved.lead;
+    _callStartedAt = saved.startedAt;
+    _phoneRecordingActive = saved.micActive;
+    await _handleReturnFromCall();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    unawaited(TelecallerPhoneRecorder.instance.dispose());
     _search.dispose();
     _debounce?.cancel();
+    _resumeTimer?.cancel();
     super.dispose();
   }
 
@@ -48,10 +71,30 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
     if (state == AppLifecycleState.resumed &&
         _pendingCallId != null &&
         !_showingOutcomeSheet) {
-      Future<void>.delayed(const Duration(milliseconds: 450), () {
-        if (mounted) _showCallOutcomeSheet();
+      _resumeTimer?.cancel();
+      _resumeTimer = Timer(const Duration(milliseconds: 1500), () async {
+        if (!mounted) return;
+        await _handleReturnFromCall();
       });
     }
+  }
+
+  Future<void> _handleReturnFromCall() async {
+    if (_pendingCallId == null || _showingOutcomeSheet) {
+      return;
+    }
+    await _showCallOutcomeSheet(includeRecordingStep: true);
+  }
+
+  Future<void> _cleanupPendingCall() async {
+    if (_phoneRecordingActive) {
+      await TelecallerPhoneRecorder.instance.stop();
+      _phoneRecordingActive = false;
+    }
+    _pendingCallId = null;
+    _pendingCallLead = null;
+    _callStartedAt = null;
+    await TelecallerPendingCall.clear();
   }
 
   void _onQuery(String _) {
@@ -87,28 +130,54 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
     }
 
     try {
-      final response = await ref.read(apiProvider).callLead(leadId, mode: 'PHONE');
+      final response =
+          await ref.read(apiProvider).callLead(leadId, mode: 'PHONE');
       final call = response['call'] as Map?;
-      _pendingCallId = call?['id']?.toString();
+      final callId = call?['id']?.toString();
+      if (callId == null) throw 'Could not start call log';
+
+      _pendingCallId = callId;
       _pendingCallLead = lead;
+      _callStartedAt = DateTime.now();
+
+      await TelecallerRecordingSetup.load();
+      final useMic = !TelecallerRecordingSetup.hasLinkedFolder;
+
+      if (useMic && TelecallerPhoneRecorder.supported) {
+        _phoneRecordingActive =
+            await TelecallerPhoneRecorder.instance.start(callId);
+      }
+
+      await TelecallerPendingCall.save(
+        callId: callId,
+        lead: lead,
+        startedAt: _callStartedAt!,
+        micActive: _phoneRecordingActive,
+      );
+
       final launched = await launchUrl(
         Uri(scheme: 'tel', path: phone),
         mode: LaunchMode.externalApplication,
       );
       if (!launched) {
-        _pendingCallId = null;
-        _pendingCallLead = null;
+        await _cleanupPendingCall();
         throw 'Could not open phone app';
       }
       if (mounted) {
+        final hasFolder = TelecallerRecordingSetup.hasLinkedFolder;
         bestieToast(
           context,
           'Phone call opened',
-          body: 'Select the call outcome when you return to MyTaskKing.',
+          body: hasFolder
+              ? 'When you return, we\'ll scan your recordings folder and upload automatically.'
+              : _phoneRecordingActive
+                  ? 'Recording in background. Use speakerphone when possible.'
+                  : 'Log the call outcome when you return.',
           kind: BestieToastKind.info,
         );
       }
     } catch (e) {
+      await _cleanupPendingCall();
       if (mounted) {
         bestieToast(context, 'Could not call',
             body: formatApiError(e), kind: BestieToastKind.error);
@@ -116,21 +185,32 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
     }
   }
 
-  Future<void> _showCallOutcomeSheet() async {
+  Future<void> _showCallOutcomeSheet({bool includeRecordingStep = false}) async {
     final callId = _pendingCallId;
     final lead = _pendingCallLead;
     if (callId == null || lead == null || _showingOutcomeSheet) return;
 
     _showingOutcomeSheet = true;
+    final micWasActive = _phoneRecordingActive;
+    _phoneRecordingActive = false;
     final saved = await bestieBottomSheet<bool>(
       context,
-      title: 'Call outcome',
-      builder: (_) => _CallOutcomeSheet(ref: ref, callId: callId, lead: lead),
+      title: includeRecordingStep ? 'Call recording & outcome' : 'Call outcome',
+      builder: (_) => _CallOutcomeSheet(
+        ref: ref,
+        callId: callId,
+        lead: lead,
+        callStartedAt: _callStartedAt,
+        phoneRecordingActive: includeRecordingStep ? micWasActive : false,
+        runRecordingUpload: includeRecordingStep,
+      ),
     );
     _showingOutcomeSheet = false;
     if (saved == true) {
       _pendingCallId = null;
       _pendingCallLead = null;
+      _callStartedAt = null;
+      await TelecallerPendingCall.clear();
       await _fetch();
     }
   }
@@ -826,17 +906,24 @@ class _CallOutcomeSheet extends StatefulWidget {
     required this.ref,
     required this.callId,
     required this.lead,
+    this.callStartedAt,
+    this.phoneRecordingActive = false,
+    this.runRecordingUpload = false,
   });
 
   final WidgetRef ref;
   final String callId;
   final Map<String, dynamic> lead;
+  final DateTime? callStartedAt;
+  final bool phoneRecordingActive;
+  final bool runRecordingUpload;
 
   @override
   State<_CallOutcomeSheet> createState() => _CallOutcomeSheetState();
 }
 
 class _CallOutcomeSheetState extends State<_CallOutcomeSheet> {
+  static const _primaryBlue = Color(0xFF3B99F6);
   static const _outcomes = [
     ('REACHABLE', 'Reachable'),
     ('NO_ANSWER', 'No answer'),
@@ -851,6 +938,201 @@ class _CallOutcomeSheetState extends State<_CallOutcomeSheet> {
   final _notes = TextEditingController();
   String _outcome = 'REACHABLE';
   bool _saving = false;
+  RecordingProcessState _recordingState = const RecordingProcessState(
+    phase: RecordingProcessPhase.idle,
+    detail: 'Waiting…',
+  );
+  bool _recordingFinished = false;
+  bool _manualPickBusy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.runRecordingUpload) {
+      unawaited(TelecallerRecordingSetup.load().then((_) {
+        if (mounted) setState(() {});
+      }));
+      WidgetsBinding.instance.addPostFrameCallback((_) => _runRecordingUpload());
+    } else {
+      _recordingFinished = true;
+    }
+  }
+
+  Future<void> _runRecordingUpload() async {
+    final uploader = TelecallerRecordingUploader(widget.ref);
+    await uploader.runAutoUpload(
+      callId: widget.callId,
+      callStartedAt: widget.callStartedAt,
+      phoneRecordingActive: widget.phoneRecordingActive,
+      onState: (s) {
+        if (mounted) setState(() => _recordingState = s);
+      },
+    );
+    if (mounted) {
+      setState(() {
+        _recordingFinished =
+            _recordingState.phase == RecordingProcessPhase.success ||
+                _recordingState.phase == RecordingProcessPhase.failed;
+      });
+    }
+  }
+
+  Future<void> _pickRecordingManual() async {
+    if (_manualPickBusy) return;
+    setState(() => _manualPickBusy = true);
+    final uploader = TelecallerRecordingUploader(widget.ref);
+    await uploader.uploadManualPick(
+      callId: widget.callId,
+      onState: (s) {
+        if (mounted) setState(() => _recordingState = s);
+      },
+    );
+    if (mounted) {
+      setState(() {
+        _manualPickBusy = false;
+        _recordingFinished =
+            _recordingState.phase == RecordingProcessPhase.success ||
+                _recordingState.phase == RecordingProcessPhase.failed;
+      });
+    }
+  }
+
+  void _skipRecording() {
+    setState(() {
+      _recordingFinished = true;
+      _recordingState = const RecordingProcessState(
+        phase: RecordingProcessPhase.failed,
+        detail: 'Skipped — log outcome only',
+        error: 'Recording not uploaded',
+      );
+    });
+  }
+
+  Widget _recordingSection(BestieColors c) {
+    if (!widget.runRecordingUpload) return const SizedBox.shrink();
+
+    final phase = _recordingState.phase;
+    final busy = phase != RecordingProcessPhase.success &&
+        phase != RecordingProcessPhase.failed &&
+        phase != RecordingProcessPhase.idle;
+    final failed = phase == RecordingProcessPhase.failed;
+    final success = phase == RecordingProcessPhase.success;
+    final folderLabel = TelecallerRecordingSetup.folderLabel;
+    final hasFolder = TelecallerRecordingSetup.hasLinkedFolder;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: c.surface2,
+        borderRadius: BorderRadius.circular(BestieTokens.rSm),
+        border: Border.all(
+          color: success
+              ? c.success.withValues(alpha: 0.4)
+              : failed
+                  ? c.danger.withValues(alpha: 0.35)
+                  : _primaryBlue.withValues(alpha: 0.35),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Call recording upload',
+            style: TextStyle(
+              color: c.text,
+              fontWeight: BestieTokens.fwBold,
+              fontSize: 15,
+            ),
+          ),
+          if (folderLabel != null && hasFolder) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Folder: $folderLabel',
+              style: TextStyle(color: c.textMuted, fontSize: 12),
+            ),
+          ] else if (!hasFolder) ...[
+            const SizedBox(height: 4),
+            Text(
+              'No recordings folder linked — use manual pick below or re-run setup.',
+              style: TextStyle(color: c.warning, fontSize: 12),
+            ),
+          ],
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              if (busy)
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else
+                Icon(
+                  success
+                      ? Icons.check_circle_rounded
+                      : failed
+                          ? Icons.error_outline_rounded
+                          : Icons.folder_open_rounded,
+                  color: success
+                      ? c.success
+                      : failed
+                          ? c.danger
+                          : _primaryBlue,
+                  size: 20,
+                ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  _recordingState.detail ?? 'Processing recording…',
+                  style: TextStyle(
+                    color: c.text,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (_recordingState.fileName != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              _recordingState.fileName!,
+              style: TextStyle(color: c.textMuted, fontSize: 12),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+          if (_recordingState.error != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              _recordingState.error!,
+              style: TextStyle(color: c.danger, fontSize: 12),
+            ),
+          ],
+          if (failed && !_manualPickBusy) ...[
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _pickRecordingManual,
+              icon: const Icon(Icons.audio_file_outlined, size: 18),
+              label: const Text('Choose recording file manually'),
+            ),
+            TextButton(
+              onPressed: _skipRecording,
+              child: const Text('Skip recording — save outcome only'),
+            ),
+          ],
+          if (success) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Admin panel → Recordings will show this call.',
+              style: TextStyle(color: c.success, fontSize: 12),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 
   @override
   void dispose() {
@@ -912,7 +1194,8 @@ class _CallOutcomeSheetState extends State<_CallOutcomeSheet> {
                 const SizedBox(height: 4),
                 Text(phone, style: TextStyle(color: c.textMuted)),
               ],
-              const SizedBox(height: 16),
+              _recordingSection(c),
+              const SizedBox(height: 8),
               DropdownButtonFormField<String>(
                 initialValue: _outcome,
                 isExpanded: true,
@@ -935,7 +1218,9 @@ class _CallOutcomeSheetState extends State<_CallOutcomeSheet> {
               ),
               const SizedBox(height: 16),
               FilledButton.icon(
-                onPressed: _saving ? null : _save,
+                onPressed: (_saving || (widget.runRecordingUpload && !_recordingFinished))
+                    ? null
+                    : _save,
                 icon: _saving
                     ? const SizedBox(
                         width: 16,
@@ -943,7 +1228,13 @@ class _CallOutcomeSheetState extends State<_CallOutcomeSheet> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.check_rounded),
-                label: Text(_saving ? 'Saving...' : 'Save outcome'),
+                label: Text(
+                  _saving
+                      ? 'Saving...'
+                      : widget.runRecordingUpload && !_recordingFinished
+                          ? 'Waiting for recording…'
+                          : 'Save outcome',
+                ),
               ),
             ],
           ),

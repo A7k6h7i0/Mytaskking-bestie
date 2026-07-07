@@ -182,6 +182,16 @@ LRESULT CALLBACK PromptWndProc(HWND hwnd,
   return DefWindowProc(hwnd, message, wparam, lparam);
 }
 
+DWORD GetSystemIdleSeconds() {
+  LASTINPUTINFO info = {};
+  info.cbSize = sizeof(LASTINPUTINFO);
+  if (!GetLastInputInfo(&info)) {
+    return 0;
+  }
+  const DWORD now = GetTickCount();
+  return (now - info.dwTime) / 1000;
+}
+
 std::optional<std::string> ShowWorkActivityPrompt(int seconds) {
   const wchar_t* class_name = L"MyTaskKingActivityPromptWindow";
   static bool registered = false;
@@ -388,6 +398,11 @@ void RegisterMytaskkingDesktopPlugin(flutter::FlutterEngine* engine) {
             list.emplace_back(path);
           }
           result->Success(flutter::EncodableValue(list));
+          return;
+        }
+        if (call.method_name() == "getIdleSeconds") {
+          result->Success(
+              flutter::EncodableValue(static_cast<int32_t>(GetSystemIdleSeconds())));
           return;
         }
         result->NotImplemented();

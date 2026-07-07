@@ -65,6 +65,19 @@ class DesktopWorkActivityAgent {
         return;
       }
 
+      final idleThresholdSeconds = _activityInterval.inSeconds;
+      if (Platform.isWindows) {
+        final idleSeconds = await DesktopNative.getIdleSeconds();
+        await _log('idle.checked', {
+          'idleSeconds': idleSeconds,
+          'thresholdSeconds': idleThresholdSeconds,
+        });
+        if (idleSeconds < idleThresholdSeconds) {
+          await _log('idle.skip_user_active');
+          return;
+        }
+      }
+
       final captureSeconds = (state['captureSeconds'] as num?)?.toInt() ?? 5;
       final promptSeconds = (state['promptSeconds'] as num?)?.toInt() ?? 30;
       final startedAt = DateTime.now();

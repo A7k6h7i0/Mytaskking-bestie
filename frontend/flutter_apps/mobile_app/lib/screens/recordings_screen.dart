@@ -124,7 +124,9 @@ class _RecordingsScreenState extends ConsumerState<RecordingsScreen> {
                   leading: Icon(
                     source == 'MEETING'
                         ? Icons.videocam_outlined
-                        : Icons.phone_outlined,
+                        : source == 'TELECALLER'
+                            ? Icons.headset_mic_outlined
+                            : Icons.phone_outlined,
                     color: c.brand,
                   ),
                   title: Text(

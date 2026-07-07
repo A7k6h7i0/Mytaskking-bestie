@@ -8,24 +8,34 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.media.AudioManager
 import android.media.ToneGenerator
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import android.view.WindowManager
-import io.flutter.embedding.android.FlutterActivity
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 
-class MainActivity : FlutterActivity() {
+class MainActivity : FlutterFragmentActivity() {
     private val launchChannel = "mytaskking/launch_intent"
     private val callNotificationChannel = "mytaskking/call_notification"
     private val proximityMethodChannel = "mytaskking/proximity"
     private val proximityEventChannel = "mytaskking/proximity_events"
     private val soundsChannel = "mytaskking/sounds"
+    private val telecallerRecordingChannel = "mytaskking/telecaller_recording"
+    private val callSettingsChannel = "mytaskking/call_settings"
+    private val callRecordingStorageChannel = "mytaskking/call_recording_storage"
     private var latestLaunchPayload: Map<String, String?>? = null
+    private var pendingStorageResult: MethodChannel.Result? = null
+
+    private lateinit var openTreeLauncher: ActivityResultLauncher<Uri?>
+    private lateinit var openFileLauncher: ActivityResultLauncher<String>
 
     private var sensorManager: SensorManager? = null
     private var proximitySensor: Sensor? = null
@@ -34,6 +44,28 @@ class MainActivity : FlutterActivity() {
     private var proximitySink: EventChannel.EventSink? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        openTreeLauncher = registerForActivityResult(
+            ActivityResultContracts.OpenDocumentTree(),
+        ) { uri: Uri? ->
+            val pending = pendingStorageResult
+            pendingStorageResult = null
+            if (uri == null) {
+                pending?.success(null)
+            } else {
+                pending?.success(CallRecordingStorageHelper.pickFolderResult(this, uri))
+            }
+        }
+        openFileLauncher = registerForActivityResult(
+            ActivityResultContracts.GetContent(),
+        ) { uri: Uri? ->
+            val pending = pendingStorageResult
+            pendingStorageResult = null
+            if (uri == null) {
+                pending?.success(null)
+            } else {
+                pending?.success(CallRecordingStorageHelper.pickFileResult(this, uri))
+            }
+        }
         super.onCreate(savedInstanceState)
         BestieFirebaseMessagingService.createCallNotificationChannel(this)
         BestieFirebaseMessagingService.createMessageNotificationChannel(this)
@@ -105,6 +137,88 @@ class MainActivity : FlutterActivity() {
                     "playKeyTap" -> {
                         playKeyTapTone()
                         result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, telecallerRecordingChannel)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "start" -> {
+                        val callId = call.argument<String>("callId")
+                        TelecallerRecordingForegroundService.start(this, callId)
+                        result.success(null)
+                    }
+                    "stop" -> {
+                        TelecallerRecordingForegroundService.stop(this)
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, callSettingsChannel)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "openCallRecordingSettings" -> {
+                        val ok = CallSettingsHelper.openCallRecordingSettings(this)
+                        result.success(ok)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, callRecordingStorageChannel)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "pickFolder" -> {
+                        pendingStorageResult = result
+                        openTreeLauncher.launch(null)
+                    }
+                    "pickFile" -> {
+                        pendingStorageResult = result
+                        openFileLauncher.launch("audio/*")
+                    }
+                    "countAudioInTree" -> {
+                        val treeUri = call.argument<String>("treeUri")
+                        if (treeUri.isNullOrBlank()) {
+                            result.success(0)
+                        } else {
+                            result.success(
+                                CallRecordingStorageHelper.countAudioInTree(this, treeUri),
+                            )
+                        }
+                    }
+                    "verifyTreeAccess" -> {
+                        val treeUri = call.argument<String>("treeUri")
+                        if (treeUri.isNullOrBlank()) {
+                            result.success(false)
+                        } else {
+                            result.success(
+                                CallRecordingStorageHelper.verifyTreeAccess(this, treeUri),
+                            )
+                        }
+                    }
+                    "findNewestRecording" -> {
+                        val treeUri = call.argument<String>("treeUri")
+                        val modifiedAfterMs = call.argument<Number>("modifiedAfterMs")?.toLong() ?: 0L
+                        val skipUri = call.argument<String>("skipUri")
+                        val skipModifiedMs = call.argument<Number>("skipModifiedMs")?.toLong() ?: 0L
+                        result.success(
+                            CallRecordingStorageHelper.findNewestRecording(
+                                this,
+                                treeUri,
+                                modifiedAfterMs,
+                                skipUri,
+                                skipModifiedMs,
+                            ),
+                        )
+                    }
+                    "readBytes" -> {
+                        val uri = call.argument<String>("uri")
+                        if (uri.isNullOrBlank()) {
+                            result.success(null)
+                        } else {
+                            result.success(CallRecordingStorageHelper.readBytes(this, uri))
+                        }
                     }
                     else -> result.notImplemented()
                 }

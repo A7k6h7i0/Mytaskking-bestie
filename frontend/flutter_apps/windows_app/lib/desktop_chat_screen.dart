@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
+import 'package:mytaskking_mobile/chat_clear.dart';
 import 'package:mytaskking_mobile/screens.dart'
     show ChatDetailScreen, CallSession;
 import 'package:mytaskking_core/mytaskking_core.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 final _desktopChatDirectoryProvider =
     FutureProvider.family.autoDispose<List<Map<String, dynamic>>, String>(
@@ -24,6 +28,7 @@ class _DesktopChatScreenState extends ConsumerState<DesktopChatScreen> {
   String? _selectedChannelId;
   String _query = '';
   String _filter = 'All';
+  int _chatDetailEpoch = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -86,11 +91,14 @@ class _DesktopChatScreenState extends ConsumerState<DesktopChatScreen> {
                             channel: selectedChannel,
                             onVoice: () => _startCall(selectedChannel, 'voice'),
                             onVideo: () => _startCall(selectedChannel, 'video'),
+                            onMore: () => _showChatOptionsMenu(selectedChannel),
                           ),
                           Divider(height: 1, color: colors.border),
                           Expanded(
                             child: ChatDetailScreen(
-                              key: ValueKey(_selectedChannelId),
+                              key: ValueKey(
+                                '${_selectedChannelId!}_$_chatDetailEpoch',
+                              ),
                               channelId: _selectedChannelId!,
                               hideHeader: true,
                             ),
@@ -176,6 +184,70 @@ class _DesktopChatScreenState extends ConsumerState<DesktopChatScreen> {
     }).toList();
     list.sort((a, b) => _activityTime(b).compareTo(_activityTime(a)));
     return list;
+  }
+
+  Future<void> _showChatOptionsMenu(Map<String, dynamic> channel) async {
+    final action = await showDialog<_ChatMenuAction>(
+      context: context,
+      builder: (ctx) => _ChatOptionsDialog(channel: channel),
+    );
+    if (!mounted || action == null) return;
+    switch (action) {
+      case _ChatMenuAction.clearChat:
+        await _clearChat(_selectedChannelId!);
+      case _ChatMenuAction.createGroup:
+        await _openCreateGroup(channel);
+    }
+  }
+
+  Future<void> _clearChat(String channelId) async {
+    final ok = await bestieConfirm(
+      context,
+      title: 'Clear chat?',
+      description:
+          'All messages in this chat will be removed from this device only. '
+          'The other person will still have the full conversation.',
+      confirmLabel: 'Clear chat',
+    );
+    if (!ok) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await markChatCleared(prefs, channelId);
+      ref.invalidate(chatClearedAtProvider(channelId));
+      if (!mounted) return;
+      setState(() => _chatDetailEpoch++);
+      bestieToast(context, 'Chat cleared', kind: BestieToastKind.success);
+    } catch (err) {
+      if (!mounted) return;
+      bestieToast(
+        context,
+        'Could not clear chat',
+        body: formatApiError(err),
+        kind: BestieToastKind.error,
+      );
+    }
+  }
+
+  Future<void> _openCreateGroup(Map<String, dynamic> channel) async {
+    final me = ref.read(authStoreProvider).user;
+    final peer = _dmPeer(channel, me?.id);
+    final created = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => _CreateGroupDialog(
+        me: me,
+        preselectedPeer: peer,
+      ),
+    );
+    if (created == null || !mounted) return;
+    ref.invalidate(channelsProvider);
+    final id = created['id']?.toString();
+    if (id != null) {
+      setState(() {
+        _selectedChannelId = id;
+        _chatDetailEpoch++;
+      });
+      bestieToast(context, 'Group created', kind: BestieToastKind.success);
+    }
   }
 
   Future<void> _startCall(Map<String, dynamic> channel, String mode) async {
@@ -279,19 +351,26 @@ class _ChatRail extends StatelessWidget {
           const SizedBox(height: 14),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 18),
-            child: SegmentedButton<String>(
-              showSelectedIcon: false,
-              segments: const [
-                ButtonSegment(value: 'All', label: Text('All')),
-                ButtonSegment(value: 'Direct', label: Text('Direct')),
-                ButtonSegment(value: 'Groups', label: Text('Groups')),
-                ButtonSegment(value: 'Channels', label: Text('Channels')),
-              ],
-              selected: {filter},
-              onSelectionChanged: (next) => onFilter(next.first),
-              style: ButtonStyle(
-                textStyle: WidgetStateProperty.all(
-                  const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: SegmentedButton<String>(
+                showSelectedIcon: false,
+                segments: const [
+                  ButtonSegment(value: 'All', label: Text('All')),
+                  ButtonSegment(value: 'Direct', label: Text('Direct')),
+                  ButtonSegment(value: 'Groups', label: Text('Groups')),
+                  ButtonSegment(value: 'Channels', label: Text('Channels')),
+                ],
+                selected: {filter},
+                onSelectionChanged: (next) => onFilter(next.first),
+                style: ButtonStyle(
+                  visualDensity: VisualDensity.compact,
+                  padding: WidgetStateProperty.all(
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  ),
+                  textStyle: WidgetStateProperty.all(
+                    const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+                  ),
                 ),
               ),
             ),
@@ -451,16 +530,20 @@ class _ChatTile extends ConsumerWidget {
   }
 }
 
+enum _ChatMenuAction { clearChat, createGroup }
+
 class _ConversationHeader extends ConsumerWidget {
   const _ConversationHeader({
     required this.channel,
     required this.onVoice,
     required this.onVideo,
+    required this.onMore,
   });
 
   final Map<String, dynamic> channel;
   final VoidCallback onVoice;
   final VoidCallback onVideo;
+  final VoidCallback onMore;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -525,7 +608,7 @@ class _ConversationHeader extends ConsumerWidget {
           const SizedBox(width: 10),
           _HeaderButton(icon: Icons.videocam_rounded, onTap: onVideo),
           const SizedBox(width: 10),
-          _HeaderButton(icon: Icons.more_vert_rounded, onTap: () {}),
+          _HeaderButton(icon: Icons.more_vert_rounded, onTap: onMore),
         ],
       ),
     );
@@ -659,4 +742,511 @@ String _timeLabel(DateTime time) {
   final minute = local.minute.toString().padLeft(2, '0');
   final suffix = local.hour >= 12 ? 'PM' : 'AM';
   return '$hour:$minute $suffix';
+}
+
+class _ChatOptionsDialog extends ConsumerWidget {
+  const _ChatOptionsDialog({required this.channel});
+
+  final Map<String, dynamic> channel;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = BestieColors.of(context);
+    final meId = ref.watch(authStoreProvider).user?.id;
+    final title = _channelTitle(channel, meId);
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 360),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 12, 8, 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: c.text,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+              ListTile(
+                leading: Icon(Icons.group_add_outlined, color: c.brand),
+                title: const Text(
+                  'Create new group',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                subtitle: const Text(
+                  'Add this chat and more teammates',
+                  style: TextStyle(fontSize: 12),
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                onTap: () =>
+                    Navigator.pop(context, _ChatMenuAction.createGroup),
+              ),
+              ListTile(
+                leading: Icon(Icons.delete_sweep_outlined, color: c.danger),
+                title: Text(
+                  'Clear chat',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: c.danger,
+                  ),
+                ),
+                subtitle: const Text(
+                  'Remove messages on this device only',
+                  style: TextStyle(fontSize: 12),
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                onTap: () => Navigator.pop(context, _ChatMenuAction.clearChat),
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CreateGroupDialog extends ConsumerStatefulWidget {
+  const _CreateGroupDialog({
+    required this.me,
+    this.preselectedPeer,
+  });
+
+  final BestieUser? me;
+  final Map<String, dynamic>? preselectedPeer;
+
+  @override
+  ConsumerState<_CreateGroupDialog> createState() =>
+      _CreateGroupDialogState();
+}
+
+class _CreateGroupDialogState extends ConsumerState<_CreateGroupDialog> {
+  final _nameCtl = TextEditingController();
+  final _searchCtl = TextEditingController();
+  Timer? _debounce;
+
+  bool _loading = true;
+  String? _error;
+  bool _submitting = false;
+  List<Map<String, dynamic>> _employees = const [];
+  final Set<String> _selected = {};
+
+  @override
+  void initState() {
+    super.initState();
+    final peerId = widget.preselectedPeer?['id']?.toString();
+    if (peerId != null && peerId.isNotEmpty) {
+      _selected.add(peerId);
+    }
+    unawaited(_fetch(''));
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _nameCtl.dispose();
+    _searchCtl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _fetch(String q) async {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 200), () async {
+      if (!mounted) return;
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+      try {
+        final meId = widget.me?.id;
+        final res = await ref.read(apiProvider).listEmployees(
+              q: q.trim().isEmpty ? null : q.trim(),
+            );
+        if (!mounted) return;
+        setState(() {
+          _employees = res
+              .where((e) => meId == null || e['id']?.toString() != meId)
+              .toList();
+          _loading = false;
+        });
+      } catch (e) {
+        if (!mounted) return;
+        setState(() {
+          _error = formatApiError(e);
+          _loading = false;
+        });
+      }
+    });
+  }
+
+  Future<void> _submit() async {
+    if (_selected.isEmpty) {
+      bestieToast(
+        context,
+        'Select teammates',
+        body: 'Pick at least one person for the group.',
+        kind: BestieToastKind.warning,
+      );
+      return;
+    }
+    final name = _nameCtl.text.trim();
+    if (name.isEmpty) {
+      bestieToast(
+        context,
+        'Group needs a name',
+        body: 'Give it a short, descriptive title.',
+        kind: BestieToastKind.warning,
+      );
+      return;
+    }
+    setState(() => _submitting = true);
+    try {
+      final channel = await ref.read(apiProvider).createChannel(
+            kind: 'GROUP',
+            name: name,
+            memberIds: _selected.toList(),
+          );
+      if (!mounted) return;
+      Navigator.pop(context, channel);
+    } catch (e) {
+      if (!mounted) return;
+      bestieToast(
+        context,
+        'Could not create group',
+        body: formatApiError(e),
+        kind: BestieToastKind.error,
+      );
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
+    final meName = widget.me?.name ?? 'You';
+    final peerName = (widget.preselectedPeer?['name'] ?? '').toString();
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480, maxHeight: 620),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 12, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Create new group',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: c.text,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: Icon(Icons.close_rounded, color: c.textMuted),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _MemberChip(
+                    label: meName,
+                    subtitle: 'You',
+                    avatarUrl: widget.me?.avatarUrl,
+                    locked: true,
+                  ),
+                  if (widget.preselectedPeer != null)
+                    _MemberChip(
+                      label: peerName.isEmpty ? 'Contact' : peerName,
+                      subtitle: 'From this chat',
+                      avatarUrl:
+                          widget.preselectedPeer?['avatarUrl']?.toString(),
+                      locked: true,
+                    ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+              child: TextField(
+                controller: _nameCtl,
+                decoration: InputDecoration(
+                  isDense: true,
+                  hintText: 'Group name',
+                  filled: true,
+                  fillColor: c.bg,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: c.border),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: c.border),
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: TextField(
+                controller: _searchCtl,
+                onChanged: _fetch,
+                decoration: InputDecoration(
+                  isDense: true,
+                  hintText: 'Search employees...',
+                  prefixIcon: const Icon(Icons.search_rounded, size: 18),
+                  filled: true,
+                  fillColor: c.bg,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: c.border),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: c.border),
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Text(
+                'Add more teammates',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: c.textMuted,
+                ),
+              ),
+            ),
+            Expanded(
+              child: _loading && _employees.isEmpty
+                  ? const Center(child: BestieSpinner())
+                  : _error != null && _employees.isEmpty
+                      ? Center(
+                          child: Text(
+                            _error!,
+                            style: TextStyle(color: c.danger),
+                          ),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                          itemCount: _employees.length,
+                          itemBuilder: (ctx, i) {
+                            final user = _employees[i];
+                            final id = user['id']?.toString() ?? '';
+                            final selected = _selected.contains(id);
+                            final isLockedPeer =
+                                id == widget.preselectedPeer?['id']?.toString();
+                            return Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(10),
+                                onTap: isLockedPeer
+                                    ? null
+                                    : () => setState(() {
+                                          if (selected) {
+                                            _selected.remove(id);
+                                          } else {
+                                            _selected.add(id);
+                                          }
+                                        }),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 6,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      BestieAvatar(
+                                        name: (user['name'] ?? '—').toString(),
+                                        imageUrl:
+                                            user['avatarUrl']?.toString(),
+                                        size: 36,
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              (user['name'] ?? '—').toString(),
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w600,
+                                                color: c.text,
+                                              ),
+                                            ),
+                                            Text(
+                                              (user['customTitle'] ??
+                                                      user['role'] ??
+                                                      '')
+                                                  .toString()
+                                                  .replaceAll('_', ' '),
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: c.textMuted,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      if (isLockedPeer)
+                                        Text(
+                                          'Included',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: c.brand,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        )
+                                      else
+                                        AnimatedContainer(
+                                          duration: const Duration(
+                                            milliseconds: 180,
+                                          ),
+                                          width: 22,
+                                          height: 22,
+                                          decoration: BoxDecoration(
+                                            color: selected
+                                                ? c.brand
+                                                : Colors.transparent,
+                                            border: Border.all(
+                                              color: selected
+                                                  ? c.brand
+                                                  : c.borderStrong,
+                                              width: 1.5,
+                                            ),
+                                            borderRadius:
+                                                BorderRadius.circular(6),
+                                          ),
+                                          child: selected
+                                              ? const Icon(
+                                                  Icons.check_rounded,
+                                                  size: 14,
+                                                  color: Colors.white,
+                                                )
+                                              : null,
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+            ),
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+                child: FilledButton.icon(
+                  onPressed: _submitting ? null : _submit,
+                  icon: _submitting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: BestieSpinner(size: 16),
+                        )
+                      : const Icon(Icons.group_add_rounded, size: 18),
+                  label: Text(
+                    _selected.isEmpty
+                        ? 'Create group'
+                        : 'Create group · ${_selected.length}',
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MemberChip extends StatelessWidget {
+  const _MemberChip({
+    required this.label,
+    required this.subtitle,
+    this.avatarUrl,
+    this.locked = false,
+  });
+
+  final String label;
+  final String subtitle;
+  final String? avatarUrl;
+  final bool locked;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: c.bg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: c.border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          BestieAvatar(name: label, imageUrl: avatarUrl, size: 28),
+          const SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: c.text,
+                ),
+              ),
+              Text(
+                subtitle,
+                style: TextStyle(fontSize: 10, color: c.textMuted),
+              ),
+            ],
+          ),
+          if (locked) ...[
+            const SizedBox(width: 6),
+            Icon(Icons.lock_outline_rounded, size: 14, color: c.textMuted),
+          ],
+        ],
+      ),
+    );
+  }
 }
