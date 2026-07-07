@@ -107,11 +107,15 @@ android {
     }
 }
 
+// Relative path only — absolute paths with spaces (e.g. "ADD PHONE BOOK") break
+// Flutter's Gradle compile step on Windows (`/main.dart` not found).
 flutter {
     source = "../.."
 }
 
 dependencies {
     implementation("com.google.firebase:firebase-messaging:24.1.2")
+    implementation("androidx.documentfile:documentfile:1.1.0")
+    implementation("androidx.activity:activity-ktx:1.9.3")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 }

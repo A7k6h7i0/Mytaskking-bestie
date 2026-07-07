@@ -74,8 +74,13 @@ class DesktopRuntime {
   static Future<void> hideWindowToBackground() async {
     if (!Platform.isWindows) return;
     try {
-      await windowManager.setSkipTaskbar(true);
-      await windowManager.hide();
+      if (_backgroundRequested) {
+        await windowManager.setSkipTaskbar(true);
+        await windowManager.hide();
+        return;
+      }
+      await windowManager.setSkipTaskbar(false);
+      await windowManager.minimize();
     } catch (_) {}
   }
 
@@ -102,6 +107,18 @@ class DesktopRuntime {
     } catch (_) {}
   }
 
+  static Future<void> setSessionActive(bool hasAuthSession) async {
+    _backgroundSessionActive = hasAuthSession;
+    if (!Platform.isWindows) return;
+    try {
+      await windowManager.setPreventClose(interceptClose);
+      await windowManager.setSkipTaskbar(hideOnClose);
+      if (!hideOnClose) {
+        await windowManager.setSkipTaskbar(false);
+      }
+    } catch (_) {}
+  }
+
   static Future<void> _configureWindow() async {
     await windowManager.waitUntilReadyToShow(
       WindowOptions(
@@ -124,6 +141,9 @@ class DesktopRuntime {
 
   static Future<void> _bringWindowToFront() async {
     await windowManager.setSkipTaskbar(false);
+    if (!await windowManager.isVisible()) {
+      await windowManager.show();
+    }
     if (await windowManager.isMinimized()) {
       await windowManager.restore();
     }

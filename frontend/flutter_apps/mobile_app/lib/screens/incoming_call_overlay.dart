@@ -170,24 +170,33 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
       // it was the same call (some race conditions on group calls).
       final status = data is Map ? data['status']?.toString() : null;
       final terminal = status == 'ENDED' || status == 'MISSED';
-      if (_pending != null && data is Map) {
+      if (data is Map) {
         final me = ref.read(authStoreProvider).user;
-        if (data['callId'] == _pending!['call']?['id'] &&
+        if (data['callId'] == _pendingCallId() &&
             (terminal || data['userId'] == me?.id)) {
-          unawaited(_cancelNativeIncomingNotification(
-              callId: data['callId']?.toString()));
-          _dismiss();
+          _dismissPendingIncomingForCall(data['callId']?.toString());
         }
       }
       if (terminal) unawaited(_clearEndedOngoingCall(data));
+    }));
+    _unsubs.add(rt.onAny('call.participant.left', ([data]) {
+      if (data is! Map) return;
+      if (!isCallEventForThisApp(Map<String, dynamic>.from(data))) return;
+      final status = data['status']?.toString();
+      if (status != 'ENDED' && status != 'MISSED') return;
+      _dismissPendingIncomingForCall(data['callId']?.toString());
     }));
     // Global call-end cleanup. The CallScreen also handles call.ended, but it
     // unsubscribes on dispose — so when the user backgrounds a call to the
     // "ongoing call" pill and the call then ends remotely, nothing cleared the
     // pill and it lingered as "tap to join". This always-mounted listener
     // guarantees the pill is cleared whenever the active call ends.
-    _unsubs.add(rt.onAny(
-        'call.ended', ([data]) => unawaited(_clearEndedOngoingCall(data))));
+    _unsubs.add(rt.onAny('call.ended', ([data]) {
+      if (data is Map) {
+        _dismissPendingIncomingForCall(data['callId']?.toString());
+      }
+      unawaited(_clearEndedOngoingCall(data));
+    }));
     // Emergency siren (#11): admin-triggered loud alarm that blares until the
     // recipient acknowledges. Also fired on escalation.
     _unsubs.add(rt.onAny('emergency.alert', ([data]) => _onEmergency(data)));
@@ -201,6 +210,13 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
       if (data['userId'] != userId) return;
       _dismiss();
     }));
+  }
+
+  void _dismissPendingIncomingForCall(String? callId) {
+    if (callId == null || callId.isEmpty) return;
+    if (_pendingCallId() != callId) return;
+    unawaited(_cancelNativeIncomingNotification(callId: callId));
+    _dismiss();
   }
 
   /// Clears the "ongoing call" pill when the matching call ends, even if the
@@ -718,6 +734,25 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
       callId: callId,
       meetingSlug: meetingSlug,
     );
+    if (callId != null && meetingSlug == null) {
+      try {
+        await ref.read(apiProvider).get('/calls/$callId/token');
+      } catch (e) {
+        final msg = formatApiError(e).toLowerCase();
+        if (msg.contains('ended') || msg.contains('not found')) {
+          if (mounted) setState(() => _pending = null);
+          if (mounted) {
+            bestieToast(
+              context,
+              'Call ended',
+              body: 'The caller hung up before you could answer.',
+              kind: BestieToastKind.info,
+            );
+          }
+          return;
+        }
+      }
+    }
     final target = meetingSlug != null
         ? '/meeting/$meetingSlug?mode=$mode'
         : '/call/$callId?mode=$mode';

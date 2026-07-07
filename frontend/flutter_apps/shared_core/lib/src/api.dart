@@ -369,6 +369,18 @@ extension BestieApiExt on BestieApi {
     );
     return r.data as Map<String, dynamic>;
   }
+  Future<Map<String, dynamic>> attachTelecallerCallRecording(
+    String callId, {
+    String? fileId,
+    String? url,
+  }) =>
+      post(
+        '/telecaller/calls/$callId/recording',
+        body: {
+          if (fileId != null) 'fileId': fileId,
+          if (url != null) 'url': url,
+        },
+      );
   Future<Map<String, dynamic>> bulkDistributeLeads(
     Map<String, dynamic> data,
   ) =>

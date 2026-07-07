@@ -22,6 +22,7 @@ import 'screens/connectivity_banner.dart';
 import 'screens/incoming_call_overlay.dart';
 import 'screens/ongoing_call_bar.dart';
 import 'state.dart' hide ThemeMode;
+import 'telecaller_recording_setup.dart';
 
 const _foregroundNotificationsChannelId = 'foreground_notifications_silent';
 const _notificationReplyActionId = 'bestie.reply';
@@ -61,6 +62,13 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final auth = core.BestieAuthStore();
   await auth.load();
+  await TelecallerRecordingSetup.load();
+
+  assert(() {
+    debugPrint('[MyTaskKing] API  → $kApiBaseUrl');
+    debugPrint('[MyTaskKing] Socket → $kSocketUrl');
+    return true;
+  }());
 
   final api = core.BestieApi(
     baseUrl: kApiBaseUrl,

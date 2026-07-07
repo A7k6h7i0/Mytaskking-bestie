@@ -16,6 +16,14 @@ class DesktopNative {
     });
   }
 
+  /// Seconds since last keyboard or mouse input anywhere on the system.
+  /// Windows only; returns 0 on other platforms.
+  static Future<int> getIdleSeconds() async {
+    if (!isSupported) return 0;
+    final value = await _channel.invokeMethod<int>('getIdleSeconds');
+    return value ?? 0;
+  }
+
   static Future<List<File>> captureFrames({
     required int frameCount,
     required int delayMs,

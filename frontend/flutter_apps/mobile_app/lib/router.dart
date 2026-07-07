@@ -21,6 +21,7 @@ import 'screens/announcements_screen.dart';
 import 'screens/saved_screen.dart';
 import 'screens/sessions_screen.dart';
 import 'screens/telecaller_screen.dart';
+import 'screens/telecaller_onboarding_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/attendance_screen.dart';
 import 'screens/task_detail_screen.dart';
@@ -28,6 +29,7 @@ import 'screens/reports_screen.dart';
 import 'screens/recordings_screen.dart';
 import 'screens/organizations_screen.dart';
 import 'state.dart' hide ThemeMode;
+import 'telecaller_recording_setup.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   final auth = ref.watch(authStoreProvider);
@@ -37,9 +39,29 @@ final routerProvider = Provider<GoRouter>((ref) {
     refreshListenable: _AuthListenable(auth),
     redirect: (ctx, state) {
       final logged = auth.accessToken != null;
-      final loginPath = state.matchedLocation == '/login';
+      final loc = state.matchedLocation;
+      final loginPath = loc == '/login';
+      final setupPath = loc == '/telecaller/setup';
+
       if (!logged && !loginPath) return '/login';
-      if (logged && loginPath) return '/chat';
+      if (logged && loginPath) {
+        final role = auth.user?.role;
+        if (role == 'TELECALLER' &&
+            TelecallerRecordingSetup.isLoaded &&
+            !TelecallerRecordingSetup.isComplete) {
+          return '/telecaller/setup';
+        }
+        if (role == 'TELECALLER') return '/telecaller';
+        return '/chat';
+      }
+      if (logged &&
+          auth.user?.role == 'TELECALLER' &&
+          TelecallerRecordingSetup.isLoaded &&
+          !TelecallerRecordingSetup.isComplete &&
+          !setupPath &&
+          loc != '/profile') {
+        return '/telecaller/setup';
+      }
       return null;
     },
     routes: [
@@ -86,6 +108,9 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/sessions', builder: (_, __) => const SessionsScreen()),
       GoRoute(
           path: '/telecaller', builder: (_, __) => const TelecallerScreen()),
+      GoRoute(
+          path: '/telecaller/setup',
+          builder: (_, __) => const TelecallerOnboardingScreen()),
       GoRoute(path: '/settings', builder: (_, __) => const SettingsScreen()),
       GoRoute(path: '/reports', builder: (_, __) => const ReportsScreen()),
       GoRoute(

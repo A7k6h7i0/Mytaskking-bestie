@@ -10,7 +10,9 @@ import 'package:geolocator/geolocator.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../state.dart';
+import '../telecaller_recording_setup.dart';
 import 'front_selfie_capture.dart';
+import 'telecaller_onboarding_screen.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -131,7 +133,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       );
       setState(() => _success = true);
       await Future.delayed(const Duration(milliseconds: 700));
-      if (mounted) context.go(_skipSelfieOnDesktop ? '/dashboard' : '/chat');
+      if (mounted) {
+        await TelecallerRecordingSetup.load();
+        final role = ref.read(authStoreProvider).user?.role;
+        context.go(telecallerPostLoginRoute(
+          role: role,
+          isDesktop: _skipSelfieOnDesktop,
+        ));
+      }
     } catch (e) {
       setState(() => _error = formatApiError(e));
     } finally {

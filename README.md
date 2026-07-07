@@ -97,3 +97,18 @@ npm run dev                   # http://localhost:5173
 - [docs/ENTERPRISE.md](docs/ENTERPRISE.md) — multi-tenancy, advanced RBAC, sessions, automations, analytics, AI roadmap
 - [docs/INFRASTRUCTURE.md](docs/INFRASTRUCTURE.md) — event bus, cache, queues, distributed sockets, media pipeline, observability, CI/CD, feature flags, collaboration
 - Live OpenAPI reference at `/api/v1/docs` once the backend is running.
+
+
+
+
+
+PS C:\Users\Sarif\Downloads\Documents\ADD PHONE BOOK\Mytaskking-bestie> Remove-Item -Recurse -Force .dart_tool
+>> flutter pub get
+>> flutter build windows --debug --dart-define=API_URL=https://mytaskking.com --dart-define=SOCKET_URL=https://mytaskking.com
+
+
+
+
+
+cd "c:\Users\Sarif\Downloads\Documents\ADD PHONE BOOK\Mytaskking-bestie\frontend\flutter_apps\mobile_app"
+flutter run --target=lib/main.dart --dart-define=API_URL=https://mytaskking.com

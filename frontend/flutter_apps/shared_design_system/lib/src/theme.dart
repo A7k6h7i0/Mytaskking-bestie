@@ -6,48 +6,83 @@ import 'tokens.dart';
 /// Premium, Lark-grade Material 3 theme. Mirrors the React web design tokens.
 class BestieTheme {
   static ThemeData light() => _build(brightness: Brightness.light);
-  static ThemeData dark()  => _build(brightness: Brightness.dark);
+  static ThemeData dark() => _build(brightness: Brightness.dark);
 
   static ThemeData _build({required Brightness brightness}) {
     final isDark = brightness == Brightness.dark;
     final base = ThemeData(brightness: brightness, useMaterial3: true);
 
     // Palette resolves per-brightness so the same theme reads through tokens.
-    final cBg          = isDark ? BestieTokens.cBgDark          : BestieTokens.cBg;
-    final cSurface     = isDark ? BestieTokens.cSurfaceDark     : BestieTokens.cSurface;
-    final cSurface1    = isDark ? BestieTokens.cSurface1Dark    : BestieTokens.cSurface1;
-    final cSurface2    = isDark ? BestieTokens.cSurface2Dark    : BestieTokens.cSurface2;
-    final cSurface3    = isDark ? BestieTokens.cSurface3Dark    : BestieTokens.cSurface3;
-    final cBorder      = isDark ? BestieTokens.cBorderDark      : BestieTokens.cBorder;
-    final cBorderStrong= isDark ? BestieTokens.cBorderStrongDark: BestieTokens.cBorderStrong;
-    final cText        = isDark ? BestieTokens.cTextDark        : BestieTokens.cText;
-    final cTextSoft    = isDark ? BestieTokens.cTextSoftDark    : BestieTokens.cTextSoft;
-    final cTextMuted   = isDark ? BestieTokens.cTextMutedDark   : BestieTokens.cTextMuted;
-    final cBrandSoft   = isDark ? BestieTokens.cBrandSoftDark   : BestieTokens.cBrandSoft;
-    final cAccentSoft  = isDark ? BestieTokens.cAccentSoftDark  : BestieTokens.cAccentSoft;
-    final cDangerSoft  = isDark ? BestieTokens.cDangerSoftDark  : BestieTokens.cDangerSoft;
+    final cBg = isDark ? BestieTokens.cBgDark : BestieTokens.cBg;
+    final cSurface = isDark ? BestieTokens.cSurfaceDark : BestieTokens.cSurface;
+    final cSurface1 =
+        isDark ? BestieTokens.cSurface1Dark : BestieTokens.cSurface1;
+    final cSurface2 =
+        isDark ? BestieTokens.cSurface2Dark : BestieTokens.cSurface2;
+    final cSurface3 =
+        isDark ? BestieTokens.cSurface3Dark : BestieTokens.cSurface3;
+    final cBorder = isDark ? BestieTokens.cBorderDark : BestieTokens.cBorder;
+    final cBorderStrong =
+        isDark ? BestieTokens.cBorderStrongDark : BestieTokens.cBorderStrong;
+    final cText = isDark ? BestieTokens.cTextDark : BestieTokens.cText;
+    final cTextSoft =
+        isDark ? BestieTokens.cTextSoftDark : BestieTokens.cTextSoft;
+    final cTextMuted =
+        isDark ? BestieTokens.cTextMutedDark : BestieTokens.cTextMuted;
+    final cBrandSoft =
+        isDark ? BestieTokens.cBrandSoftDark : BestieTokens.cBrandSoft;
+    final cAccentSoft =
+        isDark ? BestieTokens.cAccentSoftDark : BestieTokens.cAccentSoft;
+    final cDangerSoft =
+        isDark ? BestieTokens.cDangerSoftDark : BestieTokens.cDangerSoft;
 
-    final baseText = GoogleFonts.interTextTheme(base.textTheme).apply(
+    final baseText = GoogleFonts.plusJakartaSansTextTheme(base.textTheme).apply(
       bodyColor: cText,
       displayColor: cText,
     );
 
     final text = baseText.copyWith(
-      displayLarge:   baseText.displayLarge?.copyWith(fontWeight: BestieTokens.fwBold,     letterSpacing: BestieTokens.lsTight),
-      displayMedium:  baseText.displayMedium?.copyWith(fontWeight: BestieTokens.fwBold,    letterSpacing: BestieTokens.lsTight),
-      displaySmall:   baseText.displaySmall?.copyWith(fontWeight: BestieTokens.fwSemibold, letterSpacing: BestieTokens.lsTight),
-      headlineLarge:  baseText.headlineLarge?.copyWith(fontWeight: BestieTokens.fwSemibold, letterSpacing: BestieTokens.lsTight),
-      headlineMedium: baseText.headlineMedium?.copyWith(fontWeight: BestieTokens.fwSemibold, letterSpacing: BestieTokens.lsSnug),
-      headlineSmall:  baseText.headlineSmall?.copyWith(fontWeight: BestieTokens.fwSemibold, letterSpacing: BestieTokens.lsSnug),
-      titleLarge:     baseText.titleLarge?.copyWith(fontWeight: BestieTokens.fwSemibold,    letterSpacing: BestieTokens.lsSnug),
-      titleMedium:    baseText.titleMedium?.copyWith(fontWeight: BestieTokens.fwSemibold,   letterSpacing: BestieTokens.lsNormal),
-      titleSmall:     baseText.titleSmall?.copyWith(fontWeight: BestieTokens.fwSemibold,    letterSpacing: BestieTokens.lsNormal),
-      bodyLarge:      baseText.bodyLarge?.copyWith(letterSpacing: BestieTokens.lsNormal,   height: 1.46),
-      bodyMedium:     baseText.bodyMedium?.copyWith(letterSpacing: BestieTokens.lsNormal,  height: 1.46),
-      bodySmall:      baseText.bodySmall?.copyWith(color: cTextMuted,                      letterSpacing: BestieTokens.lsNormal),
-      labelLarge:     baseText.labelLarge?.copyWith(fontWeight: BestieTokens.fwSemibold,   letterSpacing: BestieTokens.lsNormal),
-      labelMedium:    baseText.labelMedium?.copyWith(fontWeight: BestieTokens.fwSemibold,  letterSpacing: BestieTokens.lsNormal),
-      labelSmall:     baseText.labelSmall?.copyWith(fontWeight: BestieTokens.fwSemibold,   letterSpacing: 0.4),
+      displayLarge: baseText.displayLarge?.copyWith(
+          fontWeight: BestieTokens.fwBold, letterSpacing: BestieTokens.lsTight),
+      displayMedium: baseText.displayMedium?.copyWith(
+          fontWeight: BestieTokens.fwBold, letterSpacing: BestieTokens.lsTight),
+      displaySmall: baseText.displaySmall?.copyWith(
+          fontWeight: BestieTokens.fwSemibold,
+          letterSpacing: BestieTokens.lsTight),
+      headlineLarge: baseText.headlineLarge?.copyWith(
+          fontWeight: BestieTokens.fwSemibold,
+          letterSpacing: BestieTokens.lsTight),
+      headlineMedium: baseText.headlineMedium?.copyWith(
+          fontWeight: BestieTokens.fwSemibold,
+          letterSpacing: BestieTokens.lsSnug),
+      headlineSmall: baseText.headlineSmall?.copyWith(
+          fontWeight: BestieTokens.fwSemibold,
+          letterSpacing: BestieTokens.lsSnug),
+      titleLarge: baseText.titleLarge?.copyWith(
+          fontWeight: BestieTokens.fwSemibold,
+          letterSpacing: BestieTokens.lsSnug),
+      titleMedium: baseText.titleMedium?.copyWith(
+          fontWeight: BestieTokens.fwSemibold,
+          letterSpacing: BestieTokens.lsNormal),
+      titleSmall: baseText.titleSmall?.copyWith(
+          fontWeight: BestieTokens.fwSemibold,
+          letterSpacing: BestieTokens.lsNormal),
+      bodyLarge: baseText.bodyLarge?.copyWith(
+          letterSpacing: BestieTokens.lsNormal, height: 1.5, fontSize: 15.5),
+      bodyMedium: baseText.bodyMedium?.copyWith(
+          letterSpacing: BestieTokens.lsNormal, height: 1.5, fontSize: 14.5),
+      bodySmall: baseText.bodySmall?.copyWith(
+          color: cTextMuted,
+          letterSpacing: BestieTokens.lsNormal,
+          fontSize: 12.5),
+      labelLarge: baseText.labelLarge?.copyWith(
+          fontWeight: BestieTokens.fwSemibold,
+          letterSpacing: BestieTokens.lsNormal),
+      labelMedium: baseText.labelMedium?.copyWith(
+          fontWeight: BestieTokens.fwSemibold,
+          letterSpacing: BestieTokens.lsNormal),
+      labelSmall: baseText.labelSmall
+          ?.copyWith(fontWeight: BestieTokens.fwSemibold, letterSpacing: 0.4),
     );
 
     final colorScheme = ColorScheme.fromSeed(
@@ -57,7 +92,8 @@ class BestieTheme {
       primary: BestieTokens.cBrand,
       onPrimary: BestieTokens.cTextInvert,
       primaryContainer: cBrandSoft,
-      onPrimaryContainer: isDark ? BestieTokens.cTextDark : BestieTokens.cBrandStrong,
+      onPrimaryContainer:
+          isDark ? BestieTokens.cTextDark : BestieTokens.cBrandStrong,
       secondary: BestieTokens.cAccent,
       onSecondary: BestieTokens.cTextInvert,
       secondaryContainer: cAccentSoft,
@@ -105,7 +141,8 @@ class BestieTheme {
         centerTitle: false,
         surfaceTintColor: Colors.transparent,
         shadowColor: Colors.transparent,
-        titleTextStyle: text.titleLarge?.copyWith(fontWeight: BestieTokens.fwBold, color: cText),
+        titleTextStyle: text.titleLarge
+            ?.copyWith(fontWeight: BestieTokens.fwBold, color: cText),
         systemOverlayStyle: overlay,
         toolbarHeight: BestieTokens.topbarH,
       ),
@@ -122,9 +159,12 @@ class BestieTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: cSurface,
-        hintStyle: TextStyle(color: cTextMuted, fontWeight: BestieTokens.fwRegular),
-        labelStyle: TextStyle(color: cTextSoft, fontWeight: BestieTokens.fwMedium),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        hintStyle:
+            TextStyle(color: cTextMuted, fontWeight: BestieTokens.fwRegular),
+        labelStyle:
+            TextStyle(color: cTextSoft, fontWeight: BestieTokens.fwMedium),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(BestieTokens.rSm),
           borderSide: BorderSide(color: cBorder),
@@ -153,8 +193,11 @@ class BestieTheme {
           elevation: 0,
           shadowColor: BestieTokens.cBrand.withOpacity(0.25),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(BestieTokens.rSm)),
-          textStyle: const TextStyle(fontWeight: BestieTokens.fwSemibold, letterSpacing: BestieTokens.lsNormal),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(BestieTokens.rSm)),
+          textStyle: const TextStyle(
+              fontWeight: BestieTokens.fwSemibold,
+              letterSpacing: BestieTokens.lsNormal),
           animationDuration: BestieTokens.dur,
         ),
       ),
@@ -163,15 +206,18 @@ class BestieTheme {
           backgroundColor: BestieTokens.cBrand,
           foregroundColor: BestieTokens.cTextInvert,
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(BestieTokens.rSm)),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(BestieTokens.rSm)),
           textStyle: const TextStyle(fontWeight: BestieTokens.fwSemibold),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          foregroundColor: isDark ? BestieTokens.cBrand400 : BestieTokens.cBrandStrong,
+          foregroundColor:
+              isDark ? BestieTokens.cBrand400 : BestieTokens.cBrandStrong,
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(BestieTokens.rSm)),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(BestieTokens.rSm)),
           textStyle: const TextStyle(fontWeight: BestieTokens.fwSemibold),
         ),
       ),
@@ -180,7 +226,8 @@ class BestieTheme {
           foregroundColor: cText,
           side: BorderSide(color: cBorderStrong),
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(BestieTokens.rSm)),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(BestieTokens.rSm)),
           textStyle: const TextStyle(fontWeight: BestieTokens.fwSemibold),
         ),
       ),
@@ -189,7 +236,8 @@ class BestieTheme {
         side: BorderSide(color: cBorder),
         labelStyle: text.labelMedium,
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(BestieTokens.rPill)),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(BestieTokens.rPill)),
       ),
       dividerTheme: DividerThemeData(
         color: cBorder,
@@ -205,10 +253,11 @@ class BestieTheme {
           final selected = states.contains(WidgetState.selected);
           return TextStyle(
             fontSize: 11.5,
-            fontWeight: selected ? BestieTokens.fwSemibold : BestieTokens.fwMedium,
+            fontWeight:
+                selected ? BestieTokens.fwSemibold : BestieTokens.fwMedium,
             color: selected
-              ? (isDark ? BestieTokens.cBrand400 : BestieTokens.cBrandStrong)
-              : cTextMuted,
+                ? (isDark ? BestieTokens.cBrand400 : BestieTokens.cBrandStrong)
+                : cTextMuted,
             letterSpacing: BestieTokens.lsNormal,
           );
         }),
@@ -217,8 +266,8 @@ class BestieTheme {
           return IconThemeData(
             size: 22,
             color: selected
-              ? (isDark ? BestieTokens.cBrand400 : BestieTokens.cBrandStrong)
-              : cTextMuted,
+                ? (isDark ? BestieTokens.cBrand400 : BestieTokens.cBrandStrong)
+                : cTextMuted,
           );
         }),
       ),
@@ -228,7 +277,8 @@ class BestieTheme {
         modalBackgroundColor: cSurface,
         modalElevation: 24,
         shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
+          borderRadius:
+              BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
         ),
         clipBehavior: Clip.antiAlias,
         dragHandleColor: cBorderStrong,
@@ -247,15 +297,21 @@ class BestieTheme {
           color: (isDark ? Colors.white : cText).withOpacity(0.92),
           borderRadius: BorderRadius.circular(BestieTokens.rXs),
         ),
-        textStyle: TextStyle(color: isDark ? cText : Colors.white, fontSize: 12, fontWeight: BestieTokens.fwMedium),
+        textStyle: TextStyle(
+            color: isDark ? cText : Colors.white,
+            fontSize: 12,
+            fontWeight: BestieTokens.fwMedium),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         waitDuration: const Duration(milliseconds: 400),
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
         backgroundColor: isDark ? cSurface3 : cText,
-        contentTextStyle: TextStyle(color: isDark ? cText : Colors.white, fontWeight: BestieTokens.fwMedium),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(BestieTokens.rSm)),
+        contentTextStyle: TextStyle(
+            color: isDark ? cText : Colors.white,
+            fontWeight: BestieTokens.fwMedium),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(BestieTokens.rSm)),
         elevation: 8,
       ),
       switchTheme: SwitchThemeData(
@@ -263,7 +319,9 @@ class BestieTheme {
           (s) => s.contains(WidgetState.selected) ? Colors.white : cSurface,
         ),
         trackColor: WidgetStateProperty.resolveWith(
-          (s) => s.contains(WidgetState.selected) ? BestieTokens.cBrand : cBorderStrong,
+          (s) => s.contains(WidgetState.selected)
+              ? BestieTokens.cBrand
+              : cBorderStrong,
         ),
       ),
       progressIndicatorTheme: ProgressIndicatorThemeData(
@@ -288,7 +346,8 @@ class _PremiumPageTransitionBuilder extends PageTransitionsBuilder {
     Animation<double> secondaryAnimation,
     Widget child,
   ) {
-    final curved = CurvedAnimation(parent: animation, curve: BestieTokens.easeOut);
+    final curved =
+        CurvedAnimation(parent: animation, curve: BestieTokens.easeOut);
     return FadeTransition(
       opacity: curved,
       child: SlideTransition(

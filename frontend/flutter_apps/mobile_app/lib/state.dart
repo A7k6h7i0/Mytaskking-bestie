@@ -44,6 +44,12 @@ final String kApiBaseUrl = const bool.hasEnvironment('API_URL')
     ? const String.fromEnvironment('API_URL')
     : (_kIsDebug ? _devFallback() : _kDefaultApiUrl);
 
+/// When [API_URL] is passed via `--dart-define`, reuse it for the socket too
+/// unless [SOCKET_URL] is set explicitly. Debug builds otherwise default the
+/// socket to the local dev server — which breaks on a real phone if only
+/// API_URL was overridden to production.
 final String kSocketUrl = const bool.hasEnvironment('SOCKET_URL')
     ? const String.fromEnvironment('SOCKET_URL')
-    : (_kIsDebug ? _devFallback() : _kDefaultSocketUrl);
+    : (const bool.hasEnvironment('API_URL')
+        ? const String.fromEnvironment('API_URL')
+        : (_kIsDebug ? _devFallback() : _kDefaultSocketUrl));

@@ -1,4 +1,6 @@
-import 'dart:io' show Platform, exit;
+import 'dart:async';
+import 'dart:io' show Directory, File, Platform, exit;
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,17 +13,24 @@ import 'package:mytaskking_mobile/screens/connectivity_banner.dart';
 import 'package:mytaskking_mobile/screens/incoming_call_overlay.dart';
 import 'package:mytaskking_mobile/screens/ongoing_call_bar.dart';
 import 'package:mytaskking_mobile/screens/organizations_screen.dart';
+import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'desktop_local_settings.dart';
+import 'desktop_profile_screen.dart';
 import 'desktop_runtime.dart';
 import 'desktop_work_activity_agent.dart';
 import 'desktop_calendar_screen.dart';
 import 'desktop_chat_screen.dart';
+import 'desktop_calls_screen.dart';
+import 'desktop_task_detail_screen.dart';
+import 'desktop_notifications_screen.dart';
 import 'work_activity_screen.dart';
 
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   await windowManager.ensureInitialized();
+  await DesktopLocalSettings.load();
   final shouldContinue = await DesktopRuntime.initialize(args);
   if (!shouldContinue) {
     await DesktopRuntime.release();
@@ -105,7 +114,8 @@ class BestieWindowsApp extends ConsumerWidget {
         ),
         GoRoute(
           path: '/tasks/:id',
-          builder: (_, s) => TaskDetailScreen(taskId: s.pathParameters['id']!),
+          builder: (_, s) =>
+              DesktopTaskDetailScreen(taskId: s.pathParameters['id']!),
         ),
         ShellRoute(
           builder: (_, __, child) => DesktopShell(child: child),
@@ -120,7 +130,7 @@ class BestieWindowsApp extends ConsumerWidget {
                 builder: (_, __) => const EmployeesScreen()),
             GoRoute(
                 path: '/clients', builder: (_, __) => const ClientsScreen()),
-            GoRoute(path: '/calls', builder: (_, __) => const CallsScreen()),
+            GoRoute(path: '/calls', builder: (_, __) => const DesktopCallsScreen()),
             GoRoute(
                 path: '/calendar',
                 builder: (_, __) => const DesktopCalendarScreen()),
@@ -155,9 +165,11 @@ class BestieWindowsApp extends ConsumerWidget {
                 builder: (_, __) => const WorkActivityScreen()),
             GoRoute(
                 path: '/notifications',
-                builder: (_, __) => const NotificationsScreen()),
+                builder: (_, __) => const DesktopNotificationsScreen()),
             GoRoute(
-                path: '/profile', builder: (_, __) => const ProfileScreen()),
+              path: '/profile',
+              builder: (_, __) => const DesktopProfileScreen(),
+            ),
           ],
         ),
       ],
@@ -174,8 +186,8 @@ class BestieWindowsApp extends ConsumerWidget {
     return MaterialApp.router(
       title: 'MyTaskKing · Windows',
       debugShowCheckedModeBanner: false,
-      theme: BestieTheme.light(),
-      darkTheme: BestieTheme.dark(),
+      theme: _desktopTheme(BestieTheme.light()),
+      darkTheme: _desktopTheme(BestieTheme.dark()),
       themeMode: switch (mode) {
         core.ThemeMode.light => ThemeMode.light,
         core.ThemeMode.dark => ThemeMode.dark,
@@ -186,12 +198,14 @@ class BestieWindowsApp extends ConsumerWidget {
         data: MediaQuery.of(ctx).copyWith(
           textScaler: TextScaler.linear(fontScale),
         ),
-        child: ProviderScope(
-          overrides: [mobile_router.routerProvider.overrideWithValue(router)],
-          child: IncomingCallOverlay(
-            child: OngoingCallBar(
-              child:
-                  ConnectivityBanner(child: child ?? const SizedBox.shrink()),
+        child: DesktopLifecycleHost(
+          child: ProviderScope(
+            overrides: [mobile_router.routerProvider.overrideWithValue(router)],
+            child: IncomingCallOverlay(
+              child: OngoingCallBar(
+                child:
+                    ConnectivityBanner(child: child ?? const SizedBox.shrink()),
+              ),
             ),
           ),
         ),
@@ -215,6 +229,242 @@ class _AuthListenable extends ChangeNotifier {
   }
 }
 
+class DesktopLifecycleHost extends ConsumerStatefulWidget {
+  const DesktopLifecycleHost({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  ConsumerState<DesktopLifecycleHost> createState() =>
+      _DesktopLifecycleHostState();
+}
+
+class _DesktopLifecycleHostState extends ConsumerState<DesktopLifecycleHost>
+    with WindowListener, TrayListener {
+  final _activityAgent = DesktopWorkActivityAgent();
+  StreamSubscription? _authSub;
+  Timer? _autoLogoutTimer;
+  DateTime? _lastAutoLogoutDate;
+  bool _trayReady = false;
+  bool _quitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    windowManager.addListener(this);
+    trayManager.addListener(this);
+    DesktopLocalSettings.autoLogout.addListener(_onAutoLogoutSettingsChanged);
+    _authSub = ref.read(authStoreProvider).changes.listen(
+          (_) => unawaited(_syncDesktopSession()),
+        );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_initializeDesktopLifecycle());
+    });
+  }
+
+  @override
+  void dispose() {
+    windowManager.removeListener(this);
+    trayManager.removeListener(this);
+    DesktopLocalSettings.autoLogout
+        .removeListener(_onAutoLogoutSettingsChanged);
+    _authSub?.cancel();
+    _autoLogoutTimer?.cancel();
+    if (!_trayShouldRemainVisible()) {
+      unawaited(_disposeTray());
+    }
+    _activityAgent.dispose();
+    super.dispose();
+  }
+
+  @override
+  void onWindowClose() {
+    if (!DesktopRuntime.interceptClose) return;
+    unawaited(DesktopRuntime.hideWindowToBackground());
+  }
+
+  @override
+  void onTrayIconMouseDown() {
+    unawaited(_restoreFromTray());
+  }
+
+  @override
+  void onTrayIconRightMouseDown() {
+    unawaited(trayManager.popUpContextMenu());
+  }
+
+  @override
+  void onTrayMenuItemClick(MenuItem menuItem) {
+    switch (menuItem.key) {
+      case 'open_window':
+        unawaited(_restoreFromTray());
+        break;
+      case 'sign_out':
+        unawaited(_signOutFromDesktop(exitAfter: false));
+        break;
+      case 'quit_app':
+        unawaited(_closeDesktopCompletely());
+        break;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    ref.watch(currentUserProvider);
+    return widget.child;
+  }
+
+  Future<void> _initializeDesktopLifecycle() async {
+    await _syncDesktopSession();
+    if (mounted &&
+        DesktopRuntime.shouldRunActivityAgent &&
+        ref.read(authStoreProvider).accessToken != null) {
+      _activityAgent.start(context, ref);
+    }
+  }
+
+  Future<void> _syncDesktopSession() async {
+    final loggedIn = ref.read(authStoreProvider).accessToken != null;
+    await DesktopRuntime.setSessionActive(loggedIn);
+    if (!mounted) return;
+    if (loggedIn) {
+      await _ensureTray();
+      if (!mounted) return;
+      _startAutoLogoutMonitor();
+      if (DesktopRuntime.shouldRunActivityAgent) {
+        _activityAgent.start(context, ref);
+      }
+    } else {
+      _activityAgent.dispose();
+      _autoLogoutTimer?.cancel();
+      _autoLogoutTimer = null;
+      await _disposeTray();
+    }
+  }
+
+  void _onAutoLogoutSettingsChanged() {
+    if (!mounted) return;
+    if (ref.read(authStoreProvider).accessToken == null) return;
+    _startAutoLogoutMonitor();
+  }
+
+  void _startAutoLogoutMonitor() {
+    _autoLogoutTimer?.cancel();
+    _autoLogoutTimer = Timer.periodic(
+      const Duration(seconds: 20),
+      (_) => unawaited(_checkAutoLogout()),
+    );
+    unawaited(_checkAutoLogout());
+  }
+
+  Future<void> _checkAutoLogout() async {
+    if (!mounted || _quitting) return;
+    if (ref.read(authStoreProvider).accessToken == null) return;
+    final settings = DesktopLocalSettings.autoLogout.value;
+    if (!settings.enabled) return;
+    final now = DateTime.now();
+    final cutoff = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      settings.hour,
+      settings.minute,
+    );
+    if (now.isBefore(cutoff)) return;
+    final today = DateTime(now.year, now.month, now.day);
+    if (_lastAutoLogoutDate != null && _lastAutoLogoutDate == today) return;
+    _lastAutoLogoutDate = today;
+    await _signOutFromDesktop(exitAfter: true);
+  }
+
+  Future<void> _ensureTray() async {
+    if (_trayReady || !(Platform.isWindows || Platform.isLinux)) return;
+    final menu = Menu(
+      items: [
+        MenuItem(key: 'open_window', label: 'Open MyTaskKing'),
+        MenuItem.separator(),
+        MenuItem(key: 'sign_out', label: 'Sign out'),
+        MenuItem(key: 'quit_app', label: 'Quit'),
+      ],
+    );
+    await trayManager.setIcon(_trayIconPath);
+    if (Platform.isWindows) {
+      await trayManager.setToolTip('MyTaskKing');
+    }
+    await trayManager.setContextMenu(menu);
+    _trayReady = true;
+  }
+
+  Future<void> _disposeTray() async {
+    if (!_trayReady) return;
+    try {
+      await trayManager.destroy();
+    } catch (_) {}
+    _trayReady = false;
+  }
+
+  bool _trayShouldRemainVisible() {
+    if (_quitting) return false;
+    return ref.read(authStoreProvider).accessToken != null;
+  }
+
+  Future<void> _restoreFromTray() async {
+    await DesktopRuntime.revealAgentWindow();
+  }
+
+  Future<void> _signOutFromDesktop({required bool exitAfter}) async {
+    if (_quitting) return;
+    try {
+      await ref.read(apiProvider).logout();
+    } catch (_) {
+      await ref.read(authStoreProvider).clear();
+    }
+    await DesktopRuntime.setSessionActive(false);
+    _activityAgent.dispose();
+    _autoLogoutTimer?.cancel();
+    _autoLogoutTimer = null;
+    await _disposeTray();
+    if (exitAfter) {
+      await _closeDesktopCompletely(skipTrayDestroy: true);
+      return;
+    }
+    if (mounted) {
+      final router = GoRouter.of(context);
+      if (router.state.matchedLocation != '/login') {
+        router.go('/login');
+      }
+    }
+  }
+
+  Future<void> _closeDesktopCompletely({bool skipTrayDestroy = false}) async {
+    if (_quitting) return;
+    _quitting = true;
+    _activityAgent.dispose();
+    _autoLogoutTimer?.cancel();
+    _autoLogoutTimer = null;
+    if (!skipTrayDestroy) {
+      await _disposeTray();
+    }
+    await DesktopRuntime.setSessionActive(false);
+    await DesktopRuntime.release();
+    exit(0);
+  }
+
+  String get _trayIconPath {
+    final exeDir = File(Platform.resolvedExecutable).parent.path;
+    final candidates = [
+      '$exeDir\\data\\flutter_assets\\assets\\logo.png',
+      '$exeDir\\data\\flutter_assets\\packages\\mytaskking_mobile\\assets\\icon.png',
+      '$exeDir\\data\\flutter_assets\\assets\\icon.png',
+      '${Directory.current.path}\\windows\\runner\\resources\\app_icon.ico',
+    ];
+    for (final candidate in candidates) {
+      if (File(candidate).existsSync()) return candidate;
+    }
+    return candidates.first;
+  }
+}
+
 /// Desktop shell: persistent sidebar + content area. Routes are tracked in
 /// local state — deep-linking on desktop isn't a strong requirement yet.
 /// All feature screens are reused from `package:mytaskking_mobile/screens.dart`.
@@ -225,10 +475,7 @@ class DesktopShell extends ConsumerStatefulWidget {
   ConsumerState<DesktopShell> createState() => _DesktopShellState();
 }
 
-class _DesktopShellState extends ConsumerState<DesktopShell>
-    with WindowListener {
-  final _activityAgent = DesktopWorkActivityAgent();
-
+class _DesktopShellState extends ConsumerState<DesktopShell> {
   List<BestieSidebarItem> _itemsFor(BestieUser? user) {
     final isAdmin = user?.role == 'ADMIN' || user?.role == 'SUPER_ADMIN';
     final isManager = isAdmin || user?.role == 'MANAGER';
@@ -291,30 +538,6 @@ class _DesktopShellState extends ConsumerState<DesktopShell>
     ];
   }
 
-  @override
-  void initState() {
-    super.initState();
-    windowManager.addListener(this);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && DesktopRuntime.shouldRunActivityAgent) {
-        _activityAgent.start(context, ref);
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    windowManager.removeListener(this);
-    _activityAgent.dispose();
-    super.dispose();
-  }
-
-  @override
-  void onWindowClose() {
-    if (!DesktopRuntime.interceptClose) return;
-    DesktopRuntime.hideWindowToBackground();
-  }
-
   String _activeRoute(BuildContext context) {
     final path = GoRouterState.of(context).uri.path;
     if (path.startsWith('/chat')) return '/chat';
@@ -337,88 +560,288 @@ class _DesktopShellState extends ConsumerState<DesktopShell>
 
   @override
   Widget build(BuildContext context) {
-    ref.watch(currentUserProvider);
     final user = ref.watch(authStoreProvider).user;
     final items = _itemsFor(user);
     final activeRoute = _activeRoute(context);
     return Scaffold(
-      body: Row(children: [
-        BestieSidebar(
-          items: items,
-          activeRoute: activeRoute,
-          onSelect: context.go,
-          header: Padding(
-            padding: const EdgeInsets.all(BestieTokens.s3),
-            child: Row(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: Image.asset(
-                    'assets/logo.png',
-                    width: 34,
-                    height: 34,
-                    fit: BoxFit.cover,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                const Expanded(
-                  child: Text(
-                    'MyTaskKing',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 17,
-                      letterSpacing: -0.3,
+      backgroundColor: Colors.transparent,
+      body: Stack(
+        children: [
+          const Positioned.fill(child: _DesktopBackdrop()),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Row(children: [
+                BestieSidebar(
+                  items: items,
+                  activeRoute: activeRoute,
+                  onSelect: context.go,
+                  header: Padding(
+                    padding: const EdgeInsets.all(BestieTokens.s3),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 40,
+                          padding: const EdgeInsets.all(3),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(14),
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF08307A), Color(0xFF0C4FBF)],
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF08307A)
+                                    .withValues(alpha: 0.22),
+                                blurRadius: 18,
+                                offset: const Offset(0, 10),
+                              ),
+                            ],
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(11),
+                            child: Image.asset(
+                              'assets/logo.png',
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'MyTaskKing',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 20,
+                                  letterSpacing: -0.5,
+                                ),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                'WORKSPACE',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: BestieTokens.cTextMuted,
+                                  letterSpacing: 1.2,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
+                  footer: user == null
+                      ? null
+                      : Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Row(children: [
+                            BestieAvatar(
+                                name: user.name,
+                                imageUrl: user.avatarUrl,
+                                isClient: user.isClient,
+                                size: 34),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  BestieUserName(
+                                      name: user.name,
+                                      isClient: user.isClient,
+                                      style: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w700)),
+                                  Text(
+                                    user.isClient
+                                        ? (user.clientCompany ?? 'Client')
+                                        : user.role.replaceAll('_', ' '),
+                                    style: const TextStyle(
+                                        color: BestieTokens.cTextMuted,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ]),
+                        ),
                 ),
-              ],
-            ),
-          ),
-          footer: user == null
-              ? null
-              : Padding(
-                  padding: const EdgeInsets.all(10),
-                  child: Row(children: [
-                    BestieAvatar(
-                        name: user.name,
-                        imageUrl: user.avatarUrl,
-                        isClient: user.isClient,
-                        size: 32),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          BestieUserName(
-                              name: user.name,
-                              isClient: user.isClient,
-                              style: const TextStyle(
-                                  fontSize: 13, fontWeight: FontWeight.w600)),
-                          Text(
-                            user.isClient
-                                ? (user.clientCompany ?? 'Client')
-                                : user.role.replaceAll('_', ' '),
-                            style: const TextStyle(
-                                color: BestieTokens.cTextMuted, fontSize: 11),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
+                const SizedBox(width: 18),
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(34),
+                      border: Border.all(
+                        color: Theme.of(context).brightness == Brightness.dark
+                            ? const Color(0xFF27426F)
+                            : const Color(0xFFDCE6F5),
+                      ),
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: Theme.of(context).brightness == Brightness.dark
+                            ? [
+                                const Color(0xCC0D1A33),
+                                const Color(0xCC112242),
+                              ]
+                            : [
+                                Colors.white.withValues(alpha: 0.88),
+                                const Color(0xFFF5F9FF).withValues(alpha: 0.86),
+                              ],
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color:
+                              const Color(0xFF082C6C).withValues(alpha: 0.14),
+                          blurRadius: 48,
+                          offset: const Offset(0, 22),
+                        ),
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(34),
+                      child: AnimatedSwitcher(
+                        duration: BestieMotion.base,
+                        child: KeyedSubtree(
+                          key: ValueKey(activeRoute),
+                          child: widget.child,
+                        ),
                       ),
                     ),
-                  ]),
+                  ),
                 ),
-        ),
-        Expanded(
-          child: Container(
-            color: BestieTokens.cBg,
-            child: AnimatedSwitcher(
-              duration: BestieMotion.base,
-              child:
-                  KeyedSubtree(key: ValueKey(activeRoute), child: widget.child),
+              ]),
             ),
           ),
-        ),
-      ]),
+        ],
+      ),
     );
   }
+}
+
+ThemeData _desktopTheme(ThemeData base) {
+  final isDark = base.brightness == Brightness.dark;
+  final text = base.textTheme;
+  return base.copyWith(
+    scaffoldBackgroundColor: Colors.transparent,
+    textTheme: text.copyWith(
+      headlineMedium: text.headlineMedium?.copyWith(
+        fontSize: (text.headlineMedium?.fontSize ?? 28) + 2,
+        fontWeight: FontWeight.w800,
+      ),
+      titleLarge: text.titleLarge?.copyWith(
+        fontSize: (text.titleLarge?.fontSize ?? 18) + 1,
+        fontWeight: FontWeight.w800,
+      ),
+      titleMedium: text.titleMedium?.copyWith(
+        fontSize: (text.titleMedium?.fontSize ?? 16) + 1,
+        fontWeight: FontWeight.w700,
+      ),
+      bodyLarge: text.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
+      bodyMedium: text.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+    ),
+    appBarTheme: base.appBarTheme.copyWith(
+      backgroundColor: isDark
+          ? const Color(0xCC0D1A33)
+          : Colors.white.withValues(alpha: 0.78),
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+    ),
+  );
+}
+
+class _DesktopBackdrop extends StatelessWidget {
+  const _DesktopBackdrop();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: isDark
+              ? const [
+                  Color(0xFF040B17),
+                  Color(0xFF0A1730),
+                  Color(0xFF0E2345),
+                ]
+              : const [
+                  Color(0xFFF8FBFF),
+                  Color(0xFFF2F7FF),
+                  Color(0xFFEEF4FF),
+                ],
+        ),
+      ),
+      child: CustomPaint(
+        painter: _BackdropPainter(isDark: isDark),
+        child: const SizedBox.expand(),
+      ),
+    );
+  }
+}
+
+class _BackdropPainter extends CustomPainter {
+  _BackdropPainter({required this.isDark});
+
+  final bool isDark;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final dotPaint = Paint()
+      ..color = (isDark ? Colors.white : const Color(0xFF0A4AA6))
+          .withValues(alpha: isDark ? 0.06 : 0.07)
+      ..style = PaintingStyle.fill;
+    const gap = 12.0;
+    for (double x = 20; x < size.width; x += gap) {
+      for (double y = 20; y < size.height; y += gap) {
+        canvas.drawCircle(Offset(x, y), 0.9, dotPaint);
+      }
+    }
+
+    final linePaint = Paint()
+      ..color = Colors.white.withValues(alpha: isDark ? 0.11 : 0.72)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.3;
+    _drawSwirl(
+      canvas,
+      Offset(size.width * 0.34, size.height * 0.12),
+      size.width * 0.26,
+      linePaint,
+    );
+    _drawSwirl(
+      canvas,
+      Offset(size.width * 0.12, size.height * 0.78),
+      size.width * 0.18,
+      linePaint,
+    );
+    _drawSwirl(
+      canvas,
+      Offset(size.width * 0.92, size.height * 0.28),
+      size.width * 0.22,
+      linePaint,
+    );
+  }
+
+  void _drawSwirl(
+      Canvas canvas, Offset center, double baseRadius, Paint paint) {
+    for (int i = 0; i < 10; i++) {
+      final radius = baseRadius + (i * 10);
+      final rect = Rect.fromCircle(center: center, radius: radius);
+      final start = -math.pi * 0.1 + (i * 0.03);
+      const sweep = math.pi * 1.18;
+      canvas.drawArc(rect, start, sweep, false, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _BackdropPainter oldDelegate) =>
+      oldDelegate.isDark != isDark;
 }

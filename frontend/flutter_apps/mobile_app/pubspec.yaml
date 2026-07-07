@@ -44,6 +44,7 @@ dependencies:
   geolocator: ^13.0.2
   geocoding: ^3.0.0
   proximity_sensor: ^1.4.0
+  video_player: ^2.9.2
 
 dependency_overrides:
   # record 5.x's federated linux implementation has a platform-interface
@@ -64,6 +65,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/icon.png
+    - assets/video/call_record_guide.mp4
 
 flutter_launcher_icons:
   android: true
