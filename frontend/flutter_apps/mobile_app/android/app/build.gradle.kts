@@ -44,10 +44,9 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        // Modern phones only — avoids bundling armeabi-v7a/x86 (~2–3× APK size).
-        ndk {
-            abiFilters += listOf("arm64-v8a")
-        }
+        // ABI targeting is handled by Flutter CLI flags (--target-platform /
+        // --split-per-abi). Do not set ndk.abiFilters here — it conflicts with
+        // --split-per-abi. Non-arm64 libs are still stripped via agora_size.gradle.kts.
     }
 
     signingConfigs {

@@ -74,17 +74,18 @@ bool _isRenderableDm(
 }
 
 Widget _chatListCallButton({
+  required BestieColors colors,
   required IconData icon,
-  required Color iconColor,
-  required Color backgroundColor,
   required String tooltip,
   required VoidCallback onPressed,
 }) {
   return Material(
-    color: backgroundColor,
-    shape: const CircleBorder(),
+    color: colors.textFaint.withValues(alpha: 0.32),
+    shape: CircleBorder(
+      side: BorderSide(color: colors.borderSoft, width: 1),
+    ),
     child: IconButton(
-      icon: Icon(icon, color: iconColor, size: 20),
+      icon: Icon(icon, color: colors.textMuted, size: 20),
       tooltip: tooltip,
       visualDensity: VisualDensity.compact,
       padding: const EdgeInsets.all(8),
@@ -826,9 +827,8 @@ class _ChatTile extends ConsumerWidget {
             if (kind == 'DM') ...[
               if (showCallActions) ...[
                 _chatListCallButton(
+                  colors: c,
                   icon: Icons.call_rounded,
-                  iconColor: BestieTokens.cSuccess,
-                  backgroundColor: BestieTokens.cSuccess.withValues(alpha: 0.14),
                   tooltip: 'Voice call',
                   onPressed: () => _startCallFromList(
                     context,
@@ -840,9 +840,8 @@ class _ChatTile extends ConsumerWidget {
                 ),
                 const SizedBox(width: 4),
                 _chatListCallButton(
+                  colors: c,
                   icon: Icons.videocam_rounded,
-                  iconColor: BestieTokens.cBrand,
-                  backgroundColor: BestieTokens.cBrand.withValues(alpha: 0.14),
                   tooltip: 'Video call',
                   onPressed: () => _startCallFromList(
                     context,

@@ -19,3 +19,4 @@ export 'src/widgets/primitives.dart';
 export 'src/widgets/search.dart';
 export 'src/widgets/new_chat_sheet.dart';
 export 'src/widgets/skeleton.dart';
+export 'src/widgets/chat_wallpaper.dart';

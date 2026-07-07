@@ -2077,7 +2077,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
         if (!didPop) _goBack(context);
       },
       child: Scaffold(
-        backgroundColor: colors.bg,
+        backgroundColor: const Color(0xFFECE5DD),
         appBar: widget.hideHeader
             ? null
             : AppBar(
@@ -2219,7 +2219,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
             colors,
           ),
           Expanded(
-            child: messages.when(
+            child: BestieChatWallpaper(
+              child: messages.when(
               loading: () => const Center(child: BestieSpinner()),
               error: (e, _) => BestieEmptyState(
                 icon: Icons.error_outline,
@@ -2449,6 +2450,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                   },
                 );
               },
+            ),
             ),
           ),
           // Typing indicator sits just above the composer so it doesn't shift
