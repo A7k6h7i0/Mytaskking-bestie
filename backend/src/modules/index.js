@@ -39,6 +39,7 @@ const meetings = require('./meetings/meetings.routes');
 const workspace = require('./workspace/workspace.routes');
 const unfurl = require('./unfurl/unfurl.routes');
 const recordings = require('./recordings/recordings.routes');
+const aiReview = require('./ai-review/ai-review.routes');
 const tenants = require('./tenants/tenants.routes');
 const emergency = require('./emergency/emergency.routes');
 const workActivity = require('./workActivity/workActivity.routes');
@@ -78,6 +79,7 @@ module.exports = function buildRouter() {
   router.use('/workspace', workspace);
   router.use('/unfurl', unfurl);
   router.use('/recordings', recordings);
+  router.use('/ai-review', aiReview);
   router.use('/tenants', tenants);
   router.use('/emergency', emergency);
   router.use('/work-activity', workActivity);

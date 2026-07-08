@@ -127,8 +127,14 @@ async function listForUser(userId, { includeSelfie = false } = {}) {
  * and whether the session is still active. Filterable by user and date range.
  */
 async function listActivity({ actor, userId, from, to, page = 1, pageSize = 50, includeSelfie = false } = {}) {
-  const where = {};
-  if (userId) where.userId = userId;
+  const tenantUsers = await prisma.user.findMany({
+    where: tenant.tenantClause(actor, userId ? { id: userId } : {}),
+    select: { id: true, name: true, role: true, avatarUrl: true, isClient: true, customTitle: true, tenantId: true },
+  });
+  const allowedIds = tenantUsers.map((u) => u.id);
+  if (!allowedIds.length) return { total: 0, page, pageSize, items: [] };
+
+  const where = { userId: { in: allowedIds } };
   if (from || to) {
     where.firstSeenAt = {};
     if (from) where.firstSeenAt.gte = from;
@@ -143,15 +149,8 @@ async function listActivity({ actor, userId, from, to, page = 1, pageSize = 50, 
       take: pageSize,
     }),
   ]);
-  const userIds = Array.from(new Set(rows.map((r) => r.userId)));
-  const users = await prisma.user.findMany({
-    where: tenant.tenantClause(actor, { id: { in: userIds } }),
-    select: { id: true, name: true, role: true, avatarUrl: true, isClient: true, customTitle: true, tenantId: true },
-  });
-  const allowedIds = new Set(users.map((u) => u.id));
-  const filteredRows = rows.filter((r) => allowedIds.has(r.userId));
-  const byId = new Map(users.map((u) => [u.id, u]));
-  const items = filteredRows.map((r) => ({
+  const byId = new Map(tenantUsers.map((u) => [u.id, u]));
+  const items = rows.map((r) => ({
     id: r.id,
     user: byId.get(r.userId) || { id: r.userId, name: 'Unknown' },
     status: r.status,
@@ -170,7 +169,25 @@ async function listActivity({ actor, userId, from, to, page = 1, pageSize = 50, 
       address: r.address,
     } : {}),
   }));
-  return { total: items.length, page, pageSize, items };
+  return { total, page, pageSize, items };
+}
+
+async function getSelfieForAdmin({ sessionId, actor }) {
+  const session = await prisma.session.findUnique({
+    where: { id: sessionId },
+    select: { id: true, userId: true, selfieUrl: true },
+  });
+  if (!session?.selfieUrl) return null;
+  const user = await prisma.user.findUnique({
+    where: { id: session.userId },
+    select: { tenantId: true },
+  });
+  if (!user || !tenant.canAdministerTenant(actor, user.tenantId)) {
+    const err = new Error('Forbidden');
+    err.status = 403;
+    throw err;
+  }
+  return session.selfieUrl;
 }
 
 function parseUA(ua) {
@@ -218,4 +235,4 @@ function parseUA(ua) {
   return { device, platform };
 }
 
-module.exports = { startSession, touchSession, revoke, revokeAll, listForUser, listActivity };
+module.exports = { startSession, touchSession, revoke, revokeAll, listForUser, listActivity, getSelfieForAdmin };
