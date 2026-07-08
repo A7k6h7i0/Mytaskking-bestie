@@ -2,6 +2,7 @@
 
 const { Router } = require('express');
 const Joi = require('joi');
+const axios = require('axios');
 const asyncHandler = require('../../utils/asyncHandler');
 const validate = require('../../middleware/validate');
 const { requireAuth, requireAdmin } = require('../../middleware/auth');
@@ -57,6 +58,28 @@ router.get(
     ...req.query,
     includeSelfie: tenant.isOrgAdmin(req.user),
   })))
+);
+
+router.get(
+  '/:id/selfie',
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const selfieUrl = await service.getSelfieForAdmin({
+      sessionId: req.params.id,
+      actor: req.user,
+    });
+    if (!selfieUrl) {
+      return res.status(404).json({ error: { code: 'not_found', message: 'Selfie not found' } });
+    }
+    const img = await axios.get(selfieUrl, {
+      responseType: 'stream',
+      timeout: 20_000,
+      maxContentLength: 5 * 1024 * 1024,
+    });
+    res.set('Content-Type', img.headers['content-type'] || 'image/jpeg');
+    res.set('Cache-Control', 'private, max-age=3600');
+    img.data.pipe(res);
+  })
 );
 
 router.delete(

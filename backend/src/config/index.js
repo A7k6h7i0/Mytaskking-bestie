@@ -108,6 +108,11 @@ const config = {
     serviceAccountPath: process.env.FIREBASE_SERVICE_ACCOUNT_PATH,
   },
 
+  voiceAi: {
+    baseUrl: process.env.VOICE_AI_BASE_URL || 'https://ai.mytaskking.com',
+    apiKey: process.env.VOICE_AI_API_KEY,
+  },
+
   seed: {
     superAdminUserId: process.env.SEED_SUPER_ADMIN_USER_ID || 'superadmin',
     superAdminPassword: process.env.SEED_SUPER_ADMIN_PASSWORD || 'Change-Me-Now!',
