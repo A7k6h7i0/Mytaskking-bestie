@@ -8,6 +8,8 @@ const { requireAuth, requireAdmin } = require('../../middleware/auth');
 const prisma = require('../../database/prisma');
 const rbac = require('../../services/rbac');
 const audit = require('../../services/audit');
+const tenant = require('../../services/tenant');
+const { Forbidden, NotFound } = require('../../utils/errors');
 
 const router = Router();
 router.use(requireAuth);
@@ -29,6 +31,14 @@ router.get(
       ...(req.query.roleName ? { roleName: req.query.roleName } : {}),
       ...(req.query.key ? { key: { contains: req.query.key } } : {}),
     };
+    if (tenant.MULTI_TENANT) {
+      const users = await prisma.user.findMany({
+        where: { tenantId: tenant.userTenantId(req.user) },
+        select: { id: true },
+      });
+      where.userId = { in: users.map((u) => u.id) };
+      delete where.roleName;
+    }
     const items = await prisma.permissionGrant.findMany({ where, orderBy: { createdAt: 'desc' } });
     res.json({ items });
   })
@@ -47,6 +57,9 @@ router.post(
     }).xor('userId', 'roleName'),
   }),
   asyncHandler(async (req, res) => {
+    if (req.body.userId) {
+      await tenant.assertUserSameTenant(req, req.body.userId);
+    }
     const grant = await prisma.permissionGrant.create({ data: req.body });
     audit.record({ kind: 'permission.granted', entity: 'permission', entityId: grant.id, payload: req.body, req });
     res.status(201).json(grant);
@@ -57,6 +70,13 @@ router.delete(
   '/grants/:id',
   requireAdmin,
   asyncHandler(async (req, res) => {
+    const existing = await prisma.permissionGrant.findUnique({
+      where: { id: req.params.id },
+    });
+    if (!existing) return res.status(204).end();
+    if (existing.userId) {
+      await tenant.assertUserSameTenant(req, existing.userId);
+    }
     await prisma.permissionGrant.delete({ where: { id: req.params.id } }).catch(() => {});
     audit.record({ kind: 'permission.revoked', entity: 'permission', entityId: req.params.id, req });
     res.status(204).end();

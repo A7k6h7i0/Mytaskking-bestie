@@ -267,6 +267,14 @@ async function getLead(id, user) {
 }
 
 async function createLead(input, creator) {
+  const ownerId = input.ownerId || creator.id;
+  if (input.ownerId && tenant.MULTI_TENANT) {
+    const owner = await prisma.user.findUnique({
+      where: { id: ownerId },
+      select: { tenantId: true },
+    });
+    tenant.assertSameTenant(creator, owner?.tenantId);
+  }
   return prisma.lead.create({
     data: {
       name: input.name,
@@ -274,7 +282,7 @@ async function createLead(input, creator) {
       company: input.company || null,
       email: input.email || null,
       status: input.status || 'NEW',
-      ownerId: input.ownerId || creator.id,
+      ownerId,
       source: input.source || null,
       notes: input.notes || null,
       tags: input.tags || [],

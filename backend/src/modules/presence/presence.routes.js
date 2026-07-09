@@ -7,6 +7,7 @@ const validate = require('../../middleware/validate');
 const { requireAuth } = require('../../middleware/auth');
 const prisma = require('../../database/prisma');
 const cache = require('../../services/cache');
+const tenant = require('../../services/tenant');
 
 const router = Router();
 router.use(requireAuth);
@@ -47,11 +48,14 @@ router.get(
     query: Joi.object({ userIds: Joi.string().required() }),
   }),
   asyncHandler(async (req, res) => {
-    const ids = req.query.userIds.split(',').filter(Boolean);
+    const ids = await tenant.filterUserIdsInTenant(
+      req,
+      req.query.userIds.split(',').filter(Boolean),
+    );
     const viewerCanSeeAdminPresence = ['ADMIN', 'SUPER_ADMIN'].includes(req.user.role);
     const rows = await prisma.userPresence.findMany({ where: { userId: { in: ids } } });
     const users = await prisma.user.findMany({
-      where: { id: { in: ids } },
+      where: tenant.scopedWhere(req, { id: { in: ids } }),
       select: { id: true, lastSeenAt: true, role: true },
     });
     const lastSeenByUser = new Map(users.map((user) => [

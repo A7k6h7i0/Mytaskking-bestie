@@ -84,6 +84,7 @@ app.get('/metrics', (_req, res) => {
   res.send(monitoring.renderPrometheus());
 });
 
+app.use('/api/v1', require('./middleware/tenantScope').stripClientTenantOverride);
 app.use('/api/v1', buildRouter());
 
 monitoring.installErrorHandler(app);

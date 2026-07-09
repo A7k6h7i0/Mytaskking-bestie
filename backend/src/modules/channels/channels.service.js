@@ -195,7 +195,7 @@ async function create(input, creator) {
     }
 
     const selectedUsers = await prisma.user.findMany({
-      where: { id: { in: requestedIds }, status: 'ACTIVE' },
+      where: tenant.tenantClause(creator, { id: { in: requestedIds }, status: 'ACTIVE' }),
       select: { id: true, isClient: true },
     });
     if (!selectedUsers.some((user) => user.isClient)) {

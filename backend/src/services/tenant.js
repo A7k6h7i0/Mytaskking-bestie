@@ -2,7 +2,7 @@
 
 const prisma = require('../database/prisma');
 const logger = require('../utils/logger');
-const { Forbidden, NotFound } = require('../utils/errors');
+const { Forbidden, NotFound, BadRequest } = require('../utils/errors');
 
 /**
  * Lark-style multi-tenancy: each organisation is an isolated workspace.
@@ -208,7 +208,7 @@ async function findUserForLogin({ tenantSlug, userId }) {
       user = await prisma.user.findFirst({
         where: { userId: { equals: normalizedUserId, mode: 'insensitive' } },
       });
-      if (user && !isDefaultOrg && user.tenantId && user.tenantId !== tenant.id) {
+      if (user && user.tenantId && user.tenantId !== tenant.id) {
         user = null;
       }
     } catch (err) {
@@ -218,7 +218,7 @@ async function findUserForLogin({ tenantSlug, userId }) {
 
   if (!user) {
     user = await findUserByLoginIdRaw(normalizedUserId);
-    if (user && !isDefaultOrg && user.tenantId && user.tenantId !== tenant.id) {
+    if (user && user.tenantId && user.tenantId !== tenant.id) {
       user = null;
     }
   }
@@ -249,6 +249,60 @@ async function filterUserIdsInTenant(req, userIds) {
   return rows.map((r) => r.id);
 }
 
+async function filterUserIdsForUser(user, userIds) {
+  if (!MULTI_TENANT || !userIds?.length) return userIds || [];
+  const tenantId = userTenantId(user);
+  const rows = await prisma.user.findMany({
+    where: { id: { in: userIds }, tenantId },
+    select: { id: true },
+  });
+  return rows.map((r) => r.id);
+}
+
+async function assertUserIdsForUser(user, userIds) {
+  const ids = Array.from(new Set((userIds || []).filter(Boolean)));
+  const filtered = await filterUserIdsForUser(user, ids);
+  if (filtered.length !== ids.length) {
+    throw BadRequest('One or more users belong to another organisation');
+  }
+  return filtered;
+}
+
+async function assertDepartmentInOrg(req, departmentId) {
+  if (!MULTI_TENANT || !departmentId) return;
+  const dept = await prisma.department.findUnique({
+    where: { id: departmentId },
+    select: { tenantId: true },
+  });
+  if (!dept || dept.tenantId !== resolveTenantId(req)) {
+    throw BadRequest('Department belongs to another organisation');
+  }
+}
+
+function stripClientTenantFields(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return input;
+  const out = { ...input };
+  delete out.tenantId;
+  delete out.organizationId;
+  delete out.orgId;
+  delete out.tenantSlug;
+  return out;
+}
+
+function orgSettingScope(req, scope) {
+  if (!MULTI_TENANT) return scope;
+  return `org:${resolveTenantId(req)}:${scope}`;
+}
+
+function assertResourceInOrg(req, resourceTenantId, message = 'Resource belongs to another organisation') {
+  if (!MULTI_TENANT) return;
+  const actorTenant = resolveTenantId(req);
+  const resource = resourceTenantId || DEFAULT_TENANT_ID;
+  if (actorTenant === resource) return;
+  if (isPlatformSuperAdmin(req.user)) return;
+  throw Forbidden(message);
+}
+
 module.exports = {
   MULTI_TENANT,
   DEFAULT_TENANT_ID,
@@ -267,5 +321,11 @@ module.exports = {
   findTenantBySlug,
   findUserForLogin,
   filterUserIdsInTenant,
+  filterUserIdsForUser,
+  assertUserIdsForUser,
+  assertDepartmentInOrg,
+  stripClientTenantFields,
+  orgSettingScope,
+  assertResourceInOrg,
   assertUserSameTenant,
 };

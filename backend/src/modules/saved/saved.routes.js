@@ -6,6 +6,7 @@ const asyncHandler = require('../../utils/asyncHandler');
 const validate = require('../../middleware/validate');
 const { requireAuth } = require('../../middleware/auth');
 const prisma = require('../../database/prisma');
+const tenant = require('../../services/tenant');
 
 const router = Router();
 router.use(requireAuth);
@@ -18,14 +19,29 @@ router.get(
   asyncHandler(async (req, res) => {
     const where = { userId: req.user.id, ...(req.query.kind ? { kind: req.query.kind } : {}) };
     const items = await prisma.savedItem.findMany({ where, orderBy: { createdAt: 'desc' } });
+    const orgId = tenant.resolveTenantId(req);
 
     // hydrate the references so the UI doesn't need a second roundtrip
     const hydrators = {
-      MESSAGE: (ids) => prisma.message.findMany({ where: { id: { in: ids } }, include: { author: true, channel: true } }),
-      FILE: (ids) => prisma.fileAsset.findMany({ where: { id: { in: ids } } }),
-      TASK: (ids) => prisma.task.findMany({ where: { id: { in: ids } } }),
-      CHANNEL: (ids) => prisma.channel.findMany({ where: { id: { in: ids } } }),
-      LEAD: (ids) => prisma.lead.findMany({ where: { id: { in: ids } } }),
+      MESSAGE: (ids) => prisma.message.findMany({
+        where: {
+          id: { in: ids },
+          ...(tenant.MULTI_TENANT ? { channel: { tenantId: orgId } } : {}),
+        },
+        include: { author: true, channel: true },
+      }),
+      FILE: (ids) => prisma.fileAsset.findMany({
+        where: tenant.scopedWhere(req, { id: { in: ids } }),
+      }),
+      TASK: (ids) => prisma.task.findMany({
+        where: tenant.tenantClause(req.user, { id: { in: ids } }),
+      }),
+      CHANNEL: (ids) => prisma.channel.findMany({
+        where: tenant.tenantClause(req.user, { id: { in: ids } }),
+      }),
+      LEAD: (ids) => prisma.lead.findMany({
+        where: tenant.tenantClause(req.user, { id: { in: ids } }),
+      }),
     };
 
     const byKind = items.reduce((m, it) => ((m[it.kind] = m[it.kind] || []), m[it.kind].push(it.refId), m), {});

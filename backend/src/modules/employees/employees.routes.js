@@ -100,7 +100,7 @@ router.delete(
   '/:id',
   requirePeopleAdmin,
   asyncHandler(async (req, res) => {
-    await service.remove(req.params.id, req.user.id);
+    await service.remove(req, req.params.id, req.user.id);
     audit.record({ kind: 'employee.deleted', entity: 'user', entityId: req.params.id, req });
     res.status(204).end();
   })

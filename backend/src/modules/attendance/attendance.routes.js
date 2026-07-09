@@ -7,6 +7,7 @@ const asyncHandler = require('../../utils/asyncHandler');
 const validate = require('../../middleware/validate');
 const { requireAuth, requireInternal } = require('../../middleware/auth');
 const { BadRequest, Conflict } = require('../../utils/errors');
+const tenant = require('../../services/tenant');
 
 const router = Router();
 router.use(requireAuth, requireInternal);
@@ -76,9 +77,9 @@ function ensureMinimumWordsWithConfig(text, label, minRequiredWords) {
   return count;
 }
 
-async function getAttendanceConfig() {
+async function getAttendanceConfig(req) {
   const rows = await prisma.workspaceSetting.findMany({
-    where: { scope: 'attendance' },
+    where: { scope: tenant.orgSettingScope(req, 'attendance') },
   });
   const map = Object.fromEntries(rows.map((row) => [row.key, row.value]));
   return {
@@ -143,7 +144,7 @@ router.get(
   validate({ query: Joi.object({ timezone: Joi.string().allow('', null) }) }),
   asyncHandler(async (req, res) => {
     const timezone = normalizeTimezone(req.query.timezone);
-    const config = await getAttendanceConfig();
+    const config = await getAttendanceConfig(req);
     const { entry, local } = await getOrCreateTodayLog(req.user.id, timezone);
     res.json({
       timezone,
@@ -180,7 +181,7 @@ router.get(
       timezone,
       from: fromDate,
       to: toDate,
-      minRequiredWords: (await getAttendanceConfig()).minRequiredWords,
+      minRequiredWords: (await getAttendanceConfig(req)).minRequiredWords,
       items: items.map(serializeEntry),
     });
   })
@@ -191,7 +192,7 @@ router.post(
   validate({ body: Joi.object({ plan: Joi.string().min(1).max(10000).required(), timezone: Joi.string().allow('', null) }) }),
   asyncHandler(async (req, res) => {
     const timezone = normalizeTimezone(req.body.timezone);
-    const config = await getAttendanceConfig();
+    const config = await getAttendanceConfig(req);
     const wordCount = ensureMinimumWordsWithConfig(req.body.plan, 'Daily plan', config.minRequiredWords);
     const { entry, local, now } = await getOrCreateTodayLog(req.user.id, timezone);
 
@@ -219,7 +220,7 @@ router.post(
   validate({ body: Joi.object({ note: Joi.string().allow('', null).max(5000), timezone: Joi.string().allow('', null) }) }),
   asyncHandler(async (req, res) => {
     const timezone = normalizeTimezone(req.body.timezone);
-    const config = await getAttendanceConfig();
+    const config = await getAttendanceConfig(req);
     const { entry, now } = await getOrCreateTodayLog(req.user.id, timezone);
     const local = localParts(now, timezone);
 
@@ -301,7 +302,7 @@ router.post(
   validate({ body: Joi.object({ report: Joi.string().min(1).max(10000).required(), timezone: Joi.string().allow('', null) }) }),
   asyncHandler(async (req, res) => {
     const timezone = normalizeTimezone(req.body.timezone);
-    const config = await getAttendanceConfig();
+    const config = await getAttendanceConfig(req);
     const wordCount = ensureMinimumWordsWithConfig(req.body.report, 'Logout report', config.minRequiredWords);
     const { entry, now } = await getOrCreateTodayLog(req.user.id, timezone);
     const local = localParts(now, timezone);
