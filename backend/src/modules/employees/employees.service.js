@@ -83,6 +83,7 @@ async function getById(req, id) {
 
 async function create(req, input, createdById) {
   const tenantId = tenant.resolveTenantId(req);
+  await tenant.assertDepartmentInOrg(req, input.departmentId || null);
   const existing = await prisma.user.findUnique({
     where: { tenantId_userId: { tenantId, userId: input.userId } },
   });
@@ -145,6 +146,9 @@ async function create(req, input, createdById) {
 
 async function update(req, id, input) {
   await getById(req, id);
+  if (input.departmentId !== undefined) {
+    await tenant.assertDepartmentInOrg(req, input.departmentId || null);
+  }
   const data = { ...input };
   if (input.password) data.passwordHash = await hashPassword(input.password);
   delete data.password;
@@ -212,10 +216,8 @@ async function setStatus(req, id, status) {
   return update(req, id, { status });
 }
 
-async function remove(id, actorId) {
-  const user = await prisma.user.findUnique({ where: { id } });
-  if (!user) throw NotFound('Employee not found');
-  if (user.role === 'SUPER_ADMIN') throw Forbidden('Cannot delete super admin');
+async function remove(req, id, actorId) {
+  const user = await getById(req, id);
 
   try {
     await prisma.$transaction(async (tx) => {

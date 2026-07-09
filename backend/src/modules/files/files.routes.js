@@ -10,6 +10,7 @@ const prisma = require('../../database/prisma');
 const cloudinary = require('../../services/cloudinary');
 const r2 = require('../../services/r2');
 const fileAccess = require('../../services/fileAccess');
+const tenant = require('../../services/tenant');
 const audit = require('../../services/audit');
 const logger = require('../../utils/logger');
 const { BadRequest, Forbidden } = require('../../utils/errors');
@@ -35,7 +36,7 @@ router.post(
       const key = `files/${Date.now()}-${safeName}`;
       const put = await r2.putBuffer({ buffer: req.file.buffer, key, contentType: req.file.mimetype });
       return prisma.fileAsset.create({
-        data: {
+        data: tenant.withTenant(req, {
           backend: 'R2',
           url: put.url,
           key: put.key,
@@ -43,7 +44,7 @@ router.post(
           size: req.file.size,
           originalName: req.file.originalname,
           uploadedById: req.user.id,
-        },
+        }),
       });
     };
 
@@ -52,7 +53,7 @@ router.post(
       try {
         const result = await cloudinary.uploadBuffer(req.file.buffer, { folder: 'bestie/chat' });
         asset = await prisma.fileAsset.create({
-          data: {
+          data: tenant.withTenant(req, {
             backend: 'CLOUDINARY',
             url: result.secure_url,
             key: result.public_id,
@@ -62,7 +63,7 @@ router.post(
             height: result.height || null,
             originalName: req.file.originalname,
             uploadedById: req.user.id,
-          },
+          }),
         });
       } catch (err) {
         logger.warn({ err: err.message, originalName: req.file.originalname }, 'files.upload.cloudinary_failed_falling_back_to_r2');
@@ -122,7 +123,9 @@ router.post(
     }),
   }),
   asyncHandler(async (req, res) => {
-    const asset = await prisma.fileAsset.create({ data: { ...req.body, uploadedById: req.user.id } });
+    const asset = await prisma.fileAsset.create({
+      data: tenant.withTenant(req, { ...req.body, uploadedById: req.user.id }),
+    });
     res.status(201).json(asset);
   })
 );
@@ -132,6 +135,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const asset = await prisma.fileAsset.findUnique({ where: { id: req.params.id } });
     if (!asset) throw BadRequest('Not found');
+    tenant.assertResourceInOrg(req, asset.tenantId);
     const allowed = await fileAccess.canAccess({ file: asset, user: req.user });
     if (!allowed) throw Forbidden('You do not have access to this file');
     audit.record({ kind: 'file.downloaded', entity: 'file', entityId: asset.id, req });
@@ -161,6 +165,7 @@ router.post(
     if (!req.file) throw BadRequest('No file uploaded');
     const asset = await prisma.fileAsset.findUnique({ where: { id: req.params.id } });
     if (!asset) throw BadRequest('File not found');
+    tenant.assertResourceInOrg(req, asset.tenantId);
 
     const next = asset.currentVersion + 1;
     const isImage = req.file.mimetype.startsWith('image/');
@@ -199,6 +204,9 @@ router.post(
 router.get(
   '/:id/versions',
   asyncHandler(async (req, res) => {
+    const asset = await prisma.fileAsset.findUnique({ where: { id: req.params.id } });
+    if (!asset) throw BadRequest('File not found');
+    tenant.assertResourceInOrg(req, asset.tenantId);
     const items = await prisma.fileVersion.findMany({
       where: { fileId: req.params.id },
       orderBy: { version: 'desc' },
@@ -210,6 +218,9 @@ router.get(
 router.patch(
   '/:id/category',
   asyncHandler(async (req, res) => {
+    const existing = await prisma.fileAsset.findUnique({ where: { id: req.params.id } });
+    if (!existing) throw BadRequest('File not found');
+    tenant.assertResourceInOrg(req, existing.tenantId);
     const asset = await prisma.fileAsset.update({
       where: { id: req.params.id },
       data: { category: req.body.category || null, previewUrl: req.body.previewUrl || undefined },
@@ -232,6 +243,9 @@ router.put(
     }),
   }),
   asyncHandler(async (req, res) => {
+    const asset = await prisma.fileAsset.findUnique({ where: { id: req.params.id } });
+    if (!asset) throw BadRequest('File not found');
+    tenant.assertResourceInOrg(req, asset.tenantId);
     const policy = await fileAccess.setPolicy({ fileId: req.params.id, data: req.body });
     audit.record({ kind: 'file.policy_changed', entity: 'file', entityId: req.params.id, payload: req.body, req });
     res.json(policy);
@@ -248,6 +262,10 @@ router.post(
     }),
   }),
   asyncHandler(async (req, res) => {
+    const asset = await prisma.fileAsset.findUnique({ where: { id: req.params.id } });
+    if (!asset) throw BadRequest('File not found');
+    tenant.assertResourceInOrg(req, asset.tenantId);
+    await tenant.assertUserSameTenant(req, req.body.userId);
     const grant = await fileAccess.grant({ fileId: req.params.id, ...req.body });
     audit.record({ kind: 'file.granted', entity: 'file', entityId: req.params.id, payload: { userId: req.body.userId }, req });
     res.status(201).json(grant);

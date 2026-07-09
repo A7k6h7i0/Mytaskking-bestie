@@ -7,6 +7,7 @@ const asyncHandler = require('../../utils/asyncHandler');
 const validate = require('../../middleware/validate');
 const { requireAuth, requireAdmin } = require('../../middleware/auth');
 const prisma = require('../../database/prisma');
+const tenant = require('../../services/tenant');
 
 const router = Router();
 router.use(requireAuth, requireAdmin);
@@ -19,6 +20,35 @@ const rangeSchema = {
   }),
 };
 
+function orgUserWhere(req, extra = {}) {
+  return tenant.scopedWhere(req, extra);
+}
+
+function orgTaskWhere(user, extra = {}) {
+  return tenant.tenantClause(user, extra);
+}
+
+function orgLeadWhere(user, extra = {}) {
+  return tenant.tenantClause(user, extra);
+}
+
+function orgCallWhere(user, extra = {}) {
+  return tenant.tenantClause(user, extra);
+}
+
+function orgAgentWhere(req, extra = {}) {
+  if (!tenant.MULTI_TENANT) return extra;
+  return { ...extra, agent: { tenantId: tenant.userTenantId(req.user) } };
+}
+
+function orgChannelMessageWhere(req, extra = {}) {
+  if (!tenant.MULTI_TENANT) return extra;
+  return {
+    ...extra,
+    channel: { tenantId: tenant.userTenantId(req.user) },
+  };
+}
+
 router.get(
   '/productivity',
   validate(rangeSchema),
@@ -26,17 +56,18 @@ router.get(
     const { from, to } = req.query;
     const completed = await prisma.task.groupBy({
       by: ['createdById'],
-      where: { status: 'DONE', updatedAt: { gte: from, lte: to } },
+      where: orgTaskWhere(req.user, { status: 'DONE', updatedAt: { gte: from, lte: to } }),
       _count: { _all: true },
     });
     const userIds = completed.map((c) => c.createdById);
     const users = await prisma.user.findMany({
-      where: { id: { in: userIds } },
+      where: orgUserWhere(req, { id: { in: userIds } }),
       select: { id: true, name: true, avatarUrl: true, role: true, isClient: true },
     });
     const indexed = Object.fromEntries(users.map((u) => [u.id, u]));
     const items = completed
       .map((c) => ({ user: indexed[c.createdById], completed: c._count._all }))
+      .filter((row) => row.user)
       .sort((a, b) => b.completed - a.completed);
     res.json({ from, to, items });
   })
@@ -49,19 +80,19 @@ router.get(
     const { from, to } = req.query;
     const callsByAgent = await prisma.telecallerCall.groupBy({
       by: ['agentId'],
-      where: { createdAt: { gte: from, lte: to } },
+      where: orgAgentWhere(req, { createdAt: { gte: from, lte: to } }),
       _count: { _all: true },
       _sum: { durationSec: true },
     });
     const leadsWon = await prisma.lead.groupBy({
       by: ['ownerId'],
-      where: { status: 'WON', updatedAt: { gte: from, lte: to } },
+      where: orgLeadWhere(req.user, { status: 'WON', updatedAt: { gte: from, lte: to } }),
       _count: { _all: true },
     });
     const wonByOwner = Object.fromEntries(leadsWon.map((r) => [r.ownerId, r._count._all]));
     const ids = callsByAgent.map((c) => c.agentId);
     const agents = await prisma.user.findMany({
-      where: { id: { in: ids } },
+      where: orgUserWhere(req, { id: { in: ids } }),
       select: { id: true, name: true, avatarUrl: true },
     });
     const indexed = Object.fromEntries(agents.map((a) => [a.id, a]));
@@ -70,7 +101,7 @@ router.get(
       calls: c._count._all,
       totalDurationSec: c._sum.durationSec || 0,
       leadsWon: wonByOwner[c.agentId] || 0,
-    })).sort((a, b) => b.calls - a.calls);
+    })).filter((row) => row.agent).sort((a, b) => b.calls - a.calls);
     res.json({ from, to, items });
   })
 );
@@ -82,11 +113,14 @@ router.get(
     const { from, to } = req.query;
     const byStatus = await prisma.task.groupBy({
       by: ['status'],
-      where: { createdAt: { gte: from, lte: to } },
+      where: orgTaskWhere(req.user, { createdAt: { gte: from, lte: to } }),
       _count: { _all: true },
     });
     const overdue = await prisma.task.count({
-      where: { dueAt: { lt: new Date() }, status: { notIn: ['DONE', 'CANCELLED'] } },
+      where: orgTaskWhere(req.user, {
+        dueAt: { lt: new Date() },
+        status: { notIn: ['DONE', 'CANCELLED'] },
+      }),
     });
     res.json({
       from, to,
@@ -102,11 +136,15 @@ router.get(
   asyncHandler(async (req, res) => {
     const { from, to } = req.query;
     const [messages, activeUsers, calls, callDurationSum] = await prisma.$transaction([
-      prisma.message.count({ where: { createdAt: { gte: from, lte: to } } }),
-      prisma.user.count({ where: { lastSeenAt: { gte: from } } }),
-      prisma.call.count({ where: { createdAt: { gte: from, lte: to } } }),
+      prisma.message.count({
+        where: orgChannelMessageWhere(req, { createdAt: { gte: from, lte: to } }),
+      }),
+      prisma.user.count({ where: orgUserWhere(req, { lastSeenAt: { gte: from } }) }),
+      prisma.call.count({
+        where: orgCallWhere(req.user, { createdAt: { gte: from, lte: to } }),
+      }),
       prisma.telecallerCall.aggregate({
-        where: { createdAt: { gte: from, lte: to } },
+        where: orgAgentWhere(req, { createdAt: { gte: from, lte: to } }),
         _sum: { durationSec: true },
       }),
     ]);
@@ -120,12 +158,15 @@ router.get(
   asyncHandler(async (req, res) => {
     const { from, to } = req.query;
     const clients = await prisma.user.findMany({
-      where: { isClient: true, status: 'ACTIVE' },
+      where: orgUserWhere(req, { isClient: true, status: 'ACTIVE' }),
       select: { id: true, name: true, clientCompany: true, accessEndsAt: true },
     });
     const messageCounts = await prisma.message.groupBy({
       by: ['authorId'],
-      where: { authorId: { in: clients.map((c) => c.id) }, createdAt: { gte: from, lte: to } },
+      where: orgChannelMessageWhere(req, {
+        authorId: { in: clients.map((c) => c.id) },
+        createdAt: { gte: from, lte: to },
+      }),
       _count: { _all: true },
     });
     const indexed = Object.fromEntries(messageCounts.map((r) => [r.authorId, r._count._all]));
@@ -143,7 +184,7 @@ router.get(
     const { from, to } = req.query;
     const items = await prisma.call.groupBy({
       by: ['status'],
-      where: { createdAt: { gte: from, lte: to } },
+      where: orgCallWhere(req.user, { createdAt: { gte: from, lte: to } }),
       _count: { _all: true },
     });
     res.json({
@@ -167,7 +208,12 @@ router.get(
     const toKey = dayjs(req.query.to).format('YYYY-MM-DD');
     const todayKey = dayjs().format('YYYY-MM-DD');
     const items = await prisma.workdayLog.findMany({
-      where: { localDate: { gte: fromKey, lte: toKey } },
+      where: {
+        localDate: { gte: fromKey, lte: toKey },
+        ...(tenant.MULTI_TENANT
+          ? { user: { tenantId: tenant.userTenantId(req.user) } }
+          : {}),
+      },
       orderBy: [{ localDate: 'desc' }],
       include: {
         user: {

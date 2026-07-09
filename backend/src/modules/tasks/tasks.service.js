@@ -115,15 +115,22 @@ async function getById(id, user) {
 }
 
 async function create(input, creator) {
-  // Scheduled delivery: when scheduledAt is in the future, the task is
-  // created as SCHEDULED so the assignee doesn't see it yet. A cron job
-  // (jobs/index.js → scheduledTasksJob) promotes it to TODO + notifies
-  // the assignee at the right moment.
   const scheduledAt = input.scheduledAt ? new Date(input.scheduledAt) : null;
   const isScheduledForLater = scheduledAt && scheduledAt > new Date();
   const status = isScheduledForLater
     ? 'SCHEDULED'
     : (input.status || 'TODO');
+  let assigneeIds = input.assigneeIds;
+  if (assigneeIds?.length) {
+    assigneeIds = await tenant.assertUserIdsForUser(creator, assigneeIds);
+  }
+  if (input.channelId && tenant.MULTI_TENANT) {
+    const channel = await prisma.channel.findUnique({
+      where: { id: input.channelId },
+      select: { tenantId: true },
+    });
+    tenant.assertSameTenant(creator, channel?.tenantId);
+  }
   const task = await prisma.task.create({
     data: {
       title: input.title,
@@ -136,8 +143,8 @@ async function create(input, creator) {
       channelId: input.channelId || null,
       boardId: input.boardId || null,
       tenantId: tenant.userTenantId(creator),
-      assignees: input.assigneeIds?.length
-        ? { create: input.assigneeIds.map((uid) => ({ userId: uid })) }
+      assignees: assigneeIds?.length
+        ? { create: assigneeIds.map((uid) => ({ userId: uid })) }
         : undefined,
     },
     include: taskInclude,
@@ -150,14 +157,18 @@ async function update(id, input, user) {
   const data = { ...input };
   delete data.assigneeIds;
   if (data.dueAt) data.dueAt = new Date(data.dueAt);
+  let assigneeIds = input.assigneeIds;
+  if (assigneeIds) {
+    assigneeIds = await tenant.assertUserIdsForUser(user, assigneeIds);
+  }
 
   const updated = await prisma.$transaction(async (tx) => {
     const t = await tx.task.update({ where: { id }, data });
-    if (input.assigneeIds) {
+    if (assigneeIds) {
       await tx.taskAssignee.deleteMany({ where: { taskId: id } });
-      if (input.assigneeIds.length) {
+      if (assigneeIds.length) {
         await tx.taskAssignee.createMany({
-          data: input.assigneeIds.map((uid) => ({ taskId: id, userId: uid })),
+          data: assigneeIds.map((uid) => ({ taskId: id, userId: uid })),
         });
       }
     }
@@ -177,9 +188,9 @@ async function move({ id, status, order }, user) {
 }
 
 async function remove(id, user) {
-  if (!['SUPER_ADMIN', 'ADMIN'].includes(user.role)) {
-    const t = await prisma.task.findUnique({ where: { id } });
-    if (!t || t.createdById !== user.id) throw Forbidden();
+  const task = await getById(id, user);
+  if (!['SUPER_ADMIN', 'ADMIN'].includes(user.role) && task.createdById !== user.id) {
+    throw Forbidden();
   }
   await prisma.task.delete({ where: { id } }).catch(() => {});
 }

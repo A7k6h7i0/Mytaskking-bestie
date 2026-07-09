@@ -8,6 +8,8 @@ const { requireAuth, requireAdmin } = require('../../middleware/auth');
 const prisma = require('../../database/prisma');
 const audit = require('../../services/audit');
 const notifications = require('../notifications/notifications.service');
+const tenant = require('../../services/tenant');
+const { Forbidden, NotFound } = require('../../utils/errors');
 
 const router = Router();
 router.use(requireAuth);
@@ -27,6 +29,9 @@ router.get(
     const where = {
       publishAt: { lte: now },
       OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+      ...(tenant.MULTI_TENANT
+          ? { author: { tenantId: tenant.userTenantId(req.user) } }
+          : {}),
       ...(req.user.isClient
         ? { scope: { in: ['GLOBAL', 'CLIENTS_ONLY', 'CHANNEL'] } }
         : { scope: { in: ['GLOBAL', 'EMPLOYEES_ONLY', 'CHANNEL'] } }),
@@ -86,14 +91,14 @@ router.post(
     if (req.body.notify && ann.publishAt <= new Date()) {
       // Fan out a push notification to users that match scope. Fire-and-forget.
       (async () => {
-        const where =
+        const scopeWhere =
           ann.scope === 'CLIENTS_ONLY' ? { isClient: true }
           : ann.scope === 'EMPLOYEES_ONLY' ? { isClient: false }
           : ann.scope === 'CHANNEL' && ann.channelId
             ? { channelMembers: { some: { channelId: ann.channelId } } }
             : {};
         const targets = await prisma.user.findMany({
-          where: { status: 'ACTIVE', ...where },
+          where: tenant.scopedWhere(req, { status: 'ACTIVE', ...scopeWhere }),
           select: { id: true },
         });
         await Promise.all(
@@ -117,8 +122,18 @@ router.post(
 router.post(
   '/:id/ack',
   asyncHandler(async (req, res) => {
-    const ann = await prisma.announcement.findUnique({ where: { id: req.params.id } });
+    const ann = await prisma.announcement.findUnique({
+      where: { id: req.params.id },
+      include: { author: { select: { tenantId: true } } },
+    });
     if (!ann) return res.status(204).end();
+    if (
+      tenant.MULTI_TENANT &&
+      ann.author.tenantId !== tenant.userTenantId(req.user) &&
+      !tenant.isPlatformSuperAdmin(req.user)
+    ) {
+      throw Forbidden('Announcement belongs to another organisation');
+    }
     if (!ann.acknowledgedBy.includes(req.user.id)) {
       await prisma.announcement.update({
         where: { id: req.params.id },
@@ -133,6 +148,18 @@ router.delete(
   '/:id',
   requireAdmin,
   asyncHandler(async (req, res) => {
+    const ann = await prisma.announcement.findUnique({
+      where: { id: req.params.id },
+      include: { author: { select: { tenantId: true } } },
+    });
+    if (!ann) return res.status(204).end();
+    if (
+      tenant.MULTI_TENANT &&
+      ann.author.tenantId !== tenant.userTenantId(req.user) &&
+      !tenant.isPlatformSuperAdmin(req.user)
+    ) {
+      throw Forbidden('Announcement belongs to another organisation');
+    }
     await prisma.announcement.delete({ where: { id: req.params.id } }).catch(() => {});
     res.status(204).end();
   })

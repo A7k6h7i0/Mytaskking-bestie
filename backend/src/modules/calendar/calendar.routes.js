@@ -7,6 +7,7 @@ const validate = require('../../middleware/validate');
 const { requireAuth } = require('../../middleware/auth');
 const prisma = require('../../database/prisma');
 const { NotFound, Forbidden, BadRequest } = require('../../utils/errors');
+const tenant = require('../../services/tenant');
 
 const router = Router();
 router.use(requireAuth);
@@ -35,6 +36,9 @@ router.get(
       where: {
         startsAt: { gte: from, lte: to },
         OR: [{ ownerId: req.user.id }, { attendees: { some: { userId: req.user.id } } }],
+        ...(tenant.MULTI_TENANT
+            ? { owner: { tenantId: tenant.userTenantId(req.user) } }
+            : {}),
       },
       orderBy: { startsAt: 'asc' },
       include,
@@ -62,6 +66,9 @@ router.post(
     }),
   }),
   asyncHandler(async (req, res) => {
+    const attendeeIds = req.body.attendeeIds.length
+      ? await tenant.filterUserIdsInTenant(req, req.body.attendeeIds)
+      : [];
     const event = await prisma.calendarEvent.create({
       data: {
         title: req.body.title,
@@ -76,8 +83,8 @@ router.post(
         taskId: req.body.taskId || null,
         callId: req.body.callId || null,
         ownerId: req.user.id,
-        attendees: req.body.attendeeIds.length
-          ? { create: req.body.attendeeIds.map((uid) => ({ userId: uid })) }
+        attendees: attendeeIds.length
+          ? { create: attendeeIds.map((uid) => ({ userId: uid })) }
           : undefined,
       },
       include,
@@ -101,8 +108,12 @@ router.patch(
     }),
   }),
   asyncHandler(async (req, res) => {
-    const existing = await prisma.calendarEvent.findUnique({ where: { id: req.params.id } });
+    const existing = await prisma.calendarEvent.findUnique({
+      where: { id: req.params.id },
+      include: { owner: { select: { tenantId: true } } },
+    });
     if (!existing) throw NotFound('Event not found');
+    tenant.assertResourceInOrg(req, existing.owner.tenantId);
     if (existing.ownerId !== req.user.id && !['SUPER_ADMIN', 'ADMIN'].includes(req.user.role)) throw Forbidden();
     const data = { ...req.body };
     if (data.startsAt) data.startsAt = new Date(data.startsAt);
@@ -129,8 +140,12 @@ router.post(
 router.delete(
   '/:id',
   asyncHandler(async (req, res) => {
-    const existing = await prisma.calendarEvent.findUnique({ where: { id: req.params.id } });
+    const existing = await prisma.calendarEvent.findUnique({
+      where: { id: req.params.id },
+      include: { owner: { select: { tenantId: true } } },
+    });
     if (!existing) return res.status(204).end();
+    tenant.assertResourceInOrg(req, existing.owner.tenantId);
     if (existing.ownerId !== req.user.id && !['SUPER_ADMIN', 'ADMIN'].includes(req.user.role)) throw Forbidden();
     await prisma.calendarEvent.delete({ where: { id: req.params.id } });
     res.status(204).end();
