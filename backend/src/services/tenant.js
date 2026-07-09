@@ -190,6 +190,8 @@ async function findUserForLogin({ tenantSlug, userId }) {
     tenant = syntheticDefault();
   } else if (tenant.status === 'SUSPENDED') {
     return { tenant, user: null };
+  } else if (tenant.status === 'PENDING') {
+    return { tenant, user: null, pendingApproval: true };
   }
 
   let user = null;

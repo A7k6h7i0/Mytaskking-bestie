@@ -886,6 +886,7 @@ model FileDownload {
 // ---------------------------------------------------------------------------
 
 enum TenantStatus {
+  PENDING
   ACTIVE
   SUSPENDED
 }
