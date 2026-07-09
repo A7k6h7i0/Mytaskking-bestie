@@ -1820,7 +1820,11 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
       currentUserId: me?.id,
       initialTabIndex: 1,
       fetchEmployees: (q) =>
-          api.listEmployees(q: q.trim().isEmpty ? null : q.trim()),
+          api.listEmployees(
+            q: q.trim().isEmpty ? null : q.trim(),
+            forChat: true,
+            pageSize: 200,
+          ),
       onStartDm: (otherId) async =>
           api.createChannel(kind: 'DM', memberIds: [otherId]),
       onStartGroup: (name, memberIds) async =>

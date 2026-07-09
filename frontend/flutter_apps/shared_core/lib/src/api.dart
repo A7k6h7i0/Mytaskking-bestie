@@ -451,12 +451,14 @@ extension BestieApiExt on BestieApi {
     String? q,
     String? role,
     int? pageSize,
+    bool forChat = false,
   }) => get(
     '/employees',
     query: {
       if (q != null) 'q': q,
       if (role != null) 'role': role,
       if (pageSize != null) 'pageSize': pageSize,
+      if (forChat) 'forChat': '1',
     },
   ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
   Future<Map<String, dynamic>> createEmployee(Map<String, dynamic> data) =>

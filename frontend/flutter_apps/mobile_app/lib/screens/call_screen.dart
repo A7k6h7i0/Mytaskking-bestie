@@ -461,11 +461,20 @@ class _CallScreenState extends ConsumerState<CallScreen>
       if (data is! Map || data['callId'] != callId) return;
       final userId = data['userId']?.toString();
       final name = data['userName']?.toString();
+      final uidRaw = data['agoraUid'];
+      final agoraUid = uidRaw is int ? uidRaw : int.tryParse('$uidRaw');
       if (userId != null && userId.isNotEmpty) {
-        _markParticipantJoined(
-          userId,
-          name ?? _joinedParticipants[userId] ?? 'Participant',
-        );
+        final resolved =
+            name ?? _joinedParticipants[userId] ?? 'Participant';
+        _markParticipantJoined(userId, resolved);
+        if (agoraUid != null && agoraUid > 0) {
+          _agoraUidToUserId[agoraUid] = userId;
+          _remoteNames[agoraUid] = resolved;
+          _seenPeerUids.add(agoraUid);
+          if (mounted) {
+            setState(() => _remoteUids.add(agoraUid));
+          }
+        }
         final me = ref.read(authStoreProvider).user;
         if (userId != me?.id) _onCalleeAnsweredViaServer(userId);
       }
@@ -487,6 +496,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
           userId,
           name ?? _joinedParticipants[userId] ?? 'Participant',
         );
+        _bindRemoteUidName(uid, userId: userId, name: name);
         _onCalleeAnsweredViaServer(userId);
         _agoraUidToUserId[uid] = userId;
         _dedupeRemoteUidsForUser(userId, keepUid: uid);
@@ -615,6 +625,53 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final user = (p['user'] as Map?)?.cast<String, dynamic>();
     final name = (user?['name'] ?? 'Participant').toString().trim();
     return name.isEmpty ? 'Participant' : name;
+  }
+
+  String? _nameFromCallMeta(String userId) {
+    for (final p in _participantsFromMeta()) {
+      if (p['userId']?.toString() == userId) {
+        return _participantProfileName(p);
+      }
+    }
+    return null;
+  }
+
+  String _displayNameForUserId(String? userId, {String fallback = 'Participant'}) {
+    if (userId == null || userId.isEmpty) return fallback;
+    final me = ref.read(authStoreProvider).user;
+    if (userId == me?.id) return me?.name ?? 'You';
+    final joined = _joinedParticipants[userId]?.trim();
+    if (joined != null && joined.isNotEmpty) return joined;
+    final meta = _nameFromCallMeta(userId);
+    if (meta != null && meta.isNotEmpty && meta != 'Participant') return meta;
+    return fallback;
+  }
+
+  String _displayNameForAgoraUid(int uid) {
+    final cached = _remoteNames[uid]?.trim();
+    if (cached != null && cached.isNotEmpty && cached != 'Participant') {
+      return cached;
+    }
+    final userId = _agoraUidToUserId[uid];
+    if (userId != null) {
+      final resolved = _displayNameForUserId(userId, fallback: '');
+      if (resolved.isNotEmpty) return resolved;
+    }
+    return cached?.isNotEmpty == true ? cached! : 'Participant';
+  }
+
+  void _bindRemoteUidName(int uid, {String? userId, String? name}) {
+    if (userId != null && userId.isNotEmpty) {
+      _agoraUidToUserId[uid] = userId;
+      final resolved = (name != null && name.trim().isNotEmpty)
+          ? name.trim()
+          : _displayNameForUserId(userId);
+      _remoteNames[uid] = resolved;
+      _markParticipantJoined(userId, resolved);
+      return;
+    }
+    final resolved = _displayNameForAgoraUid(uid);
+    if (resolved != 'Participant') _remoteNames[uid] = resolved;
   }
 
   _CallMemberConnection _memberConnection(Map<String, dynamic> p) {
@@ -948,6 +1005,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
       final user = (p['user'] as Map?)?.cast<String, dynamic>();
       final name = (user?['name'] ?? 'Participant').toString();
       _markParticipantJoined(userId, name);
+      final uidRaw = p['agoraUid'];
+      final agoraUid = uidRaw is int ? uidRaw : int.tryParse('$uidRaw');
+      if (agoraUid != null && agoraUid > 0) {
+        _agoraUidToUserId[agoraUid] = userId;
+        _remoteNames[agoraUid] = name;
+      }
     }
     final me = ref.read(authStoreProvider).user;
     if (me != null) _markParticipantJoined(me.id, me.name);
@@ -1420,6 +1483,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       onUserJoined: (conn, remoteUid, elapsed) {
         if (!mounted) return;
         _remoteHangupFallbackTimer?.cancel();
+        _bindRemoteUidName(remoteUid);
         setState(() {
           _remoteUids.add(remoteUid);
           _reconnecting = false;
@@ -2331,7 +2395,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   Future<void> _toggleShare() async {
     if (_engine == null) return;
-    if (_connectedAt == null) {
+    if (!_joined) {
       if (mounted) {
         bestieToast(
           context,
@@ -2360,11 +2424,15 @@ class _CallScreenState extends ConsumerState<CallScreen>
       } else {
         // Let Agora own the Android media-projection flow — starting our own
         // foreground service first was crashing the app on Android 14+.
-        try {
-          await _engine!.setScreenCaptureScenario(
-            ScreenScenarioType.screenScenarioVideo,
-          );
-        } catch (_) {}
+        for (final scenario in [
+          ScreenScenarioType.screenScenarioVideo,
+          ScreenScenarioType.screenScenarioGaming,
+        ]) {
+          try {
+            await _engine!.setScreenCaptureScenario(scenario);
+            break;
+          } catch (_) {}
+        }
         try {
           await _engine!.enableVideo();
         } catch (_) {}
@@ -2382,6 +2450,18 @@ class _CallScreenState extends ConsumerState<CallScreen>
           clientRoleType: ClientRoleType.clientRoleBroadcaster,
           autoSubscribeVideo: true,
         ));
+        // Android sometimes needs a second nudge after projection starts.
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+        try {
+          await _engine!.updateChannelMediaOptions(ChannelMediaOptions(
+            publishScreenCaptureVideo: true,
+            publishScreenCaptureAudio: false,
+            publishScreenTrack: true,
+            publishCameraTrack: _isVideo && !_cameraOff,
+            clientRoleType: ClientRoleType.clientRoleBroadcaster,
+            autoSubscribeVideo: true,
+          ));
+        } catch (_) {}
         setState(() => _sharing = true);
         _emitScreenShareState(active: true);
         for (final uid in _remoteUids) {
@@ -4570,11 +4650,6 @@ class _CallScreenState extends ConsumerState<CallScreen>
           connection: RtcConnection(channelId: _channelName ?? ''),
         )),
       ),
-      Positioned(
-          left: 16,
-          right: 16,
-          top: 96,
-          child: Center(child: _participantsStrip())),
     ]);
   }
 
@@ -4623,8 +4698,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
   Widget _participantsStrip({bool showTimer = true}) {
     // One entry per live remote stream (so the same account on two devices
     // reads as two participants), labelled from the announce map.
-    final names =
-        _remoteUids.map((uid) => _remoteNames[uid] ?? 'Participant').toList();
+    final names = _remoteUids
+        .map((uid) => _displayNameForAgoraUid(uid))
+        .where((n) => n.isNotEmpty)
+        .toList();
     final label = names.isEmpty ? 'Waiting for others' : names.join(', ');
     return Container(
       constraints: const BoxConstraints(maxWidth: 320),
@@ -4724,16 +4801,17 @@ class _CallScreenState extends ConsumerState<CallScreen>
       if (uid == _CallSession.myUid) continue;
       final mappedUserId = _agoraUidToUserId[uid];
       if (mappedUserId != null && mappedUserId == me?.id) continue;
-      final name = _remoteNames[uid] ?? 'Participant';
+      final name = _displayNameForAgoraUid(uid);
       final existing = mappedUserId != null
           ? tiles.indexWhere((t) => !t.isLocal && t.userId == mappedUserId)
-          : tiles.indexWhere((t) => !t.isLocal && t.name == name);
+          : tiles.indexWhere((t) => !t.isLocal && t.agoraUid == uid);
       if (existing >= 0) {
         final t = tiles[existing];
+        final resolved = t.name != 'Participant' ? t.name : name;
         tiles[existing] = (
-          name: t.name,
+          name: resolved,
           userId: t.userId ?? mappedUserId,
-          imageUrl: t.imageUrl,
+          imageUrl: t.imageUrl ?? _avatarUrlForUserId(mappedUserId),
           agoraUid: uid,
           isLocal: false,
           muted: _remoteMuted[uid] ?? false,

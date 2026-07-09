@@ -442,8 +442,11 @@ class ChatListScreen extends ConsumerWidget {
       context,
       currentUserId: me?.id,
       initialTabIndex: initialTabIndex,
-      fetchEmployees: (q) =>
-          api.listEmployees(q: q.trim().isEmpty ? null : q.trim()),
+      fetchEmployees: (q) => api.listEmployees(
+            q: q.trim().isEmpty ? null : q.trim(),
+            forChat: true,
+            pageSize: 200,
+          ),
       onStartDm: (otherId) async {
         final ch = await api.createChannel(kind: 'DM', memberIds: [otherId]);
         return ch;
