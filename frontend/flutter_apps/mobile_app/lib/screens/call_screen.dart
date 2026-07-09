@@ -806,25 +806,53 @@ class _CallScreenState extends ConsumerState<CallScreen>
     });
   }
 
-  void _emitScreenShareState({required bool active}) {
+  /// Everyone we should fan out call signals to — DB join list plus anyone
+  /// we've seen live in Agora (they can be connected before the server marks
+  /// them joined, which is what broke screen-share notify).
+  Set<String> _callPeerUserIds() {
     final meId = ref.read(authStoreProvider).user?.id;
-    _broadcastCallSignal({
-      'type': 'screenShare',
-      'active': active,
-      'agoraUid': active ? _CallSession.myUid : null,
-      'fromUserId': meId,
-    });
+    final peers = <String>{
+      ..._joinedParticipants.keys,
+      ..._agoraUidToUserId.values,
+    };
+    if (meId != null) peers.remove(meId);
+    peers.removeWhere((id) => id.isEmpty);
+    return peers;
   }
 
-  /// Uses the existing production `call.signal` socket — no new backend deploy.
-  void _broadcastCallSignal(Map<String, dynamic> payload) {
+  void _emitScreenShareState({required bool active}) {
     final callId = widget.callId;
     if (callId == null) return;
     final meId = ref.read(authStoreProvider).user?.id;
+    final agoraUid = active ? _CallSession.myUid : null;
+    final rt = ref.read(realtimeProvider);
+
+    // Primary path: backend fans out to every call participant in the DB.
+    rt.emit('call.screenShare', {
+      'callId': callId,
+      'active': active,
+      'agoraUid': agoraUid,
+    });
+
+    // Fallback for older clients / direct delivery when DB join lags Agora.
+    final envelope = {
+      'callId': callId,
+      'type': 'screenShare',
+      'active': active,
+      'agoraUid': agoraUid,
+      'fromUserId': meId,
+    };
+    for (final peerId in _callPeerUserIds()) {
+      rt.emit('call.signal', {'to': peerId, 'payload': envelope});
+    }
+  }
+
+  void _broadcastCallSignal(Map<String, dynamic> payload) {
+    final callId = widget.callId;
+    if (callId == null) return;
     final envelope = {...payload, 'callId': callId};
     final rt = ref.read(realtimeProvider);
-    for (final peerId in _joinedParticipants.keys) {
-      if (peerId == meId) continue;
+    for (final peerId in _callPeerUserIds()) {
       rt.emit('call.signal', {'to': peerId, 'payload': envelope});
     }
   }
@@ -848,7 +876,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
       if (sharerId != null && sharerId == me?.id) return;
       final active = payload['active'] == true;
       final uidRaw = payload['agoraUid'];
-      final uid = uidRaw is int ? uidRaw : int.tryParse('$uidRaw');
+      var uid = uidRaw is int ? uidRaw : int.tryParse('$uidRaw');
+      if (active && (uid == null || uid <= 0) && sharerId != null) {
+        uid = _agoraUidForUserId(sharerId);
+      }
       if (!mounted) return;
       setState(() {
         if (active && uid != null && uid > 0) {
@@ -873,6 +904,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final engine = _engine;
     if (engine == null) return;
     try {
+      // Voice calls join with camera off; make sure the video module is on
+      // so screen-share tracks from the remote uid can be decoded.
+      await engine.enableVideo();
       await engine.muteRemoteVideoStream(uid: uid, mute: false);
       await engine.muteAllRemoteVideoStreams(false);
     } catch (_) {}
@@ -2263,9 +2297,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
         ));
         setState(() => _sharing = true);
         _emitScreenShareState(active: true);
-        for (final uid in _remoteUids) {
-          unawaited(_ensureRemoteVideoSubscribed(uid));
-        }
+        // Re-notify after publish settles — covers peers who connected via
+        // Agora just before our first fan-out.
+        Future<void>.delayed(const Duration(milliseconds: 400), () {
+          if (!mounted || !_sharing) return;
+          _emitScreenShareState(active: true);
+        });
         if (mounted) {
           bestieToast(context, 'Sharing your screen',
               kind: BestieToastKind.success);

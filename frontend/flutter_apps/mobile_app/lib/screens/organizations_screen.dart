@@ -32,7 +32,13 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
       final items = await ref.read(apiProvider).listTenants();
       if (!mounted) return;
       setState(() {
-        _items = items.where((o) => (o['slug'] ?? '') != 'default').toList();
+        _items = items.where((o) => (o['slug'] ?? '') != 'default').toList()
+          ..sort((a, b) {
+            final aPending = (a['status'] ?? '') == 'PENDING';
+            final bPending = (b['status'] ?? '') == 'PENDING';
+            if (aPending != bPending) return aPending ? -1 : 1;
+            return 0;
+          });
         _loading = false;
       });
     } catch (e) {
@@ -148,7 +154,18 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
                           final org = _items[i];
                           final status =
                               (org['status'] ?? 'ACTIVE').toString();
+                          final pending = status == 'PENDING';
                           final active = status == 'ACTIVE';
+                          final statusColor = pending
+                              ? c.brand
+                              : active
+                                  ? c.success
+                                  : c.warning;
+                          final statusBg = pending
+                              ? c.brandSoft
+                              : active
+                                  ? c.successSoft
+                                  : c.warningSoft;
                           return Container(
                             padding: const EdgeInsets.all(14),
                             decoration: BoxDecoration(
@@ -180,9 +197,7 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
                                       padding: const EdgeInsets.symmetric(
                                           horizontal: 8, vertical: 4),
                                       decoration: BoxDecoration(
-                                        color: active
-                                            ? c.successSoft
-                                            : c.warningSoft,
+                                        color: statusBg,
                                         borderRadius: BorderRadius.circular(8),
                                       ),
                                       child: Text(
@@ -190,9 +205,7 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
                                         style: TextStyle(
                                           fontSize: 11,
                                           fontWeight: FontWeight.w600,
-                                          color: active
-                                              ? c.success
-                                              : c.warning,
+                                          color: statusColor,
                                         ),
                                       ),
                                     ),
@@ -212,14 +225,35 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
                                 const SizedBox(height: 10),
                                 Align(
                                   alignment: Alignment.centerRight,
-                                  child: TextButton(
-                                    onPressed: () => _setStatus(
-                                      org['id'].toString(),
-                                      active ? 'SUSPENDED' : 'ACTIVE',
-                                    ),
-                                    child: Text(
-                                        active ? 'Suspend' : 'Activate'),
-                                  ),
+                                  child: pending
+                                      ? Wrap(
+                                          spacing: 8,
+                                          children: [
+                                            FilledButton(
+                                              onPressed: () => _setStatus(
+                                                org['id'].toString(),
+                                                'ACTIVE',
+                                              ),
+                                              child: const Text('Approve'),
+                                            ),
+                                            TextButton(
+                                              onPressed: () => _setStatus(
+                                                org['id'].toString(),
+                                                'SUSPENDED',
+                                              ),
+                                              child: const Text('Reject'),
+                                            ),
+                                          ],
+                                        )
+                                      : TextButton(
+                                          onPressed: () => _setStatus(
+                                            org['id'].toString(),
+                                            active ? 'SUSPENDED' : 'ACTIVE',
+                                          ),
+                                          child: Text(active
+                                              ? 'Suspend'
+                                              : 'Activate'),
+                                        ),
                                 ),
                               ],
                             ),

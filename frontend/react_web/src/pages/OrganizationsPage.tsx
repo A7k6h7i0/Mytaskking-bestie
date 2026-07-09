@@ -11,7 +11,7 @@ type Organisation = {
   id: string;
   slug: string;
   name: string;
-  status: 'ACTIVE' | 'SUSPENDED';
+  status: 'PENDING' | 'ACTIVE' | 'SUSPENDED';
   userCount?: number;
   createdAt: string;
 };
@@ -57,7 +57,15 @@ export default function OrganizationsPage() {
     onError: () => toast.error('Could not update organisation'),
   });
 
-  const orgs = (data?.items || []).filter((o) => o.slug !== 'default');
+  const orgs = (data?.items || [])
+    .filter((o) => o.slug !== 'default')
+    .sort((a, b) => {
+      if (a.status === 'PENDING' && b.status !== 'PENDING') return -1;
+      if (b.status === 'PENDING' && a.status !== 'PENDING') return 1;
+      return 0;
+    });
+
+  const pendingCount = orgs.filter((o) => o.status === 'PENDING').length;
 
   return (
     <div className="pp">
@@ -65,7 +73,8 @@ export default function OrganizationsPage() {
         <div>
           <h1 className="pp__title">Organisations</h1>
           <p className="pp__sub">
-            Platform view — only you see every company on MyTaskKing. Each org is fully isolated.
+            Platform view — approve registrations, suspend orgs, or create companies directly.
+            {pendingCount > 0 ? ` ${pendingCount} pending approval.` : ''}
           </p>
         </div>
         <Button onClick={() => setShowNew((v) => !v)}>
@@ -121,7 +130,7 @@ export default function OrganizationsPage() {
       <div className="pp__list">
         {isLoading && <div className="pp__empty">Loading organisations…</div>}
         {!isLoading && orgs.length === 0 && (
-          <div className="pp__empty">No customer organisations yet. Create one for Digital Links or any company.</div>
+          <div className="pp__empty">No customer organisations yet. Create one or wait for self-registration.</div>
         )}
         {orgs.map((org) => (
           <article key={org.id} className="pp__row">
@@ -133,7 +142,19 @@ export default function OrganizationsPage() {
               </div>
             </div>
             <div className="pp__row-actions">
-              {org.status === 'ACTIVE' ? (
+              {org.status === 'PENDING' ? (
+                <>
+                  <Button onClick={() => suspendMut.mutate({ id: org.id, status: 'ACTIVE' })}>
+                    Approve
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => suspendMut.mutate({ id: org.id, status: 'SUSPENDED' })}
+                  >
+                    Reject
+                  </Button>
+                </>
+              ) : org.status === 'ACTIVE' ? (
                 <Button
                   variant="ghost"
                   onClick={() => suspendMut.mutate({ id: org.id, status: 'SUSPENDED' })}
@@ -157,10 +178,10 @@ export default function OrganizationsPage() {
         <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
           <Shield size={18} style={{ marginTop: 2, opacity: 0.7 }} />
           <div>
-            <strong>Recordings &amp; privacy</strong>
+            <strong>Approvals &amp; privacy</strong>
             <p className="pp__sub" style={{ marginTop: 6 }}>
-              Each organisation&apos;s admins see only their own recordings. Open{' '}
-              <strong>Recordings → All organisations</strong> to view every company&apos;s calls — hidden from other orgs.
+              Self-registered organisations stay <strong>PENDING</strong> until you approve them.
+              Each organisation&apos;s data stays fully isolated after activation.
             </p>
           </div>
         </div>

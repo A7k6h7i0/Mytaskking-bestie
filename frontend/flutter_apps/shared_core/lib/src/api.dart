@@ -490,6 +490,9 @@ extension BestieApiExt on BestieApi {
   Future<Map<String, dynamic>> createTenant(Map<String, dynamic> data) =>
       post('/tenants', body: data);
 
+  Future<Map<String, dynamic>> registerOrganization(Map<String, dynamic> data) =>
+      post('/tenants/register', body: data);
+
   Future<Map<String, dynamic>> updateTenant(
     String id,
     Map<String, dynamic> data,

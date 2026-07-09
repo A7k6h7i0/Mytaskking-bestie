@@ -39,6 +39,8 @@ flutter:
 # 1.x line which implements the current interface.
 dependency_overrides:
   record_linux: ^1.0.0
+  gal:
+    path: desktop_stubs/gal
   firebase_core:
     path: desktop_stubs/firebase_core
   firebase_messaging:
