@@ -11,11 +11,26 @@ import { Logo } from '@/components/Logo';
 import { AnimatedGradient } from '@/components/effects/AnimatedGradient';
 import { ParticleField } from '@/components/effects/ParticleField';
 import { useConfetti } from '@/hooks/useMotionFx';
+import { toast } from '@/components/Toast';
 import './login.css';
 
-// Drop a Rive file at `frontend/react_web/public/rive/login.riv` and the
-// canvas takes over from the gradient-blob fallback automatically.
 const RIVE_LOGIN = '/rive/login.riv';
+
+type RegisterForm = {
+  name: string;
+  slug: string;
+  adminName: string;
+  adminUserId: string;
+  adminPassword: string;
+};
+
+const emptyRegisterForm = (): RegisterForm => ({
+  name: '',
+  slug: '',
+  adminName: '',
+  adminUserId: '',
+  adminPassword: '',
+});
 
 export default function LoginPage() {
   const token = useAuthStore((s) => s.accessToken);
@@ -26,6 +41,9 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [showRegister, setShowRegister] = useState(false);
+  const [registerForm, setRegisterForm] = useState<RegisterForm>(emptyRegisterForm);
+  const [registerLoading, setRegisterLoading] = useState(false);
   const navigate = useNavigate();
   const { burst, ConfettiHost } = useConfetti();
 
@@ -42,7 +60,6 @@ export default function LoginPage() {
         userId,
         password,
       });
-      // Celebrate, then route.
       setSuccess(true);
       burst({ origin: { x: window.innerWidth * 0.25, y: window.innerHeight * 0.45 }, count: 50 });
       setTimeout(() => {
@@ -51,12 +68,30 @@ export default function LoginPage() {
       }, 800);
     } catch (err: any) {
       setError(err?.response?.data?.error?.message || 'Login failed');
-      // Tickle the form with a shake — re-trigger by toggling the class.
       form.classList.remove('m-shake');
       void form.offsetWidth;
       form.classList.add('m-shake');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function onRegister(e: FormEvent) {
+    e.preventDefault();
+    setRegisterLoading(true);
+    try {
+      const { data } = await api.post('/tenants/register', registerForm);
+      setShowRegister(false);
+      setRegisterForm(emptyRegisterForm());
+      toast.success(
+        'Registration submitted',
+        data.message ||
+          `Login after approval: ${data.organisation?.slug} / ${data.adminUserId}`,
+      );
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error?.message || 'Could not submit registration');
+    } finally {
+      setRegisterLoading(false);
     }
   }
 
@@ -73,6 +108,53 @@ export default function LoginPage() {
             <h1 className="m-gradient-text">Welcome back</h1>
             <p>Loading your workspace…</p>
           </div>
+        ) : showRegister ? (
+          <>
+            <h1 className="login__title m-fade-up">Register organisation</h1>
+            <p className="login__sub m-fade-up">
+              Submit your company details. A platform administrator must approve before you can sign in.
+            </p>
+            <form onSubmit={onRegister} className="login__form m-stagger">
+              <Input
+                label="Company name"
+                value={registerForm.name}
+                onChange={(e) => setRegisterForm((f) => ({ ...f, name: e.target.value }))}
+              />
+              <Input
+                label="Organisation ID (login slug)"
+                value={registerForm.slug}
+                onChange={(e) =>
+                  setRegisterForm((f) => ({
+                    ...f,
+                    slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
+                  }))
+                }
+                placeholder="digital-links"
+              />
+              <Input
+                label="Admin full name"
+                value={registerForm.adminName}
+                onChange={(e) => setRegisterForm((f) => ({ ...f, adminName: e.target.value }))}
+              />
+              <Input
+                label="Admin user ID"
+                value={registerForm.adminUserId}
+                onChange={(e) => setRegisterForm((f) => ({ ...f, adminUserId: e.target.value }))}
+              />
+              <Input
+                label="Admin password"
+                type="password"
+                value={registerForm.adminPassword}
+                onChange={(e) => setRegisterForm((f) => ({ ...f, adminPassword: e.target.value }))}
+              />
+              <Button type="submit" size="lg" loading={registerLoading}>
+                Submit registration
+              </Button>
+              <Button type="button" variant="ghost" onClick={() => setShowRegister(false)}>
+                Back to sign in
+              </Button>
+            </form>
+          </>
         ) : (
           <>
             <h1 className="login__title m-fade-up" style={{ animationDelay: '40ms' }}>
@@ -119,15 +201,18 @@ export default function LoginPage() {
             </form>
 
             <div className="login__foot m-fade-up" style={{ animationDelay: '260ms' }}>
-              No public registration. Contact your administrator for access.
+              <Button variant="ghost" onClick={() => setShowRegister(true)}>
+                Register organisation
+              </Button>
+              <p style={{ marginTop: 8 }}>
+                New company? Register and wait for platform approval before signing in.
+              </p>
             </div>
           </>
         )}
       </div>
 
       <div className="login__art" aria-hidden>
-        {/* Layered art panel: mesh gradient base, particle field overlay,
-            optional Rive canvas on top, caption + brand mark in the corners. */}
         <AnimatedGradient className="login__art-mesh" />
         <ParticleField
           className="login__art-particles"

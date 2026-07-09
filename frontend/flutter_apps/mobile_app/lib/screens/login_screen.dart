@@ -13,6 +13,7 @@ import '../state.dart';
 import '../telecaller_recording_setup.dart';
 import 'front_selfie_capture.dart';
 import 'telecaller_onboarding_screen.dart';
+import 'organization_register_sheet.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -50,6 +51,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     _password.dispose();
     _passwordFocus.dispose();
     super.dispose();
+  }
+
+  Future<void> _openRegister() async {
+    final api = ref.read(apiProvider);
+    Future<Map<String, dynamic>> register(Map<String, dynamic> data) =>
+        api.registerOrganization(data);
+    final desktop =
+        _skipSelfieOnDesktop && MediaQuery.sizeOf(context).width >= 900;
+    if (!mounted) return;
+    if (desktop) {
+      await showOrganizationRegisterDialog(context, onRegister: register);
+    } else {
+      await showOrganizationRegisterSheet(context, onRegister: register);
+    }
   }
 
   Future<void> _submit() async {
@@ -183,12 +198,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
     if (desktopLogin) {
       return _DesktopLoginShell(
+        tenantSlug: _tenantSlug,
         userId: _userId,
         password: _password,
         passwordFocus: _passwordFocus,
         error: _error,
         loading: _loading,
         onSubmit: _submit,
+        onRegister: _openRegister,
       );
     }
 
@@ -345,6 +362,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               ),
                             ],
                           ),
+                          const SizedBox(height: 10),
+                          TextButton.icon(
+                            onPressed: _loading ? null : _openRegister,
+                            icon: const Icon(Icons.add_business_outlined, size: 18),
+                            label: const Text('Register organisation'),
+                          ),
                         ],
                       ),
                     ),
@@ -401,20 +424,24 @@ class _LoginBackdrop extends StatelessWidget {
 }
 
 class _DesktopLoginShell extends StatefulWidget {
+  final TextEditingController tenantSlug;
   final TextEditingController userId;
   final TextEditingController password;
   final FocusNode passwordFocus;
   final String? error;
   final bool loading;
   final VoidCallback onSubmit;
+  final VoidCallback onRegister;
 
   const _DesktopLoginShell({
+    required this.tenantSlug,
     required this.userId,
     required this.password,
     required this.passwordFocus,
     required this.error,
     required this.loading,
     required this.onSubmit,
+    required this.onRegister,
   });
 
   @override
@@ -443,146 +470,181 @@ class _DesktopLoginShellState extends State<_DesktopLoginShell>
         children: [
           Expanded(
             flex: 5,
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 520),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 46),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                    child: IntrinsicHeight(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          const BestieLogo(size: 56),
-                          const SizedBox(width: 14),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: const [
-                              Text(
-                                'MyTaskKing',
-                                style: TextStyle(
-                                  color: Color(0xFF4C7DFF),
-                                  fontSize: 30,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: -0.8,
-                                ),
-                              ),
-                              Text(
-                                'WORKSPACE',
-                                style: TextStyle(
-                                  color: Color(0xFF7C879A),
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: 0.6,
-                                ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const BestieLogo(size: 48),
+                              const SizedBox(width: 12),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: const [
+                                  Text(
+                                    'MyTaskKing',
+                                    style: TextStyle(
+                                      color: Color(0xFF4C7DFF),
+                                      fontSize: 26,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: -0.8,
+                                    ),
+                                  ),
+                                  Text(
+                                    'WORKSPACE',
+                                    style: TextStyle(
+                                      color: Color(0xFF7C879A),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 0.6,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
+                          const SizedBox(height: 28),
+                          RichText(
+                            text: const TextSpan(
+                              style: TextStyle(
+                                color: Color(0xFF0D1320),
+                                fontSize: 32,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -1.1,
+                                height: 1.05,
+                              ),
+                              children: [
+                                TextSpan(text: 'Welcome '),
+                                TextSpan(
+                                  text: 'back',
+                                  style: TextStyle(color: Color(0xFF6868FF)),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          const Text(
+                            'Sign in with the credentials your admin assigned.',
+                            style: TextStyle(
+                              color: Color(0xFF4B5567),
+                              fontSize: 16,
+                              height: 1.4,
+                            ),
+                          ),
+                          const SizedBox(height: 28),
+                          _DesktopLoginField(
+                            label: 'Organisation ID',
+                            controller: widget.tenantSlug,
+                            icon: Icons.business_outlined,
+                            hint: 'default or digital-links',
+                            textInputAction: TextInputAction.next,
+                            onSubmitted: (_) => FocusScope.of(context).nextFocus(),
+                          ),
+                          const SizedBox(height: 16),
+                          _DesktopLoginField(
+                            label: 'User ID',
+                            controller: widget.userId,
+                            icon: Icons.person_outline_rounded,
+                            hint: 'e.g. priya.k',
+                            autofocus: true,
+                            textInputAction: TextInputAction.next,
+                            onSubmitted: (_) => widget.passwordFocus.requestFocus(),
+                          ),
+                          const SizedBox(height: 16),
+                          _DesktopLoginField(
+                            label: 'Password',
+                            controller: widget.password,
+                            focusNode: widget.passwordFocus,
+                            icon: Icons.key_rounded,
+                            obscureText: true,
+                            textInputAction: TextInputAction.done,
+                            onSubmitted: (_) => widget.onSubmit(),
+                          ),
+                          if (widget.error != null) ...[
+                            const SizedBox(height: 12),
+                            _ErrorBanner(message: widget.error!, colors: c),
+                          ],
+                          const SizedBox(height: 18),
+                          SizedBox(
+                            height: 52,
+                            child: FilledButton(
+                              onPressed: widget.loading ? null : widget.onSubmit,
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFF3F6DF4),
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                elevation: 0,
+                              ),
+                              child: widget.loading
+                                  ? const SizedBox(
+                                      width: 22,
+                                      height: 22,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2.4,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Row(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Text(
+                                          'Sign in',
+                                          style: TextStyle(
+                                            fontSize: 17,
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                        ),
+                                        SizedBox(width: 8),
+                                        Icon(Icons.arrow_forward_rounded),
+                                      ],
+                                    ),
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          OutlinedButton.icon(
+                            onPressed: widget.loading ? null : widget.onRegister,
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              side: const BorderSide(color: Color(0xFFDDE4F1)),
+                            ),
+                            icon: const Icon(Icons.add_business_outlined, size: 18),
+                            label: const Text(
+                              'Register organisation',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          const Text(
+                            'New company? Register and wait for platform approval before signing in.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Color(0xFF8A94A8),
+                              fontSize: 13,
+                              height: 1.35,
+                            ),
+                          ),
                         ],
                       ),
-                      const SizedBox(height: 54),
-                      RichText(
-                        text: const TextSpan(
-                          style: TextStyle(
-                            color: Color(0xFF0D1320),
-                            fontSize: 36,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: -1.1,
-                            height: 1.05,
-                          ),
-                          children: [
-                            TextSpan(text: 'Welcome '),
-                            TextSpan(
-                              text: 'back',
-                              style: TextStyle(color: Color(0xFF6868FF)),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      const Text(
-                        'Sign in with the credentials your admin assigned.',
-                        style: TextStyle(
-                          color: Color(0xFF4B5567),
-                          fontSize: 18,
-                          height: 1.45,
-                        ),
-                      ),
-                      const SizedBox(height: 42),
-                      _DesktopLoginField(
-                        label: 'User ID',
-                        controller: widget.userId,
-                        icon: Icons.person_outline_rounded,
-                        hint: 'e.g. priya.k',
-                        autofocus: true,
-                        textInputAction: TextInputAction.next,
-                        onSubmitted: (_) => widget.passwordFocus.requestFocus(),
-                      ),
-                      const SizedBox(height: 22),
-                      _DesktopLoginField(
-                        label: 'Password',
-                        controller: widget.password,
-                        focusNode: widget.passwordFocus,
-                        icon: Icons.key_rounded,
-                        obscureText: true,
-                        textInputAction: TextInputAction.done,
-                        onSubmitted: (_) => widget.onSubmit(),
-                      ),
-                      if (widget.error != null) ...[
-                        const SizedBox(height: 16),
-                        _ErrorBanner(message: widget.error!, colors: c),
-                      ],
-                      const SizedBox(height: 22),
-                      SizedBox(
-                        height: 56,
-                        child: FilledButton(
-                          onPressed: widget.loading ? null : widget.onSubmit,
-                          style: FilledButton.styleFrom(
-                            backgroundColor: const Color(0xFF3F6DF4),
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            elevation: 0,
-                          ),
-                          child: widget.loading
-                              ? const SizedBox(
-                                  width: 22,
-                                  height: 22,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2.4,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : const Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Text(
-                                      'Sign in',
-                                      style: TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.w900,
-                                      ),
-                                    ),
-                                    SizedBox(width: 8),
-                                    Icon(Icons.arrow_forward_rounded),
-                                  ],
-                                ),
-                        ),
-                      ),
-                      const SizedBox(height: 30),
-                      const Text(
-                        'No public registration. Contact your administrator for access.',
-                        style: TextStyle(
-                          color: Color(0xFF8A94A8),
-                          fontSize: 15,
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
-                ),
-              ),
+                );
+              },
             ),
           ),
           Expanded(

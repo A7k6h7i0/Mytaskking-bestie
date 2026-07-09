@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -179,6 +180,9 @@ class _AiReviewScreenState extends ConsumerState<AiReviewScreen> {
       backgroundColor: colors.bg,
       appBar: AppBar(
         title: const Text('AI Review'),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
         actions: [
           IconButton(
             tooltip: 'Refresh',
@@ -195,8 +199,16 @@ class _AiReviewScreenState extends ConsumerState<AiReviewScreen> {
           description: formatApiError(e),
         ),
         data: (items) {
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+          final isDesktop = Platform.isWindows ||
+              Platform.isMacOS ||
+              Platform.isLinux;
+          final content = ListView(
+            padding: EdgeInsets.fromLTRB(
+              isDesktop ? 28 : 16,
+              isDesktop ? 8 : 12,
+              isDesktop ? 28 : 16,
+              24,
+            ),
             children: [
               Text(
                 'Analyse telecaller recordings with Voice AI.',
@@ -325,6 +337,14 @@ class _AiReviewScreenState extends ConsumerState<AiReviewScreen> {
                 ),
               ],
             ],
+          );
+          if (!isDesktop) return content;
+          return Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 720),
+              child: content,
+            ),
           );
         },
       ),

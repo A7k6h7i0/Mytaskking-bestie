@@ -8,7 +8,8 @@ import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:mytaskking_core/mytaskking_core.dart' as core show ThemeMode;
 import 'package:mytaskking_mobile/router.dart' as mobile_router;
-import 'package:mytaskking_mobile/screens.dart' hide ThemeMode;
+import 'package:mytaskking_mobile/screens.dart'
+    hide ThemeMode, WorkActivityScreen;
 import 'package:mytaskking_mobile/screens/connectivity_banner.dart';
 import 'package:mytaskking_mobile/screens/incoming_call_overlay.dart';
 import 'package:mytaskking_mobile/screens/ongoing_call_bar.dart';
@@ -135,14 +136,20 @@ class BestieWindowsApp extends ConsumerWidget {
                 path: '/calendar',
                 builder: (_, __) => const DesktopCalendarScreen()),
             GoRoute(
+                path: '/telecaller',
+                builder: (_, __) =>
+                    const TelecallerScreen(embeddedInShell: true),
+            ),
+            GoRoute(
+                path: '/ai-review',
+                builder: (_, __) => const AiReviewScreen(),
+            ),
+            GoRoute(
                 path: '/announcements',
                 builder: (_, __) => const AnnouncementsScreen()),
             GoRoute(path: '/saved', builder: (_, __) => const SavedScreen()),
             GoRoute(
                 path: '/sessions', builder: (_, __) => const SessionsScreen()),
-            GoRoute(
-                path: '/telecaller',
-                builder: (_, __) => const TelecallerScreen()),
             GoRoute(
                 path: '/settings', builder: (_, __) => const SettingsScreen()),
             GoRoute(
@@ -479,9 +486,31 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
   List<BestieSidebarItem> _itemsFor(BestieUser? user) {
     final isAdmin = user?.role == 'ADMIN' || user?.role == 'SUPER_ADMIN';
     final isManager = isAdmin || user?.role == 'MANAGER';
-    final isTelecaller = user?.role == 'TELECALLER' ||
-        user?.role == 'ADMIN' ||
-        user?.role == 'SUPER_ADMIN';
+    final isTelecallerOnly = user?.role == 'TELECALLER';
+    final isTelecaller = isTelecallerOnly || isAdmin || user?.role == 'SUPER_ADMIN';
+    final isPlatformSuperAdmin = user?.isPlatformSuperAdmin == true;
+
+    if (isTelecallerOnly) {
+      return const [
+        BestieSidebarItem(
+            icon: Icons.chat_bubble_outline, label: 'Chats', route: '/chat'),
+        BestieSidebarItem(
+            icon: Icons.dashboard_outlined,
+            label: 'Dashboard',
+            route: '/dashboard'),
+        BestieSidebarItem(
+            icon: Icons.headset_mic_outlined,
+            label: 'Telecaller Leads',
+            route: '/telecaller'),
+        BestieSidebarItem(
+            icon: Icons.person_outline, label: 'Profile', route: '/profile'),
+        BestieSidebarItem(
+            icon: Icons.settings_outlined,
+            label: 'Settings',
+            route: '/settings'),
+      ];
+    }
+
     return [
       const BestieSidebarItem(
           icon: Icons.dashboard_outlined,
@@ -498,6 +527,11 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
             icon: Icons.monitor_heart_outlined,
             label: 'Work Activity',
             route: '/work-activity'),
+      if (isPlatformSuperAdmin)
+        const BestieSidebarItem(
+            icon: Icons.apartment_rounded,
+            label: 'Organisations',
+            route: '/organizations'),
       if (isAdmin)
         const BestieSidebarItem(
             icon: Icons.people_outline_rounded,
@@ -511,8 +545,13 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
       if (isTelecaller)
         const BestieSidebarItem(
             icon: Icons.headset_mic_outlined,
-            label: 'Telecaller',
+            label: 'Telecaller Leads',
             route: '/telecaller'),
+      if (isAdmin)
+        const BestieSidebarItem(
+            icon: Icons.psychology_outlined,
+            label: 'AI Review',
+            route: '/ai-review'),
       const BestieSidebarItem(
           icon: Icons.history_rounded, label: 'Calls', route: '/calls'),
       const BestieSidebarItem(
@@ -544,14 +583,15 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     if (path.startsWith('/tasks')) return '/tasks';
     if (path.startsWith('/meetings')) return '/meetings';
     if (path.startsWith('/work-activity')) return '/work-activity';
+    if (path.startsWith('/organizations')) return '/organizations';
     if (path.startsWith('/employees')) return '/employees';
     if (path.startsWith('/clients')) return '/clients';
     if (path.startsWith('/telecaller')) return '/telecaller';
+    if (path.startsWith('/ai-review')) return '/ai-review';
     if (path.startsWith('/calls')) return '/calls';
     if (path.startsWith('/calendar')) return '/calendar';
     if (path.startsWith('/reports')) return '/reports';
     if (path.startsWith('/recordings')) return '/recordings';
-    if (path.startsWith('/organizations')) return '/settings';
     if (path.startsWith('/notifications')) return '/notifications';
     if (path.startsWith('/settings')) return '/settings';
     if (path.startsWith('/profile')) return '/profile';
