@@ -31,6 +31,7 @@ class MainActivity : FlutterFragmentActivity() {
     private val telecallerRecordingChannel = "mytaskking/telecaller_recording"
     private val callSettingsChannel = "mytaskking/call_settings"
     private val callRecordingStorageChannel = "mytaskking/call_recording_storage"
+    private val screenShareChannel = "mytaskking/screen_share"
     private var latestLaunchPayload: Map<String, String?>? = null
     private var pendingStorageResult: MethodChannel.Result? = null
 
@@ -136,6 +137,20 @@ class MainActivity : FlutterFragmentActivity() {
                     }
                     "playKeyTap" -> {
                         playKeyTapTone()
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, screenShareChannel)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "start" -> {
+                        ScreenShareForegroundService.start(this)
+                        result.success(null)
+                    }
+                    "stop" -> {
+                        ScreenShareForegroundService.stop(this)
                         result.success(null)
                     }
                     else -> result.notImplemented()

@@ -21,6 +21,7 @@ import '../call_proximity.dart';
 import '../call_screen_theme.dart';
 import '../router.dart';
 import '../state.dart';
+import '../screen_share_helper.dart';
 import '../widgets/call_dialpad_sheet.dart';
 import '../widgets/call_screen_design.dart';
 
@@ -271,6 +272,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
   final List<void Function()> _callUnsubs = [];
   bool _remoteClosed = false;
   bool _hangingUp = false;
+  bool _handRaised = false;
+  final Map<String, String> _raisedHands = {};
   Timer? _timer;
   Timer? _audioHealthTimer;
   Timer? _tokenRefreshTimer;
@@ -309,6 +312,16 @@ class _CallScreenState extends ConsumerState<CallScreen>
       !_isMeeting &&
       !_remoteClosed &&
       _isCallInitiator;
+
+  /// True when the call is still live (not hanging up / remote ended).
+  bool get _isLiveCallActive =>
+      !_hangingUp &&
+      !_remoteClosed &&
+      _CallSession.engine != null &&
+      (_CallSession.connectedAt != null || _joined);
+
+  /// UI-only: show "Ending call…" only while we are actually tearing down.
+  bool get _showEndingUi => _hangingUp;
 
   @override
   void initState() {
@@ -382,6 +395,15 @@ class _CallScreenState extends ConsumerState<CallScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (!_CallSession.matches(widget.callId, widget.meetingSlug)) return;
     if (state == AppLifecycleState.resumed) {
+      // Agora may briefly fire onLeaveChannel when backgrounded — restore the
+      // live session flag so the timer does not flip to "Ending call…".
+      if (_CallSession.engine != null && _CallSession.connectedAt != null) {
+        _joined = true;
+        _reconnecting = false;
+        if (mounted) {
+          setState(() => _status = 'Connected');
+        }
+      }
       if (_connectedAt != null) _startTimer();
       _reassertAudio();
       _showOngoingCallNotification();
@@ -389,6 +411,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
       // Reassert the media path and foreground service before the screen locks.
+      unawaited(_stopRingback());
       _reassertAudio();
       _showOngoingCallNotification();
     }
@@ -858,14 +881,30 @@ class _CallScreenState extends ConsumerState<CallScreen>
             _remoteUids.add(uid);
             _agoraUidToUserId[uid] = sharerId;
           }
-        } else if (sharerId == null || sharerId == _remoteScreenShareUserId) {
+          unawaited(_ensureRemoteVideoSubscribed(uid));
+        } else {
           _remoteScreenShareUid = null;
           _remoteScreenShareUserId = null;
         }
       });
-      if (active && uid != null) {
-        unawaited(_ensureRemoteVideoSubscribed(uid));
-      }
+      return;
+    }
+    if (type == 'raiseHand') {
+      final userId = payload['fromUserId']?.toString();
+      if (userId == null || userId.isEmpty) return;
+      final meId = ref.read(authStoreProvider).user?.id;
+      if (userId == meId) return;
+      final active = payload['active'] == true;
+      final name = payload['userName']?.toString() ?? 'Participant';
+      if (!mounted) return;
+      setState(() {
+        if (active) {
+          _raisedHands[userId] = name;
+        } else {
+          _raisedHands.remove(userId);
+        }
+      });
+      return;
     }
   }
 
@@ -1217,7 +1256,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
   /// When returning to an already-live call, restore timer + connected status
   /// from the static session instead of "Connecting…".
   void _restoreLiveCallUi() {
-    if (_CallSession.connectedAt != null) {
+    if (_CallSession.connectedAt != null && _CallSession.engine != null) {
+      _joined = true;
+      _reconnecting = false;
       _startTimer();
       if (mounted) setState(() => _status = 'Connected');
       return;
@@ -1283,6 +1324,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       } catch (_) {}
     }
     await _CallSession.teardown();
+    await ScreenShareHelper.release();
     await _stopProximity();
     _cancelOutgoingRingTimeout();
     await _stopRingback();
@@ -1479,6 +1521,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
       },
       onLeaveChannel: (conn, stats) {
         if (!mounted) return;
+        // Agora may emit a transient leave when the app is backgrounded while
+        // audio is still live — only treat it as ended when we hung up.
+        if (!_hangingUp && !_remoteClosed && _CallSession.connectedAt != null) {
+          return;
+        }
         setState(() {
           _joined = false;
           _status = 'Ended';
@@ -1546,50 +1593,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   Future<void> _playRingback() async {
     if (!_isCallInitiator || _isMeeting) return;
-    try {
-      await _stopRingback();
-      final url = _ringingSoundUrl;
-      await _tonePlayer.setAudioContext(_ringbackAudioContext(_route));
-      await _tonePlayer.setReleaseMode(ReleaseMode.loop);
-      final ringVolume = switch (_route) {
-        CallAudioRoute.speaker => 1.0,
-        CallAudioRoute.bluetooth => 0.95,
-        CallAudioRoute.earpiece => 0.75,
-      };
-      if (url != null && url.isNotEmpty) {
-        await _tonePlayer.play(UrlSource(url), volume: ringVolume);
-        _startOutgoingRingTimeout();
-        return;
-      }
-      if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-        await _tonePlayer.play(
-          BytesSource(AppSounds.desktopRingtoneBytes()),
-          volume: ringVolume,
-        );
-        _startOutgoingRingTimeout();
-        return;
-      }
-      // Custom URL absent: earpiece uses the system ringtone stream; speaker /
-      // Bluetooth need a different stream or Agora hijacks the session.
-      if (_route == CallAudioRoute.earpiece) {
-        await _ringtone.play(
-          android: AndroidSounds.ringtone,
-          ios: IosSounds.electronic,
-          looping: true,
-          volume: ringVolume,
-          asAlarm: false,
-        );
-      } else {
-        await _ringtone.play(
-          android: AndroidSounds.ringtone,
-          ios: IosSounds.electronic,
-          looping: true,
-          volume: ringVolume,
-          asAlarm: true,
-        );
-      }
-      _startOutgoingRingTimeout();
-    } catch (_) {}
+    // Silent outbound ring — UI shows "Ringing…" without playing a ringtone
+    // that fights Agora's audio session on speaker / Bluetooth.
+    await _stopRingback();
+    _startOutgoingRingTimeout();
   }
 
   Future<void> _speak(String text) async {
@@ -1700,7 +1707,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
         _purgeSelfFromRemoteTracking();
         _restoreLiveCallUi();
         setState(() {
-          _joined = _CallSession.joined;
+          if (_CallSession.connectedAt != null && _CallSession.engine != null) {
+            _joined = true;
+          } else {
+            _joined = _CallSession.joined;
+          }
         });
         _syncRemotePeerSnapshot();
         _publishActiveCallState();
@@ -2220,7 +2231,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   Future<void> _toggleShare() async {
     if (_engine == null) return;
-    if (!_joined || _waitingForAnswer) {
+    if (_connectedAt == null) {
       if (mounted) {
         bestieToast(
           context,
@@ -2241,11 +2252,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
         ));
         setState(() => _sharing = false);
         _emitScreenShareState(active: false);
+        await ScreenShareHelper.release();
         if (mounted) {
           bestieToast(context, 'Screen share stopped',
               kind: BestieToastKind.info);
         }
       } else {
+        await ScreenShareHelper.prepare();
         try {
           await _engine!.enableVideo();
         } catch (_) {}
@@ -2272,10 +2285,33 @@ class _CallScreenState extends ConsumerState<CallScreen>
         }
       }
     } catch (e) {
+      await ScreenShareHelper.release();
       if (mounted) {
         bestieToast(context, 'Screen share not available',
             body: formatApiError(e), kind: BestieToastKind.error);
       }
+    }
+  }
+
+  void _toggleRaiseHand() {
+    if (!_isMeeting) return;
+    final me = ref.read(authStoreProvider).user;
+    final meId = me?.id;
+    if (meId == null) return;
+    final next = !_handRaised;
+    setState(() => _handRaised = next);
+    _broadcastCallSignal({
+      'type': 'raiseHand',
+      'active': next,
+      'fromUserId': meId,
+      'userName': me?.name ?? 'Participant',
+    });
+    if (mounted) {
+      bestieToast(
+        context,
+        next ? 'Hand raised' : 'Hand lowered',
+        kind: BestieToastKind.info,
+      );
     }
   }
 
@@ -2790,8 +2826,15 @@ class _CallScreenState extends ConsumerState<CallScreen>
                       ),
                     ),
                   ),
+                if (_isMeeting && (_handRaised || _raisedHands.isNotEmpty))
+                  Positioned(
+                    top: topInset + 108,
+                    left: 0,
+                    right: 0,
+                    child: IgnorePointer(child: Center(child: _raisedHandsBanner())),
+                  ),
                 // Network trouble — compact pill for group calls; full banner for 1:1.
-                if (_reconnecting && _error == null && _joined && !_hangingUp)
+                if (_reconnecting && _error == null && _isLiveCallActive)
                   Positioned(
                     top: topInset +
                         (_useWhatsAppParticipantGrid
@@ -2866,7 +2909,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final remoteName = _primaryRemoteDisplayName();
     final subtitle = _primaryRemoteSubtitle();
     final desktopLayout = Platform.isWindows || Platform.isLinux;
-    final ending = _hangingUp || !_joined;
+    final ending = _showEndingUi;
     final timerLine = ending
         ? 'Ending call…'
         : (_connectedAt != null ? _formatElapsed(_elapsed) : _status);
@@ -2878,7 +2921,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
                 ? const Color(0xFFFFB020)
                 : CallScreenUiColors.textPrimary);
     final showReconnect =
-        _reconnecting && _error == null && _joined && !_hangingUp;
+        _reconnecting && _error == null && _isLiveCallActive;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -3038,7 +3081,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final shareLabel = isLocal
         ? 'You are sharing your screen'
         : '${_remoteNames[remoteUid] ?? _primaryRemoteDisplayName()} is sharing their screen';
-    final ending = _hangingUp || !_joined;
+    final ending = _showEndingUi;
     final timerLine = ending
         ? 'Ending call…'
         : (_connectedAt != null ? _formatElapsed(_elapsed) : _status);
@@ -3050,7 +3093,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
                 ? const Color(0xFFFFB020)
                 : CallScreenUiColors.textPrimary);
     final showReconnect =
-        _reconnecting && _error == null && _joined && !_hangingUp;
+        _reconnecting && _error == null && _isLiveCallActive;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -4399,6 +4442,48 @@ class _CallScreenState extends ConsumerState<CallScreen>
     ]);
   }
 
+  Widget _raisedHandsBanner() {
+    final names = <String>[];
+    if (_handRaised) {
+      names.add('You');
+    }
+    for (final entry in _raisedHands.entries) {
+      names.add(entry.value);
+    }
+    if (names.isEmpty) return const SizedBox.shrink();
+    final label = names.length == 1
+        ? '${names.first} raised a hand'
+        : '${names.length} raised hands';
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFBBF24).withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFFBBF24).withValues(alpha: 0.45)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.front_hand_rounded, color: Color(0xFFFBBF24), size: 18),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _participantsStrip({bool showTimer = true}) {
     // One entry per live remote stream (so the same account on two devices
     // reads as two participants), labelled from the announce map.
@@ -5465,9 +5550,22 @@ class _CallScreenState extends ConsumerState<CallScreen>
                 SizedBox(width: rowGap),
                 const Expanded(child: SizedBox()),
                 SizedBox(width: rowGap),
-                const Expanded(child: SizedBox()),
-                SizedBox(width: rowGap),
-                const Expanded(child: SizedBox()),
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.center,
+                    child: Transform.translate(
+                      offset: Offset(compact ? 4 : 6, 0),
+                      child: CallUiBottomActionButton(
+                        icon: (!_videoEnabled || _cameraOff)
+                            ? Icons.videocam_off_outlined
+                            : Icons.videocam_outlined,
+                        size: actionSize,
+                        onTap: _toggleCamera,
+                        compact: compact,
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
             _PressableCircle(
@@ -5777,9 +5875,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
             iconSize: compact ? 18 : 22,
           ),
           _ctrlCircle(
-            icon: Icons.front_hand_outlined,
-            onTap: () =>
-                bestieToast(context, 'Hand raised', kind: BestieToastKind.info),
+            icon: _handRaised
+                ? Icons.front_hand_rounded
+                : Icons.front_hand_outlined,
+            onTap: _toggleRaiseHand,
+            active: _handRaised,
             size: compact ? 42 : 52,
             iconSize: compact ? 18 : 22,
           ),

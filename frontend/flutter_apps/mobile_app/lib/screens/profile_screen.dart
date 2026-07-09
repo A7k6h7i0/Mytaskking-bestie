@@ -1,13 +1,12 @@
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:mytaskking_core/mytaskking_core.dart' as core;
 
 import '../state.dart' hide ThemeMode;
 import '../widgets/profile_avatar_viewer.dart';
-import '../widgets/avatar_crop_sheet.dart';
 import 'leaderboard_card.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
@@ -50,28 +49,25 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
   Future<void> _pickAvatar() async {
     try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.image,
-        allowMultiple: false,
-        withData: true,
+      final picked = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 2048,
+        imageQuality: 92,
       );
-      if (result == null ||
-          result.files.isEmpty ||
-          result.files.first.bytes == null) {
-        return;
-      }
-      final image = result.files.first;
+      if (picked == null) return;
+      final bytes = await picked.readAsBytes();
+      if (!mounted) return;
       final cropped = await showAvatarCropSheet(
         context,
-        imageBytes: image.bytes!,
+        imageBytes: bytes,
       );
       if (cropped == null || !mounted) return;
 
       setState(() => _uploadingAvatar = true);
       final asset = await ref.read(apiProvider).uploadFile(
             bytes: cropped,
-            filename: _croppedFilename(image.name),
-            mimeType: 'image/png',
+            filename: _croppedFilename(picked.name),
+            mimeType: 'image/jpeg',
           );
       final url = asset['url']?.toString();
       if (url == null || url.isEmpty) throw 'Upload returned no image URL';

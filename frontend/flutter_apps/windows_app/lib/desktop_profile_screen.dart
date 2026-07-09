@@ -67,11 +67,18 @@ class _DesktopProfileScreenState extends ConsumerState<DesktopProfileScreen> {
         return;
       }
       final image = result.files.first;
+      if (!mounted) return;
+      final cropped = await showAvatarCropSheet(
+        context,
+        imageBytes: image.bytes!,
+      );
+      if (cropped == null || !mounted) return;
+
       setState(() => _uploadingAvatar = true);
       final asset = await ref.read(apiProvider).uploadFile(
-            bytes: image.bytes!,
-            filename: image.name,
-            mimeType: _imageMimeType(image.extension),
+            bytes: cropped,
+            filename: _croppedFilename(image.name),
+            mimeType: 'image/jpeg',
           );
       final url = asset['url']?.toString();
       if (url == null || url.isEmpty) {
@@ -175,6 +182,13 @@ class _DesktopProfileScreenState extends ConsumerState<DesktopProfileScreen> {
       await DesktopRuntime.setSessionActive(false);
       if (mounted) context.go('/login');
     }
+  }
+
+  String _croppedFilename(String original) {
+    final base = original.contains('.')
+        ? original.substring(0, original.lastIndexOf('.'))
+        : original;
+    return '$base-cropped.jpg';
   }
 
   String _imageMimeType(String? extension) =>
