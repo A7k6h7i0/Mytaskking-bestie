@@ -7,6 +7,7 @@ import 'package:mytaskking_core/mytaskking_core.dart' as core;
 
 import '../state.dart' hide ThemeMode;
 import '../widgets/profile_avatar_viewer.dart';
+import '../widgets/avatar_crop_sheet.dart';
 import 'leaderboard_card.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
@@ -70,7 +71,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       final asset = await ref.read(apiProvider).uploadFile(
             bytes: cropped,
             filename: _croppedFilename(image.name),
-            mimeType: 'image/jpeg',
+            mimeType: 'image/png',
           );
       final url = asset['url']?.toString();
       if (url == null || url.isEmpty) throw 'Upload returned no image URL';

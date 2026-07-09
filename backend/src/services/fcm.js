@@ -113,7 +113,7 @@ async function sendToTokens(tokens, { title, body, data }) {
   return { sent: result.successCount, failed: result.failureCount, responses: result.responses };
 }
 
-async function sendCallEnded(call, clientApp) {
+async function sendCallEnded(call) {
   if (!call?.id) return { sent: 0, failed: 0 };
   const userIds = [...new Set((call.participants || []).map((p) => p.userId).filter(Boolean))];
   if (!userIds.length) return { sent: 0, failed: 0 };
@@ -128,7 +128,6 @@ async function sendCallEnded(call, clientApp) {
     data: {
       type: 'call.ended',
       callId: call.id,
-      ...(clientApp ? { clientApp } : {}),
     },
   });
 }

@@ -237,6 +237,12 @@ class ShellScreen extends ConsumerWidget {
           !isClient),
       _MoreEntry(Icons.download_for_offline_outlined, 'Recordings',
           '/recordings', c.accent, isAdmin),
+      _MoreEntry(Icons.login_rounded, 'Login activity', '/login-activity',
+          c.info, isAdmin),
+      _MoreEntry(Icons.monitor_heart_outlined, 'Work activity',
+          '/work-activity', c.brand, isAdmin),
+      _MoreEntry(Icons.psychology_outlined, 'AI Review', '/ai-review',
+          c.brandStrong, isAdmin),
       _MoreEntry(Icons.campaign_outlined, 'Announcements', '/announcements',
           c.accent, true),
       _MoreEntry(

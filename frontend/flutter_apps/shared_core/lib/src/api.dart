@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 import 'api_client.dart';
 
@@ -299,6 +301,44 @@ extension BestieApiExt on BestieApi {
     await post('/sessions/mine/sign-out-everywhere');
   }
 
+  Future<Map<String, dynamic>> sessionActivity({
+    DateTime? from,
+    DateTime? to,
+    int page = 1,
+    int pageSize = 100,
+  }) => get(
+    '/sessions/activity',
+    query: {
+      if (from != null) 'from': from.toUtc().toIso8601String(),
+      if (to != null) 'to': to.toUtc().toIso8601String(),
+      'page': page,
+      'pageSize': pageSize,
+    },
+  );
+
+  Future<Uint8List> sessionSelfieBytes(String sessionId) async {
+    final r = await dio.get(
+      '/sessions/$sessionId/selfie',
+      options: Options(responseType: ResponseType.bytes),
+    );
+    final data = r.data;
+    if (data == null) return Uint8List(0);
+    if (data is Uint8List) return data;
+    if (data is List<int>) return Uint8List.fromList(data);
+    return Uint8List(0);
+  }
+
+  // ---- AI review (telecaller voice analysis) ----
+  Future<List<Map<String, dynamic>>> aiReviewRecordings() => get(
+    '/ai-review/recordings',
+  ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
+
+  Future<Map<String, dynamic>> submitAiReviewAnalyse(String callId) =>
+      post('/ai-review/analyse', body: {'callId': callId});
+
+  Future<Map<String, dynamic>> getAiReviewJob(String jobId) =>
+      get('/ai-review/job/$jobId');
+
   // ---- announcements ----
   Future<List<Map<String, dynamic>>> listAnnouncements() => get(
     '/announcements',
@@ -469,6 +509,17 @@ extension BestieApiExt on BestieApi {
 
   Future<Map<String, dynamic>> updateMyAvatar(String avatarUrl) =>
       updateMyProfile({'avatarUrl': avatarUrl});
+
+  Future<Map<String, dynamic>> clearMyAvatar() =>
+      updateMyProfile({'avatarUrl': ''});
+
+  /// Resolves a downloadable URL for a file asset (signed URL for R2, direct for Cloudinary).
+  Future<String> getFileDownloadUrl(String fileId) async {
+    final r = await get('/files/$fileId/signed-url');
+    final url = r['url']?.toString() ?? '';
+    if (url.isEmpty) throw 'File has no download URL';
+    return url;
+  }
 
   Future<List<Map<String, dynamic>>> listClients({String? q}) => get(
     '/clients',

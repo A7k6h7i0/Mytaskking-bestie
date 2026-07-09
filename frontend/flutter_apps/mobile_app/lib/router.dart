@@ -27,6 +27,9 @@ import 'screens/attendance_screen.dart';
 import 'screens/task_detail_screen.dart';
 import 'screens/reports_screen.dart';
 import 'screens/recordings_screen.dart';
+import 'screens/login_activity_screen.dart';
+import 'screens/work_activity_screen.dart';
+import 'screens/ai_review_screen.dart';
 import 'screens/organizations_screen.dart';
 import 'screens/deleted_chats_screen.dart';
 import 'state.dart' hide ThemeMode;
@@ -113,6 +116,15 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/reports', builder: (_, __) => const ReportsScreen()),
       GoRoute(
           path: '/recordings', builder: (_, __) => const RecordingsScreen()),
+      GoRoute(
+          path: '/login-activity',
+          builder: (_, __) => const LoginActivityScreen()),
+      GoRoute(
+          path: '/work-activity',
+          builder: (_, __) => const WorkActivityScreen()),
+      GoRoute(
+          path: '/ai-review',
+          builder: (_, __) => const AiReviewScreen()),
       GoRoute(
           path: '/deleted-chats', builder: (_, __) => const DeletedChatsScreen()),
       GoRoute(
