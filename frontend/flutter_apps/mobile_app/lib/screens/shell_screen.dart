@@ -113,11 +113,10 @@ class ShellScreen extends ConsumerWidget {
         body: child,
         bottomNavigationBar: _PremiumBottomNav(
           tabs: tabs,
-          currentIndex: () {
-            int index = tabs.indexWhere((t) => location.startsWith(t.path));
-            if (index < 0) index = 0;
-            return index;
-          }(),
+          // -1 when on a More-pushed screen (notifications, settings, …) so no
+          // bottom tab looks selected — previously we defaulted to 0 (Chat).
+          currentIndex:
+              tabs.indexWhere((t) => location.startsWith(t.path)),
           onTap: (i) {
             if (tabs[i].path == '/more') {
               _openMore(context, ref, user);
@@ -412,7 +411,8 @@ class _PremiumBottomNav extends ConsumerWidget {
             child: Row(
               children: List.generate(tabs.length, (i) {
                 final tab = tabs[i];
-                final selected = i == currentIndex;
+                final selected =
+                    currentIndex >= 0 && i == currentIndex;
                 // Per-tab badges:
                 //   Chat   → unread channels (red)
                 //   Tasks  → tasks awaiting my accept (warning-colored, see _NavItem)

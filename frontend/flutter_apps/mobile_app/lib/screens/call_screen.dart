@@ -463,11 +463,15 @@ class _CallScreenState extends ConsumerState<CallScreen>
       final name = data['userName']?.toString();
       final uidRaw = data['agoraUid'];
       final agoraUid = uidRaw is int ? uidRaw : int.tryParse('$uidRaw');
+      final me = ref.read(authStoreProvider).user;
+      final isSelf = userId != null && userId == me?.id;
       if (userId != null && userId.isNotEmpty) {
         final resolved =
             name ?? _joinedParticipants[userId] ?? 'Participant';
         _markParticipantJoined(userId, resolved);
-        if (agoraUid != null && agoraUid > 0) {
+        // Never treat our own server join as a remote stream — that made the
+        // outbound ring UI show the caller's name until the callee answered.
+        if (!isSelf && agoraUid != null && agoraUid > 0) {
           _agoraUidToUserId[agoraUid] = userId;
           _remoteNames[agoraUid] = resolved;
           _seenPeerUids.add(agoraUid);
@@ -475,8 +479,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
             setState(() => _remoteUids.add(agoraUid));
           }
         }
-        final me = ref.read(authStoreProvider).user;
-        if (userId != me?.id) _onCalleeAnsweredViaServer(userId);
+        if (!isSelf) _onCalleeAnsweredViaServer(userId);
       }
       if (mounted) setState(() {});
     }
@@ -1284,19 +1287,54 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   void _publishActiveCallState() {
     _syncRemotePeerSnapshot();
+    final displayTitle = _callDisplayTitle();
+    final multiParty = _isMeeting ||
+        _participantCount > 2 ||
+        _remoteUids.length > 1 ||
+        ((_callMeta?['call'] as Map?)?['kind'] == 'GROUP' &&
+            _participantCount >= 2);
     String? liveRemoteName;
-    for (final n in _remoteNames.values) {
-      if (n.isNotEmpty) {
-        liveRemoteName = n;
-        break;
+    if (multiParty &&
+        displayTitle != 'Connecting…' &&
+        displayTitle != 'In call') {
+      liveRemoteName = displayTitle;
+    } else {
+      final me = ref.read(authStoreProvider).user;
+      for (final entry in _remoteNames.entries) {
+        if (_agoraUidToUserId[entry.key] == me?.id) continue;
+        if (entry.value.trim().isNotEmpty) {
+          liveRemoteName = entry.value.trim();
+          break;
+        }
       }
     }
     final title = widget.meetingSlug != null
         ? 'Meeting'
-        : (_CallSession.remotePeerName ?? liveRemoteName ?? 'Call');
+        : (_CallSession.remotePeerName ??
+            liveRemoteName ??
+            (displayTitle != 'Connecting…' && displayTitle != 'In call'
+                ? displayTitle
+                : 'Call'));
+    final participants = <String>[];
+    final me = ref.read(authStoreProvider).user;
+    for (final entry in _remoteNames.entries) {
+      if (_agoraUidToUserId[entry.key] == me?.id) continue;
+      final n = entry.value.trim();
+      if (n.isNotEmpty && !participants.contains(n)) participants.add(n);
+    }
+    if (participants.isEmpty) {
+      for (final p in _participantsFromMeta()) {
+        final userId = p['userId']?.toString();
+        if (userId == null || userId == me?.id) continue;
+        final n = _participantProfileName(p);
+        if (n.isNotEmpty && n != 'Participant' && !participants.contains(n)) {
+          participants.add(n);
+        }
+      }
+    }
     ActiveCallState.update(
       title: title,
-      participants: _remoteNames.values.toList(growable: false),
+      participants: participants,
     );
   }
 
@@ -1305,14 +1343,26 @@ class _CallScreenState extends ConsumerState<CallScreen>
   void _syncRemotePeerSnapshot() {
     final me = ref.read(authStoreProvider).user;
     String? name;
-    for (final entry in _joinedParticipants.entries) {
-      if (entry.key != me?.id && entry.value.trim().isNotEmpty) {
-        name = entry.value.trim();
-        break;
+
+    // Outbound ring: callee name comes from invite metadata, not Agora uids.
+    if (_waitingForAnswer) {
+      final fromMeta = _callDisplayTitle();
+      if (fromMeta != 'Connecting…' && fromMeta != 'In call') {
+        name = fromMeta;
+      }
+    }
+
+    if (name == null) {
+      for (final entry in _joinedParticipants.entries) {
+        if (entry.key != me?.id && entry.value.trim().isNotEmpty) {
+          name = entry.value.trim();
+          break;
+        }
       }
     }
     if (name == null && _remoteUids.isNotEmpty) {
       for (final uid in _remoteUids) {
+        if (_agoraUidToUserId[uid] == me?.id) continue;
         final n = _remoteNames[uid]?.trim();
         if (n != null && n.isNotEmpty) {
           name = n;
@@ -1342,6 +1392,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   String _primaryRemoteDisplayName() {
+    if (_waitingForAnswer) {
+      final invited = _callDisplayTitle();
+      if (invited != 'Connecting…' && invited != 'In call') {
+        return invited;
+      }
+    }
     final cached = _CallSession.remotePeerName;
     if (cached != null &&
         cached.isNotEmpty &&
@@ -1358,14 +1414,15 @@ class _CallScreenState extends ConsumerState<CallScreen>
         activeTitle != 'In call') {
       return activeTitle;
     }
+    final me = ref.read(authStoreProvider).user;
     if (_remoteUids.isNotEmpty) {
       for (final uid in _remoteUids) {
+        if (_agoraUidToUserId[uid] == me?.id) continue;
         final n = _remoteNames[uid]?.trim();
         if (n != null && n.isNotEmpty) return n;
       }
     }
     for (final entry in _joinedParticipants.entries) {
-      final me = ref.read(authStoreProvider).user;
       if (entry.key != me?.id && entry.value.trim().isNotEmpty) {
         return entry.value.trim();
       }
@@ -1757,10 +1814,50 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   Future<void> _playRingback() async {
     if (!_isCallInitiator || _isMeeting) return;
-    // Silent outbound ring — UI shows "Ringing…" without playing a ringtone
-    // that fights Agora's audio session on speaker / Bluetooth.
-    await _stopRingback();
-    _startOutgoingRingTimeout();
+    try {
+      await _stopRingback();
+      final url = _ringingSoundUrl;
+      await _tonePlayer.setAudioContext(_ringbackAudioContext(_route));
+      await _tonePlayer.setReleaseMode(ReleaseMode.loop);
+      final ringVolume = switch (_route) {
+        CallAudioRoute.speaker => 1.0,
+        CallAudioRoute.bluetooth => 0.95,
+        CallAudioRoute.earpiece => 0.75,
+      };
+      if (url != null && url.isNotEmpty) {
+        await _tonePlayer.play(UrlSource(url), volume: ringVolume);
+        _startOutgoingRingTimeout();
+        return;
+      }
+      if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+        await _tonePlayer.play(
+          BytesSource(AppSounds.desktopRingtoneBytes()),
+          volume: ringVolume,
+        );
+        _startOutgoingRingTimeout();
+        return;
+      }
+      // Custom URL absent: earpiece uses the system ringtone stream; speaker /
+      // Bluetooth need a different stream or Agora hijacks the session.
+      if (_route == CallAudioRoute.earpiece) {
+        await _ringtone.play(
+          android: AndroidSounds.ringtone,
+          ios: IosSounds.electronic,
+          looping: true,
+          volume: ringVolume,
+          asAlarm: false,
+        );
+      } else {
+        await _ringtone.play(
+          android: AndroidSounds.ringtone,
+          ios: IosSounds.electronic,
+          looping: true,
+          volume: ringVolume,
+          asAlarm: true,
+        );
+      }
+      _startOutgoingRingTimeout();
+    } catch (_) {}
   }
 
   Future<void> _speak(String text) async {
@@ -1990,11 +2087,16 @@ class _CallScreenState extends ConsumerState<CallScreen>
         throw 'Server returned an invalid Agora App ID ("$appId"). Replace it with a real Agora project ID.';
       }
       setState(() => _channelName = channel);
+      final displayTitle = _callDisplayTitle();
       ActiveCallState.start(
         callId: widget.callId,
         meetingSlug: widget.meetingSlug,
         mode: widget.mode,
-        title: widget.meetingSlug != null ? 'Meeting' : 'Call',
+        title: widget.meetingSlug != null
+            ? 'Meeting'
+            : (displayTitle != 'Connecting…' && displayTitle != 'In call'
+                ? displayTitle
+                : 'Call'),
       );
 
       // 3. Create + initialize the engine. `channelProfile` belongs on the
@@ -2881,6 +2983,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     _publishActiveCallState();
     _CallSession.onCallScreen = false;
     _CallSession._ping();
+    CallSession.notifyRevision();
     unawaited(_CallSession.reapplyAudioRoute());
     _showOngoingCallNotification();
     context.go('/chat');
@@ -3599,7 +3702,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final names = <String>[];
     for (final p in parts) {
       if (p is! Map) continue;
-      if (p['userId'] == me?.id) continue;
+      if (p['userId']?.toString() == me?.id) continue;
       final u = (p['user'] as Map?)?.cast<String, dynamic>();
       final n = (u?['name'] ?? '').toString().trim();
       if (n.isNotEmpty && !names.contains(n)) names.add(n);
@@ -5122,7 +5225,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
         const [];
     for (final p in parts) {
       if (p is! Map) continue;
-      if (p['userId'] == me?.id) continue;
+      if (p['userId']?.toString() == me?.id) continue;
       final u = (p['user'] as Map?)?.cast<String, dynamic>();
       final title = (u?['customTitle'] ?? '').toString().trim();
       if (title.isNotEmpty) return title;
@@ -5152,7 +5255,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
         (_callMeta?['participants'] as List?) ??
         const [];
     for (final p in parts) {
-      if (p is! Map || p['userId'] == me?.id) continue;
+      if (p is! Map || p['userId']?.toString() == me?.id) continue;
       final user = (p['user'] as Map?)?.cast<String, dynamic>();
       final url = user?['avatarUrl']?.toString();
       if (url != null && url.isNotEmpty) return url;

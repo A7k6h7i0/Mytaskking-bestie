@@ -19,7 +19,6 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
 import '../call_event_text.dart';
-import '../app_sounds.dart';
 import '../chat_clear.dart';
 import '../chat_mute.dart';
 import '../chat_media_saver.dart';
@@ -1002,10 +1001,14 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
       return;
     }
     if (!_canStartCalls) {
+      final blockedSuperAdmin = _channel?['kind'] == 'DM' &&
+          _dmOtherUser()?['role']?.toString() == 'SUPER_ADMIN';
       bestieToast(
         context,
         'Calling unavailable',
-        body: 'Only admins can start calls with administrators.',
+        body: blockedSuperAdmin
+            ? 'Platform administrators cannot be called from direct messages.'
+            : 'Only admins can start calls with administrators.',
         kind: BestieToastKind.warning,
       );
       return;
@@ -1232,6 +1235,10 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
   }
 
   bool get _canStartCalls {
+    if (_channel?['kind'] == 'DM' &&
+        _dmOtherUser()?['role']?.toString() == 'SUPER_ADMIN') {
+      return false;
+    }
     if (_viewerIsAdmin) return true;
     final members =
         (_channel?['members'] as List?)?.cast<Map<String, dynamic>>() ??
@@ -2812,12 +2819,6 @@ class _ComposerState extends State<_Composer> {
     if (has != _hasText) setState(() => _hasText = has);
   }
 
-  void _onComposerKey(String _) {
-    if (!_focusNode.hasFocus) return;
-    HapticFeedback.selectionClick();
-    AppSounds.playKeyTap();
-  }
-
   /// Bottom-sheet emoji picker. Inserts at the current cursor position so the
   /// user can mix text + emoji naturally.
   Future<void> _showEmojiPicker() async {
@@ -2945,7 +2946,6 @@ class _ComposerState extends State<_Composer> {
                 maxLines: 5,
                 textCapitalization: TextCapitalization.sentences,
                 style: TextStyle(color: colors.text),
-                onChanged: _onComposerKey,
                 decoration: InputDecoration(
                   isCollapsed: true,
                   contentPadding: const EdgeInsets.symmetric(vertical: 11),

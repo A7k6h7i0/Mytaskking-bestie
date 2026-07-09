@@ -150,6 +150,17 @@ async function initiate({ initiator, participantIds, kind = 'ONE_TO_ONE', channe
     }
   }
   const realKind = participantIds.length > 1 ? 'GROUP' : kind;
+  if (realKind === 'ONE_TO_ONE') {
+    const superAdminTargets = await prisma.user.count({
+      where: {
+        id: { in: uniqueParticipantIds },
+        role: 'SUPER_ADMIN',
+      },
+    });
+    if (superAdminTargets > 0) {
+      throw Forbidden('Platform administrators cannot be called from direct messages');
+    }
+  }
   let targetPresence = null;
   if (realKind === 'ONE_TO_ONE' && participantIds.length === 1) {
     const targetId = participantIds[0];

@@ -253,14 +253,16 @@ export default function EmployeesPage() {
               </span>
               <span className={`pp__status pp__status--${u.status.toLowerCase()}`}>{u.status}</span>
               <span className="pp__actions">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => startDmMut.mutate(u.id)}
-                  disabled={startDmMut.isPending || u.id === user?.id}
-                >
-                  <MessageSquare size={14} /> Message
-                </Button>
+                {u.role !== 'SUPER_ADMIN' && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => startDmMut.mutate(u.id)}
+                    disabled={startDmMut.isPending || u.id === user?.id}
+                  >
+                    <MessageSquare size={14} /> Message
+                  </Button>
+                )}
                 {(viewerCanCallAdmins || (u.role !== 'ADMIN' && u.role !== 'SUPER_ADMIN')) && (
                   <Button
                     size="sm"

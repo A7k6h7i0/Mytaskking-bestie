@@ -32,13 +32,17 @@ void _sortChannelsByRecent(List<Map<String, dynamic>> channels) {
   });
 }
 
+bool _isPlatformSuperAdmin(Map<String, dynamic>? user) =>
+    user?['role']?.toString() == 'SUPER_ADMIN';
+
 bool _canCallUser(WidgetRef ref, Map<String, dynamic>? user) {
   if (user == null) return false;
+  if (_isPlatformSuperAdmin(user)) return false;
   final me = ref.read(authStoreProvider).user;
   final viewerIsAdmin = me?.role == 'ADMIN' || me?.role == 'SUPER_ADMIN';
   if (viewerIsAdmin) return true;
   final role = user['role']?.toString();
-  return role != 'ADMIN' && role != 'SUPER_ADMIN';
+  return role != 'ADMIN';
 }
 
 /// Other participant in a DM — skips self, prefers nested `user` payload.
@@ -107,7 +111,9 @@ Future<void> _startCallFromList(
       bestieToast(
         context,
         'Calling unavailable',
-        body: 'Only admins can start calls with administrators.',
+        body: _isPlatformSuperAdmin(user)
+            ? 'Platform administrators cannot be called from direct messages.'
+            : 'Only admins can start calls with administrators.',
         kind: BestieToastKind.warning,
       );
     }
@@ -457,10 +463,20 @@ class ChatListScreen extends ConsumerWidget {
         return ch;
       },
       onStartCall: (user, mode) async {
+        if (_isPlatformSuperAdmin(user)) {
+          if (context.mounted) {
+            bestieToast(
+              context,
+              'Calling unavailable',
+              body: 'Platform administrators cannot be called from direct messages.',
+              kind: BestieToastKind.warning,
+            );
+          }
+          return;
+        }
         final targetRole = user['role']?.toString();
         final viewerIsAdmin = me?.role == 'ADMIN' || me?.role == 'SUPER_ADMIN';
-        if (!viewerIsAdmin &&
-            (targetRole == 'ADMIN' || targetRole == 'SUPER_ADMIN')) {
+        if (!viewerIsAdmin && targetRole == 'ADMIN') {
           if (context.mounted) {
             bestieToast(
               context,
@@ -827,37 +843,32 @@ class _ChatTile extends ConsumerWidget {
               ),
             ),
           ],
-            if (kind == 'DM') ...[
-              if (showCallActions) ...[
-                _chatListCallButton(
-                  colors: c,
-                  icon: Icons.call_rounded,
-                  tooltip: 'Voice call',
-                  onPressed: () => _startCallFromList(
-                    context,
-                    ref,
-                    user: dmOtherUser!,
-                    channelId: channel['id']?.toString(),
-                    mode: 'voice',
-                  ),
+            if (kind == 'DM' && showCallActions) ...[
+              _chatListCallButton(
+                colors: c,
+                icon: Icons.call_rounded,
+                tooltip: 'Voice call',
+                onPressed: () => _startCallFromList(
+                  context,
+                  ref,
+                  user: dmOtherUser!,
+                  channelId: channel['id']?.toString(),
+                  mode: 'voice',
                 ),
-                const SizedBox(width: 4),
-                _chatListCallButton(
-                  colors: c,
-                  icon: Icons.videocam_rounded,
-                  tooltip: 'Video call',
-                  onPressed: () => _startCallFromList(
-                    context,
-                    ref,
-                    user: dmOtherUser!,
-                    channelId: channel['id']?.toString(),
-                    mode: 'video',
-                  ),
+              ),
+              const SizedBox(width: 4),
+              _chatListCallButton(
+                colors: c,
+                icon: Icons.videocam_rounded,
+                tooltip: 'Video call',
+                onPressed: () => _startCallFromList(
+                  context,
+                  ref,
+                  user: dmOtherUser!,
+                  channelId: channel['id']?.toString(),
+                  mode: 'video',
                 ),
-              ] else ...[
-                const SizedBox(width: 36),
-                const SizedBox(width: 36),
-              ],
+              ),
             ],
           ]),
         ),

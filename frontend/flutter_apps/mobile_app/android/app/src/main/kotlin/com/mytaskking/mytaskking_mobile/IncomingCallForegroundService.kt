@@ -9,8 +9,12 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.media.MediaPlayer
+import android.media.Ringtone
 import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -27,6 +31,8 @@ import android.os.PowerManager
 class IncomingCallForegroundService : Service() {
     private val timeoutHandler = Handler(Looper.getMainLooper())
     private var ringtonePlayer: MediaPlayer? = null
+    private var systemRingtone: Ringtone? = null
+    private var audioFocusRequest: AudioFocusRequest? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var notificationId: Int = DEFAULT_NOTIFICATION_ID
 
@@ -65,26 +71,64 @@ class IncomingCallForegroundService : Service() {
 
     private fun startRinging() {
         stopRinging()
+        val audioManager = getSystemService(AudioManager::class.java)
         try {
+            @Suppress("DEPRECATION")
+            audioManager.mode = AudioManager.MODE_RINGTONE
+            requestAudioFocus(audioManager)
+
             val ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-            ringtonePlayer = MediaPlayer().apply {
-                setAudioAttributes(
-                    AudioAttributes.Builder()
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+
+            val ringtone = RingtoneManager.getRingtone(this, ringtoneUri)
+            if (ringtone != null) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    ringtone.audioAttributes = AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                         .build()
-                )
-                setDataSource(this@IncomingCallForegroundService, ringtoneUri)
-                isLooping = true
-                prepare()
-                start()
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    ringtone.isLooping = true
+                }
+                ringtone.play()
+                systemRingtone = ringtone
+                // API < 28 cannot loop Ringtone — fall back to MediaPlayer for continuous ring.
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+                    startMediaPlayerLoop(ringtoneUri)
+                }
+                return
             }
+            startMediaPlayerLoop(ringtoneUri)
         } catch (_: Exception) {
-            stopRinging()
+            try {
+                startMediaPlayerLoop(
+                    RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+                )
+            } catch (_: Exception) {
+                stopRinging()
+            }
         }
     }
 
-    private fun stopRinging() {
+    private fun startMediaPlayerLoop(uri: Uri?) {
+        if (uri == null) return
+        stopMediaPlayer()
+        ringtonePlayer = MediaPlayer().apply {
+            setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+            )
+            setDataSource(this@IncomingCallForegroundService, uri)
+            isLooping = true
+            prepare()
+            start()
+        }
+    }
+
+    private fun stopMediaPlayer() {
         try {
             ringtonePlayer?.stop()
         } catch (_: Exception) {
@@ -94,6 +138,54 @@ class IncomingCallForegroundService : Service() {
         } catch (_: Exception) {
         }
         ringtonePlayer = null
+    }
+
+    private fun requestAudioFocus(audioManager: AudioManager) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val attrs = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                .setAudioAttributes(attrs)
+                .setAcceptsDelayedFocusGain(false)
+                .setOnAudioFocusChangeListener { /* keep ringing through brief ducking */ }
+                .build()
+            audioManager.requestAudioFocus(audioFocusRequest!!)
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.requestAudioFocus(
+                null,
+                AudioManager.STREAM_RING,
+                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
+            )
+        }
+    }
+
+    private fun abandonAudioFocus(audioManager: AudioManager) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+            audioFocusRequest = null
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.abandonAudioFocus(null)
+        }
+    }
+
+    private fun stopRinging() {
+        try {
+            systemRingtone?.stop()
+        } catch (_: Exception) {
+        }
+        systemRingtone = null
+        stopMediaPlayer()
+        try {
+            val audioManager = getSystemService(AudioManager::class.java)
+            @Suppress("DEPRECATION")
+            audioManager.mode = AudioManager.MODE_NORMAL
+            abandonAudioFocus(audioManager)
+        } catch (_: Exception) {
+        }
     }
 
     private fun acquireWakeLock() {

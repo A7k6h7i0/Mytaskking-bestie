@@ -231,11 +231,12 @@ class _EmployeesScreenState extends ConsumerState<EmployeesScreen> {
                                           ),
                                         ],
                                       ),
-                                    IconButton(
-                                      icon: Icon(Icons.chat_bubble_outline_rounded, color: c.brand),
-                                      tooltip: 'Message',
-                                      onPressed: () => _openDm(u),
-                                    ),
+                                    if (u['role']?.toString() != 'SUPER_ADMIN')
+                                      IconButton(
+                                        icon: Icon(Icons.chat_bubble_outline_rounded, color: c.brand),
+                                        tooltip: 'Message',
+                                        onPressed: () => _openDm(u),
+                                      ),
                                   ],
                                 ),
                                 onTap: canManage

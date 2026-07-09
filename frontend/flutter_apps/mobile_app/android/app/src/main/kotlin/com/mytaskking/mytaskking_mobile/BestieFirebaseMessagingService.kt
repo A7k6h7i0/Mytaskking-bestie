@@ -41,7 +41,9 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
             return
         }
         if (type == "call.incoming" || type == "meeting.invited") {
-            if (isAppInForeground()) return
+            // Start native ringing when the app is backgrounded/killed OR when the
+            // screen is off — Flutter ringtone plugins cannot play in those states.
+            if (isAppInForeground() && isInteractiveScreen()) return
             try {
                 IncomingCallForegroundService.start(this, data, type)
             } catch (_: Exception) {
@@ -278,6 +280,14 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
             } == true
         } catch (_: Exception) {
             false
+        }
+    }
+
+    private fun isInteractiveScreen(): Boolean {
+        return try {
+            getSystemService(PowerManager::class.java).isInteractive
+        } catch (_: Exception) {
+            true
         }
     }
 

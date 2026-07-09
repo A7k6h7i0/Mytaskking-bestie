@@ -510,7 +510,7 @@ class _PeopleList extends StatelessWidget {
                             )
                           : null,
                     )
-                  else ...[
+                  else if (u['role']?.toString() != 'SUPER_ADMIN') ...[
                     Icon(
                       Icons.chat_bubble_outline_rounded,
                       size: 18,

@@ -18,16 +18,8 @@ class AppSounds {
     } catch (_) {}
   }
 
-  /// Fire-and-forget — must NOT block the UI thread / keyboard.
-  static void playKeyTap() {
-    try {
-      if (Platform.isAndroid) {
-        _channel.invokeMethod<void>('playKeyTap');
-      } else {
-        SystemSound.play(SystemSoundType.click);
-      }
-    } catch (_) {}
-  }
+  /// Disabled — per-key sounds caused typing lag on Android.
+  static void playKeyTap() {}
 
   static Uint8List desktopRingtoneBytes({
     int sampleRate = 22050,

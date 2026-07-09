@@ -83,8 +83,9 @@ class _OngoingCallBarState extends ConsumerState<OngoingCallBar> {
   bool _showBubble(WidgetRef ref) {
     if (CallSession.onCallScreen || _onCallRoute(ref)) return false;
     final active = ActiveCallState.current.value;
-    return CallSession.engine != null &&
-        CallSession.joined &&
+    // Engine alive is enough — `joined` can briefly flicker during reconnects
+    // and was hiding the return bubble on 3+ participant calls.
+    return CallSession.isActive &&
         active != null &&
         (active.callId != null || active.meetingSlug != null);
   }
