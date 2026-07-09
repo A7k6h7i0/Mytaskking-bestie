@@ -23,6 +23,7 @@ import MeetingsPage from '@/pages/MeetingsPage';
 import MeetingJoinPage from '@/pages/MeetingJoinPage';
 import PrivacyPolicyPage from '@/pages/PrivacyPolicyPage';
 import RecordingsPage from '@/pages/RecordingsPage';
+import AiReviewPage from '@/pages/AiReviewPage';
 import TalkTimePage from '@/pages/TalkTimePage';
 import LoginActivityPage from '@/pages/LoginActivityPage';
 import FlagsPage from '@/pages/FlagsPage';
@@ -97,6 +98,10 @@ export default function App() {
           <Route
             path="/recordings"
             element={<RoleGate allow={['SUPER_ADMIN', 'ADMIN']}><RecordingsPage /></RoleGate>}
+          />
+          <Route
+            path="/ai-review"
+            element={<RoleGate allow={['SUPER_ADMIN', 'ADMIN']}><AiReviewPage /></RoleGate>}
           />
           <Route
             path="/deleted-chats"

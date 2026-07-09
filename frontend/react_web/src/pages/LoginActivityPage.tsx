@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import dayjs from 'dayjs';
-import { LogIn, Download, Monitor, Smartphone, Laptop, Globe, Eye } from 'lucide-react';
+import { LogIn, Download, Monitor, Smartphone, Laptop, Globe } from 'lucide-react';
 import { api } from '@/services/api';
 import { useAuthStore } from '@/store/auth';
 import { Avatar } from '@/components/ui/Avatar';
 import { UserName } from '@/components/ui/UserName';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { SessionSelfieThumb } from '@/components/SessionSelfieThumb';
 import './login-activity.css';
 
 type ActivityRow = {
@@ -163,10 +164,7 @@ export default function LoginActivityPage() {
                 {canViewEvidence && (
                   <span className="la__selfie">
                     {r.selfieUrl ? (
-                      <a href={r.selfieUrl} target="_blank" rel="noreferrer">
-                        <img src={r.selfieUrl} alt={`${r.user.name} login selfie`} />
-                        <Eye size={14} /> View
-                      </a>
+                      <SessionSelfieThumb sessionId={r.id} userName={r.user.name} />
                     ) : (
                       <span className="la__none">Not captured</span>
                     )}

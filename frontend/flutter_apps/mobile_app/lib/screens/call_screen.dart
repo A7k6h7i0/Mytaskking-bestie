@@ -285,6 +285,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
   bool _proximityNear = false;
   CallProximityController? _proximity;
   final Map<String, Timer> _participantLeaveTimers = {};
+  Timer? _remoteHangupFallbackTimer;
+  static const _kRemoteHangupGrace = Duration(seconds: 3);
 
   /// When each invitee was last rung — drives ringing vs ring-again in Members.
   final Map<String, DateTime> _invitedAtByUserId = {};
@@ -354,6 +356,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       t.cancel();
     }
     _participantLeaveTimers.clear();
+    _remoteHangupFallbackTimer?.cancel();
     _timer?.cancel();
     _audioHealthTimer?.cancel();
     _tokenRefreshTimer?.cancel();
@@ -478,6 +481,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
     _callUnsubs.add(rt.onAny('call.announce', onAnnounce));
     _callUnsubs.add(rt.onAny('call.participant.left', ([data]) {
       if (data is! Map || data['callId'] != callId) return;
+      final status = data['status']?.toString();
+      if (status == 'ENDED' || status == 'MISSED') {
+        _remoteHangupFallbackTimer?.cancel();
+        unawaited(_endBecauseRemoteClosed(Map<String, dynamic>.from(data)));
+        return;
+      }
       _scheduleParticipantLeave(data['userId']?.toString());
     }));
     _callUnsubs.add(rt.onAny('call.signal', ([data]) {
@@ -656,6 +665,50 @@ class _CallScreenState extends ConsumerState<CallScreen>
       _joinedParticipants.remove(userId);
       if (mounted) setState(() {});
     });
+  }
+
+  bool _isOneToOneCall() {
+    if (_isMeeting) return false;
+    final call = (_callMeta?['call'] as Map?)?.cast<String, dynamic>();
+    return call?['kind']?.toString() != 'GROUP';
+  }
+
+  void _scheduleRemoteHangupFallback() {
+    if (_remoteClosed || _hangingUp) return;
+    _remoteHangupFallbackTimer?.cancel();
+    _remoteHangupFallbackTimer = Timer(_kRemoteHangupGrace, () {
+      if (!mounted || _remoteClosed || _hangingUp) return;
+      unawaited(_verifyRemoteHangupFromServer());
+    });
+  }
+
+  Future<void> _verifyRemoteHangupFromServer() async {
+    if (_remoteClosed || _hangingUp || !mounted) return;
+    final callId = widget.callId;
+    if (callId == null || callId.isEmpty) return;
+    try {
+      final fresh = await ref.read(apiProvider).get('/calls/$callId/token');
+      final call = (fresh['call'] as Map?)?.cast<String, dynamic>();
+      final status = call?['status']?.toString();
+      if (status == 'ENDED' ||
+          status == 'MISSED' ||
+          status == 'DECLINED' ||
+          status == 'FAILED') {
+        await _endBecauseRemoteClosed({'callId': callId, 'status': status});
+        return;
+      }
+      if (_isOneToOneCall() && _remoteUids.isEmpty) {
+        await _endBecauseRemoteClosed({'callId': callId, 'status': 'ENDED'});
+      }
+    } catch (e) {
+      final msg = e.toString().toLowerCase();
+      if (msg.contains('ended') ||
+          msg.contains('not found') ||
+          msg.contains('404') ||
+          msg.contains('403')) {
+        await _endBecauseRemoteClosed({'callId': callId, 'status': 'ENDED'});
+      }
+    }
   }
 
   /// Drop stale remote uids that refer to this device (wrong derived uid from
@@ -966,6 +1019,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   Future<void> _endBecauseRemoteClosed([Map<String, dynamic>? data]) async {
     if (_remoteClosed) return;
+    _remoteHangupFallbackTimer?.cancel();
     _remoteClosed = true;
     _hangingUp = true;
     _cancelOutgoingRingTimeout();
@@ -1271,6 +1325,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       },
       onUserJoined: (conn, remoteUid, elapsed) {
         if (!mounted) return;
+        _remoteHangupFallbackTimer?.cancel();
         setState(() {
           _remoteUids.add(remoteUid);
           _reconnecting = false;
@@ -1289,12 +1344,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
       onUserOffline: (conn, remoteUid, reason) {
         if (!mounted) return;
         setState(() {
+          _remoteUids.remove(remoteUid);
           _reconnecting = _connectedAt != null;
           _status = _connectedAt == null ? 'Ringing…' : 'Reconnecting…';
         });
-        // Do not remove the participant immediately. Agora also fires this
-        // for temporary network drops; the backend call.ended event is the
-        // source of truth for a real hang-up.
+        // Agora fires this for network blips too; confirm with the server
+        // (call.participant.left / call.ended) before ending locally.
+        _scheduleRemoteHangupFallback();
       },
       onAudioVolumeIndication: (conn, speakers, speakerNumber, totalVolume) {
         if (!mounted) return;

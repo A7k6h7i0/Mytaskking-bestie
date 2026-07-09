@@ -181,10 +181,12 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     }));
     _unsubs.add(rt.onAny('call.participant.left', ([data]) {
       if (data is! Map) return;
-      if (!isCallEventForThisApp(Map<String, dynamic>.from(data))) return;
-      final status = data['status']?.toString();
+      final map = Map<String, dynamic>.from(data);
+      final status = map['status']?.toString();
       if (status != 'ENDED' && status != 'MISSED') return;
-      _dismissPendingIncomingForCall(data['callId']?.toString());
+      if (!isTerminalCallEventForThisApp(map)) return;
+      _dismissPendingIncomingForCall(map['callId']?.toString());
+      unawaited(_clearEndedOngoingCall(map));
     }));
     // Global call-end cleanup. The CallScreen also handles call.ended, but it
     // unsubscribes on dispose — so when the user backgrounds a call to the
@@ -223,7 +225,9 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
   /// CallScreen widget is already disposed (user backgrounded to the pill).
   Future<void> _clearEndedOngoingCall(dynamic data) async {
     if (data is! Map) return;
-    if (!isCallEventForThisApp(Map<String, dynamic>.from(data))) return;
+    if (!isTerminalCallEventForThisApp(Map<String, dynamic>.from(data))) {
+      return;
+    }
     final endedId = data['callId']?.toString();
     if (endedId == null || endedId.isEmpty) return;
     await _cancelNativeIncomingNotification(callId: endedId);
@@ -241,6 +245,11 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     try {
       await _nativeCallNotificationChannel.invokeMethod('hide');
     } catch (_) {/* best effort on non-Android platforms */}
+    if (!mounted) return;
+    final path = ref.read(routerProvider).state.uri.path;
+    if (path.startsWith('/call/') || path.startsWith('/meeting/')) {
+      ref.read(routerProvider).go('/chat');
+    }
   }
 
   /// Emergency siren (#11): blare a looping alarm + heavy haptics and show a
@@ -342,13 +351,16 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
   }
 
   void _onPushInvite(Map<String, dynamic> data) {
-    if (!isCallEventForThisApp(data)) return;
     final type = data['type']?.toString();
 
     if (type == 'call.ended') {
+      if (!isTerminalCallEventForThisApp(data)) return;
       _dismissPendingIncomingForCall(data['callId']?.toString());
+      unawaited(_clearEndedOngoingCall(data));
       return;
     }
+
+    if (!isCallEventForThisApp(data)) return;
 
     final mode = (data['mode'] ?? 'VIDEO').toString().toUpperCase();
     final fromName =

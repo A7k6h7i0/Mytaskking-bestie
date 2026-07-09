@@ -33,8 +33,8 @@ const isAdminRole = (user) => ['SUPER_ADMIN', 'ADMIN'].includes(user.role);
 const router = Router();
 router.use(requireAuth);
 
-function pushCallEnded(call, clientApp) {
-  return fcm.sendCallEnded(call, clientApp).catch(() => {/* push is best-effort */});
+function pushCallEnded(call) {
+  return fcm.sendCallEnded(call).catch(() => {/* push is best-effort */});
 }
 
 async function storedCallClientApp(callId, fallback = APP_WEB) {
@@ -180,9 +180,9 @@ router.post(
       try {
         const missed = await service.expireIfRinging({ callId: result.call.id });
         if (!missed) return;
-        emitToCallParticipants(req.app.get('io'), missed, 'call.declined', { callId: missed.id, status: 'MISSED' }, callerApp);
-        emitToCallParticipants(req.app.get('io'), missed, 'call.ended', { callId: missed.id, status: 'MISSED' }, callerApp);
-        await pushCallEnded(missed, callerApp);
+        emitToCallParticipants(req.app.get('io'), missed, 'call.declined', { callId: missed.id, status: 'MISSED' });
+        emitToCallParticipants(req.app.get('io'), missed, 'call.ended', { callId: missed.id, status: 'MISSED' });
+        await pushCallEnded(missed);
       } catch (_) {/* cron sweep cleans up stragglers */}
     }, ringMs);
     res.status(201).json({ ...result, mode });
@@ -253,7 +253,7 @@ router.post('/:id/leave', asyncHandler(async (req, res) => {
     callId: call.id,
     userId: req.user.id,
     status: call.status,
-  }, clientApp);
+  }, call.status === 'ENDED' || call.status === 'MISSED' ? undefined : clientApp);
   // Caller hung up while still ringing → MISSED. Mirror /decline + the 60s
   // timeout so the callee stops ringing and FCM clears the push notification.
   if (call.status === 'MISSED') {
@@ -261,15 +261,15 @@ router.post('/:id/leave', asyncHandler(async (req, res) => {
       callId: call.id,
       userId: req.user.id,
       status: call.status,
-    }, clientApp);
+    });
   }
   if (call.status === 'ENDED' || call.status === 'MISSED') {
     emitToCallParticipants(req.app.get('io'), call, 'call.ended', {
       callId: call.id,
       userId: req.user.id,
       status: call.status,
-    }, clientApp);
-    await pushCallEnded(call, clientApp);
+    });
+    await pushCallEnded(call);
   }
   res.json(call);
 }));
@@ -284,14 +284,14 @@ router.post('/:id/decline', asyncHandler(async (req, res) => {
     callId: call.id,
     userId: req.user.id,
     status: call.status,
-  }, clientApp);
+  }, call.status === 'ENDED' || call.status === 'MISSED' ? undefined : clientApp);
   if (call.status === 'ENDED' || call.status === 'MISSED') {
     emitToCallParticipants(req.app.get('io'), call, 'call.ended', {
       callId: call.id,
       userId: req.user.id,
       status: call.status,
-    }, clientApp);
-    await pushCallEnded(call, clientApp);
+    });
+    await pushCallEnded(call);
   }
   res.json(call);
 }));
