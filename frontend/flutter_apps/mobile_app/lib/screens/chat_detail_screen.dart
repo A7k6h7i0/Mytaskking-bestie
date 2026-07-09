@@ -600,6 +600,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     // _send* keys carry the params needed to auto-retry on failure.
     final tempId = 'pending_${DateTime.now().microsecondsSinceEpoch}';
     final replyId = _replyingTo?['id'] as String?;
+    final replyAuthor =
+        (_replyingTo?['author'] as Map?)?.cast<String, dynamic>();
     final optimistic = <String, dynamic>{
       'id': tempId,
       'kind':
@@ -615,6 +617,15 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
         'isClient': me.isClient,
         'role': me.role,
       },
+      if (replyId != null && _replyingTo != null)
+        'replyTo': {
+          'id': replyId,
+          'body': _replyingTo!['body'],
+          'authorId': replyAuthor?['id'] ?? _replyingTo!['authorId'],
+          'author': replyAuthor != null
+              ? {'id': replyAuthor['id'], 'name': replyAuthor['name']}
+              : null,
+        },
       'attachments': const [],
       'receipts': const [],
       // Retry metadata (stripped from display).
@@ -3206,6 +3217,7 @@ class _MessageBubble extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = BestieColors.of(context);
+    final meId = ref.read(authStoreProvider).user?.id;
     final body = message['body'] as String? ?? '';
     final attachments =
         (message['attachments'] as List?)?.cast<Map<String, dynamic>>() ??
@@ -3292,7 +3304,8 @@ class _MessageBubble extends ConsumerWidget {
                     child: _ReplyQuote(
                         replyTo: message['replyTo'] as Map,
                         mine: mine,
-                        colors: c),
+                        colors: c,
+                        currentUserId: meId),
                   ),
                 if (!isDeleted)
                   for (final a in attachments) ...[
@@ -4673,14 +4686,27 @@ class _ReplyQuote extends StatelessWidget {
   final Map replyTo;
   final bool mine;
   final BestieColors colors;
-  const _ReplyQuote(
-      {required this.replyTo, required this.mine, required this.colors});
+  final String? currentUserId;
+  const _ReplyQuote({
+    required this.replyTo,
+    required this.mine,
+    required this.colors,
+    this.currentUserId,
+  });
 
   @override
   Widget build(BuildContext context) {
     final body = (replyTo['body'] ?? '').toString();
-    final authorName = (replyTo['author'] as Map?)?['name']?.toString() ??
-        'Unknown';
+    final author = (replyTo['author'] as Map?)?.cast<String, dynamic>();
+    final authorName = author?['name']?.toString().trim();
+    final authorId = (replyTo['authorId'] ?? author?['id'])?.toString();
+    final resolvedName = (authorName != null && authorName.isNotEmpty)
+        ? authorName
+        : (authorId != null &&
+                currentUserId != null &&
+                authorId == currentUserId
+            ? 'You'
+            : 'Unknown');
     final bg = mine ? Colors.white.withOpacity(0.16) : colors.surface2;
     final accent = mine ? Colors.white.withOpacity(0.6) : colors.brand;
     final fg = mine ? Colors.white : colors.text;
@@ -4696,7 +4722,7 @@ class _ReplyQuote extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              authorName,
+              resolvedName,
               style: TextStyle(
                   fontSize: 10, fontWeight: BestieTokens.fwBold, color: accent),
             ),

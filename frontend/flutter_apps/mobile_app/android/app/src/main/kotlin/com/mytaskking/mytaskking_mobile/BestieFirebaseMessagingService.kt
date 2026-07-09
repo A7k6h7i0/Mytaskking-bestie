@@ -83,7 +83,7 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val builder = notificationBuilder(EMERGENCY_CHANNEL_ID)
-            .setSmallIcon(applicationInfo.icon)
+            .setSmallIcon(NotificationIcon.smallIcon(this))
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(Notification.BigTextStyle().bigText(body))
@@ -138,7 +138,7 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
         )
 
         val builder = notificationBuilder(CALLS_CHANNEL_ID)
-            .setSmallIcon(applicationInfo.icon)
+            .setSmallIcon(NotificationIcon.smallIcon(this))
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(Notification.BigTextStyle().bigText(body))
@@ -192,7 +192,7 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
         )
 
         val builder = notificationBuilder(MESSAGES_CHANNEL_ID)
-            .setSmallIcon(applicationInfo.icon)
+            .setSmallIcon(NotificationIcon.smallIcon(this))
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(Notification.BigTextStyle().bigText(body))

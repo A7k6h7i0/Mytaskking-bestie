@@ -154,7 +154,7 @@ class IncomingCallForegroundService : Service() {
             Notification.Builder(this)
         }
         builder
-            .setSmallIcon(applicationInfo.icon)
+            .setSmallIcon(NotificationIcon.smallIcon(this))
             .setContentTitle(title)
             .setContentText(body)
             .setCategory(Notification.CATEGORY_CALL)

@@ -193,7 +193,7 @@ Future<String?> _currentFcmToken(FirebaseMessaging messaging) async {
 }
 
 Future<void> _initializeLocalNotifications() async {
-  const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+  const android = AndroidInitializationSettings('@drawable/ic_stat_mytaskking');
   const ios = DarwinInitializationSettings(
     requestAlertPermission: false,
     requestBadgePermission: false,
@@ -270,6 +270,7 @@ Future<void> _showForegroundNotification(RemoteMessage message) async {
         'Foreground notifications',
         channelDescription:
             'Silent in-app banners for chat, task, mention, and system alerts',
+        icon: '@drawable/ic_stat_mytaskking',
         importance: Importance.high,
         priority: Priority.high,
         playSound: false,

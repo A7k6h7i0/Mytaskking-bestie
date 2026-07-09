@@ -96,12 +96,13 @@
             android:exported="false"
             android:stopWithTask="false"
             android:foregroundServiceType="mediaPlayback" />
-        <service
-            android:name=".ScreenShareForegroundService"
+        <!-- Agora launches this activity for the system screen-capture consent dialog. -->
+        <activity
+            android:name="io.agora.rtc2.extensions.MediaProjectionMgr$LocalScreenCaptureAssistantActivity"
             android:exported="false"
-            android:stopWithTask="false"
-            android:foregroundServiceType="mediaProjection" />
-        <!-- Agora screen-capture helper (merged from SDK). -->
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            tools:node="merge"
+            tools:replace="android:theme" />
         <service
             android:name="io.agora.rtc2.extensions.MediaProjectionMgr$LocalScreenSharingService"
             android:exported="false"

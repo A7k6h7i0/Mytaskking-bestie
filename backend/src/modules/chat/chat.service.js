@@ -10,7 +10,14 @@ const messageInclude = {
   author: { select: { id: true, name: true, avatarUrl: true, role: true, isClient: true, customTitle: true } },
   attachments: true,
   reactions: true,
-  replyTo: { select: { id: true, body: true, authorId: true } },
+  replyTo: {
+    select: {
+      id: true,
+      body: true,
+      authorId: true,
+      author: { select: { id: true, name: true } },
+    },
+  },
   receipts: { select: { userId: true, state: true, at: true } },
 };
 

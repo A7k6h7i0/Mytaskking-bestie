@@ -21,7 +21,6 @@ import '../call_proximity.dart';
 import '../call_screen_theme.dart';
 import '../router.dart';
 import '../state.dart';
-import '../screen_share_helper.dart';
 import '../widgets/call_dialpad_sheet.dart';
 import '../widgets/call_screen_design.dart';
 
@@ -278,6 +277,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
   Timer? _audioHealthTimer;
   Timer? _tokenRefreshTimer;
   Timer? _ringTimeoutTimer;
+  Timer? _waitingAnswerPollTimer;
+  bool _frontCamera = true;
   Duration _elapsed = Duration.zero;
   final _ringtone = FlutterRingtonePlayer();
   final _tonePlayer = AudioPlayer();
@@ -375,6 +376,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     _tokenRefreshTimer?.cancel();
     _speakerEmitTimer?.cancel();
     _cancelOutgoingRingTimeout();
+    _stopWaitingForAnswerPoll();
     _ringtone.stop();
     _tonePlayer.dispose();
     _tts.stop();
@@ -949,6 +951,55 @@ class _CallScreenState extends ConsumerState<CallScreen>
     }
     final me = ref.read(authStoreProvider).user;
     if (me != null) _markParticipantJoined(me.id, me.name);
+    _maybeMarkCalleeConnectedFromMeta();
+  }
+
+  /// If the server already marked the callee as joined but the socket event
+  /// was missed, still flip the header from "Ringing…" to the live timer.
+  void _maybeMarkCalleeConnectedFromMeta() {
+    if (!_waitingForAnswer) return;
+    final me = ref.read(authStoreProvider).user?.id;
+    for (final p in _participantsFromMeta()) {
+      final userId = p['userId']?.toString();
+      if (userId == null || userId.isEmpty || userId == me) continue;
+      if (p['joinedAt'] != null && p['leftAt'] == null) {
+        _onCalleeAnsweredViaServer(userId);
+        return;
+      }
+    }
+  }
+
+  void _maybeMarkConnectedFromRemoteAudio(List<AudioVolumeInfo> speakers) {
+    if (!_waitingForAnswer) return;
+    for (final s in speakers) {
+      final uid = s.uid ?? 0;
+      if (uid == 0 || _isAgoraUidLocal(uid)) continue;
+      if ((s.volume ?? 0) >= 5) {
+        _markRemoteConnected();
+        _cancelOutgoingRingTimeout();
+        unawaited(_stopRingback());
+        return;
+      }
+    }
+  }
+
+  void _startWaitingForAnswerPoll() {
+    _waitingAnswerPollTimer?.cancel();
+    if (!_waitingForAnswer) return;
+    _waitingAnswerPollTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (!_waitingForAnswer || !mounted) {
+        _waitingAnswerPollTimer?.cancel();
+        return;
+      }
+      unawaited(_refreshCallMeta().then((_) {
+        if (mounted) _maybeMarkCalleeConnectedFromMeta();
+      }));
+    });
+  }
+
+  void _stopWaitingForAnswerPoll() {
+    _waitingAnswerPollTimer?.cancel();
+    _waitingAnswerPollTimer = null;
   }
 
   /// Stable participant count for the header chip — prefers backend join state
@@ -1276,6 +1327,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       _connectedAt = DateTime.now();
       ActiveCallState.markConnected(_connectedAt!);
     }
+    _stopWaitingForAnswerPoll();
     _startTimer();
     _syncRemotePeerSnapshot();
     if (mounted) setState(() => _status = 'Connected');
@@ -1324,7 +1376,6 @@ class _CallScreenState extends ConsumerState<CallScreen>
       } catch (_) {}
     }
     await _CallSession.teardown();
-    await ScreenShareHelper.release();
     await _stopProximity();
     _cancelOutgoingRingTimeout();
     await _stopRingback();
@@ -1362,6 +1413,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
         if (_remoteUids.isEmpty && !_isMeeting && _isCallInitiator) {
           unawaited(_playRingback());
           _startOutgoingRingTimeout();
+          _startWaitingForAnswerPoll();
         }
         if (!_isVideo) unawaited(_startProximityIfVoice());
       },
@@ -1373,9 +1425,14 @@ class _CallScreenState extends ConsumerState<CallScreen>
           _reconnecting = false;
         });
         unawaited(_ensureRemoteVideoSubscribed(remoteUid));
-        // During outbound ringing, Agora uid alone is NOT proof the callee
-        // picked up — wait for server call.participant.joined (see onPresence).
-        if (_waitingForAnswer) return;
+        // During outbound ringing, prefer the server join event — but if that
+        // socket message is missed, fall back to meta/audio checks below.
+        if (_waitingForAnswer) {
+          unawaited(_refreshCallMeta().then((_) {
+            if (mounted) _maybeMarkCalleeConnectedFromMeta();
+          }));
+          return;
+        }
         _markRemoteConnected();
         _cancelOutgoingRingTimeout();
         unawaited(_stopRingback());
@@ -1396,6 +1453,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       },
       onAudioVolumeIndication: (conn, speakers, speakerNumber, totalVolume) {
         if (!mounted) return;
+        _maybeMarkConnectedFromRemoteAudio(speakers);
         _updateActiveSpeaker(speakers);
       },
       onVideoSizeChanged: (conn, sourceType, uid, width, height, rotation) {
@@ -1449,6 +1507,14 @@ class _CallScreenState extends ConsumerState<CallScreen>
       onUserMuteVideo: (conn, remoteUid, muted) {
         if (!mounted) return;
         setState(() => _remoteVideoMuted[remoteUid] = muted);
+      },
+      onRemoteVideoStateChanged: (conn, remoteUid, state, reason, elapsed) {
+        if (!mounted) return;
+        final off = state == RemoteVideoState.remoteVideoStateStopped ||
+            state == RemoteVideoState.remoteVideoStateFrozen;
+        final on = state == RemoteVideoState.remoteVideoStateDecoding;
+        if (!off && !on) return;
+        setState(() => _remoteVideoMuted[remoteUid] = off);
       },
       onConnectionLost: (conn) {
         if (!mounted) return;
@@ -2087,8 +2153,42 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   Future<void> _flipCamera() async {
-    if (!_isVideo) return;
-    await _engine?.switchCamera();
+    final engine = _engine;
+    if (!_isVideo || engine == null) return;
+    if (_cameraOff) {
+      if (mounted) {
+        bestieToast(
+          context,
+          'Turn on camera first',
+          kind: BestieToastKind.info,
+        );
+      }
+      return;
+    }
+    try {
+      await engine.switchCamera();
+      _frontCamera = !_frontCamera;
+    } catch (_) {
+      try {
+        _frontCamera = !_frontCamera;
+        await engine.setCameraCapturerConfiguration(
+          CameraCapturerConfiguration(
+            cameraDirection: _frontCamera
+                ? CameraDirection.cameraFront
+                : CameraDirection.cameraRear,
+          ),
+        );
+      } catch (e) {
+        if (mounted) {
+          bestieToast(
+            context,
+            'Could not switch camera',
+            body: formatApiError(e),
+            kind: BestieToastKind.error,
+          );
+        }
+      }
+    }
   }
 
   /// Cycle earpiece → speaker → bluetooth → earpiece.
@@ -2248,27 +2348,35 @@ class _CallScreenState extends ConsumerState<CallScreen>
         await _engine!.updateChannelMediaOptions(ChannelMediaOptions(
           publishScreenCaptureVideo: false,
           publishScreenCaptureAudio: false,
+          publishScreenTrack: false,
           publishCameraTrack: _isVideo && !_cameraOff,
         ));
         setState(() => _sharing = false);
         _emitScreenShareState(active: false);
-        await ScreenShareHelper.release();
         if (mounted) {
           bestieToast(context, 'Screen share stopped',
               kind: BestieToastKind.info);
         }
       } else {
-        await ScreenShareHelper.prepare();
+        // Let Agora own the Android media-projection flow — starting our own
+        // foreground service first was crashing the app on Android 14+.
+        try {
+          await _engine!.setScreenCaptureScenario(
+            ScreenScenarioType.screenScenarioVideo,
+          );
+        } catch (_) {}
         try {
           await _engine!.enableVideo();
         } catch (_) {}
-        await _engine!.startScreenCapture(const ScreenCaptureParameters2(
-          captureVideo: true,
-          captureAudio: true,
-        ));
+        await _engine!.startScreenCapture(
+          const ScreenCaptureParameters2(
+            captureVideo: true,
+            captureAudio: false,
+          ),
+        );
         await _engine!.updateChannelMediaOptions(ChannelMediaOptions(
           publishScreenCaptureVideo: true,
-          publishScreenCaptureAudio: true,
+          publishScreenCaptureAudio: false,
           publishScreenTrack: true,
           publishCameraTrack: _isVideo && !_cameraOff,
           clientRoleType: ClientRoleType.clientRoleBroadcaster,
@@ -2285,7 +2393,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
         }
       }
     } catch (e) {
-      await ScreenShareHelper.release();
+      setState(() => _sharing = false);
+      _emitScreenShareState(active: false);
+      try {
+        await _engine?.stopScreenCapture();
+      } catch (_) {}
       if (mounted) {
         bestieToast(context, 'Screen share not available',
             body: formatApiError(e), kind: BestieToastKind.error);
@@ -4349,6 +4461,24 @@ class _CallScreenState extends ConsumerState<CallScreen>
       // designation + ACTIVE CALL + timer, all centered.
       return _voiceCallStage(_primaryRemoteDisplayName());
     }
+    // Video meetings: tile grid shows avatars whenever a camera is off.
+    if (_isMeeting) {
+      return Padding(
+        padding: EdgeInsets.fromLTRB(
+          6,
+          MediaQuery.paddingOf(context).top + 88,
+          6,
+          108 + MediaQuery.paddingOf(context).bottom,
+        ),
+        child: Column(
+          children: [
+            Expanded(child: _whatsappParticipantGrid(forVideo: true)),
+            const SizedBox(height: 8),
+            _participantsStrip(showTimer: false),
+          ],
+        ),
+      );
+    }
     if (_remoteUids.isEmpty) {
       // Outgoing / waiting: show local camera full-screen (WhatsApp-style).
       if (_isVideo && _engine != null && _joined && !_cameraOff) {
@@ -4425,6 +4555,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
       );
     }
     final firstRemote = remotes.first;
+    final remoteVideoOff = _remoteVideoMuted[firstRemote] ?? false;
+    if (remoteVideoOff) {
+      return _voiceCallStage(
+        _remoteNames[firstRemote] ?? _primaryRemoteDisplayName(),
+      );
+    }
     return Stack(children: [
       Positioned.fill(
         child: AgoraVideoView(
@@ -5676,6 +5812,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
             size: buttonSize,
             iconSize: iconSize,
           ),
+          if (_isVideo && !_cameraOff)
+            _ctrlCircle(
+              icon: Icons.cameraswitch_rounded,
+              onTap: _flipCamera,
+              size: buttonSize,
+              iconSize: iconSize,
+            ),
           _ctrlCircle(
             icon: Icons.volume_up_rounded,
             onTap: _toggleSpeakerRoute,
@@ -5807,6 +5950,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
             size: compact ? 42 : 52,
             iconSize: compact ? 18 : 22,
           ),
+          if (_isVideo && !_cameraOff)
+            _ctrlCircle(
+              icon: Icons.cameraswitch_rounded,
+              onTap: _flipCamera,
+              size: compact ? 42 : 52,
+              iconSize: compact ? 18 : 22,
+            ),
           _ctrlCircle(
             icon: _audioRouteIcon(_route),
             onTap: _cycleAudioRoute,
@@ -5865,6 +6015,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
             size: compact ? 42 : 52,
             iconSize: compact ? 18 : 22,
           ),
+          if (_isVideo && !_cameraOff)
+            _ctrlCircle(
+              icon: Icons.cameraswitch_rounded,
+              onTap: _flipCamera,
+              size: compact ? 42 : 52,
+              iconSize: compact ? 18 : 22,
+            ),
           _ctrlCircle(
             icon: _sharing
                 ? Icons.stop_screen_share_rounded
