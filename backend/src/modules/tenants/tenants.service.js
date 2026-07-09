@@ -36,13 +36,14 @@ async function getById(id) {
   return serializeOrg(row);
 }
 
-async function create({
+async function createOrg({
   name,
   slug,
   adminName,
   adminUserId,
   adminPassword,
   createdById,
+  status = 'ACTIVE',
 }) {
   const normalizedSlug = tenant.slugify(slug || name);
   if (!normalizedSlug) throw BadRequest('Organisation slug is required');
@@ -62,7 +63,7 @@ async function create({
       data: {
         slug: normalizedSlug,
         name: name.trim(),
-        status: 'ACTIVE',
+        status,
         storagePrefix,
       },
     });
@@ -89,6 +90,14 @@ async function create({
   };
 }
 
+async function create(input) {
+  return createOrg({ ...input, status: 'ACTIVE' });
+}
+
+async function register(input) {
+  return createOrg({ ...input, status: 'PENDING', createdById: null });
+}
+
 async function update(id, input) {
   const existing = await prisma.tenant.findUnique({ where: { id } });
   if (!existing) throw NotFound('Organisation not found');
@@ -111,10 +120,10 @@ async function update(id, input) {
 
 async function resolvePublic(slug) {
   const row = await tenant.findTenantBySlug(slug);
-  if (!row || row.status === 'SUSPENDED') {
+  if (!row || row.status === 'SUSPENDED' || row.status === 'PENDING') {
     throw NotFound('Organisation not found');
   }
   return { slug: row.slug, name: row.name };
 }
 
-module.exports = { list, getById, create, update, resolvePublic };
+module.exports = { list, getById, create, register, update, resolvePublic };

@@ -16,6 +16,14 @@ function requirePlatformSuperAdmin(req, _res, next) {
   next();
 }
 
+const registerBodySchema = Joi.object({
+  name: Joi.string().trim().min(2).max(120).required(),
+  slug: Joi.string().trim().min(2).max(48).required(),
+  adminName: Joi.string().trim().min(1).max(120).required(),
+  adminUserId: Joi.string().trim().min(2).max(64).required(),
+  adminPassword: Joi.string().min(8).max(200).required(),
+});
+
 const router = Router();
 
 // Public — used on login screen to validate organisation slug (no user list).
@@ -25,6 +33,22 @@ router.get(
   validate({ query: Joi.object({ slug: Joi.string().trim().min(2).max(48).required() }) }),
   asyncHandler(async (req, res) => {
     res.json(await service.resolvePublic(req.query.slug));
+  })
+);
+
+// Public — self-service organisation registration (pending platform approval).
+router.post(
+  '/register',
+  authLimiter,
+  validate({ body: registerBodySchema }),
+  asyncHandler(async (req, res) => {
+    const result = await service.register(req.body);
+    res.status(201).json({
+      message:
+        'Registration submitted. A platform administrator must approve your organisation before you can sign in.',
+      organisation: result.organisation,
+      adminUserId: result.admin.userId,
+    });
   })
 );
 
@@ -46,15 +70,7 @@ router.get(
 
 router.post(
   '/',
-  validate({
-    body: Joi.object({
-      name: Joi.string().trim().min(2).max(120).required(),
-      slug: Joi.string().trim().min(2).max(48).required(),
-      adminName: Joi.string().trim().min(1).max(120).required(),
-      adminUserId: Joi.string().trim().min(2).max(64).required(),
-      adminPassword: Joi.string().min(8).max(200).required(),
-    }),
-  }),
+  validate({ body: registerBodySchema }),
   asyncHandler(async (req, res) => {
     const result = await service.create({
       ...req.body,

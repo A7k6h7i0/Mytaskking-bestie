@@ -73,8 +73,16 @@ async function login({
   longitude,
   address,
 }) {
-  const { tenant, user } = await tenantService.findUserForLogin({ tenantSlug, userId });
+  const { tenant, user, pendingApproval } = await tenantService.findUserForLogin({
+    tenantSlug,
+    userId,
+  });
   if (!tenant) throw Unauthorized('Organisation not found');
+  if (pendingApproval) {
+    throw Unauthorized(
+      'Organisation registration is pending approval. You can sign in after a platform administrator approves your organisation.',
+    );
+  }
   if (!user) throw Unauthorized('Invalid credentials');
   if (user.status === 'SUSPENDED') throw Unauthorized('Account suspended');
 
