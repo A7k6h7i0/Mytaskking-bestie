@@ -177,7 +177,7 @@ class _AiReviewScreenState extends ConsumerState<AiReviewScreen> {
     }
 
     return Scaffold(
-      backgroundColor: colors.bg,
+      backgroundColor: colors.surface,
       appBar: AppBar(
         title: const Text('AI Review'),
         backgroundColor: Colors.transparent,

@@ -15,7 +15,7 @@ class SavedScreen extends ConsumerWidget {
     final saved = ref.watch(savedProvider);
 
     return Scaffold(
-      backgroundColor: c.bg,
+      backgroundColor: c.surface,
       appBar: AppBar(
         elevation: 0,
         backgroundColor: c.surface,

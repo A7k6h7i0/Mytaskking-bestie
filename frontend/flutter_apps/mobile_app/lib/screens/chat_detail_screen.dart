@@ -2102,7 +2102,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
         if (!didPop) _goBack(context);
       },
       child: Scaffold(
-        backgroundColor: const Color(0xFFECE5DD),
+        backgroundColor: colors.surface,
         appBar: widget.hideHeader
             ? null
             : AppBar(
@@ -2244,7 +2244,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
             colors,
           ),
           Expanded(
-            child: BestieChatWallpaper(
+            child: ColoredBox(
+              color: colors.surface,
               child: messages.when(
               loading: () => const Center(child: BestieSpinner()),
               error: (e, _) => BestieEmptyState(
@@ -2442,15 +2443,19 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                         ? _DateDivider(timestamp: m['createdAt']?.toString())
                         : null;
 
-                    final bubble =
-                        kindStr == 'SYSTEM' || kindStr == 'CALL_EVENT'
-                            ? _SystemBubble(
-                                message: m,
-                                endedCallIds: endedCallIds,
-                                viewerId: me?.id,
-                              ) as Widget
-                            : _MessageBubble(
-                                message: m, author: author, mine: mine);
+                    final bubble = switch (kindStr) {
+                      'CALL_EVENT' => _CallEventBubble(
+                          message: m,
+                          viewerId: me?.id,
+                        ) as Widget,
+                      'SYSTEM' => _SystemBubble(
+                          message: m,
+                          endedCallIds: endedCallIds,
+                          viewerId: me?.id,
+                        ) as Widget,
+                      _ => _MessageBubble(
+                          message: m, author: author, mine: mine),
+                    };
 
                     // "N new messages" unread divider — rendered above the
                     // boundary message (so, below it in the reversed list).
@@ -3124,11 +3129,172 @@ class _MemberTile extends StatelessWidget {
   }
 }
 
-/// System message bubble — call events (missed / declined / ended), member
-/// joined/left, channel renamed. Rendered as a centered chip, not a side
-/// bubble. The backend posts these with `kind: 'CALL_EVENT'` or `'SYSTEM'`.
-/// Call events carry a pipe-suffix `|call:<id>:<status>` in body so we can
-/// surface a tap-to-join button while the call is still ACTIVE.
+/// WhatsApp-style call log bubble — light blue on the right for outgoing,
+/// white on the left for incoming, red icon for missed calls on callee side.
+class _CallEventBubble extends StatelessWidget {
+  final Map<String, dynamic> message;
+  final String? viewerId;
+
+  const _CallEventBubble({required this.message, required this.viewerId});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
+    final raw = (message['body'] ?? '').toString();
+    final parsed = CallEventText.parseBody(raw);
+    final initiatorId = parsed.initiatorId ??
+        (message['authorId'] ?? (message['author'] as Map?)?['id'])
+            ?.toString();
+    final mine = viewerId != null && initiatorId == viewerId;
+    final status = parsed.status ?? '';
+    final display = CallEventText.displayForViewer(
+      rawDisplay: parsed.display,
+      status: parsed.status,
+      initiatorId: initiatorId,
+      viewerId: viewerId,
+    );
+    final clean = display.replaceFirst(RegExp(r'^📞\s*'), '');
+    final isMissed = status == 'MISSED';
+    final isVideo = CallEventText.isVideoMode(parsed.mode, displayFallback: parsed.display);
+    final title = isMissed
+        ? (mine
+            ? (isVideo ? 'Video call' : 'Voice call')
+            : (isVideo ? 'Missed video call' : 'Missed voice call'))
+        : (isVideo ? 'Video call' : 'Voice call');
+    final subtitle = _callSubtitle(clean, status, mine, isMissed);
+    final timeStr = _callEventTime(message['createdAt']?.toString());
+
+    final bg = mine ? c.brandSoft : c.surface;
+    final align = mine ? Alignment.centerRight : Alignment.centerLeft;
+    final iconColor =
+        isMissed && !mine ? const Color(0xFFE53935) : const Color(0xFF54656F);
+    final iconData = isMissed && !mine
+        ? (isVideo
+            ? Icons.missed_video_call_rounded
+            : Icons.call_missed_rounded)
+        : (isVideo
+            ? (mine ? Icons.videocam_rounded : Icons.videocam_rounded)
+            : (mine ? Icons.call_made_rounded : Icons.call_received_rounded));
+
+    return Align(
+      alignment: align,
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        constraints:
+            BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.72),
+        padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.only(
+            topLeft: const Radius.circular(12),
+            topRight: const Radius.circular(12),
+            bottomLeft: Radius.circular(mine ? 12 : 2),
+            bottomRight: Radius.circular(mine ? 2 : 12),
+          ),
+          border: mine ? null : Border.all(color: c.borderSoft),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: isMissed && !mine
+                          ? const Color(0xFFE53935).withValues(alpha: 0.25)
+                          : c.borderSoft,
+                    ),
+                  ),
+                  child: Icon(iconData, size: 20, color: iconColor),
+                ),
+                const SizedBox(width: 10),
+                Flexible(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF111B21),
+                        ),
+                      ),
+                      if (subtitle != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isMissed && !mine
+                                ? const Color(0xFF8696A0)
+                                : const Color(0xFF667781),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              timeStr,
+              style: const TextStyle(
+                fontSize: 11,
+                color: Color(0xFF8696A0),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String? _callSubtitle(
+    String clean,
+    String status,
+    bool mine,
+    bool isMissed,
+  ) {
+    if (isMissed) return mine ? 'No answer' : 'Tap to call back';
+    final parts = clean.split('·').map((s) => s.trim()).toList();
+    if (parts.length >= 3) {
+      final dur = parts.last;
+      if (!dur.contains('AM') && !dur.contains('PM')) {
+        return dur.contains('min') || dur.contains('m ')
+            ? dur
+            : '$dur min';
+      }
+    }
+    if (status == 'ENDED' && parts.length >= 2) {
+      return null;
+    }
+    return null;
+  }
+
+  String _callEventTime(String? iso) {
+    final local = DateTime.tryParse(iso ?? '')?.toLocal();
+    if (local == null) return '';
+    final h = local.hour > 12
+        ? local.hour - 12
+        : (local.hour == 0 ? 12 : local.hour);
+    final m = local.minute.toString().padLeft(2, '0');
+    final ampm = local.hour >= 12 ? 'PM' : 'AM';
+    return '$h:$m $ampm';
+  }
+}
+
+/// System message bubble — member joined/left, channel renamed. Rendered as a
+/// centered chip. Call events use [_CallEventBubble] instead.
 class _SystemBubble extends StatelessWidget {
   final Map<String, dynamic> message;
   final Set<String> endedCallIds;
@@ -3228,8 +3394,8 @@ class _MessageBubble extends ConsumerWidget {
             const [];
     final isClient = author['isClient'] == true;
     final align = mine ? Alignment.centerRight : Alignment.centerLeft;
-    final bg = mine ? c.brand : c.surface;
-    final fg = mine ? Colors.white : c.text;
+    final bg = mine ? c.brandSoft : c.surface;
+    final fg = c.text;
     final timeStr = _formatTime(message['createdAt']?.toString());
     final status = (message['status'] ?? 'SENT').toString();
     final isDeleted = message['deletedAt'] != null;
@@ -3355,9 +3521,7 @@ class _MessageBubble extends ConsumerWidget {
                           style: TextStyle(
                             fontSize: 10,
                             fontStyle: FontStyle.italic,
-                            color: mine
-                                ? Colors.white.withOpacity(0.70)
-                                : c.textFaint,
+                            color: c.textFaint,
                           )),
                     ],
                     Text(
@@ -3365,9 +3529,7 @@ class _MessageBubble extends ConsumerWidget {
                       style: TextStyle(
                         fontSize: 10,
                         fontWeight: BestieTokens.fwMedium,
-                        color: mine && !isDeleted
-                            ? Colors.white.withOpacity(0.78)
-                            : c.textMuted,
+                        color: c.textMuted,
                       ),
                     ),
                     if (mine && !isDeleted) ...[
@@ -4212,22 +4374,22 @@ class _StatusTicks extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const seenYellow = Color(0xFFFFE082);
-    final greyOnBrand = Colors.white.withOpacity(0.86);
+    const seenBlue = Color(0xFF53BDEB);
+    const tickGrey = Color(0xFF8696A0);
 
     switch (status) {
       case 'SENDING':
-        return Icon(Icons.access_time_rounded, size: 12, color: greyOnBrand);
+        return const Icon(Icons.access_time_rounded, size: 12, color: tickGrey);
       case 'FAILED':
         return const Icon(Icons.error_outline_rounded,
-            size: 12, color: Color(0xFFFFB4B4));
+            size: 12, color: Color(0xFFE53935));
       case 'SEEN':
-        return const _DoubleTick(color: seenYellow);
+        return const _DoubleTick(color: seenBlue);
       case 'DELIVERED':
-        return _DoubleTick(color: greyOnBrand);
+        return const _DoubleTick(color: tickGrey);
       case 'SENT':
       default:
-        return _SingleTick(color: greyOnBrand);
+        return const _SingleTick(color: tickGrey);
     }
   }
 }
@@ -4419,8 +4581,8 @@ class _Attachment extends ConsumerWidget {
     Object? size, {
     bool tappable = false,
   }) {
-    final accent = mine ? Colors.white : BestieTokens.cBrand;
-    final fg = mine ? Colors.white : colors.text;
+    final accent = BestieTokens.cBrand;
+    final fg = colors.text;
     final sizeStr = size is int ? _formatBytes(size) : '';
     final icon = mime.contains('pdf')
         ? Icons.picture_as_pdf_rounded
@@ -4433,12 +4595,11 @@ class _Attachment extends ConsumerWidget {
       padding: const EdgeInsets.all(8),
       constraints: const BoxConstraints(minWidth: 180, maxWidth: 240),
       decoration: BoxDecoration(
-        color: (mine ? Colors.white : colors.surface2)
-            .withOpacity(mine ? 0.16 : 1),
+        color: (mine ? colors.brand : colors.surface2)
+            .withValues(alpha: mine ? 0.08 : 1),
         borderRadius: BorderRadius.circular(BestieTokens.rSm),
         border: tappable
-            ? Border.all(
-                color: (mine ? Colors.white : colors.brand).withOpacity(0.2))
+            ? Border.all(color: colors.brand.withValues(alpha: 0.2))
             : null,
       ),
       child: Row(children: [
@@ -4711,9 +4872,9 @@ class _ReplyQuote extends StatelessWidget {
                 authorId == currentUserId
             ? 'You'
             : 'Unknown');
-    final bg = mine ? Colors.white.withOpacity(0.16) : colors.surface2;
-    final accent = mine ? Colors.white.withOpacity(0.6) : colors.brand;
-    final fg = mine ? Colors.white : colors.text;
+    final bg = mine ? colors.brand.withValues(alpha: 0.08) : colors.surface2;
+    final accent = colors.brand;
+    final fg = colors.text;
     return Container(
       padding: const EdgeInsets.fromLTRB(8, 6, 10, 6),
       decoration: BoxDecoration(
@@ -5024,8 +5185,8 @@ class _VoiceNoteState extends State<_VoiceNote> {
   Widget build(BuildContext context) {
     final mine = widget.mine;
     final c = widget.colors;
-    final accent = mine ? Colors.white : BestieTokens.cBrand;
-    final fg = mine ? Colors.white : c.text;
+    final accent = BestieTokens.cBrand;
+    final fg = c.text;
     final dur =
         _duration.inMilliseconds > 0 ? _duration : const Duration(seconds: 1);
     final progress =
@@ -5038,7 +5199,7 @@ class _VoiceNoteState extends State<_VoiceNote> {
       width: 240,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: (mine ? Colors.white : c.surface2).withOpacity(mine ? 0.14 : 1),
+        color: (mine ? c.brand : c.surface2).withValues(alpha: mine ? 0.08 : 1),
         borderRadius: BorderRadius.circular(BestieTokens.rSm),
       ),
       child: Row(children: [
@@ -5053,7 +5214,7 @@ class _VoiceNoteState extends State<_VoiceNote> {
             ),
             child: Icon(
               _playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
-              color: mine ? BestieTokens.cBrand : Colors.white,
+              color: Colors.white,
               size: 22,
             ),
           ),
@@ -5569,10 +5730,10 @@ class _LinkPreview extends ConsumerWidget {
             child: Container(
               constraints: const BoxConstraints(maxWidth: 280, minWidth: 200),
               decoration: BoxDecoration(
-                color: mine ? Colors.white.withOpacity(0.12) : c.surface2,
+                color: mine ? c.brand.withValues(alpha: 0.08) : c.surface2,
                 border: Border(
                   left: BorderSide(
-                    color: mine ? Colors.white.withOpacity(0.5) : c.brand,
+                    color: c.brand,
                     width: 3,
                   ),
                 ),
@@ -5603,9 +5764,7 @@ class _LinkPreview extends ConsumerWidget {
                               fontSize: 10,
                               fontWeight: BestieTokens.fwBold,
                               letterSpacing: BestieTokens.lsWide,
-                              color: mine
-                                  ? Colors.white.withOpacity(0.7)
-                                  : c.textMuted,
+                              color: c.textMuted,
                             ),
                           ),
                         if (title.isNotEmpty) ...[
@@ -5617,7 +5776,7 @@ class _LinkPreview extends ConsumerWidget {
                             style: TextStyle(
                               fontSize: 13,
                               fontWeight: BestieTokens.fwSemibold,
-                              color: mine ? Colors.white : c.text,
+                              color: c.text,
                             ),
                           ),
                         ],
@@ -5630,9 +5789,7 @@ class _LinkPreview extends ConsumerWidget {
                             style: TextStyle(
                               fontSize: 11.5,
                               height: 1.35,
-                              color: mine
-                                  ? Colors.white.withOpacity(0.85)
-                                  : c.textSoft,
+                              color: c.textSoft,
                             ),
                           ),
                         ],

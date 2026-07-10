@@ -90,11 +90,15 @@ async function postCallEventMessage({ call, kind, actor }) {
   const now = new Date();
   const started = call.startedAt || call.createdAt || now;
   const duration = fmtDuration(now.getTime() - new Date(started).getTime());
+  const mode = (call.mode || 'VIDEO').toString().toUpperCase();
+  const isVideo = mode === 'VIDEO';
+  const callNoun = isVideo ? 'video call' : 'voice call';
+  const callNounCap = isVideo ? 'Video call' : 'Voice call';
   const text =
-    kind === 'MISSED'   ? `📞 Missed call from ${initiatorName} · ${fmtTime(now)}` :
-    kind === 'DECLINED' ? `📞 ${actor?.name || 'A teammate'} declined the call · ${fmtTime(now)}` :
-    kind === 'STARTED'  ? `📞 ${initiatorName} started a ${call.kind === 'GROUP' ? 'group call' : 'call'} · ${fmtTime(now)}` :
-    kind === 'ENDED'    ? `📞 Call ended · ${fmtTime(now)}${duration ? ` · ${duration}` : ''}` :
+    kind === 'MISSED'   ? `📞 Missed ${callNoun} from ${initiatorName} · ${fmtTime(now)}` :
+    kind === 'DECLINED' ? `📞 ${actor?.name || 'A teammate'} declined the ${callNoun} · ${fmtTime(now)}` :
+    kind === 'STARTED'  ? `📞 ${initiatorName} started a ${call.kind === 'GROUP' ? 'group ' : ''}${callNoun} · ${fmtTime(now)}` :
+    kind === 'ENDED'    ? `📞 ${callNounCap} ended · ${fmtTime(now)}${duration ? ` · ${duration}` : ''}` :
                           `📞 Call event`;
   // Append a pipe-delimited trailer with the call id + status so the
   // Flutter chat bubble can offer a tap-to-join affordance (like WhatsApp).
@@ -106,7 +110,7 @@ async function postCallEventMessage({ call, kind, actor }) {
     kind === 'ENDED'   ? 'ENDED'  :
     kind === 'MISSED'  ? 'MISSED' :
     kind === 'DECLINED'? 'DECLINED': 'UNKNOWN';
-  const body = `${text}|call:${call.id}:${status}:${call.initiatorId || ''}`;
+  const body = `${text}|call:${call.id}:${status}:${call.initiatorId || ''}:${mode}`;
   try {
     const channel = await prisma.channel.findUnique({ where: { id: channelId } });
     if (!channel) return;
@@ -258,10 +262,12 @@ async function initiate({ initiator, participantIds, kind = 'ONE_TO_ONE', channe
   }
 
   const all = Array.from(new Set([initiator.id, ...participantIds]));
+  const mediaMode = (mode || 'VIDEO').toString().toUpperCase() === 'VOICE' ? 'VOICE' : 'VIDEO';
   const call = await prisma.call.create({
     data: {
       channelName: makeChannelName(),
       kind: realKind,
+      mode: mediaMode,
       status: 'RINGING',
       initiatorId: initiator.id,
       channelId,
@@ -270,7 +276,7 @@ async function initiate({ initiator, participantIds, kind = 'ONE_TO_ONE', channe
     },
     include: callInclude,
   });
-  const callWithMode = { ...call, mode };
+  const callWithMode = call;
 
   // Wildcard tokens: each device picks its own random uid at join time so the
   // same account can be in the call from multiple devices without colliding.

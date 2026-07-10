@@ -31,7 +31,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     final eventsAsync = ref.watch(calendarRangeProvider((from: _weekStart, to: weekEnd)));
 
     return Scaffold(
-      backgroundColor: c.bg,
+      backgroundColor: c.surface,
       appBar: AppBar(
         elevation: 0,
         backgroundColor: c.surface,

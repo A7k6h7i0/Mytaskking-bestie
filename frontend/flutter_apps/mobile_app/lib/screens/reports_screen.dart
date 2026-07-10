@@ -14,7 +14,7 @@ class ReportsScreen extends ConsumerWidget {
     return DefaultTabController(
       length: 2,
       child: Scaffold(
-        backgroundColor: c.bg,
+        backgroundColor: c.surface,
         appBar: AppBar(
           title: const Text('Reports'),
           backgroundColor: c.surface,

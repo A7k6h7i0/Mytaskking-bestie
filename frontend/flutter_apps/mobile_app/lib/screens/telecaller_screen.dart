@@ -282,7 +282,7 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
     }
 
     return Scaffold(
-      backgroundColor: c.bg,
+      backgroundColor: c.surface,
       appBar: AppBar(
         elevation: 0,
         backgroundColor: c.surface,
@@ -790,7 +790,7 @@ class _DesktopTelecallerLayoutState extends State<_DesktopTelecallerLayout> {
   Widget _buildDetailsPanel(BestieColors c, Map<String, dynamic>? selected) {
     if (selected == null) {
       return ColoredBox(
-        color: c.bg,
+        color: c.surface,
         child: Center(
           child: Text(
             'Select a lead to see details.',
@@ -936,7 +936,7 @@ class _DesktopTelecallerLayoutState extends State<_DesktopTelecallerLayout> {
     final selected = _selectedLead;
 
     return Scaffold(
-      backgroundColor: widget.embeddedInShell ? Colors.transparent : c.bg,
+      backgroundColor: widget.embeddedInShell ? Colors.transparent : c.surface,
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

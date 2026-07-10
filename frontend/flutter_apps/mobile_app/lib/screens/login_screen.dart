@@ -171,7 +171,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
     if (_success) {
       return Scaffold(
-        backgroundColor: c.bg,
+        backgroundColor: c.surface,
         body: Stack(
           children: [
             Center(

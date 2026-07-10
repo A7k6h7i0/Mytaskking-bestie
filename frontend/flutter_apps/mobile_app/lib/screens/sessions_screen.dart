@@ -17,7 +17,7 @@ class SessionsScreen extends ConsumerWidget {
     final sessions = ref.watch(mySessionsProvider);
 
     return Scaffold(
-      backgroundColor: c.bg,
+      backgroundColor: c.surface,
       appBar: AppBar(
         elevation: 0,
         backgroundColor: c.surface,

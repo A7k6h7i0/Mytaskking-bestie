@@ -227,7 +227,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
     // bottomNavigationBar SizedBox that rendered as a white strip.
     final bottomPad = 70.0 + 24 + MediaQuery.of(context).padding.bottom;
     return Scaffold(
-      backgroundColor: c.bg,
+      backgroundColor: c.surface,
       appBar: AppBar(
         elevation: 0,
         backgroundColor: c.surface,

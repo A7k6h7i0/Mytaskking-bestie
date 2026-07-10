@@ -121,7 +121,7 @@ class BestieTheme {
           );
 
     return base.copyWith(
-      scaffoldBackgroundColor: cBg,
+      scaffoldBackgroundColor: cSurface,
       colorScheme: colorScheme,
       textTheme: text,
       splashFactory: InkRipple.splashFactory,

@@ -75,7 +75,7 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
     final canCreate = user?.role == 'ADMIN' || user?.role == 'SUPER_ADMIN';
 
     return Scaffold(
-      backgroundColor: c.bg,
+      backgroundColor: c.surface,
       appBar: AppBar(
         elevation: 0,
         backgroundColor: c.surface,

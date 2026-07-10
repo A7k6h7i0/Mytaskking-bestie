@@ -133,7 +133,7 @@ class _EmployeesScreenState extends ConsumerState<EmployeesScreen> {
     final list = _items.where((u) => u['id'] != me?.id).toList();
 
     return Scaffold(
-      backgroundColor: c.bg,
+      backgroundColor: c.surface,
       appBar: AppBar(
         elevation: 0,
         backgroundColor: c.surface,

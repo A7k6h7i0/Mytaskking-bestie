@@ -100,7 +100,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         ),
       ),
 
-      // ----- "more" screens (outside the bottom-nav shell) -----
+      // ----- screens outside the bottom-nav shell -----
       GoRoute(path: '/employees', builder: (_, __) => const EmployeesScreen()),
       GoRoute(path: '/clients', builder: (_, __) => const ClientsScreen()),
       GoRoute(path: '/calendar', builder: (_, __) => const CalendarScreen()),

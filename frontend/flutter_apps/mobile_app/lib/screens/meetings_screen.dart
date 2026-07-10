@@ -14,7 +14,7 @@ class MeetingsScreen extends ConsumerWidget {
     final meetings = ref.watch(meetingsProvider);
 
     return Scaffold(
-      backgroundColor: colors.bg,
+      backgroundColor: colors.surface,
       appBar: AppBar(
         elevation: 0,
         backgroundColor: colors.surface,

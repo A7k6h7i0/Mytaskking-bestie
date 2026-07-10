@@ -454,10 +454,16 @@ enum CallStatus {
   FAILED
 }
 
+enum CallMediaMode {
+  VOICE
+  VIDEO
+}
+
 model Call {
   id            String         @id @default(cuid())
   channelName   String         @unique               // Agora channel name
   kind          CallKind
+  mode          CallMediaMode  @default(VIDEO)
   status        CallStatus     @default(RINGING)
   channel       Channel?       @relation(fields: [channelId], references: [id])
   channelId     String?

@@ -124,7 +124,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
     // sit naturally above the nav without any custom positioning.
     final navReserve = 70.0 + MediaQuery.of(context).padding.bottom - 18;
     return Scaffold(
-      backgroundColor: c.bg,
+      backgroundColor: c.surface,
       appBar: _selecting
           ? _selectionAppBar(c)
           : AppBar(

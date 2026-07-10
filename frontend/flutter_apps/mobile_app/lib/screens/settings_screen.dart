@@ -250,16 +250,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         _goBack(context);
       },
       child: Scaffold(
-        backgroundColor: c.bg,
+        backgroundColor: c.surface,
         appBar: AppBar(
           elevation: 0,
           backgroundColor: c.surface,
           foregroundColor: c.text,
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back_rounded),
-            tooltip: 'Back',
-            onPressed: () => _goBack(context),
-          ),
+          automaticallyImplyLeading: canPop,
+          leading: canPop
+              ? IconButton(
+                  icon: const Icon(Icons.arrow_back_rounded),
+                  tooltip: 'Back',
+                  onPressed: () => _goBack(context),
+                )
+              : null,
           title: const Text('Settings'),
         ),
         body: ListView(
