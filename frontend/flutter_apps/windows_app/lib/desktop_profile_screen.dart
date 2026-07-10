@@ -190,6 +190,9 @@ class _DesktopProfileScreenState extends ConsumerState<DesktopProfileScreen> {
     final user = ref.watch(authStoreProvider).user;
     final sessions = ref.watch(mySessionsProvider);
     final autoLogout = DesktopLocalSettings.autoLogout.value;
+    final autoLogoutExempt = user?.role == 'ADMIN' ||
+        user?.role == 'SUPER_ADMIN' ||
+        user?.isPlatformSuperAdmin == true;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -338,40 +341,54 @@ class _DesktopProfileScreenState extends ConsumerState<DesktopProfileScreen> {
             ),
           ]),
           _section(context, 'Desktop safety', [
-            SwitchListTile(
-              secondary: const Icon(Icons.schedule_rounded),
-              title: const Text('Auto logout'),
-              subtitle: Text(
-                autoLogout.enabled
-                    ? 'Automatically signs out and closes the desktop app at ${autoLogout.label}.'
-                    : 'Disabled. The desktop app stays signed in until you log out manually.',
-                style: const TextStyle(
-                  color: BestieTokens.cTextMuted,
-                  fontSize: 12,
+            if (autoLogoutExempt)
+              ListTile(
+                leading: const Icon(Icons.verified_user_outlined),
+                title: const Text('Auto logout'),
+                subtitle: const Text(
+                  'Admin accounts stay signed in — no automatic sign-out at 6 PM.',
+                  style: TextStyle(
+                    color: BestieTokens.cTextMuted,
+                    fontSize: 12,
+                  ),
                 ),
-              ),
-              value: autoLogout.enabled,
-              onChanged: _savingLogout ? null : _toggleAutoLogout,
-            ),
-            ListTile(
-              leading: _savingLogout
-                  ? const SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.access_time_rounded),
-              title: const Text('Auto logout time'),
-              subtitle: Text(
-                autoLogout.label,
-                style: const TextStyle(
-                  color: BestieTokens.cTextMuted,
-                  fontSize: 12,
+              )
+            else ...[
+              SwitchListTile(
+                secondary: const Icon(Icons.schedule_rounded),
+                title: const Text('Auto logout'),
+                subtitle: Text(
+                  autoLogout.enabled
+                      ? 'Automatically signs out and closes the desktop app at ${autoLogout.label}.'
+                      : 'Disabled. The desktop app stays signed in until you log out manually.',
+                  style: const TextStyle(
+                    color: BestieTokens.cTextMuted,
+                    fontSize: 12,
+                  ),
                 ),
+                value: autoLogout.enabled,
+                onChanged: _savingLogout ? null : _toggleAutoLogout,
               ),
-              trailing: const Icon(Icons.chevron_right_rounded),
-              onTap: _savingLogout ? null : _pickAutoLogoutTime,
-            ),
+              ListTile(
+                leading: _savingLogout
+                    ? const SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.access_time_rounded),
+                title: const Text('Auto logout time'),
+                subtitle: Text(
+                  autoLogout.label,
+                  style: const TextStyle(
+                    color: BestieTokens.cTextMuted,
+                    fontSize: 12,
+                  ),
+                ),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: _savingLogout ? null : _pickAutoLogoutTime,
+              ),
+            ],
           ]),
           _section(context, 'Active sessions', [
             sessions.when(
