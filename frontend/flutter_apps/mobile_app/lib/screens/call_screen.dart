@@ -289,8 +289,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
   bool _proximityNear = false;
   CallProximityController? _proximity;
   final Map<String, Timer> _participantLeaveTimers = {};
+  /// Soft-offline Agora UIDs — keep person tiles during reconnect blips.
+  final Map<int, Timer> _remoteOfflineGraceTimers = {};
   Timer? _remoteHangupFallbackTimer;
   static const _kRemoteHangupGrace = Duration(seconds: 3);
+  static const _kRemoteOfflineUiGrace = Duration(seconds: 8);
 
   /// When each invitee was last rung — drives ringing vs ring-again in Members.
   final Map<String, DateTime> _invitedAtByUserId = {};
@@ -370,6 +373,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
       t.cancel();
     }
     _participantLeaveTimers.clear();
+    for (final t in _remoteOfflineGraceTimers.values) {
+      t.cancel();
+    }
+    _remoteOfflineGraceTimers.clear();
     _remoteHangupFallbackTimer?.cancel();
     _timer?.cancel();
     _audioHealthTimer?.cancel();
@@ -752,6 +759,30 @@ class _CallScreenState extends ConsumerState<CallScreen>
     });
   }
 
+  void _cancelRemoteOfflineGrace(int uid) {
+    _remoteOfflineGraceTimers.remove(uid)?.cancel();
+  }
+
+  /// Keep remote UIDs briefly after Agora offline so the grid doesn't drop
+  /// people during reconnect. Mapping (name / userId) is never cleared here.
+  void _scheduleRemoteOfflineGrace(int uid) {
+    _remoteOfflineGraceTimers[uid]?.cancel();
+    _remoteOfflineGraceTimers[uid] = Timer(_kRemoteOfflineUiGrace, () {
+      _remoteOfflineGraceTimers.remove(uid);
+      if (!mounted) return;
+      setState(() {
+        _remoteUids.remove(uid);
+        if (_remoteUids.isEmpty && _connectedAt != null) {
+          _reconnecting = true;
+          _status = 'Reconnecting…';
+        } else if (_remoteUids.isNotEmpty) {
+          _reconnecting = false;
+          _status = 'Connected';
+        }
+      });
+    });
+  }
+
   bool _isOneToOneCall() {
     if (_isMeeting) return false;
     final call = (_callMeta?['call'] as Map?)?.cast<String, dynamic>();
@@ -1114,6 +1145,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       _isMeeting ||
       _isVideo ||
       _participantCount > 2 ||
+      _joinedParticipants.length > 2 ||
       _remoteUids.length > 1 ||
       ((_callMeta?['call'] as Map?)?['kind'] == 'GROUP' &&
           _participantCount >= 3);
@@ -1575,6 +1607,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
         if (!mounted) return;
         _remoteHangupFallbackTimer?.cancel();
         _bindRemoteUidName(remoteUid);
+        _cancelRemoteOfflineGrace(remoteUid);
         setState(() {
           _remoteUids.add(remoteUid);
           _reconnecting = false;
@@ -1597,11 +1630,14 @@ class _CallScreenState extends ConsumerState<CallScreen>
       },
       onUserOffline: (conn, remoteUid, reason) {
         if (!mounted) return;
+        // Soft-offline: keep the person tile (joinedParticipants / name map)
+        // during reconnect blips. Only drop the live Agora uid after a grace
+        // window if they never come back.
         setState(() {
-          _remoteUids.remove(remoteUid);
           _reconnecting = _connectedAt != null;
           _status = _connectedAt == null ? 'Ringing…' : 'Reconnecting…';
         });
+        _scheduleRemoteOfflineGrace(remoteUid);
         // Agora fires this for network blips too; confirm with the server
         // (call.participant.left / call.ended) before ending locally.
         _scheduleRemoteHangupFallback();
@@ -3408,6 +3444,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
   /// Premium 1:1 voice layout while screen sharing — same column structure as
   /// [_exactPrototypeVoiceBody] so controls/header don't stack on top of video.
   Widget _premiumVoiceScreenShareBody() {
+    final desktopLayout = Platform.isWindows || Platform.isLinux;
+    if (desktopLayout) return _desktopVoiceScreenShareBody();
+
     final isLocal = _sharing;
     final remoteUid = _remoteScreenShareUid;
     final shareLabel = isLocal
@@ -3529,6 +3568,124 @@ class _CallScreenState extends ConsumerState<CallScreen>
     );
   }
 
+  /// Windows/Linux voice call during screen share — compact preview, no profile
+  /// block, same fixed-size footer buttons as the normal desktop call UI.
+  Widget _desktopVoiceScreenShareBody() {
+    final isLocal = _sharing;
+    final remoteUid = _remoteScreenShareUid;
+    final shareLabel = isLocal
+        ? 'You are sharing your screen'
+        : '${_remoteNames[remoteUid] ?? _primaryRemoteDisplayName()} is sharing';
+    final ending = _hangingUp || !_joined;
+    final timerLine = ending
+        ? 'Ending call…'
+        : (_connectedAt != null ? _formatElapsed(_elapsed) : _status);
+    final timerColor = ending
+        ? CallScreenUiColors.textMuted
+        : (_connectedAt != null
+            ? CallScreenUiColors.neonGreen
+            : _status.toLowerCase().contains('ring')
+                ? const Color(0xFFFFB020)
+                : CallScreenUiColors.textPrimary);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Container(
+          width: constraints.maxWidth,
+          height: constraints.maxHeight,
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                CallScreenUiColors.backgroundTop,
+                CallScreenUiColors.backgroundMid,
+                CallScreenUiColors.backgroundBottom,
+              ],
+              stops: [0.0, 0.45, 1.0],
+            ),
+          ),
+          child: SafeArea(
+            child: Column(
+              children: [
+                _callHeader(),
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.42),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.white24),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.screen_share_rounded,
+                            color: Colors.white70, size: 16),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            shareLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  timerLine,
+                  style: TextStyle(
+                    color: timerColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1.5,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: Center(
+                    child: SizedBox(
+                      width: min(360.0, constraints.maxWidth - 48),
+                      height: min(200.0, constraints.maxHeight * 0.28),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(14),
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0A1628),
+                            border: Border.all(color: Colors.white24),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: _screenShareVideo(),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(10, 0, 10, 6),
+                  child: _desktopPremiumCallFooter(),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _prototypeMuteBanner(String text) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -3575,7 +3732,17 @@ class _CallScreenState extends ConsumerState<CallScreen>
       if (!entry.value) continue;
       // Drop stale mute flags from participants no longer in the channel.
       if (!_remoteUids.contains(entry.key)) continue;
-      labels.add('${_remoteNames[entry.key] ?? 'Participant'} is muted');
+      final mapped = _agoraUidToUserId[entry.key];
+      final announced = _remoteNames[entry.key]?.trim();
+      final joined =
+          mapped != null ? _joinedParticipants[mapped]?.trim() : null;
+      final label = (announced != null &&
+              announced.isNotEmpty &&
+              announced != 'Participant')
+          ? announced
+          : (joined != null && joined.isNotEmpty ? joined : null);
+      if (label == null) continue;
+      labels.add('$label is muted');
     }
     return labels.isEmpty ? null : labels.join(' · ');
   }
@@ -4495,20 +4662,34 @@ class _CallScreenState extends ConsumerState<CallScreen>
     const screenSource = VideoSourceType.videoSourceScreenPrimary;
 
     if (isLocal) {
+      // Local screen-capture preview is often blank on desktop/Android — show
+      // status instead of an empty black panel while others see the real share.
       if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
-        return AgoraVideoView(
-          controller: VideoViewController(
-            rtcEngine: engine,
-            canvas: const VideoCanvas(
-              uid: 0,
-              sourceType: screenSource,
-              renderMode: RenderModeType.renderModeFit,
-            ),
+        return Container(
+          color: Colors.black.withValues(alpha: 0.28),
+          alignment: Alignment.center,
+          child: const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.screen_share_rounded, size: 36, color: Colors.white54),
+              SizedBox(height: 8),
+              Text(
+                'Your screen is being shared',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              SizedBox(height: 4),
+              Text(
+                'Others can see your display',
+                style: TextStyle(color: Colors.white60, fontSize: 12),
+              ),
+            ],
           ),
         );
       }
-      // Local screen-capture preview is often blank on Android — show status
-      // instead of an empty black panel while others see the real share.
       return Container(
         color: Colors.black.withValues(alpha: 0.28),
         alignment: Alignment.center,
@@ -4836,12 +5017,23 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   Widget _participantsStrip({bool showTimer = true}) {
-    // One entry per live remote stream (so the same account on two devices
-    // reads as two participants), labelled from the announce map.
-    final names = _remoteUids
-        .map((uid) => _displayNameForAgoraUid(uid))
-        .where((n) => n.isNotEmpty)
-        .toList();
+    // Prefer stable joined people (userId → name). Never show raw Agora
+    // "Participant" placeholders from unmapped UIDs.
+    final me = ref.read(authStoreProvider).user;
+    final names = <String>[];
+    for (final entry in _joinedParticipants.entries) {
+      if (entry.key == me?.id) continue;
+      final n = entry.value.trim();
+      if (n.isNotEmpty) names.add(n);
+    }
+    if (names.isEmpty) {
+      for (final uid in _remoteUids) {
+        final mapped = _agoraUidToUserId[uid];
+        if (mapped != null && mapped == me?.id) continue;
+        final n = _remoteNames[uid]?.trim();
+        if (n != null && n.isNotEmpty && n != 'Participant') names.add(n);
+      }
+    }
     final label = names.isEmpty ? 'Waiting for others' : names.join(', ');
     return Container(
       constraints: const BoxConstraints(maxWidth: 320),
@@ -4937,33 +5129,44 @@ class _CallScreenState extends ConsumerState<CallScreen>
         videoMuted: uid != null ? (_remoteVideoMuted[uid] ?? false) : false,
       ));
     }
+    // Only attach live Agora streams that map to a known person.
+    // Never create ghost tiles labeled "Participant" for unmapped UIDs.
     for (final uid in _remoteUids) {
       if (uid == _CallSession.myUid) continue;
       final mappedUserId = _agoraUidToUserId[uid];
-      if (mappedUserId != null && mappedUserId == me?.id) continue;
-      final name = _displayNameForAgoraUid(uid);
-      final existing = mappedUserId != null
-          ? tiles.indexWhere((t) => !t.isLocal && t.userId == mappedUserId)
-          : tiles.indexWhere((t) => !t.isLocal && t.agoraUid == uid);
+      if (mappedUserId == null || mappedUserId.isEmpty) continue;
+      if (mappedUserId == me?.id) continue;
+
+      final announced = _remoteNames[uid]?.trim();
+      final joined = _joinedParticipants[mappedUserId]?.trim();
+      final displayName = (announced != null &&
+              announced.isNotEmpty &&
+              announced != 'Participant')
+          ? announced
+          : (joined != null && joined.isNotEmpty ? joined : null);
+      if (displayName == null) continue;
+
+      final existing =
+          tiles.indexWhere((t) => !t.isLocal && t.userId == mappedUserId);
       if (existing >= 0) {
         final t = tiles[existing];
-        final resolved = t.name != 'Participant' ? t.name : name;
         tiles[existing] = (
-          name: resolved,
-          userId: t.userId ?? mappedUserId,
+          name: t.name.isNotEmpty && t.name != 'Participant'
+              ? t.name
+              : displayName,
+          userId: mappedUserId,
           imageUrl: t.imageUrl ?? _avatarUrlForUserId(mappedUserId),
           agoraUid: uid,
           isLocal: false,
           muted: _remoteMuted[uid] ?? false,
           videoMuted: _remoteVideoMuted[uid] ?? false,
         );
-      } else if (mappedUserId == null || !seen.contains(mappedUserId)) {
-        if (mappedUserId != null) seen.add(mappedUserId);
+      } else if (!seen.contains(mappedUserId)) {
+        seen.add(mappedUserId);
         tiles.add((
-          name: name,
+          name: displayName,
           userId: mappedUserId,
-          imageUrl:
-              mappedUserId != null ? _avatarUrlForUserId(mappedUserId) : null,
+          imageUrl: _avatarUrlForUserId(mappedUserId),
           agoraUid: uid,
           isLocal: false,
           muted: _remoteMuted[uid] ?? false,
@@ -5667,6 +5870,15 @@ class _CallScreenState extends ConsumerState<CallScreen>
         onTap: _showCallNotes,
       ),
       (
+        label: _sharing ? 'Stop' : 'Share',
+        icon: _sharing
+            ? Icons.stop_screen_share_rounded
+            : Icons.screen_share_rounded,
+        selected: _sharing,
+        danger: false,
+        onTap: _toggleShare,
+      ),
+      (
         label: 'End',
         icon: Icons.call_end_rounded,
         selected: false,
@@ -5755,8 +5967,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
                     color: (danger
                             ? CallScreenUiColors.endCallRed
                             : CallScreenUiColors.neonBlue)
-                        .withValues(alpha: selected || danger ? 0.32 : 0.16),
-                    blurRadius: selected || danger ? 16 : 10,
+                        .withValues(alpha: selected || danger ? 0.28 : 0.14),
+                    blurRadius: 12,
                   ),
                 ],
               ),

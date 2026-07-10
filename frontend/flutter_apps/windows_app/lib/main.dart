@@ -17,6 +17,7 @@ import 'package:mytaskking_mobile/screens/organizations_screen.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'desktop_auto_logout_prompt.dart';
 import 'desktop_local_settings.dart';
 import 'desktop_profile_screen.dart';
 import 'desktop_runtime.dart';
@@ -171,6 +172,9 @@ class BestieWindowsApp extends ConsumerWidget {
                 path: '/work-activity',
                 builder: (_, __) => const WorkActivityScreen()),
             GoRoute(
+                path: '/login-activity',
+                builder: (_, __) => const LoginActivityScreen()),
+            GoRoute(
                 path: '/notifications',
                 builder: (_, __) => const DesktopNotificationsScreen()),
             GoRoute(
@@ -251,7 +255,8 @@ class _DesktopLifecycleHostState extends ConsumerState<DesktopLifecycleHost>
   final _activityAgent = DesktopWorkActivityAgent();
   StreamSubscription? _authSub;
   Timer? _autoLogoutTimer;
-  DateTime? _lastAutoLogoutDate;
+  DateTime? _autoLogoutSnoozeUntil;
+  bool _autoLogoutPromptOpen = false;
   bool _trayReady = false;
   bool _quitting = false;
 
@@ -345,6 +350,7 @@ class _DesktopLifecycleHostState extends ConsumerState<DesktopLifecycleHost>
       _activityAgent.dispose();
       _autoLogoutTimer?.cancel();
       _autoLogoutTimer = null;
+      _autoLogoutSnoozeUntil = null;
       await _disposeTray();
     }
   }
@@ -352,11 +358,22 @@ class _DesktopLifecycleHostState extends ConsumerState<DesktopLifecycleHost>
   void _onAutoLogoutSettingsChanged() {
     if (!mounted) return;
     if (ref.read(authStoreProvider).accessToken == null) return;
+    if (_isAutoLogoutExempt()) return;
     _startAutoLogoutMonitor();
+  }
+
+  /// Org admins and platform super admins stay signed in — no 6 PM cutoff.
+  bool _isAutoLogoutExempt() {
+    final user = ref.read(authStoreProvider).user;
+    if (user == null) return false;
+    return user.role == 'ADMIN' ||
+        user.role == 'SUPER_ADMIN' ||
+        user.isPlatformSuperAdmin;
   }
 
   void _startAutoLogoutMonitor() {
     _autoLogoutTimer?.cancel();
+    if (_isAutoLogoutExempt()) return;
     _autoLogoutTimer = Timer.periodic(
       const Duration(seconds: 20),
       (_) => unawaited(_checkAutoLogout()),
@@ -367,8 +384,10 @@ class _DesktopLifecycleHostState extends ConsumerState<DesktopLifecycleHost>
   Future<void> _checkAutoLogout() async {
     if (!mounted || _quitting) return;
     if (ref.read(authStoreProvider).accessToken == null) return;
+    if (_isAutoLogoutExempt()) return;
     final settings = DesktopLocalSettings.autoLogout.value;
     if (!settings.enabled) return;
+    if (_autoLogoutPromptOpen) return;
     final now = DateTime.now();
     final cutoff = DateTime(
       now.year,
@@ -378,10 +397,28 @@ class _DesktopLifecycleHostState extends ConsumerState<DesktopLifecycleHost>
       settings.minute,
     );
     if (now.isBefore(cutoff)) return;
-    final today = DateTime(now.year, now.month, now.day);
-    if (_lastAutoLogoutDate != null && _lastAutoLogoutDate == today) return;
-    _lastAutoLogoutDate = today;
-    await _signOutFromDesktop(exitAfter: true);
+    if (_autoLogoutSnoozeUntil != null && now.isBefore(_autoLogoutSnoozeUntil!)) {
+      return;
+    }
+    await _promptAutoLogout();
+  }
+
+  Future<void> _promptAutoLogout() async {
+    if (!mounted || _quitting || _autoLogoutPromptOpen) return;
+    _autoLogoutPromptOpen = true;
+    try {
+      await DesktopRuntime.revealAgentWindow();
+      if (!mounted || _quitting) return;
+      final stillWorking = await showDesktopAutoLogoutPrompt(context);
+      if (!mounted || _quitting) return;
+      if (stillWorking == true) {
+        _autoLogoutSnoozeUntil = DateTime.now().add(const Duration(hours: 1));
+        return;
+      }
+      await _signOutFromDesktop(exitAfter: true);
+    } finally {
+      _autoLogoutPromptOpen = false;
+    }
   }
 
   Future<void> _ensureTray() async {
@@ -527,6 +564,11 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
             icon: Icons.monitor_heart_outlined,
             label: 'Work Activity',
             route: '/work-activity'),
+      if (isAdmin)
+        const BestieSidebarItem(
+            icon: Icons.login_rounded,
+            label: 'Login activity',
+            route: '/login-activity'),
       if (isPlatformSuperAdmin)
         const BestieSidebarItem(
             icon: Icons.apartment_rounded,
@@ -583,6 +625,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     if (path.startsWith('/tasks')) return '/tasks';
     if (path.startsWith('/meetings')) return '/meetings';
     if (path.startsWith('/work-activity')) return '/work-activity';
+    if (path.startsWith('/login-activity')) return '/login-activity';
     if (path.startsWith('/organizations')) return '/organizations';
     if (path.startsWith('/employees')) return '/employees';
     if (path.startsWith('/clients')) return '/clients';
