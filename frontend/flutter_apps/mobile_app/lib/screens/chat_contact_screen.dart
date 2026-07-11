@@ -100,7 +100,7 @@ class ChatContactScreen extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 14,
                       color: subtitle == 'Online'
-                          ? BestieTokens.cSuccess
+                          ? BestieTokens.cBrand
                           : colors.textSoft,
                     ),
                   ),

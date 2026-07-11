@@ -14,6 +14,7 @@ class BestieChatWallpaper extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
+        const ColoredBox(color: Colors.white),
         const CustomPaint(painter: _ChatDoodlePainter()),
         child,
       ],
@@ -24,7 +25,7 @@ class BestieChatWallpaper extends StatelessWidget {
 class _ChatDoodlePainter extends CustomPainter {
   const _ChatDoodlePainter();
 
-  static const _bg = Color(0xFFECE5DD);
+  static const _bg = Colors.white;
   static const _ink = Color(0xFF8D8178);
 
   @override
@@ -32,7 +33,7 @@ class _ChatDoodlePainter extends CustomPainter {
     canvas.drawRect(Offset.zero & size, Paint()..color = _bg);
 
     final stroke = Paint()
-      ..color = _ink.withValues(alpha: 0.18)
+      ..color = _ink.withValues(alpha: 0.22)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.15
       ..strokeCap = StrokeCap.round

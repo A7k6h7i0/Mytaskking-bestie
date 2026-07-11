@@ -301,7 +301,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   /// Agora uid of the loudest current speaker (0 = local) — WhatsApp-style tile border.
   int? _activeSpeakerUid;
-  static const _kSpeakingBorderColor = Color(0xFFE8A060);
+  static const _kSpeakingBorderColor = BestieTokens.cBrand300;
+  static const _kParticipantTileBg = Color(0xFF3E444A);
 
   bool get _isVideo => _videoEnabled;
   bool get _isCallInitiator {
@@ -1141,6 +1142,16 @@ class _CallScreenState extends ConsumerState<CallScreen>
     return max(1, 1 + _remoteUids.length);
   }
 
+  /// 3+ person voice calls use a plain white stage instead of the purple gradient.
+  bool get _useWhiteMultiParticipantBackdrop =>
+      !_isVideo && _participantCount > 2 && _useWhatsAppParticipantGrid;
+
+  bool get _isMultiPartyCallUi =>
+      _participantCount > 2 ||
+      _joinedParticipants.length > 2 ||
+      ((_callMeta?['call'] as Map?)?['kind'] == 'GROUP' &&
+          _participantCount >= 2);
+
   bool get _useWhatsAppParticipantGrid =>
       _isMeeting ||
       _isVideo ||
@@ -1374,34 +1385,78 @@ class _CallScreenState extends ConsumerState<CallScreen>
   /// the correct name even after CallScreen disposes.
   void _syncRemotePeerSnapshot() {
     final me = ref.read(authStoreProvider).user;
-    String? name;
 
-    // Outbound ring: callee name comes from invite metadata, not Agora uids.
+    // Group / 3-way: show combined names — never mix one person's photo with
+    // another person's label on the floating bubble.
+    if (_isMultiPartyCallUi) {
+      final title = _callDisplayTitle();
+      if (title != 'Connecting…' && title != 'In call') {
+        _CallSession.remotePeerName = title;
+      }
+      _CallSession.remotePeerAvatarUrl = null;
+      _CallSession.remotePeerSubtitle = null;
+      if (_callMeta != null) {
+        _CallSession.callMeta = Map<String, dynamic>.from(_callMeta!);
+      }
+      _CallSession._ping();
+      return;
+    }
+
+    String? name;
+    String? userId;
+
     if (_waitingForAnswer) {
       final fromMeta = _callDisplayTitle();
       if (fromMeta != 'Connecting…' && fromMeta != 'In call') {
         name = fromMeta;
-      }
-    }
-
-    if (name == null) {
-      for (final entry in _joinedParticipants.entries) {
-        if (entry.key != me?.id && entry.value.trim().isNotEmpty) {
-          name = entry.value.trim();
-          break;
+        for (final p in _participantsFromMeta()) {
+          if (p['userId']?.toString() == me?.id) continue;
+          final n = _participantProfileName(p);
+          if (n == fromMeta || n.isNotEmpty) {
+            userId = p['userId']?.toString();
+            if (n == fromMeta) break;
+          }
         }
       }
     }
-    if (name == null && _remoteUids.isNotEmpty) {
-      for (final uid in _remoteUids) {
-        if (_agoraUidToUserId[uid] == me?.id) continue;
-        final n = _remoteNames[uid]?.trim();
-        if (n != null && n.isNotEmpty) {
+
+    if (userId == null) {
+      for (final entry in _joinedParticipants.entries) {
+        if (entry.key == me?.id) continue;
+        final n = entry.value.trim();
+        if (n.isNotEmpty) {
+          userId = entry.key;
           name = n;
           break;
         }
       }
     }
+
+    if (userId == null && _remoteUids.isNotEmpty) {
+      for (final uid in _remoteUids) {
+        final mapped = _agoraUidToUserId[uid];
+        if (mapped == null || mapped == me?.id) continue;
+        final n = _remoteNames[uid]?.trim();
+        if (n != null && n.isNotEmpty) {
+          userId = mapped;
+          name = n;
+          break;
+        }
+      }
+    }
+
+    if (userId == null) {
+      for (final p in _participantsFromMeta()) {
+        if (p['userId']?.toString() == me?.id) continue;
+        final n = _participantProfileName(p);
+        if (n.isNotEmpty && n != 'Participant') {
+          userId = p['userId']?.toString();
+          name = n;
+          break;
+        }
+      }
+    }
+
     if (name == null) {
       final fromMeta = _callDisplayTitle();
       if (fromMeta != 'Connecting…' && fromMeta != 'In call') {
@@ -1409,13 +1464,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
       }
     }
 
-    final subtitle = _callDisplaySubtitle();
-    final avatar = _callDisplayAvatarUrl();
+    final avatar =
+        userId != null ? _avatarUrlForUserId(userId) : _callDisplayAvatarUrl();
 
     if (name != null && name.isNotEmpty) {
       _CallSession.remotePeerName = name;
     }
-    _CallSession.remotePeerSubtitle = subtitle;
+    _CallSession.remotePeerSubtitle = _callDisplaySubtitle();
     _CallSession.remotePeerAvatarUrl = avatar;
     if (_callMeta != null) {
       _CallSession.callMeta = Map<String, dynamic>.from(_callMeta!);
@@ -3046,7 +3101,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
         if (!didPop) _minimize();
       },
       child: Scaffold(
-        backgroundColor: Colors.black,
+        backgroundColor:
+            _useWhiteMultiParticipantBackdrop ? Colors.white : Colors.black,
         body: Stack(
           fit: StackFit.expand,
           children: [
@@ -3060,7 +3116,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
                 // flat black void (WhatsApp does the same). Hidden once real remote
                 // video fills the screen.
                 if (!showingVideo)
-                  const Positioned.fill(child: _FuturisticCallBackdrop()),
+                  Positioned.fill(
+                    child: _useWhiteMultiParticipantBackdrop
+                        ? const ColoredBox(color: Colors.white)
+                        : const _FuturisticCallBackdrop(),
+                  ),
                 Positioned.fill(child: _remoteSurface()),
 
                 // Top scrim for header legibility over video / screen share.
@@ -3750,6 +3810,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   /// Small translucent circle button used in both call + meeting headers.
   Widget _circleHeaderIcon(IconData icon, VoidCallback onTap,
       {String? tooltip}) {
+    final onWhite = _useWhiteMultiParticipantBackdrop;
     return Tooltip(
       message: tooltip ?? '',
       child: GestureDetector(
@@ -3758,10 +3819,19 @@ class _CallScreenState extends ConsumerState<CallScreen>
           width: 40,
           height: 40,
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.12),
+            color: onWhite
+                ? const Color(0xFFF0F2F5)
+                : Colors.white.withOpacity(0.12),
             shape: BoxShape.circle,
+            border: onWhite
+                ? Border.all(color: const Color(0xFFD1D7DB))
+                : null,
           ),
-          child: Icon(icon, color: Colors.white, size: 20),
+          child: Icon(
+            icon,
+            color: onWhite ? const Color(0xFF111B21) : Colors.white,
+            size: 20,
+          ),
         ),
       ),
     );
@@ -3787,6 +3857,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     required VoidCallback onTap,
     String? tooltip,
   }) {
+    final onWhite = _useWhiteMultiParticipantBackdrop;
     return Tooltip(
       message: tooltip ?? '',
       child: Material(
@@ -3794,21 +3865,43 @@ class _CallScreenState extends ConsumerState<CallScreen>
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(12),
-          child: CallUiGlassContainer(
-            borderRadius: 12,
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            child: SizedBox(
-              width: 34,
-              height: 18,
-              child: Center(
-                child: Icon(
-                  icon,
-                  color: CallScreenUiColors.textPrimary,
-                  size: 18,
+          child: onWhite
+              ? Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF0F2F5),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFD1D7DB)),
+                  ),
+                  child: SizedBox(
+                    width: 34,
+                    height: 18,
+                    child: Center(
+                      child: Icon(
+                        icon,
+                        color: const Color(0xFF111B21),
+                        size: 18,
+                      ),
+                    ),
+                  ),
+                )
+              : CallUiGlassContainer(
+                  borderRadius: 12,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  child: SizedBox(
+                    width: 34,
+                    height: 18,
+                    child: Center(
+                      child: Icon(
+                        icon,
+                        color: CallScreenUiColors.textPrimary,
+                        size: 18,
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-            ),
-          ),
         ),
       ),
     );
@@ -3883,7 +3976,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     if (names.isEmpty) return _joined ? 'In call' : 'Connecting…';
     if (names.length == 1) return names.first;
     if (names.length == 2) return '${names[0]}, ${names[1]}';
-    return '${names[0]} +${names.length - 1}';
+    return '${names[0]}, ${names[1]} +${names.length - 2}';
   }
 
   /// WhatsApp-style: minimize on the left, caller name centered, add-participant
@@ -3897,6 +3990,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     if (!showingVideo) {
       if (_useWhatsAppParticipantGrid) {
         final names = _callDisplayTitle();
+        final onWhite = _useWhiteMultiParticipantBackdrop;
         return Padding(
           padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
           child: Row(children: [
@@ -3909,16 +4003,18 @@ class _CallScreenState extends ConsumerState<CallScreen>
                     Text(names,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
+                        style: TextStyle(
+                          color: onWhite ? const Color(0xFF111B21) : Colors.white,
                           fontSize: 16,
                           fontWeight: BestieTokens.fwBold,
                         )),
                     const SizedBox(height: 2),
                     Text(
                       _connectedAt == null ? _status : _formatElapsed(_elapsed),
-                      style:
-                          const TextStyle(color: Colors.white70, fontSize: 12),
+                      style: TextStyle(
+                        color: onWhite ? const Color(0xFF667781) : Colors.white70,
+                        fontSize: 12,
+                      ),
                     ),
                   ]),
             ),
@@ -5228,20 +5324,29 @@ class _CallScreenState extends ConsumerState<CallScreen>
             for (var r = 0; r < rows; r++) ...[
               SizedBox(
                 height: tileH,
-                child: Row(
-                  children: [
-                    for (var c = 0; c < cols; c++) ...[
-                      Expanded(
-                        child: () {
-                          final idx = r * cols + c;
-                          if (idx >= n) return const SizedBox.shrink();
-                          return tileAt(idx, height: tileH);
-                        }(),
-                      ),
-                      if (c < cols - 1) const SizedBox(width: gap),
+                child: () {
+                  final firstIdx = r * cols;
+                  final tilesInRow = min(cols, n - firstIdx);
+                  if (tilesInRow <= 0) return const SizedBox.shrink();
+                  // Odd count: last lone tile spans the full row (no white gap).
+                  if (tilesInRow == 1) {
+                    return tileAt(firstIdx, height: tileH);
+                  }
+                  return Row(
+                    children: [
+                      for (var c = 0; c < cols; c++) ...[
+                        Expanded(
+                          child: () {
+                            final idx = r * cols + c;
+                            if (idx >= n) return const SizedBox.shrink();
+                            return tileAt(idx, height: tileH);
+                          }(),
+                        ),
+                        if (c < cols - 1) const SizedBox(width: gap),
+                      ],
                     ],
-                  ],
-                ),
+                  );
+                }(),
               ),
               if (r < rows - 1) const SizedBox(height: gap),
             ],
@@ -5280,7 +5385,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       child: ClipRRect(
         borderRadius: BorderRadius.circular(speaking ? 9.5 : 12),
         child: Container(
-          color: const Color(0xFF2A2A2A),
+          color: _kParticipantTileBg,
           child: Stack(
             fit: StackFit.expand,
             children: [
@@ -5378,12 +5483,19 @@ class _CallScreenState extends ConsumerState<CallScreen>
     double size = 52,
     double iconSize = 22,
   }) {
-    final Color bg =
-        background ?? (active ? Colors.white : Colors.white.withOpacity(0.14));
+    final onLight = _useWhiteMultiParticipantBackdrop;
+    final Color bg = background ??
+        (onLight
+            ? (active
+                ? const Color(0xFF111B21)
+                : const Color(0xFFF0F2F5))
+            : (active ? Colors.white : Colors.white.withOpacity(0.14)));
     final Color fg = iconColor ??
         (background != null
             ? Colors.white
-            : (active ? Colors.black : Colors.white));
+            : (onLight
+                ? (active ? Colors.white : const Color(0xFF111B21))
+                : (active ? Colors.black : Colors.white)));
     return _PressableCircle(
       onTap: onTap,
       size: size,
@@ -5394,6 +5506,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
         decoration: BoxDecoration(
           color: bg,
           shape: BoxShape.circle,
+          border: onLight && background == null
+              ? Border.all(
+                  color: active
+                      ? const Color(0xFF111B21)
+                      : const Color(0xFFD1D7DB),
+                )
+              : null,
           boxShadow: background != null
               ? [
                   BoxShadow(

@@ -69,7 +69,7 @@ bool _isReallyOnline(Map<String, dynamic>? user) =>
 
 Color _presenceDotColor(Map<String, dynamic>? user) {
   if (user == null) return Colors.transparent;
-  if (_isReallyOnline(user)) return const Color(0xFF26C6DA);
+  if (_isReallyOnline(user)) return BestieTokens.cBrand;
   final status = (user['status'] ?? '').toString();
   if (status == 'AWAY' || status == 'BUSY') return const Color(0xFFFFC107);
   return const Color(0xFFB4BAC6);
@@ -687,16 +687,53 @@ class _ChatsHeader extends ConsumerWidget {
 
   Widget _headerBrand(OrgBranding? branding) {
     const logoSize = 36.0;
+    const myTaskKingFontSize = 21.0; // +6px over default wordmark (~15px)
     final orgName = branding?.name ?? 'MyTaskKing';
     final logoUrl = branding?.logoUrl;
     final isDefault = orgName == 'MyTaskKing' && logoUrl == null;
     if (isDefault) {
       return Row(
         children: [
-          BestieLogo(
-            size: logoSize,
-            withWordmark: true,
+          BestieLogo(size: logoSize, onTap: onEditOrg),
+          SizedBox(width: logoSize * 0.30),
+          GestureDetector(
             onTap: onEditOrg,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ShaderMask(
+                  blendMode: BlendMode.srcIn,
+                  shaderCallback: (rect) => const LinearGradient(
+                    colors: [
+                      BestieTokens.cAccent,
+                      BestieTokens.cBrand,
+                      Color(0xFF3AA1FF),
+                    ],
+                  ).createShader(rect),
+                  child: const Text(
+                    'MyTaskKing',
+                    style: TextStyle(
+                      fontSize: myTaskKingFontSize,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.54,
+                      height: 1.0,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+                SizedBox(height: logoSize * 0.04),
+                Text(
+                  'Productivity',
+                  style: TextStyle(
+                    fontSize: logoSize * 0.22,
+                    fontWeight: FontWeight.w600,
+                    color: BestieTokens.cTextMuted,
+                    letterSpacing: 0.06 * logoSize * 0.22,
+                  ),
+                ),
+              ],
+            ),
           ),
           if (onEditOrg != null) _editOrgButton(),
         ],

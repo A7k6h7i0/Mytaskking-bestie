@@ -84,6 +84,11 @@ async function postCallEventMessage({ call, kind, actor }) {
   if (call?.kind === 'GROUP' && (kind === 'DECLINED' || kind === 'MISSED')) {
     return;
   }
+  // 1:1 chats show a single WhatsApp-style log when the call finishes — not a
+  // separate STARTED row while ringing.
+  if (kind === 'STARTED' && call?.kind === 'ONE_TO_ONE') {
+    return;
+  }
   const channelId = await resolveCallEventChannelId({ call, kind, actor });
   if (!channelId) return;
   const initiatorName = call.initiator?.name || 'Someone';

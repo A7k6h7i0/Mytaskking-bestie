@@ -2176,7 +2176,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                                       fontSize: 12.5,
                                       fontWeight: BestieTokens.fwMedium,
                                       color: headerSubtitle == 'Online'
-                                          ? BestieTokens.cSuccess
+                                          ? BestieTokens.cBrand
                                           : colors.textSoft,
                                       height: 1.15,
                                     )),
@@ -2244,8 +2244,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
             colors,
           ),
           Expanded(
-            child: ColoredBox(
-              color: colors.surface,
+            child: BestieChatWallpaper(
               child: messages.when(
               loading: () => const Center(child: BestieSpinner()),
               error: (e, _) => BestieEmptyState(
@@ -2325,31 +2324,38 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                 // Combined list: server messages then optimistic outgoing.
                 final items = [...serverItems, ..._pendingOutgoing];
 
-                // Call ids that have since ENDED/MISSED/DECLINED — used to
-                // strip the "Tap to join" pill off an earlier STARTED bubble
-                // once the call is over.
+                // Call ids that have since ENDED/MISSED/DECLINED — hide the
+                // earlier ACTIVE (ringing) bubble so only one log tile shows.
                 final endedCallIds = <String>{};
                 for (final m in items) {
                   if ((m['kind'] ?? '') != 'CALL_EVENT') continue;
-                  final raw = (m['body'] ?? '').toString();
-                  final marker = raw.lastIndexOf('|call:');
-                  if (marker < 0) continue;
-                  final tail = raw.substring(marker + 6);
-                  final colon = tail.indexOf(':');
-                  if (colon < 0) continue;
-                  final cid = tail.substring(0, colon);
-                  final st = tail.substring(colon + 1);
-                  if (st == 'ENDED' || st == 'MISSED' || st == 'DECLINED') {
+                  final parsed =
+                      CallEventText.parseBody((m['body'] ?? '').toString());
+                  final cid = parsed.callId;
+                  final st = parsed.status;
+                  if (cid != null &&
+                      (st == 'ENDED' || st == 'MISSED' || st == 'DECLINED')) {
                     endedCallIds.add(cid);
                   }
                 }
+                final displayItems = items.where((m) {
+                  if ((m['kind'] ?? '') != 'CALL_EVENT') return true;
+                  final parsed =
+                      CallEventText.parseBody((m['body'] ?? '').toString());
+                  if (parsed.status == 'ACTIVE' &&
+                      parsed.callId != null &&
+                      endedCallIds.contains(parsed.callId)) {
+                    return false;
+                  }
+                  return true;
+                }).toList();
 
                 // Compute the unread boundary once — the oldest message that
                 // arrived after my lastReadAt and wasn't sent by me. Anchors
                 // the "N new messages" divider.
                 if (!_boundaryComputed && _myLastReadAt != null) {
                   final me = ref.read(authStoreProvider).user;
-                  final unread = items.where((m) {
+                  final unread = displayItems.where((m) {
                     final t = DateTime.tryParse('${m['createdAt']}');
                     final authorId = (m['author'] as Map?)?['id'];
                     return t != null &&
@@ -2366,12 +2372,12 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                 }
 
                 // Auto-scroll to the newest message on arrival.
-                if (items.length != _lastCount) {
-                  _lastCount = items.length;
+                if (displayItems.length != _lastCount) {
+                  _lastCount = displayItems.length;
                   _scrollToLatestSoon();
                 }
 
-                if (items.isEmpty) {
+                if (displayItems.isEmpty) {
                   return const BestieEmptyState(
                     icon: Icons.chat_bubble_outline,
                     title: 'No messages yet',
@@ -2383,12 +2389,12 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                 // text) so a socket-merged or optimistic message can never land
                 // out of order — which previously pushed the first message above
                 // the wrong day divider.
-                items.sort((a, b) => (a['createdAt']?.toString() ?? '')
+                displayItems.sort((a, b) => (a['createdAt']?.toString() ?? '')
                     .compareTo(b['createdAt']?.toString() ?? ''));
                 // `reverse: true` pins the newest message at the bottom (above
                 // the composer) so the visual order matches WhatsApp. We render
                 // the *reversed* list so index 0 = newest.
-                final reversed = items.reversed.toList();
+                final reversed = displayItems.reversed.toList();
                 return ListView.builder(
                   controller: _scroll,
                   reverse: true,
@@ -3403,6 +3409,78 @@ class _MessageBubble extends ConsumerWidget {
 
     final isFailed = status == 'FAILED';
     final isPending = (message['id']?.toString() ?? '').startsWith('pending_');
+    final hasImageAttachment = attachments.any(
+      (a) => (a['mimeType'] ?? '').toString().startsWith('image/'),
+    );
+    final attachmentOnly = !isDeleted && attachments.isNotEmpty && body.isEmpty;
+    final imageOnly = attachmentOnly && hasImageAttachment;
+
+    Widget messageFooter({bool compactOnImage = false}) {
+      return Padding(
+        padding: EdgeInsets.fromLTRB(6, 2, compactOnImage ? 0 : 6, 0),
+        child: Align(
+          alignment: Alignment.centerRight,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (!compactOnImage && isEdited && !isDeleted) ...[
+                Text('edited · ',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontStyle: FontStyle.italic,
+                      color: c.textFaint,
+                    )),
+              ],
+              if (!compactOnImage)
+                Text(
+                  timeStr,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: BestieTokens.fwMedium,
+                    color: c.textMuted,
+                  ),
+                ),
+              if (mine && !isDeleted) ...[
+                if (!compactOnImage) const SizedBox(width: 4),
+                _StatusTicks(status: status),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
+
+    Widget imageTimeOverlay() {
+      return Positioned(
+        right: 6,
+        bottom: 6,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.48),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                timeStr,
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: BestieTokens.fwMedium,
+                  color: Colors.white,
+                ),
+              ),
+              if (mine && !isDeleted) ...[
+                const SizedBox(width: 4),
+                _StatusTicks(status: status),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
+
     return _SwipeToReply(
       enabled: !isDeleted,
       mine: mine,
@@ -3479,7 +3557,17 @@ class _MessageBubble extends ConsumerWidget {
                   ),
                 if (!isDeleted)
                   for (final a in attachments) ...[
-                    _Attachment(asset: a, mine: mine, colors: c),
+                    if (imageOnly &&
+                        (a['mimeType'] ?? '').toString().startsWith('image/'))
+                      Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          _Attachment(asset: a, mine: mine, colors: c),
+                          imageTimeOverlay(),
+                        ],
+                      )
+                    else
+                      _Attachment(asset: a, mine: mine, colors: c),
                     const SizedBox(height: 4),
                   ],
                 if (isDeleted)
@@ -3512,32 +3600,7 @@ class _MessageBubble extends ConsumerWidget {
                     ),
                 ],
                 if (!isDeleted) _ReactionsBar(message: message),
-                // WhatsApp-style footer: time + (only on my messages) tick marks.
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(6, 2, 4, 0),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    if (isEdited && !isDeleted) ...[
-                      Text('edited · ',
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontStyle: FontStyle.italic,
-                            color: c.textFaint,
-                          )),
-                    ],
-                    Text(
-                      timeStr,
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: BestieTokens.fwMedium,
-                        color: c.textMuted,
-                      ),
-                    ),
-                    if (mine && !isDeleted) ...[
-                      const SizedBox(width: 4),
-                      _StatusTicks(status: status),
-                    ],
-                  ]),
-                ),
+                if (!isDeleted && !imageOnly) messageFooter(),
               ],
             ),
           ),
