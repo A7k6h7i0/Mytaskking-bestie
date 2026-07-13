@@ -6,7 +6,6 @@ import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:mytaskking_core/mytaskking_core.dart' as core;
 
 import '../state.dart' hide ThemeMode;
-import '../widgets/avatar_crop_sheet.dart';
 import '../widgets/profile_avatar_viewer.dart';
 import 'leaderboard_card.dart';
 
