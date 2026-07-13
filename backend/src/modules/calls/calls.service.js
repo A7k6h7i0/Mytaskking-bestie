@@ -3,7 +3,7 @@
 const { nanoid } = require('nanoid');
 const prisma = require('../../database/prisma');
 const { NotFound, Forbidden, BadRequest } = require('../../utils/errors');
-const agora = require('../../services/agora');
+const mediasoup = require('../../services/mediasoup');
 const tenant = require('../../services/tenant');
 const LIVE_RINGING_WINDOW_MS = 90 * 1000;
 const MAX_ACTIVE_CALL_AGE_MS = 24 * 60 * 60 * 1000;
@@ -283,9 +283,21 @@ async function initiate({ initiator, participantIds, kind = 'ONE_TO_ONE', channe
   });
   const callWithMode = call;
 
-  // Wildcard tokens: each device picks its own random uid at join time so the
-  // same account can be in the call from multiple devices without colliding.
-  const tokenForUser = () => agora.generateRtcToken({ channelName: call.channelName, wildcard: true });
+  // Mediasoup room on connect.mytaskking.com — one room per call channelName.
+  try {
+    await mediasoup.ensureRoom(call.channelName);
+  } catch (err) {
+    console.warn('[calls] mediasoup ensureRoom failed:', err.message);
+  }
+  const tokenForUser = (uid) => {
+    const part = call.participants.find((p) => p.userId === uid);
+    const name = part?.user?.name || 'Participant';
+    return mediasoup.generateMediaSession({
+      channelName: call.channelName,
+      userId: uid,
+      userName: name,
+    });
+  };
   if (!targetPresence) await postCallEventMessage({ call: callWithMode, kind: 'STARTED', actor: initiator });
 
   return {
@@ -314,13 +326,14 @@ function canRejoinAfterLeave(call, part) {
   return call.status === 'ACTIVE' && othersStillIn > 0;
 }
 
-function withAgoraParticipantUids(call) {
+function withMediaParticipantIds(call) {
   if (!call) return call;
   return {
     ...call,
     participants: (call.participants || []).map((p) => ({
       ...p,
-      agoraUid: agora.toAgoraUid(p.userId),
+      mediaPeerId: mediasoup.toMediaPeerId(p.userId),
+      agoraUid: mediasoup.toMediaPeerId(p.userId),
     })),
   };
 }
@@ -334,9 +347,18 @@ async function tokenFor({ callId, user }) {
   if (part.leftAt && !canRejoinAfterLeave(call, part)) {
     throw Forbidden('Not a participant of this call');
   }
+  try {
+    await mediasoup.ensureRoom(call.channelName);
+  } catch (err) {
+    console.warn('[calls] mediasoup ensureRoom failed:', err.message);
+  }
   return {
-    ...agora.generateRtcToken({ channelName: call.channelName, wildcard: true }),
-    call: withAgoraParticipantUids(call),
+    ...mediasoup.generateMediaSession({
+      channelName: call.channelName,
+      userId: user.id,
+      userName: user.name,
+    }),
+    call: withMediaParticipantIds(call),
   };
 }
 
@@ -389,7 +411,7 @@ async function join({ callId, user }) {
   }
   return prisma.call
     .findUnique({ where: { id: callId }, include: callInclude })
-    .then(withAgoraParticipantUids);
+    .then(withMediaParticipantIds);
 }
 
 /**
@@ -600,12 +622,26 @@ async function addParticipant({ callId, userIds, actor }) {
   }
 
   const refreshed = await prisma.call.findUnique({ where: { id: callId }, include: callInclude });
+  try {
+    await mediasoup.ensureRoom(call.channelName);
+  } catch (err) {
+    console.warn('[calls] mediasoup ensureRoom failed:', err.message);
+  }
   return {
     call: refreshed,
-    // Wildcard tokens so an invited user can also join from multiple devices,
-    // consistent with initiate()/tokenFor().
     tokens: Object.fromEntries(
-      safeUserIds.map((userId) => [userId, agora.generateRtcToken({ channelName: call.channelName, wildcard: true })])
+      safeUserIds.map((userId) => {
+        const part = refreshed.participants.find((p) => p.userId === userId);
+        const name = part?.user?.name || 'Participant';
+        return [
+          userId,
+          mediasoup.generateMediaSession({
+            channelName: call.channelName,
+            userId,
+            userName: name,
+          }),
+        ];
+      }),
     ),
   };
 }
@@ -667,10 +703,18 @@ async function acceptWaitingCall({ waitingCallId, user, activeCallId }) {
       activeCall,
       waitingCallId,
       tokens: Object.fromEntries(
-        waitingUsers.map((userId) => [
-          userId,
-          agora.generateRtcToken({ channelName: activeCall.channelName, wildcard: true }),
-        ])
+        waitingUsers.map((userId) => {
+          const part = activeCall.participants.find((p) => p.userId === userId);
+          const name = part?.user?.name || 'Participant';
+          return [
+            userId,
+            mediasoup.generateMediaSession({
+              channelName: activeCall.channelName,
+              userId,
+              userName: name,
+            }),
+          ];
+        }),
       ),
       addedUserIds: waitingUsers,
     };
@@ -826,11 +870,20 @@ async function screenShareToken({ callId, user }) {
   const isParticipant = call.participants.some((p) => p.userId === user.id);
   if (!isParticipant) throw Forbidden('Not a participant');
 
-  // Agora convention: append a high bit to keep the screen UID distinct from
-  // the camera/mic UID. Frontends publish a second stream on this UID.
-  const screenUid = `screen_${user.id}`;
-  const token = agora.generateRtcToken({ channelName: call.channelName, uid: screenUid });
-  return { ...token, sharedBy: user.id };
+  try {
+    await mediasoup.ensureRoom(call.channelName);
+  } catch (err) {
+    console.warn('[calls] mediasoup ensureRoom failed:', err.message);
+  }
+  return {
+    ...mediasoup.generateMediaSession({
+      channelName: call.channelName,
+      userId: user.id,
+      userName: user.name,
+    }),
+    sharedBy: user.id,
+    screenShare: true,
+  };
 }
 
 // ───────────────────────────── Talk-time reports ─────────────────────────────
