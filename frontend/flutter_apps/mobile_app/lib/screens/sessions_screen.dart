@@ -141,7 +141,7 @@ class SessionsScreen extends ConsumerWidget {
     if (!ok) return;
     try {
       await ref.read(apiProvider).signOutEverywhere();
-      await ref.read(authStoreProvider).logout();
+      await ref.read(apiProvider).logout();
       ref.invalidate(mySessionsProvider);
       if (context.mounted) context.go('/login');
     } catch (e) {
