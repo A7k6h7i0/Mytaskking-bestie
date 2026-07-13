@@ -22,6 +22,10 @@ class BestieSocket {
             if (clientApp != null && clientApp!.isNotEmpty) 'clientApp': clientApp,
           })
           .setPath('/socket.io')
+          .enableReconnection()
+          .setReconnectionAttempts(20)
+          .setReconnectionDelay(1000)
+          .setReconnectionDelayMax(8000)
           .enableForceNew()
           .build(),
     );

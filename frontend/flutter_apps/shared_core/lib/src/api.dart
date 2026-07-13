@@ -28,6 +28,7 @@ extension BestieApiExt on BestieApi {
     required String kind,
     String? name,
     String? description,
+    String? iconUrl,
     List<String>? memberIds,
   }) => post(
     '/channels',
@@ -35,9 +36,23 @@ extension BestieApiExt on BestieApi {
       'kind': kind,
       if (name != null) 'name': name,
       if (description != null) 'description': description,
+      if (iconUrl != null) 'iconUrl': iconUrl,
       if (memberIds != null) 'memberIds': memberIds,
     },
   );
+  Future<Map<String, dynamic>> updateChannel(
+    String id, {
+    String? name,
+    String? iconUrl,
+    String? description,
+  }) async {
+    final r = await dio.patch('/channels/$id', data: {
+      if (name != null) 'name': name,
+      if (iconUrl != null) 'iconUrl': iconUrl,
+      if (description != null) 'description': description,
+    });
+    return r.data as Map<String, dynamic>;
+  }
 
   // ---- chat ----
   Future<Map<String, dynamic>> listMessages(
@@ -257,8 +272,11 @@ extension BestieApiExt on BestieApi {
   ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
 
   // ---- notifications ----
-  Future<Map<String, dynamic>> notificationsGrouped() =>
-      get('/notifications/grouped');
+  Future<Map<String, dynamic>> notificationsGrouped({int pageSize = 200}) =>
+      get('/notifications/grouped', query: {'pageSize': pageSize});
+  Future<void> markNotificationRead(String id) async {
+    await post('/notifications/$id/read');
+  }
   Future<void> markAllNotificationsRead() async {
     await post('/notifications/read-all');
   }
@@ -451,14 +469,14 @@ extension BestieApiExt on BestieApi {
     String? q,
     String? role,
     int? pageSize,
-    bool forChat = false,
+    bool? forChat,
   }) => get(
     '/employees',
     query: {
       if (q != null) 'q': q,
       if (role != null) 'role': role,
       if (pageSize != null) 'pageSize': pageSize,
-      if (forChat) 'forChat': '1',
+      if (forChat == true) 'forChat': 'true',
     },
   ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
   Future<Map<String, dynamic>> createEmployee(Map<String, dynamic> data) =>
@@ -651,12 +669,6 @@ extension BestieApiExt on BestieApi {
   /// RSVP to an event you've been invited to.
   Future<Map<String, dynamic>> rsvpCalendarEvent(String id, String status) =>
       post('/calendar/$id/rsvp', body: {'status': status});
-
-  // ---- notifications: mark one + unregister device + prefs ----
-  /// Mark a single notification as read (the bulk endpoint is `/read-all`).
-  Future<void> markNotificationRead(String id) async {
-    await post('/notifications/$id/read');
-  }
 
   /// Unregister an FCM token (call this on logout so the device stops
   /// receiving pushes meant for the previous user).

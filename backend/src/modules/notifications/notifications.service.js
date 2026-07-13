@@ -123,7 +123,7 @@ async function setPreferences(userId, data) {
   });
 }
 
-async function groupedListMine({ user, page = 1, pageSize = 30 }) {
+async function groupedListMine({ user, page = 1, pageSize = 200 }) {
   const where = { userId: user.id };
   const items = await prisma.notification.findMany({
     where,

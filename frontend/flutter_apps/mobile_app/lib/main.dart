@@ -22,6 +22,8 @@ import 'screens/connectivity_banner.dart';
 import 'screens/incoming_call_overlay.dart';
 import 'screens/ongoing_call_bar.dart';
 import 'state.dart' hide ThemeMode;
+import 'mobile_local_settings.dart';
+import 'mobile_theme_palettes.dart';
 import 'telecaller_recording_setup.dart';
 
 const _foregroundNotificationsChannelId = 'foreground_notifications_silent';
@@ -92,6 +94,8 @@ void main() async {
       unawaited(_wirePushNotifications(api, auth));
     } catch (_) {/* push will silently no-op */}
   }
+
+  await MobileLocalSettings.load();
 
   runApp(ProviderScope(
     overrides: [
@@ -614,31 +618,43 @@ class _BestieAppState extends ConsumerState<BestieApp> {
   @override
   Widget build(BuildContext context) {
     final fontScale = ref.watch(fontScaleProvider);
-    return MaterialApp.router(
-      title: 'MyTaskKing',
-      debugShowCheckedModeBanner: false,
-      theme: BestieTheme.light(),
-      darkTheme: BestieTheme.dark(),
-      // App screens always use light theme. Call screen has its own UI theme toggle.
-      themeMode: ThemeMode.light,
-      routerConfig: ref.watch(routerProvider),
-      // The overlay listens for incoming-call socket events globally and
-      // covers whatever screen you're on with an Accept/Decline ringer.
-      // OngoingCallBar sits above it and surfaces a "tap to return"
-      // pill when the user has minimized a live call. The MediaQuery
-      // wrap applies the user-set font-scale preference app-wide.
-      builder: (ctx, child) => MediaQuery(
-        data: MediaQuery.of(ctx).copyWith(
-          textScaler: TextScaler.linear(fontScale),
-        ),
-        child: IncomingCallOverlay(
-          child: OngoingCallBar(
-            child: ConnectivityBanner(
-              child: child ?? const SizedBox.shrink(),
-            ),
-          ),
-        ),
-      ),
+    return ValueListenableBuilder<MobileThemeId>(
+      valueListenable: MobileLocalSettings.colorTheme,
+      builder: (context, paletteId, _) {
+        return ValueListenableBuilder<core.ThemeMode>(
+          valueListenable: MobileLocalSettings.themeMode,
+          builder: (context, mode, __) {
+            final palette = MobileThemePalettes.paletteFor(paletteId);
+            final light = BestieTheme.light()
+                .copyWith(extensions: [palette]);
+            final dark = BestieTheme.dark().copyWith(extensions: [palette]);
+            return MaterialApp.router(
+              title: 'MyTaskKing',
+              debugShowCheckedModeBanner: false,
+              theme: light,
+              darkTheme: dark,
+              themeMode: switch (mode) {
+                core.ThemeMode.light => ThemeMode.light,
+                core.ThemeMode.dark => ThemeMode.dark,
+                core.ThemeMode.system => ThemeMode.system,
+              },
+              routerConfig: ref.watch(routerProvider),
+              builder: (ctx, child) => MediaQuery(
+                data: MediaQuery.of(ctx).copyWith(
+                  textScaler: TextScaler.linear(fontScale),
+                ),
+                child: IncomingCallOverlay(
+                  child: OngoingCallBar(
+                    child: ConnectivityBanner(
+                      child: child ?? const SizedBox.shrink(),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }

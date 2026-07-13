@@ -236,6 +236,7 @@ async function create(input, creator) {
     data: {
       name: input.name,
       description: input.description || null,
+      iconUrl: input.iconUrl || null,
       kind: input.kind,
       visibility: input.visibility || 'PRIVATE',
       isClientChannel: hasClient || input.kind === 'CLIENT',
@@ -349,6 +350,28 @@ async function setMemberPermissions(channelId, userId, perms, actor) {
   });
 }
 
+async function updateChannel(id, input, user) {
+  const channel = await prisma.channel.findUnique({
+    where: { id },
+    select: { id: true, createdById: true, tenantId: true },
+  });
+  if (!channel) throw NotFound('Channel not found');
+  tenant.assertSameTenant(user, channel.tenantId);
+  const member = await ensureMember(id, user.id);
+  const isAdmin = ['OWNER', 'ADMIN', 'MODERATOR'].includes(member.memberRole) ||
+      member.role === 'owner' ||
+      channel.createdById === user.id ||
+      tenant.canAdministerTenant(user, channel.tenantId);
+  if (!isAdmin) {
+    throw Forbidden('Only channel admins can update the group');
+  }
+  const data = {};
+  if (input.name != null) data.name = input.name;
+  if (input.iconUrl !== undefined) data.iconUrl = input.iconUrl || null;
+  if (input.description !== undefined) data.description = input.description;
+  return prisma.channel.update({ where: { id }, data });
+}
+
 module.exports = {
   ensureMember,
   assertChannelAccess,
@@ -362,4 +385,5 @@ module.exports = {
   archive,
   setPolicy,
   setMemberPermissions,
+  updateChannel,
 };

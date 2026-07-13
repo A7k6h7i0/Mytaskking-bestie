@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -138,6 +139,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
               return Container(
                 color: unreadItem ? unreadBg : Colors.transparent,
                 child: ListTile(
+                  onTap: () => _onTapNotification(context, ref, n),
                   title: Text(n['title'] ?? '—',
                       style: const TextStyle(
                           fontWeight: FontWeight.w600, fontSize: 14)),
@@ -159,6 +161,25 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
         },
       ),
     );
+  }
+
+  Future<void> _onTapNotification(
+    BuildContext context,
+    WidgetRef ref,
+    Map<String, dynamic> n,
+  ) async {
+    final id = n['id']?.toString();
+    if (id != null && n['readAt'] == null) {
+      try {
+        await ref.read(apiProvider).markNotificationRead(id);
+        ref.invalidate(notificationsProvider);
+      } catch (_) {}
+    }
+    if (!context.mounted) return;
+    final route = _routeForNotification(n);
+    if (route != null) {
+      context.push(route);
+    }
   }
 
   Widget _quietBanner(_QuietHours q) {
@@ -407,4 +428,33 @@ class _QuietHours {
 
   String fmtStart() => '${startHour.toString().padLeft(2, '0')}:00';
   String fmtEnd() => '${endHour.toString().padLeft(2, '0')}:00';
+}
+
+String? _routeForNotification(Map<String, dynamic> n) {
+  final data = (n['data'] as Map?)?.cast<String, dynamic>() ?? const {};
+  final taskId = data['taskId']?.toString();
+  if (taskId != null && taskId.isNotEmpty) return '/tasks/$taskId';
+
+  final channelId = data['channelId']?.toString();
+  if (channelId != null && channelId.isNotEmpty) return '/chat/$channelId';
+
+  final callId = data['callId']?.toString();
+  if (callId != null && callId.isNotEmpty) {
+    final mode =
+        data['mode']?.toString().toLowerCase() == 'voice' ? 'voice' : 'video';
+    return '/call/$callId?mode=$mode';
+  }
+
+  final meetingSlug = data['meetingSlug']?.toString();
+  if (meetingSlug != null && meetingSlug.isNotEmpty) {
+    final mode =
+        data['mode']?.toString().toLowerCase() == 'voice' ? 'voice' : 'video';
+    return '/meeting/$meetingSlug?mode=$mode';
+  }
+
+  if ((n['kind'] ?? '').toString().toUpperCase() == 'LEAD_FOLLOWUP') {
+    return '/telecaller';
+  }
+
+  return '/calendar';
 }

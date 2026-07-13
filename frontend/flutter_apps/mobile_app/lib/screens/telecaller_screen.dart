@@ -287,6 +287,16 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
         elevation: 0,
         backgroundColor: c.surface,
         foregroundColor: c.text,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go('/chat');
+            }
+          },
+        ),
         title: const Text('Telecaller'),
         actions: [
           if (canManageLeads)

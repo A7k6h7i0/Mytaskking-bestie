@@ -1834,8 +1834,13 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
           ),
       onStartDm: (otherId) async =>
           api.createChannel(kind: 'DM', memberIds: [otherId]),
-      onStartGroup: (name, memberIds) async =>
-          api.createChannel(kind: 'GROUP', name: name, memberIds: memberIds),
+      onStartGroup: (name, memberIds, {iconUrl}) async =>
+          api.createChannel(
+            kind: 'GROUP',
+            name: name,
+            memberIds: memberIds,
+            iconUrl: iconUrl,
+          ),
     );
     if (channel != null && mounted) {
       ref.invalidate(channelsProvider);
@@ -3872,9 +3877,16 @@ class _MessageBubble extends ConsumerWidget {
 
   Future<void> _saveMessage(BuildContext context, WidgetRef ref) async {
     try {
+      final body = (message['body'] ?? '').toString().trim();
+      final author =
+          ((message['author'] as Map?)?['name'] ?? 'Someone').toString();
+      final preview = body.isNotEmpty
+          ? body
+          : '${author.isNotEmpty ? author : 'Message'} attachment';
       await ref.read(apiProvider).saveItem(
             kind: 'MESSAGE',
             refId: message['id'] as String,
+            note: preview.length > 120 ? '${preview.substring(0, 120)}…' : preview,
           );
       ref.invalidate(savedProvider);
       if (context.mounted)

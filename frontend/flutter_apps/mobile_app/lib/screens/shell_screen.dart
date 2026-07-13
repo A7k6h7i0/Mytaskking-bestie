@@ -13,9 +13,16 @@ import '../state.dart';
 /// • CLIENT — Chat · Saved · Home · More
 ///
 /// "More" opens a grid drawer (Profile, Settings, Employees, etc.).
-class ShellScreen extends ConsumerWidget {
+class ShellScreen extends ConsumerStatefulWidget {
   final Widget child;
   const ShellScreen({super.key, required this.child});
+
+  @override
+  ConsumerState<ShellScreen> createState() => _ShellScreenState();
+}
+
+class _ShellScreenState extends ConsumerState<ShellScreen> {
+  DateTime? _lastBackAt;
 
   static const _employeeTabs = [
     _Tab('/chat', Icons.chat_bubble_outline_rounded, Icons.chat_bubble_rounded,
@@ -66,23 +73,37 @@ class ShellScreen extends ConsumerWidget {
         location == '/saved';
   }
 
-  Future<void> _handleShellBack(BuildContext context, String location) async {
+  Future<void> _handleShellBack(
+      BuildContext context, String location, BestieUser? user) async {
     final router = GoRouter.of(context);
     if (router.canPop()) {
       router.pop();
       return;
     }
-    if (_isRootShellTab(location)) {
-      await SystemNavigator.pop();
+    final home = user?.role == 'TELECALLER' || user?.isClient == true
+        ? '/dashboard'
+        : '/chat';
+    if (_isRootShellTab(location) && location != home) {
+      router.go(home);
       return;
     }
-    router.go('/chat');
+    if (_isRootShellTab(location)) {
+      final now = DateTime.now();
+      if (_lastBackAt != null &&
+          now.difference(_lastBackAt!) < const Duration(seconds: 2)) {
+        await SystemNavigator.pop();
+        return;
+      }
+      _lastBackAt = now;
+      bestieToast(context, 'Press back again to exit',
+          kind: BestieToastKind.info);
+      return;
+    }
+    router.go(home);
   }
 
   void _openMoreRoute(BuildContext context, String route) {
-    if (route == '/dashboard' ||
-        route == '/telecaller' ||
-        route == '/calls') {
+    if (route == '/dashboard' || route == '/calls') {
       context.go(route);
       return;
     }
@@ -213,7 +234,7 @@ class ShellScreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final colors = BestieColors.of(context);
     final user = ref.watch(authStoreProvider).user;
     final tabs = _tabsFor(user);
@@ -223,12 +244,12 @@ class ShellScreen extends ConsumerWidget {
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
-        _handleShellBack(context, location);
+        _handleShellBack(context, location, user);
       },
       child: Scaffold(
         extendBody: true,
         backgroundColor: colors.surface,
-        body: child,
+        body: widget.child,
         bottomNavigationBar: _StitchBottomNav(
           tabs: tabs,
           currentIndex: tabs.indexWhere((t) => location.startsWith(t.path)),

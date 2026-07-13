@@ -60,7 +60,15 @@ class BestieRealtime {
           _rebindAll();
           connState.value = BestieConnState.connected;
         })
-        ..onDisconnect((_) => connState.value = BestieConnState.disconnected)
+        ..onDisconnect((_) {
+          connState.value = BestieConnState.disconnected;
+          if (_client.auth.accessToken != null) {
+            Future<void>.delayed(const Duration(seconds: 2), () {
+              if (_socket == null || _socket!.connected) return;
+              connect();
+            });
+          }
+        })
         ..onConnectError((_) => connState.value = BestieConnState.disconnected)
         ..onError((_) {});
 

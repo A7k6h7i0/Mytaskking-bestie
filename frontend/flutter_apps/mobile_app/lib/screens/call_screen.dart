@@ -10,7 +10,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:mytaskking_core/mytaskking_core.dart' as core;
 import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -19,8 +21,11 @@ import '../active_call_state.dart';
 import '../app_sounds.dart';
 import '../call_proximity.dart';
 import '../call_screen_theme.dart';
+import '../calls/mediasoup_call_session.dart';
+import '../calls/mediasoup_video_view.dart';
 import '../router.dart';
-import '../state.dart';
+import '../mobile_local_settings.dart';
+import '../state.dart' hide ThemeMode;
 import '../widgets/call_dialpad_sheet.dart';
 import '../widgets/call_screen_design.dart';
 
@@ -33,16 +38,8 @@ const _kOutgoingRingTimeout = Duration(seconds: 60);
 
 enum _CallMemberConnection { connected, ringing, notConnected }
 
-/// Live audio/video call view powered by Agora RTC.
-///
-/// Initialization order matters — Agora throws `AgoraRtcException(-3, ...)`
-/// (ERR_NOT_READY) when:
-///   • permissions aren't OS-granted before `joinChannel`,
-///   • engine methods are called before `initialize()` completes,
-///   • the channel profile isn't set on the context, or
-///   • the App ID is missing.
-/// The setup below avoids all four — request permissions → create engine →
-/// initialize (with profile) → enable audio/video → register handlers → join.
+/// Live audio/video call view. Mobile 1:1 calls use mediasoup SFU; meetings
+/// still use Agora RTC.
 class CallScreen extends ConsumerStatefulWidget {
   final String? callId;
   final String? meetingSlug;
@@ -64,6 +61,8 @@ class CallScreen extends ConsumerStatefulWidget {
 /// explicit Hang Up tears the engine down.
 class CallSession {
   static RtcEngine? engine;
+  static MediasoupCallSession? mediasoup;
+  static bool useMediasoup = false;
   static String? channelName;
   static String? activeCallId;
   static String? activeMeetingSlug;
@@ -79,9 +78,12 @@ class CallSession {
   static String? recordingPath;
   static Timer? _audioRouteKeepAliveTimer;
 
-  /// This device's randomly-chosen Agora uid for the active call. Random per
-  /// device so the same account can join from two phones without colliding.
+  /// This device's media peer id (mediasoup) or Agora uid for meetings.
   static int? myUid;
+
+  /// mediasoup socketId ↔ stable UI peer id (replaces Agora uid for calls).
+  static final Map<String, int> socketIdToUid = {};
+  static final Map<int, String> uidToSocketId = {};
 
   /// True while the live call screen (/call or /meeting) is mounted on top.
   /// The "ongoing call · tap to return" pill keys off this instead of the
@@ -129,10 +131,18 @@ class CallSession {
   /// Notifies widgets outside the call screen (return bubble, etc.).
   static void notifyRevision() => _ping();
 
-  static bool get isActive => engine != null;
+  static bool get isActive =>
+      engine != null || (useMediasoup && (mediasoup?.joined ?? false));
 
-  /// Re-apply the user's chosen output route on the live Agora engine.
+  /// Re-apply the user's chosen output route on the live media session.
   static Future<void> reapplyAudioRoute() async {
+    if (useMediasoup) {
+      final speaker = audioRoute == CallAudioRoute.speaker;
+      try {
+        await mediasoup?.setSpeakerphone(speaker);
+      } catch (_) {}
+      return;
+    }
     final e = engine;
     if (e == null || !joined || held) return;
     final speaker = audioRoute == CallAudioRoute.speaker;
@@ -168,13 +178,20 @@ class CallSession {
   }
 
   static bool matches(String? callId, String? meetingSlug) {
-    if (engine == null) return false;
+    if (!isActive) return false;
     if (callId != null) return activeCallId == callId;
     if (meetingSlug != null) return activeMeetingSlug == meetingSlug;
     return false;
   }
 
   static Future<void> teardown() async {
+    try {
+      await mediasoup?.disconnect();
+    } catch (_) {}
+    mediasoup = null;
+    useMediasoup = false;
+    socketIdToUid.clear();
+    uidToSocketId.clear();
     try {
       await engine?.leaveChannel();
     } catch (_) {}
@@ -482,9 +499,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
         if (!isSelf && agoraUid != null && agoraUid > 0) {
           _agoraUidToUserId[agoraUid] = userId;
           _remoteNames[agoraUid] = resolved;
-          _seenPeerUids.add(agoraUid);
-          if (mounted) {
-            setState(() => _remoteUids.add(agoraUid));
+          if (_CallSession.useMediasoup) {
+            _relinkMediasoupSocketForUser(userId, agoraUid, resolved);
+          } else {
+            _seenPeerUids.add(agoraUid);
+            if (mounted) {
+              setState(() => _remoteUids.add(agoraUid));
+            }
           }
         }
         if (!isSelf) _onCalleeAnsweredViaServer(userId);
@@ -511,11 +532,20 @@ class _CallScreenState extends ConsumerState<CallScreen>
         _onCalleeAnsweredViaServer(userId);
         _agoraUidToUserId[uid] = userId;
         _dedupeRemoteUidsForUser(userId, keepUid: uid);
+        if (_CallSession.useMediasoup) {
+          _relinkMediasoupSocketForUser(
+            userId,
+            uid,
+            name ?? _joinedParticipants[userId] ?? 'Participant',
+          );
+        }
       }
       if (!mounted) return;
       final isNew = _seenPeerUids.add(uid);
       setState(() {
-        _remoteUids.add(uid);
+        if (!_CallSession.useMediasoup || userId != null) {
+          _remoteUids.add(uid);
+        }
         if (name != null && name.isNotEmpty) _remoteNames[uid] = name;
       });
       _purgeSelfFromRemoteTracking();
@@ -815,6 +845,18 @@ class _CallScreenState extends ConsumerState<CallScreen>
         return;
       }
       if (_isOneToOneCall() && _remoteUids.isEmpty) {
+        final me = ref.read(authStoreProvider).user?.id;
+        final othersJoined = _participantsFromMeta().where((p) {
+          final id = p['userId']?.toString();
+          return id != null &&
+              id.isNotEmpty &&
+              id != me &&
+              p['joinedAt'] != null &&
+              p['leftAt'] == null;
+        }).length;
+        final liveMediasoup = _CallSession.useMediasoup &&
+            (_CallSession.mediasoup?.remoteStreams.isNotEmpty ?? false);
+        if (othersJoined > 0 || liveMediasoup) return;
         await _endBecauseRemoteClosed({'callId': callId, 'status': 'ENDED'});
       }
     } catch (e) {
@@ -865,6 +907,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   /// Keep one Agora uid per user when a newer announce arrives.
   void _dedupeRemoteUidsForUser(String userId, {required int keepUid}) {
+    // Mediasoup uses per-device uids — keep every announced device.
+    if (_CallSession.useMediasoup) return;
     final keepName = _remoteNames[keepUid];
     final stale = <int>[];
     for (final uid in _remoteUids) {
@@ -1293,6 +1337,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   void _startAudioHealthCheck() {
+    if (_CallSession.useMediasoup) return;
     _audioHealthTimer?.cancel();
     _audioHealthTimer = Timer.periodic(const Duration(seconds: 12), (_) {
       if (_joined && !_held) _reassertAudio();
@@ -1300,6 +1345,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   void _startTokenRefresh() {
+    if (_CallSession.useMediasoup) return;
     _tokenRefreshTimer?.cancel();
     _tokenRefreshTimer = Timer.periodic(const Duration(minutes: 15), (_) async {
       if (!_joined || _engine == null) return;
@@ -1548,7 +1594,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
   /// When returning to an already-live call, restore timer + connected status
   /// from the static session instead of "Connecting…".
   void _restoreLiveCallUi() {
-    if (_CallSession.connectedAt != null && _CallSession.engine != null) {
+    if (_CallSession.connectedAt != null &&
+        (_CallSession.engine != null ||
+            (_CallSession.useMediasoup && _CallSession.joined))) {
       _joined = true;
       _reconnecting = false;
       _startTimer();
@@ -2006,6 +2054,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
   /// engine recovers on its own.
   Future<void> _reassertAudio() async {
     if (_held) return;
+    if (_CallSession.useMediasoup) {
+      await _applyAudioRoute(_route);
+      return;
+    }
     final engine = _engine;
     if (engine == null) return;
     try {
@@ -2050,29 +2102,43 @@ class _CallScreenState extends ConsumerState<CallScreen>
               if (mounted) context.go('/chat');
               return;
             }
-            // Token refresh is optional when the live engine is already up.
+            // Token refresh is optional when the live session is already up.
           }
         }
         _syncParticipantsFromCallMeta();
-        _registerHandlers(_CallSession.engine!);
-        unawaited(_enableSpeakerHighlight());
-        _purgeSelfFromRemoteTracking();
-        _restoreLiveCallUi();
-        setState(() {
-          if (_CallSession.connectedAt != null && _CallSession.engine != null) {
-            _joined = true;
-          } else {
+        if (_CallSession.useMediasoup && _CallSession.mediasoup != null) {
+          _wireMediasoupCallbacks(_CallSession.mediasoup!);
+          _syncMediasoupRemotesFromSession(_CallSession.mediasoup!);
+          _restoreLiveCallUi();
+          setState(() {
             _joined = _CallSession.joined;
-          }
-        });
-        _syncRemotePeerSnapshot();
-        _publishActiveCallState();
-        _startAudioHealthCheck();
-        _startTokenRefresh();
-        _reassertAudio();
-        _showOngoingCallNotification();
-        _CallSession.startAudioRouteKeepAlive();
-        if (!_isVideo) unawaited(_startProximityIfVoice());
+          });
+          _syncRemotePeerSnapshot();
+          _publishActiveCallState();
+          _showOngoingCallNotification();
+          _CallSession.startAudioRouteKeepAlive();
+          if (!_isVideo) unawaited(_startProximityIfVoice());
+        } else {
+          _registerHandlers(_CallSession.engine!);
+          unawaited(_enableSpeakerHighlight());
+          _purgeSelfFromRemoteTracking();
+          _restoreLiveCallUi();
+          setState(() {
+            if (_CallSession.connectedAt != null && _CallSession.engine != null) {
+              _joined = true;
+            } else {
+              _joined = _CallSession.joined;
+            }
+          });
+          _syncRemotePeerSnapshot();
+          _publishActiveCallState();
+          _startAudioHealthCheck();
+          _startTokenRefresh();
+          _reassertAudio();
+          _showOngoingCallNotification();
+          _CallSession.startAudioRouteKeepAlive();
+          if (!_isVideo) unawaited(_startProximityIfVoice());
+        }
       } catch (e) {
         if (!mounted) return;
         if (_isCallEndedError(e)) {
@@ -2157,6 +2223,14 @@ class _CallScreenState extends ConsumerState<CallScreen>
         _ringingSoundUrl = calls?['ringingSoundUrl']?.toString();
         _buzzerSoundUrl = calls?['emergencyBuzzerSoundUrl']?.toString();
       } catch (_) {}
+
+      final mediaEngine = tokenResp['mediaEngine']?.toString();
+      if (widget.callId != null && mediaEngine == 'mediasoup') {
+        step = 'mediasoup-connect';
+        await _bootstrapMediasoup(tokenResp);
+        return;
+      }
+
       final appId = tokenResp['appId']?.toString();
       final token = tokenResp['token']?.toString();
       final channel = tokenResp['channelName']?.toString();
@@ -2362,6 +2436,361 @@ class _CallScreenState extends ConsumerState<CallScreen>
     throw 'Missing callId or meetingSlug';
   }
 
+  int _resolveRemoteUid(String socketId, String userName) {
+    final cached = _CallSession.socketIdToUid[socketId];
+    if (cached != null) return cached;
+
+    // Prefer backend announce uid when exactly one unmapped participant matches.
+    final me = ref.read(authStoreProvider).user?.id;
+    final candidates = <({String userId, int uid, String name})>[];
+    for (final p in _participantsFromMeta()) {
+      final userId = p['userId']?.toString();
+      if (userId == null || userId.isEmpty || userId == me) continue;
+      if (p['leftAt'] != null) continue;
+      final uidRaw = p['agoraUid'];
+      final uid = uidRaw is int ? uidRaw : int.tryParse('$uidRaw');
+      if (uid == null || uid <= 0 || uid == _CallSession.myUid) continue;
+      final name = _participantProfileName(p);
+      final mappedSocket = _CallSession.uidToSocketId[uid];
+      if (mappedSocket != null && mappedSocket != socketId) continue;
+      if (name == userName || userName.isEmpty || userName == 'Participant') {
+        candidates.add((userId: userId, uid: uid, name: name));
+      }
+    }
+    if (candidates.length == 1) {
+      final c = candidates.first;
+      _CallSession.socketIdToUid[socketId] = c.uid;
+      _CallSession.uidToSocketId[c.uid] = socketId;
+      _agoraUidToUserId[c.uid] = c.userId;
+      _remoteNames[c.uid] = c.name;
+      return c.uid;
+    }
+
+    // Name match only when unambiguous among joined participants.
+    if (userName.isNotEmpty && userName != 'Participant') {
+      String? matchedUserId;
+      var nameMatches = 0;
+      for (final entry in _joinedParticipants.entries) {
+        if (entry.key == me) continue;
+        if (entry.value.trim() == userName.trim()) {
+          matchedUserId = entry.key;
+          nameMatches++;
+        }
+      }
+      if (nameMatches == 1 && matchedUserId != null) {
+        final mapped = _agoraUidForUserId(matchedUserId);
+        if (mapped != null && mapped > 0) {
+          _CallSession.socketIdToUid[socketId] = mapped;
+          _CallSession.uidToSocketId[mapped] = socketId;
+          _agoraUidToUserId[mapped] = matchedUserId;
+          _remoteNames[mapped] = userName;
+          return mapped;
+        }
+      }
+    }
+
+    // Per-device uid from announce — unique even when userId is the same.
+    for (final entry in _agoraUidToUserId.entries) {
+      if (entry.value == me) continue;
+      final mappedSocket = _CallSession.uidToSocketId[entry.key];
+      if (mappedSocket != null && mappedSocket != socketId) continue;
+      final name = _remoteNames[entry.key];
+      if (name == userName && userName.isNotEmpty) {
+        _CallSession.socketIdToUid[socketId] = entry.key;
+        _CallSession.uidToSocketId[entry.key] = socketId;
+        return entry.key;
+      }
+    }
+
+    final fallback = socketId.hashCode.abs() % 2147483646 + 1;
+    _CallSession.socketIdToUid[socketId] = fallback;
+    _CallSession.uidToSocketId[fallback] = socketId;
+    _remoteNames[fallback] =
+        userName.isNotEmpty ? userName : 'Participant';
+    return fallback;
+  }
+
+  void _relinkMediasoupSocketForUser(String userId, int uid, String name) {
+    final session = _CallSession.mediasoup;
+    if (session == null) return;
+
+    String? socketId = _CallSession.uidToSocketId[uid];
+    if (socketId == null) {
+      for (final entry in session.remoteNames.entries) {
+        if (entry.value.trim() == name.trim()) {
+          socketId = entry.key;
+          break;
+        }
+      }
+      if (socketId == null && session.remoteStreams.length == 1) {
+        socketId = session.remoteStreams.keys.first;
+      }
+    }
+    if (socketId == null) return;
+
+    final oldUid = _CallSession.socketIdToUid[socketId];
+    if (oldUid != null && oldUid != uid) {
+      _CallSession.uidToSocketId.remove(oldUid);
+      _remoteUids.remove(oldUid);
+    }
+    _CallSession.socketIdToUid[socketId] = uid;
+    _CallSession.uidToSocketId[uid] = socketId;
+    _agoraUidToUserId[uid] = userId;
+    _remoteNames[uid] = name;
+    _seenPeerUids.add(uid);
+    _remoteUids.add(uid);
+    if (mounted) setState(() {});
+  }
+
+  void _ensureMediasoupRemoteTracked(String socketId, String userName) {
+    if (socketId == _CallSession.mediasoup?.mySocketId) return;
+    final uid = _resolveRemoteUid(socketId, userName);
+    if (uid == _CallSession.myUid) return;
+    final me = ref.read(authStoreProvider).user?.id;
+    if (me != null && _agoraUidToUserId[uid] == me) return;
+
+    _remoteNames[uid] = userName.isNotEmpty ? userName : (_remoteNames[uid] ?? 'Participant');
+    _seenPeerUids.add(uid);
+    _remoteUids.add(uid);
+    _syncRemotePeerSnapshot();
+
+    if (_waitingForAnswer) {
+      unawaited(_stopRingback());
+      _markRemoteConnected();
+    }
+  }
+
+  void _syncMediasoupRemotesFromSession(MediasoupCallSession session) {
+    for (final entry in session.remoteNames.entries) {
+      if (entry.key == session.mySocketId) continue;
+      _ensureMediasoupRemoteTracked(entry.key, entry.value);
+    }
+    for (final socketId in session.remoteStreams.keys) {
+      if (socketId == session.mySocketId) continue;
+      final name = session.remoteNames[socketId] ?? 'Participant';
+      _ensureMediasoupRemoteTracked(socketId, name);
+    }
+  }
+
+  void _wireMediasoupCallbacks(MediasoupCallSession session) {
+    session.onRemoteJoined = (socketId, userName) {
+      if (!mounted) return;
+      _ensureMediasoupRemoteTracked(socketId, userName);
+      if (mounted) setState(() {});
+    };
+    session.onRemoteLeft = (socketId) {
+      if (!mounted) return;
+      final uid = _CallSession.socketIdToUid[socketId];
+      if (uid != null) {
+        _scheduleRemoteOfflineGrace(uid);
+      }
+    };
+    session.onRemoteStream = (socketId, stream, kind) {
+      if (!mounted) return;
+      final name = session.remoteNames[socketId] ?? 'Participant';
+      _ensureMediasoupRemoteTracked(socketId, name);
+      final uid = _CallSession.socketIdToUid[socketId];
+      if (uid != null && kind == 'video' && stream.getVideoTracks().isNotEmpty) {
+        setState(() => _remoteVideoMuted[uid] = false);
+      }
+      if (_waitingForAnswer && _remoteUids.isNotEmpty) {
+        unawaited(_stopRingback());
+        _markRemoteConnected();
+      }
+      if (mounted) setState(() {});
+      _CallSession._ping();
+    };
+    session.onStateChanged = () {
+      if (mounted) setState(() {});
+      _CallSession._ping();
+    };
+    session.onError = (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = error.toString();
+        _status = 'Failed';
+      });
+    };
+  }
+
+  MediaStream? _mediasoupStreamForUid(int? uid,
+      {required bool local, bool preferScreenTrack = false}) {
+    final session = _CallSession.mediasoup;
+    if (session == null) return null;
+    if (local) return session.localStream;
+    if (uid == null) return null;
+    final socketId = _CallSession.uidToSocketId[uid];
+    MediaStream? stream;
+    if (socketId == null) {
+      for (final entry in _CallSession.socketIdToUid.entries) {
+        if (entry.value == uid) {
+          stream = session.remoteStreams[entry.key];
+          break;
+        }
+      }
+    } else {
+      stream = session.remoteStreams[socketId];
+    }
+    if (stream == null || !preferScreenTrack) return stream;
+    final videos = stream.getVideoTracks();
+    if (videos.length <= 1) return stream;
+    for (final track in videos) {
+      final label = (track.label ?? '').toLowerCase();
+      if (label.contains('screen') || label.contains('display')) {
+        return stream;
+      }
+    }
+    return stream;
+  }
+
+  Widget? _buildLocalVideoWidget() {
+    if (_CallSession.useMediasoup) {
+      final stream = _mediasoupStreamForUid(null, local: true);
+      if (stream == null || stream.getVideoTracks().isEmpty) {
+        return null;
+      }
+      return MediasoupVideoView(stream: stream, mirror: _frontCamera);
+    }
+    if (_engine == null) return null;
+    return AgoraVideoView(
+      controller: VideoViewController(
+        rtcEngine: _engine!,
+        canvas: const VideoCanvas(uid: 0),
+      ),
+    );
+  }
+
+  Widget? _buildRemoteVideoWidget(int uid) {
+    if (_CallSession.useMediasoup) {
+      final stream = _mediasoupStreamForUid(uid, local: false);
+      if (stream == null || stream.getVideoTracks().isEmpty) {
+        return null;
+      }
+      return MediasoupVideoView(stream: stream);
+    }
+    final engine = _engine;
+    if (engine == null) return null;
+    return AgoraVideoView(
+      controller: VideoViewController.remote(
+        rtcEngine: engine,
+        canvas: VideoCanvas(uid: uid),
+        connection: RtcConnection(channelId: _channelName ?? ''),
+      ),
+    );
+  }
+
+  bool get _hasLiveMediaEngine =>
+      _engine != null || (_CallSession.useMediasoup && _CallSession.mediasoup != null);
+
+  Future<void> _bootstrapMediasoup(Map<String, dynamic> tokenResp) async {
+    final disabled = tokenResp['disabled'] == true;
+    final connectUrl = tokenResp['connectUrl']?.toString();
+    final roomId =
+        tokenResp['roomId']?.toString() ?? tokenResp['channelName']?.toString();
+    final mediaPeerIdRaw = tokenResp['mediaPeerId'];
+    final mediaPeerId = mediaPeerIdRaw is int
+        ? mediaPeerIdRaw
+        : int.tryParse('$mediaPeerIdRaw');
+    final me = ref.read(authStoreProvider).user;
+    final userName =
+        tokenResp['userName']?.toString() ?? me?.name ?? 'Participant';
+
+    if (disabled || connectUrl == null || connectUrl.isEmpty) {
+      throw 'Mediasoup is not configured on the server. Set MEDIASOUP_CONNECT_API_URL and MEDIASOUP_SOCKET_URL in backend .env.';
+    }
+    if (roomId == null || roomId.isEmpty) {
+      throw 'Server returned an empty room id.';
+    }
+    if (mediaPeerId == null || mediaPeerId <= 0) {
+      throw 'Server returned an invalid media peer id.';
+    }
+
+    // Random per-device uid (same as Agora wildcard flow) so one account on
+    // two phones gets two tiles / two mediasoup socket mappings.
+    final deviceUid = 1 + Random().nextInt(2147483646);
+
+    setState(() => _channelName = roomId);
+    _CallSession.useMediasoup = true;
+    _CallSession.activeCallId = widget.callId;
+    _CallSession.activeMeetingSlug = widget.meetingSlug;
+    _CallSession.channelName = roomId;
+    _CallSession.myUid = deviceUid;
+    _CallSession.videoEnabled = _routeWantsVideo;
+    _CallSession._ping();
+
+    final displayTitle = _callDisplayTitle();
+    ActiveCallState.start(
+      callId: widget.callId,
+      meetingSlug: widget.meetingSlug,
+      mode: widget.mode,
+      title: displayTitle != 'Connecting…' && displayTitle != 'In call'
+          ? displayTitle
+          : 'Call',
+    );
+
+    final session = MediasoupCallSession(myMediaPeerId: deviceUid);
+    _CallSession.mediasoup = session;
+    _wireMediasoupCallbacks(session);
+
+    await session.connect(
+      connectUrl: connectUrl,
+      roomId: roomId,
+      userName: userName,
+      video: _routeWantsVideo,
+    );
+
+    _syncMediasoupRemotesFromSession(session);
+
+    _CallSession.joined = true;
+    _joined = true;
+    _connectedAt = DateTime.now();
+    ActiveCallState.markConnected(_connectedAt!);
+
+    if (me != null) {
+      _agoraUidToUserId[deviceUid] = me.id;
+      _markParticipantJoined(me.id, me.name);
+    }
+
+    try {
+      await _applyAudioRoute(_route);
+    } catch (_) {}
+
+    if (widget.callId != null) {
+      try {
+        final joined = await ref.read(apiProvider).post(
+              '/calls/${widget.callId}/join',
+              body: {'agoraUid': deviceUid},
+            );
+        _callMeta = {...?_callMeta, 'call': joined};
+        _CallSession.callMeta = _callMeta;
+        _syncParticipantsFromCallMeta();
+        _purgeSelfFromRemoteTracking();
+      } catch (_) {}
+      _announceSelf();
+    }
+
+    if (mounted) {
+      setState(() {
+        _status = _remoteUids.isEmpty ? 'Ringing…' : 'Connected';
+        _error = null;
+      });
+    }
+
+    _publishActiveCallState();
+    _showOngoingCallNotification();
+    _CallSession.startAudioRouteKeepAlive();
+
+    if (_remoteUids.isEmpty && !_isMeeting && _isCallInitiator) {
+      unawaited(_playRingback());
+      _startOutgoingRingTimeout();
+      _startWaitingForAnswerPoll();
+    } else if (_remoteUids.isNotEmpty) {
+      _markRemoteConnected();
+    }
+
+    if (!_isVideo) unawaited(_startProximityIfVoice());
+  }
+
   bool _isCallEndedError(Object e) {
     if (e is DioException) {
       final code = e.response?.statusCode;
@@ -2383,8 +2812,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   Future<void> _toggleMute() async {
     setState(() => _muted = !_muted);
-    await _engine?.enableLocalAudio(true);
-    await _engine?.muteLocalAudioStream(_muted);
+    if (_CallSession.useMediasoup) {
+      _CallSession.mediasoup?.setMuted(_muted);
+    } else {
+      await _engine?.enableLocalAudio(true);
+      await _engine?.muteLocalAudioStream(_muted);
+    }
     _CallSession._ping();
     if (widget.callId != null) {
       try {
@@ -2396,6 +2829,34 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   Future<void> _toggleCamera() async {
+    if (_CallSession.useMediasoup) {
+      final session = _CallSession.mediasoup;
+      if (session == null) return;
+      if (!_videoEnabled) {
+        final status = await Permission.camera.request();
+        if (status != PermissionStatus.granted &&
+            status != PermissionStatus.limited) {
+          if (mounted) {
+            bestieToast(
+              context,
+              'Camera permission needed',
+              body: 'Enable camera permission to turn on video.',
+              kind: BestieToastKind.warning,
+            );
+          }
+          return;
+        }
+        setState(() {
+          _videoEnabled = true;
+          _cameraOff = false;
+        });
+        session.setCameraEnabled(true);
+        return;
+      }
+      setState(() => _cameraOff = !_cameraOff);
+      session.setCameraEnabled(!_cameraOff);
+      return;
+    }
     final engine = _engine;
     if (engine == null) return;
     if (!_videoEnabled) {
@@ -2444,6 +2905,27 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   Future<void> _flipCamera() async {
+    if (_CallSession.useMediasoup) {
+      if (!_isVideo) return;
+      if (_cameraOff) {
+        if (mounted) {
+          bestieToast(
+            context,
+            'Turn on camera first',
+            kind: BestieToastKind.info,
+          );
+        }
+        return;
+      }
+      final tracks = _CallSession.mediasoup?.localStream?.getVideoTracks() ?? [];
+      if (tracks.isEmpty) return;
+      try {
+        await Helper.switchCamera(tracks.first);
+        _frontCamera = !_frontCamera;
+        if (mounted) setState(() {});
+      } catch (_) {}
+      return;
+    }
     final engine = _engine;
     if (!_isVideo || engine == null) return;
     if (_cameraOff) {
@@ -2581,10 +3063,18 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   Future<void> _applyAudioRoute(CallAudioRoute r) async {
-    // While still ringing, only move the ringback tone — touching Agora's
+    // While still ringing, only move the ringback tone — touching the live
     // speakerphone route here steals the audio session and mutes ringback.
     if (_waitingForAnswer) {
       await _restartRingbackForRouteChange();
+      return;
+    }
+
+    if (_CallSession.useMediasoup) {
+      final speaker = r == CallAudioRoute.speaker;
+      try {
+        await _CallSession.mediasoup?.setSpeakerphone(speaker);
+      } catch (_) {}
       return;
     }
 
@@ -2621,7 +3111,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   Future<void> _toggleShare() async {
-    if (_engine == null) return;
+    if (!_hasLiveMediaEngine) return;
     if (!_joined) {
       if (mounted) {
         bestieToast(
@@ -2634,6 +3124,29 @@ class _CallScreenState extends ConsumerState<CallScreen>
       return;
     }
     try {
+      if (_CallSession.useMediasoup) {
+        final session = _CallSession.mediasoup;
+        if (session == null) return;
+        if (_sharing) {
+          await session.stopScreenShare();
+          setState(() => _sharing = false);
+          _emitScreenShareState(active: false);
+          if (mounted) {
+            bestieToast(context, 'Screen share stopped',
+                kind: BestieToastKind.info);
+          }
+        } else {
+          await session.startScreenShare();
+          setState(() => _sharing = true);
+          _emitScreenShareState(active: true);
+          if (mounted) {
+            bestieToast(context, 'Sharing your screen',
+                kind: BestieToastKind.success);
+          }
+        }
+        return;
+      }
+      if (_engine == null) return;
       if (_sharing) {
         await _engine!.stopScreenCapture();
         await _engine!.updateChannelMediaOptions(ChannelMediaOptions(
@@ -3101,8 +3614,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
         if (!didPop) _minimize();
       },
       child: Scaffold(
-        backgroundColor:
-            _useWhiteMultiParticipantBackdrop ? Colors.white : Colors.black,
+        backgroundColor: Theme.of(context).brightness == Brightness.light
+            ? (_useWhiteMultiParticipantBackdrop
+                ? Colors.white
+                : BestieColors.of(context).bg)
+            : const Color(0xFF0A1628),
         body: Stack(
           fit: StackFit.expand,
           children: [
@@ -3194,13 +3710,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
                             ),
                           ],
                         ),
-                        child: _engine != null
-                            ? AgoraVideoView(
-                                controller: VideoViewController(
-                                rtcEngine: _engine!,
-                                canvas: const VideoCanvas(uid: 0),
-                              ))
-                            : const SizedBox.shrink(),
+                        child: _buildLocalVideoWidget() ?? const SizedBox.shrink(),
                       ),
                     ),
                   ),
@@ -3840,12 +4350,16 @@ class _CallScreenState extends ConsumerState<CallScreen>
   Widget _callThemeToggleButton() {
     return Consumer(
       builder: (context, ref, _) {
-        final light = ref.watch(callScreenLightControlsProvider);
+        final isDark = Theme.of(context).brightness == Brightness.dark;
         return _callHeaderGlassButton(
-          icon: light ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
-          tooltip: light ? 'Dark mode' : 'Light mode',
-          onTap: () {
-            ref.read(callScreenLightControlsProvider.notifier).state = !light;
+          icon: isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
+          tooltip: isDark ? 'Light mode' : 'Dark mode',
+          onTap: () async {
+            final next = isDark
+                ? core.ThemeMode.light
+                : core.ThemeMode.dark;
+            await MobileLocalSettings.setThemeMode(next);
+            ref.read(themeModeProvider.notifier).state = next;
           },
         );
       },
@@ -4744,6 +5258,51 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   Widget _screenShareVideo() {
+    if (_CallSession.useMediasoup) {
+      if (_sharing) {
+        return Container(
+          color: Colors.black.withValues(alpha: 0.28),
+          alignment: Alignment.center,
+          child: const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.screen_share_rounded, size: 44, color: Colors.white54),
+              SizedBox(height: 10),
+              Text(
+                'Your screen is being shared',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              SizedBox(height: 4),
+              Text(
+                'Others can see your display',
+                style: TextStyle(color: Colors.white60, fontSize: 13),
+              ),
+            ],
+          ),
+        );
+      }
+      final remoteUid = _remoteScreenShareUid;
+      if (remoteUid != null) {
+        final stream = _mediasoupStreamForUid(remoteUid,
+            local: false, preferScreenTrack: true);
+        if (stream != null && stream.getVideoTracks().isNotEmpty) {
+          return MediasoupVideoView(
+            stream: stream,
+            objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+          );
+        }
+      }
+      return const Center(
+        child: Text(
+          'Connecting to shared screen…',
+          style: TextStyle(color: Colors.white70),
+        ),
+      );
+    }
     final engine = _engine;
     if (engine == null) {
       return const Center(
@@ -4978,16 +5537,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
     }
     if (_remoteUids.isEmpty) {
       // Outgoing / waiting: show local camera full-screen (WhatsApp-style).
-      if (_isVideo && _engine != null && _joined && !_cameraOff) {
+      if (_isVideo && _hasLiveMediaEngine && _joined && !_cameraOff) {
         return Stack(
           fit: StackFit.expand,
           children: [
-            AgoraVideoView(
-              controller: VideoViewController(
-                rtcEngine: _engine!,
-                canvas: const VideoCanvas(uid: 0),
-              ),
-            ),
+            _buildLocalVideoWidget() ?? const SizedBox.shrink(),
             if (_waitingForAnswer)
               Positioned(
                 left: 24,
@@ -5040,8 +5594,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     }
     // Re-check — remotes can drop between Agora events and the next frame.
     final remotes = _remoteUids.toList(growable: false);
-    final engine = _engine;
-    if (remotes.isEmpty || engine == null) {
+    if (remotes.isEmpty || !_hasLiveMediaEngine) {
       return Center(
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
           const Icon(Icons.videocam_outlined, color: Colors.white38, size: 46),
@@ -5060,12 +5613,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
     }
     return Stack(children: [
       Positioned.fill(
-        child: AgoraVideoView(
-            controller: VideoViewController.remote(
-          rtcEngine: engine,
-          canvas: VideoCanvas(uid: firstRemote),
-          connection: RtcConnection(channelId: _channelName ?? ''),
-        )),
+        child: _buildRemoteVideoWidget(firstRemote) ??
+            const Center(
+              child: Text(
+                'Connecting to video…',
+                style: TextStyle(color: Colors.white70),
+              ),
+            ),
       ),
     ]);
   }
@@ -5243,7 +5797,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       if (displayName == null) continue;
 
       final existing =
-          tiles.indexWhere((t) => !t.isLocal && t.userId == mappedUserId);
+          tiles.indexWhere((t) => !t.isLocal && t.agoraUid == uid);
       if (existing >= 0) {
         final t = tiles[existing];
         tiles[existing] = (
@@ -5257,17 +5811,24 @@ class _CallScreenState extends ConsumerState<CallScreen>
           muted: _remoteMuted[uid] ?? false,
           videoMuted: _remoteVideoMuted[uid] ?? false,
         );
-      } else if (!seen.contains(mappedUserId)) {
-        seen.add(mappedUserId);
-        tiles.add((
-          name: displayName,
-          userId: mappedUserId,
-          imageUrl: _avatarUrlForUserId(mappedUserId),
-          agoraUid: uid,
-          isLocal: false,
-          muted: _remoteMuted[uid] ?? false,
-          videoMuted: _remoteVideoMuted[uid] ?? false,
-        ));
+      } else {
+        final sameUserTiles =
+            tiles.where((t) => !t.isLocal && t.userId == mappedUserId).length;
+        final tileName = sameUserTiles > 0 && _CallSession.useMediasoup
+            ? '$displayName (${sameUserTiles + 1})'
+            : displayName;
+        if (!seen.contains(mappedUserId) || _CallSession.useMediasoup) {
+          seen.add(mappedUserId);
+          tiles.add((
+            name: tileName,
+            userId: mappedUserId,
+            imageUrl: _avatarUrlForUserId(mappedUserId),
+            agoraUid: uid,
+            isLocal: false,
+            muted: _remoteMuted[uid] ?? false,
+            videoMuted: _remoteVideoMuted[uid] ?? false,
+          ));
+        }
       }
     }
     return tiles;
@@ -5369,8 +5930,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
     double? width,
   }) {
     final showVideo = forVideo &&
-        _engine != null &&
         !videoMuted &&
+        _hasLiveMediaEngine &&
         ((!isLocal && agoraUid != null) || (isLocal && !_cameraOff));
     return Container(
       height: height,
@@ -5390,20 +5951,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
             fit: StackFit.expand,
             children: [
               if (showVideo && isLocal)
-                AgoraVideoView(
-                  controller: VideoViewController(
-                    rtcEngine: _engine!,
-                    canvas: const VideoCanvas(uid: 0),
-                  ),
-                )
+                _buildLocalVideoWidget() ?? const SizedBox.shrink()
               else if (showVideo && agoraUid != null)
-                AgoraVideoView(
-                  controller: VideoViewController.remote(
-                    rtcEngine: _engine!,
-                    canvas: VideoCanvas(uid: agoraUid),
-                    connection: RtcConnection(channelId: _channelName ?? ''),
-                  ),
-                )
+                _buildRemoteVideoWidget(agoraUid) ?? const SizedBox.shrink()
               else
                 Center(
                   child: Column(

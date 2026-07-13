@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'palette_extension.dart';
 import 'tokens.dart';
 
 /// Theme-aware accessor for the Bestie palette.
@@ -91,12 +92,54 @@ class BestieColors {
 
   /// Resolve the palette from the surrounding `Theme.of(context).brightness`.
   factory BestieColors.of(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return BestieColors.resolve(isDark: isDark);
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final override = theme.extension<BestiePaletteExtension>();
+    return BestieColors.resolve(isDark: isDark, override: override);
   }
 
   /// Resolve directly without a context — handy for theme builders.
-  factory BestieColors.resolve({required bool isDark}) {
+  factory BestieColors.resolve({
+    required bool isDark,
+    BestiePaletteExtension? override,
+  }) {
+    if (!isDark && override != null) {
+      return BestieColors._(
+        isDark: false,
+        bg: override.bg,
+        bgSoft: override.bgSoft,
+        bgTint: override.bgTint,
+        surface: override.surface,
+        surface1: override.surface1,
+        surface2: override.surface2,
+        surface3: override.surface3,
+        border: override.border,
+        borderSoft: override.borderSoft,
+        borderStrong: override.borderStrong,
+        text: override.text,
+        textSoft: override.textSoft,
+        textMuted: override.textMuted,
+        textFaint: override.textFaint,
+        brand: override.brand,
+        brandSoft: override.brandSoft,
+        brandStrong: override.brandStrong,
+        accent: override.accent,
+        accentSoft: override.accentSoft,
+        success: BestieTokens.cSuccess,
+        successSoft: BestieTokens.cSuccessSoft,
+        warning: BestieTokens.cWarning,
+        warningSoft: BestieTokens.cWarningSoft,
+        danger: BestieTokens.cDanger,
+        dangerSoft: BestieTokens.cDangerSoft,
+        info: BestieTokens.cInfo,
+        infoSoft: BestieTokens.cInfoSoft,
+        client: BestieTokens.cClient,
+        clientSoft: BestieTokens.cClientSoft,
+        shadow1: BestieTokens.shadowSoft,
+        shadow2: BestieTokens.shadow1,
+        shadowPop: BestieTokens.shadowPop,
+      );
+    }
     if (isDark) {
       return BestieColors._(
         isDark: true,

@@ -17,7 +17,12 @@ typedef BestieEmployeeFetcher =
     Future<List<Map<String, dynamic>>> Function(String query);
 typedef BestieStartDm = Future<Map<String, dynamic>?> Function(String userId);
 typedef BestieStartGroup =
-    Future<Map<String, dynamic>?> Function(String name, List<String> memberIds);
+    Future<Map<String, dynamic>?> Function(
+      String name,
+      List<String> memberIds, {
+      String? iconUrl,
+    });
+typedef BestiePickGroupIcon = Future<String?> Function();
 typedef BestieStartCall =
     Future<void> Function(Map<String, dynamic> user, String mode);
 
@@ -33,6 +38,7 @@ Future<Map<String, dynamic>?> showBestieNewChatSheet(
   BestieStartCall? onStartCall,
   String? currentUserId,
   int initialTabIndex = 0,
+  BestiePickGroupIcon? pickGroupIcon,
 }) {
   return showModalBottomSheet<Map<String, dynamic>>(
     context: context,
@@ -46,6 +52,7 @@ Future<Map<String, dynamic>?> showBestieNewChatSheet(
       onStartCall: onStartCall,
       currentUserId: currentUserId,
       initialTabIndex: initialTabIndex,
+      pickGroupIcon: pickGroupIcon,
     ),
   );
 }
@@ -57,6 +64,7 @@ class _NewChatSheet extends StatefulWidget {
   final BestieStartCall? onStartCall;
   final String? currentUserId;
   final int initialTabIndex;
+  final BestiePickGroupIcon? pickGroupIcon;
 
   const _NewChatSheet({
     required this.fetchEmployees,
@@ -65,6 +73,7 @@ class _NewChatSheet extends StatefulWidget {
     this.onStartCall,
     this.currentUserId,
     this.initialTabIndex = 0,
+    this.pickGroupIcon,
   });
 
   @override
@@ -86,6 +95,7 @@ class _NewChatSheetState extends State<_NewChatSheet>
   List<Map<String, dynamic>> _employees = const [];
   final Set<String> _selected = {};
   bool _submitting = false;
+  String? _groupIconUrl;
 
   @override
   void initState() {
@@ -166,7 +176,11 @@ class _NewChatSheetState extends State<_NewChatSheet>
     }
     setState(() => _submitting = true);
     try {
-      final channel = await widget.onStartGroup(name, _selected.toList());
+      final channel = await widget.onStartGroup(
+        name,
+        _selected.toList(),
+        iconUrl: _groupIconUrl,
+      );
       if (!mounted) return;
       Navigator.of(context).pop(channel);
     } catch (e) {
@@ -298,6 +312,15 @@ class _NewChatSheetState extends State<_NewChatSheet>
                         nameCtrl: _groupNameCtrl,
                         selectedCount: _selected.length,
                         submitting: _submitting,
+                        iconUrl: _groupIconUrl,
+                        onPickIcon: widget.pickGroupIcon == null
+                            ? null
+                            : () async {
+                                final url = await widget.pickGroupIcon!();
+                                if (url != null && mounted) {
+                                  setState(() => _groupIconUrl = url);
+                                }
+                              },
                         onSubmit: _startGroup,
                       )
                     : const SizedBox.shrink(),
@@ -560,6 +583,8 @@ class _GroupFooter extends StatelessWidget {
   final TextEditingController nameCtrl;
   final int selectedCount;
   final bool submitting;
+  final String? iconUrl;
+  final VoidCallback? onPickIcon;
   final VoidCallback onSubmit;
 
   const _GroupFooter({
@@ -567,6 +592,8 @@ class _GroupFooter extends StatelessWidget {
     required this.nameCtrl,
     required this.selectedCount,
     required this.submitting,
+    this.iconUrl,
+    this.onPickIcon,
     required this.onSubmit,
   });
 
@@ -582,6 +609,32 @@ class _GroupFooter extends StatelessWidget {
         ),
         child: Row(
           children: [
+            if (onPickIcon != null) ...[
+              InkWell(
+                onTap: submitting ? null : onPickIcon,
+                borderRadius: BorderRadius.circular(BestieTokens.rSm),
+                child: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: colors.surface2,
+                    borderRadius: BorderRadius.circular(BestieTokens.rSm),
+                    border: Border.all(color: colors.border),
+                    image: iconUrl != null
+                        ? DecorationImage(
+                            image: NetworkImage(iconUrl!),
+                            fit: BoxFit.cover,
+                          )
+                        : null,
+                  ),
+                  child: iconUrl == null
+                      ? Icon(Icons.add_a_photo_outlined,
+                          color: colors.textMuted, size: 20)
+                      : null,
+                ),
+              ),
+              const SizedBox(width: 8),
+            ],
             Expanded(
               child: TextField(
                 controller: nameCtrl,

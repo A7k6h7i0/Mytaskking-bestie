@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_tts/flutter_tts.dart';
@@ -508,10 +509,33 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
         final ch = await api.createChannel(kind: 'DM', memberIds: [otherId]);
         return ch;
       },
-      onStartGroup: (name, memberIds) async {
+      onStartGroup: (name, memberIds, {iconUrl}) async {
         final ch = await api.createChannel(
-            kind: 'GROUP', name: name, memberIds: memberIds);
+          kind: 'GROUP',
+          name: name,
+          memberIds: memberIds,
+          iconUrl: iconUrl,
+        );
         return ch;
+      },
+      pickGroupIcon: () async {
+        final result = await FilePicker.platform.pickFiles(
+          type: FileType.image,
+          allowMultiple: false,
+          withData: true,
+        );
+        if (result == null ||
+            result.files.isEmpty ||
+            result.files.first.bytes == null) {
+          return null;
+        }
+        final file = result.files.first;
+        final asset = await api.uploadFile(
+          bytes: file.bytes!,
+          filename: file.name,
+          mimeType: 'image/${file.extension ?? 'jpeg'}',
+        );
+        return asset['url']?.toString();
       },
       onStartCall: (user, mode) async {
         if (_isPlatformSuperAdmin(user)) {

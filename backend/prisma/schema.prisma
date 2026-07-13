@@ -158,6 +158,7 @@ model Channel {
   kind           ChannelKind
   visibility     ChannelVisibility @default(PRIVATE)
   isClientChannel Boolean          @default(false)        // contains at least one client
+  iconUrl       String?
   pinned         Boolean           @default(false)
   archived       Boolean           @default(false)
   // policies — defaults applied to new members

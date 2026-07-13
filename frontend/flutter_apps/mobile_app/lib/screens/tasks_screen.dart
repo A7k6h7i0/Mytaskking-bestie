@@ -177,6 +177,13 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
               final mine = _myAssignment(t, me?.id);
               return mine != null && mine['state']?.toString() == 'PENDING';
             }).toList();
+            final pendingIds =
+                assignedPending.map((t) => t['id']?.toString()).toSet();
+            if (pendingIds.isNotEmpty) {
+              filtered = filtered
+                  .where((t) => !pendingIds.contains(t['id']?.toString()))
+                  .toList();
+            }
 
             if (all.isEmpty) {
               return ListView(
@@ -321,23 +328,28 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
     return open.isEmpty ? null : open.first;
   }
 
+  DateTime? _dueDateOnly(dynamic dueAt) {
+    final due = DateTime.tryParse('$dueAt')?.toLocal();
+    if (due == null) return null;
+    return DateTime(due.year, due.month, due.day);
+  }
+
   Map<_TaskFilter, int> _countsFor(
       List<Map<String, dynamic>> all, String? meId) {
     final now = DateTime.now();
-    bool isToday(DateTime d) =>
-        d.year == now.year && d.month == now.month && d.day == now.day;
+    final today = DateTime(now.year, now.month, now.day);
     final out = {for (final f in _TaskFilter.values) f: 0};
     for (final t in all) {
       final status = (t['status'] ?? 'TODO').toString();
       final done = status == 'DONE' || status == 'CANCELLED';
       final mine = meId != null && _isAssignedToMe(t, meId);
-      final due = DateTime.tryParse('${t['dueAt']}')?.toLocal();
+      final dueDay = _dueDateOnly(t['dueAt']);
       out[_TaskFilter.all] = out[_TaskFilter.all]! + 1;
       if (mine && !done) out[_TaskFilter.mine] = out[_TaskFilter.mine]! + 1;
-      if (due != null && isToday(due) && !done) {
+      if (dueDay != null && dueDay == today && !done) {
         out[_TaskFilter.dueToday] = out[_TaskFilter.dueToday]! + 1;
       }
-      if (due != null && due.isBefore(now) && !done) {
+      if (dueDay != null && dueDay.isBefore(today) && !done) {
         out[_TaskFilter.overdue] = out[_TaskFilter.overdue]! + 1;
       }
       if (status == 'DONE') out[_TaskFilter.done] = out[_TaskFilter.done]! + 1;
@@ -349,20 +361,19 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
       List<Map<String, dynamic>> all, _TaskFilter f, String? meId) {
     if (f == _TaskFilter.all) return all;
     final now = DateTime.now();
-    bool isToday(DateTime d) =>
-        d.year == now.year && d.month == now.month && d.day == now.day;
+    final today = DateTime(now.year, now.month, now.day);
     return all.where((t) {
       final status = (t['status'] ?? 'TODO').toString();
       final done = status == 'DONE' || status == 'CANCELLED';
       final mine = meId != null && _isAssignedToMe(t, meId);
-      final due = DateTime.tryParse('${t['dueAt']}')?.toLocal();
+      final dueDay = _dueDateOnly(t['dueAt']);
       switch (f) {
         case _TaskFilter.mine:
           return mine && !done;
         case _TaskFilter.dueToday:
-          return due != null && isToday(due) && !done;
+          return dueDay != null && dueDay == today && !done;
         case _TaskFilter.overdue:
-          return due != null && due.isBefore(now) && !done;
+          return dueDay != null && dueDay.isBefore(today) && !done;
         case _TaskFilter.done:
           return status == 'DONE';
         case _TaskFilter.all:
@@ -844,11 +855,15 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
   }
 
   Future<void> _pickDate() async {
+    final today = DateTime.now();
+    final todayStart = DateTime(today.year, today.month, today.day);
     final picked = await showDatePicker(
       context: context,
-      firstDate: DateTime.now().subtract(const Duration(days: 1)),
+      firstDate: todayStart,
       lastDate: DateTime.now().add(const Duration(days: 365 * 3)),
-      initialDate: _due ?? DateTime.now(),
+      initialDate: (_due != null && !_due!.isBefore(todayStart))
+          ? _due!
+          : todayStart,
     );
     if (picked == null) return;
     setState(() => _due = DateTime(picked.year, picked.month, picked.day,
@@ -871,13 +886,15 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
   /// backend cron triggers the assignment notification at exactly that
   /// time. Default to 1 hour in the future.
   Future<void> _pickScheduledAt() async {
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
     final initial =
-        _scheduledAt ?? DateTime.now().add(const Duration(hours: 1));
+        _scheduledAt ?? now.add(const Duration(hours: 1));
     final date = await showDatePicker(
       context: context,
-      firstDate: DateTime.now().subtract(const Duration(days: 1)),
+      firstDate: todayStart,
       lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
-      initialDate: initial,
+      initialDate: initial.isBefore(todayStart) ? todayStart : initial,
     );
     if (date == null || !mounted) return;
     final time = await showTimePicker(
@@ -885,8 +902,20 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
       initialTime: TimeOfDay(hour: initial.hour, minute: initial.minute),
     );
     if (time == null) return;
-    setState(() => _scheduledAt =
-        DateTime(date.year, date.month, date.day, time.hour, time.minute));
+    final scheduled =
+        DateTime(date.year, date.month, date.day, time.hour, time.minute);
+    if (scheduled.isBefore(now)) {
+      if (mounted) {
+        bestieToast(
+          context,
+          'Schedule must be in the future',
+          body: 'Pick a present or future date and time.',
+          kind: BestieToastKind.warning,
+        );
+      }
+      return;
+    }
+    setState(() => _scheduledAt = scheduled);
   }
 
   Future<void> _submit() async {

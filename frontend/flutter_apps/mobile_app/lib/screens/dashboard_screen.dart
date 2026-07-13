@@ -572,6 +572,15 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
+  void _joinMeeting(BuildContext context, Map<String, dynamic> m) {
+    final slug = m['slug']?.toString();
+    if (slug == null) return;
+    final mode = (m['mode'] ?? 'VIDEO').toString().toLowerCase() == 'voice'
+        ? 'voice'
+        : 'video';
+    context.go('/meeting/$slug?mode=$mode');
+  }
+
   /// Lists rooms that are currently live in the workspace, with a one-tap
   /// join button. Hidden entirely when nothing's active so the dashboard
   /// stays calm during quiet hours. Rendered above the daily quote so
@@ -611,7 +620,7 @@ class DashboardScreen extends ConsumerWidget {
           for (final m in live.take(3))
             InkWell(
               borderRadius: BorderRadius.circular(8),
-              onTap: () => context.go('/meetings'),
+              onTap: () => _joinMeeting(context, m),
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 child: Row(children: [
@@ -652,7 +661,7 @@ class DashboardScreen extends ConsumerWidget {
                   ),
                   const SizedBox(width: 6),
                   TextButton(
-                    onPressed: () => context.go('/meetings'),
+                    onPressed: () => _joinMeeting(context, m),
                     style: TextButton.styleFrom(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 12, vertical: 0),
