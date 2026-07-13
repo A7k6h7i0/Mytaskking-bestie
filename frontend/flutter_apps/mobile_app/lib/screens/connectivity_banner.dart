@@ -46,6 +46,11 @@ class _ConnectivityBannerState extends ConsumerState<ConnectivityBanner> {
   void _onStateChanged() {
     final next = _rt?.connState.value ?? core.BestieConnState.connecting;
     _state = next;
+    if (next == core.BestieConnState.connecting) {
+      _grace?.cancel();
+      if (_show && mounted) setState(() => _show = false);
+      return;
+    }
     if (next == core.BestieConnState.connected) {
       _grace?.cancel();
       if (_show && mounted) setState(() => _show = false);

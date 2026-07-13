@@ -27,6 +27,7 @@ router.post(
       kind: Joi.string().valid('DM', 'GROUP', 'PROJECT', 'ANNOUNCEMENT', 'CLIENT').required(),
       visibility: Joi.string().valid('PUBLIC', 'PRIVATE'),
       memberIds: Joi.array().items(Joi.string()).default([]),
+      iconUrl: Joi.string().uri().allow('', null),
     }),
   }),
   asyncHandler(async (req, res) => {
@@ -37,6 +38,21 @@ router.post(
 );
 
 router.get('/:id', asyncHandler(async (req, res) => res.json(await service.getById(req.params.id, req.user))));
+
+router.patch(
+  '/:id',
+  validate({
+    body: Joi.object({
+      name: Joi.string().min(1).max(120),
+      description: Joi.string().max(1000).allow('', null),
+      iconUrl: Joi.string().uri().allow('', null),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    const c = await service.updateChannel(req.params.id, req.body, req.user);
+    res.json(c);
+  }),
+);
 
 router.post(
   '/:id/members',

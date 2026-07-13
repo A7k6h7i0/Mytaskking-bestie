@@ -92,7 +92,7 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
     return Scaffold(
-      backgroundColor: c.bg,
+      backgroundColor: c.surface,
       appBar: AppBar(
         title: const Text('Organisations'),
         backgroundColor: c.surface,

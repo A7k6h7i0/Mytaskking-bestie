@@ -504,7 +504,13 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     _hapticTimer = Timer.periodic(const Duration(milliseconds: 1300), (_) {
       HapticFeedback.heavyImpact();
     });
-    unawaited(_playRingtoneUnlessNativeService());
+    if (_appResumed) {
+      unawaited(_playRingtoneUnlessNativeService());
+    } else {
+      // Flutter audio plugins cannot ring on a locked / backgrounded device —
+      // hand off to the native foreground service that loops the ringtone.
+      unawaited(_ensureNativeIncomingNotification());
+    }
     final caller = (call['initiator']?['name'] ?? 'Someone').toString();
     _speak('$caller is calling you. Please attend the call.');
   }
@@ -539,7 +545,11 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
       HapticFeedback.heavyImpact();
     });
     _autoMiss = Timer(const Duration(seconds: 88), _decline);
-    unawaited(_playRingtoneUnlessNativeService());
+    if (_appResumed) {
+      unawaited(_playRingtoneUnlessNativeService());
+    } else {
+      unawaited(_ensureNativeIncomingNotification());
+    }
     _speak(
         '$caller is calling while you are on another call. Accept to add them, or reject.');
   }
@@ -674,6 +684,10 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
   }
 
   Future<void> _playRingtoneUnlessNativeService() async {
+    if (!_appResumed) {
+      await _ensureNativeIncomingNotification();
+      return;
+    }
     try {
       final nativeActive = await _nativeCallNotificationChannel
           .invokeMethod<bool>('isIncomingActive');

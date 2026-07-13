@@ -68,11 +68,10 @@ android {
                 signingConfigs.getByName("release")
             else
                 signingConfigs.getByName("debug")
-            // Keep release builds unshrunk for older Samsung compatibility.
-            // A larger APK is better than a device-specific white screen caused
-            // by aggressive R8/resource shrinking around native plugins.
-            isMinifyEnabled = false
-            isShrinkResources = false
+            // R8 shrinks Java/Kotlin + unused resources. ProGuard keep rules below
+            // protect Agora, Firebase, and Flutter plugin entry points.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

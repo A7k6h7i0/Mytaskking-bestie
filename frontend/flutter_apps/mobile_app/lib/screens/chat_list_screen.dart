@@ -1,12 +1,13 @@
 import 'dart:async';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
+import '../branding.dart';
 import '../call_event_text.dart';
 import '../chat_clear.dart';
 import '../chat_mute.dart';
@@ -32,13 +33,12 @@ void _sortChannelsByRecent(List<Map<String, dynamic>> channels) {
   });
 }
 
-bool _canCallUser(WidgetRef ref, Map<String, dynamic>? user) {
-  if (user == null) return false;
-  final me = ref.read(authStoreProvider).user;
-  final viewerIsAdmin = me?.role == 'ADMIN' || me?.role == 'SUPER_ADMIN';
-  if (viewerIsAdmin) return true;
-  final role = user['role']?.toString();
-  return role != 'ADMIN' && role != 'SUPER_ADMIN';
+bool _isPlatformSuperAdmin(Map<String, dynamic>? user) =>
+    user?['role']?.toString() == 'SUPER_ADMIN';
+
+bool _isOrgAdmin(BestieUser? user) {
+  final role = user?.role ?? '';
+  return role == 'ADMIN' || role == 'SUPER_ADMIN';
 }
 
 /// Other participant in a DM — skips self, prefers nested `user` payload.
@@ -63,6 +63,50 @@ String _displayNameForUser(Map<String, dynamic>? user, {String fallback = ''}) {
   return fallback;
 }
 
+bool _isReallyOnline(Map<String, dynamic>? user) =>
+    user?['online'] == true ||
+    (((user?['presence'] as Map?)?.cast<String, dynamic>())?['online'] ==
+        true);
+
+Color _presenceDotColor(Map<String, dynamic>? user) {
+  if (user == null) return Colors.transparent;
+  if (_isReallyOnline(user)) return BestieTokens.cBrand;
+  final status = (user['status'] ?? '').toString();
+  if (status == 'AWAY' || status == 'BUSY') return const Color(0xFFFFC107);
+  return const Color(0xFFB4BAC6);
+}
+
+const _weekdayNames = [
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+  'Sunday',
+];
+
+String _timeLabel(DateTime time) {
+  final now = DateTime.now();
+  final local = time.toLocal();
+  final today = DateTime(now.year, now.month, now.day);
+  final msgDay = DateTime(local.year, local.month, local.day);
+  final dayDiff = today.difference(msgDay).inDays;
+  if (dayDiff == 0) {
+    final hour = local.hour == 0
+        ? 12
+        : local.hour > 12
+            ? local.hour - 12
+            : local.hour;
+    final minute = local.minute.toString().padLeft(2, '0');
+    final suffix = local.hour >= 12 ? 'PM' : 'AM';
+    return '$hour:$minute $suffix';
+  }
+  if (dayDiff == 1) return 'Yesterday';
+  if (dayDiff < 7) return _weekdayNames[local.weekday - 1];
+  return '${local.month}/${local.day}/${local.year % 100}';
+}
+
 bool _isRenderableDm(
   Map<String, dynamic> channel,
   String? meId,
@@ -71,100 +115,6 @@ bool _isRenderableDm(
       (channel['members'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
   final peer = _resolveDmPeer(members, meId);
   return peer != null && _displayNameForUser(peer).isNotEmpty;
-}
-
-Widget _chatListCallButton({
-  required BestieColors colors,
-  required IconData icon,
-  required String tooltip,
-  required VoidCallback onPressed,
-}) {
-  return Material(
-    color: colors.textFaint.withValues(alpha: 0.32),
-    shape: CircleBorder(
-      side: BorderSide(color: colors.borderSoft, width: 1),
-    ),
-    child: IconButton(
-      icon: Icon(icon, color: colors.textMuted, size: 20),
-      tooltip: tooltip,
-      visualDensity: VisualDensity.compact,
-      padding: const EdgeInsets.all(8),
-      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-      onPressed: onPressed,
-    ),
-  );
-}
-
-Future<void> _startCallFromList(
-  BuildContext context,
-  WidgetRef ref, {
-  required Map<String, dynamic> user,
-  required String mode,
-  String? channelId,
-}) async {
-  if (!_canCallUser(ref, user)) {
-    if (context.mounted) {
-      bestieToast(
-        context,
-        'Calling unavailable',
-        body: 'Only admins can start calls with administrators.',
-        kind: BestieToastKind.warning,
-      );
-    }
-    return;
-  }
-  try {
-    await CallSession.prepareForNewCall();
-    final res = await ref.read(apiProvider).initiateCall(
-          participantIds: [user['id'].toString()],
-          kind: 'ONE_TO_ONE',
-          channelId: channelId,
-          mode: mode == 'voice' ? 'VOICE' : 'VIDEO',
-        );
-    final presence = (res['targetPresence'] as Map?)?.cast<String, dynamic>();
-    if (presence != null &&
-        !(presence['status'] == 'ON_CALL' && res['waiting'] == true)) {
-      final custom = (presence['customStatus'] ?? '').toString();
-      if (presence['status'] == 'ON_CALL' ||
-          custom.toLowerCase().contains('another call')) {
-        try {
-          final tts = FlutterTts();
-          await tts.setSpeechRate(0.36);
-          await tts.speak(
-              '${user['name']} is busy with another call. Please call again later.');
-        } catch (_) {}
-      }
-      if (context.mounted) {
-        bestieToast(context, '${user['name']} is unavailable',
-            body: (presence['customStatus'] ?? presence['status']).toString(),
-            kind: BestieToastKind.warning);
-      }
-      return;
-    }
-    final id = (res['call'] as Map?)?['id']?.toString();
-    if (presence?['status'] == 'ON_CALL' && res['waiting'] == true) {
-      try {
-        final tts = FlutterTts();
-        await tts.setSpeechRate(0.36);
-        await tts.speak(
-            '${user['name']} is busy on another call. Waiting for them to respond.');
-      } catch (_) {}
-      if (context.mounted) {
-        bestieToast(context, '${user['name']} is busy',
-            body: 'Waiting for them to accept and add you to their call.',
-            kind: BestieToastKind.info);
-      }
-      return;
-    }
-    if (id != null && context.mounted) {
-      context.go('/call/$id?mode=$mode');
-    }
-  } catch (e) {
-    if (context.mounted) {
-      bestieToast(context, 'Could not start call',
-          body: formatApiError(e), kind: BestieToastKind.error);
-    }
-  }
 }
 
 /// Tracks which channels currently have someone typing, populated from
@@ -222,178 +172,241 @@ class _TypingChannelsNotifier extends StateNotifier<Set<String>> {
 ///
 /// "Channels" in this app are scoped to client ↔ employee threads; internal
 /// employee chatter lives in DMs and groups.
-class ChatListScreen extends ConsumerWidget {
+class ChatListScreen extends ConsumerStatefulWidget {
   const ChatListScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ChatListScreen> createState() => _ChatListScreenState();
+}
+
+class _ChatListScreenState extends ConsumerState<ChatListScreen> {
+  final _searchCtrl = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final colors = BestieColors.of(context);
     final channels = ref.watch(channelsProvider);
+    final me = ref.watch(authStoreProvider).user;
 
     return Scaffold(
-      backgroundColor: colors.bg,
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: colors.surface,
-        foregroundColor: colors.text,
-        title: const Text('Chat'),
-        actions: [
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert_rounded),
-            tooltip: 'More options',
-            onSelected: (value) {
-              switch (value) {
-                case 'search':
-                  context.go('/search');
-                  break;
-                case 'mark_read':
-                  _markAllRead(context, ref);
-                  break;
-                case 'new_chat':
-                  _newChat(context, ref);
-                  break;
-                case 'new_group':
-                  _newChat(context, ref, initialTabIndex: 1);
-                  break;
-              }
-            },
-            itemBuilder: (ctx) => [
-              PopupMenuItem(
-                value: 'search',
-                child: Row(
-                  children: [
-                    Icon(Icons.search_rounded, color: colors.text, size: 22),
-                    const SizedBox(width: 12),
-                    const Text('Search'),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: 'mark_read',
-                child: Row(
-                  children: [
-                    Icon(Icons.done_all_rounded, color: colors.text, size: 22),
-                    const SizedBox(width: 12),
-                    const Text('Mark all chats read'),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: 'new_chat',
-                child: Row(
-                  children: [
-                    Icon(Icons.edit_square, color: colors.text, size: 22),
-                    const SizedBox(width: 12),
-                    const Text('New chat'),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: 'new_group',
-                child: Row(
-                  children: [
-                    Icon(Icons.group_add_outlined, color: colors.text, size: 22),
-                    const SizedBox(width: 12),
-                    const Text('New group'),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
+      backgroundColor: colors.surface,
       bottomNavigationBar: SizedBox(
-        // Reserve the floating nav footprint so the body stops above it.
-        height: 70.0 + MediaQuery.of(context).padding.bottom - 18,
-      ),
-      body: RefreshIndicator(
-        onRefresh: () async => ref.refresh(channelsProvider.future),
-        child: channels.when(
-          loading: () => const BestieSkeletonList(itemCount: 6),
-          error: (e, _) => BestieEmptyState(
-            icon: Icons.cloud_off_outlined,
-            title: 'Couldn\'t load chats',
-            description: formatApiError(e),
-          ),
-          data: (items) {
-            if (items.isEmpty) {
-              return _EmptyState(onNewChat: () => _newChat(context, ref));
-            }
-
-            // Bucket by section.
-            final dms = <Map<String, dynamic>>[];
-            final groups = <Map<String, dynamic>>[];
-            final clientChannels = <Map<String, dynamic>>[];
-            final me = ref.read(authStoreProvider).user;
-
-            for (final c in items) {
-              final kind = (c['kind'] ?? 'GROUP').toString();
-              final isClientChannel =
-                  c['isClientChannel'] == true || kind == 'CLIENT';
-              if (isClientChannel) {
-                clientChannels.add(c);
-              } else if (kind == 'DM') {
-                if (_isRenderableDm(c, me?.id)) dms.add(c);
-              } else {
-                groups.add(c);
-              }
-            }
-
-            // Re-sort each section by last activity. The API sorts globally,
-            // but bucketing by kind breaks WhatsApp-style recency within DMs.
-            _sortChannelsByRecent(dms);
-            _sortChannelsByRecent(groups);
-            _sortChannelsByRecent(clientChannels);
-
-            return ListView(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              children: [
-                _Section(
-                  title: 'Direct messages',
-                  icon: Icons.chat_bubble_outline_rounded,
-                  count: dms.length,
-                  emptyHint: 'Tap the pencil icon above to start a chat.',
-                  children: [
-                    for (final c in dms)
-                      _ChatTile(channel: c, kind: 'DM', currentUserId: me?.id),
-                  ],
-                ),
-                _Section(
-                  title: 'Groups',
-                  icon: Icons.groups_outlined,
-                  count: groups.length,
-                  emptyHint:
-                      'Create a group to chat with multiple teammates at once.',
-                  children: [
-                    for (final c in groups)
-                      _ChatTile(
-                          channel: c, kind: 'GROUP', currentUserId: me?.id),
-                  ],
-                ),
-                _Section(
-                  title: 'Client channels',
-                  icon: Icons.business_center_outlined,
-                  count: clientChannels.length,
-                  emptyHint: 'External client threads will appear here.',
-                  children: [
-                    for (final c in clientChannels)
-                      _ChatTile(
-                          channel: c, kind: 'CLIENT', currentUserId: me?.id),
-                  ],
-                ),
-              ],
-            );
-          },
-        ),
+        height: 64.0 + MediaQuery.of(context).padding.bottom,
       ),
       floatingActionButton: FloatingActionButton(
         backgroundColor: BestieTokens.cBrand,
         foregroundColor: Colors.white,
+        elevation: 4,
         tooltip: 'New chat',
         onPressed: () => _newChat(context, ref),
         child: const Icon(Icons.edit_outlined),
       ),
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _ChatsHeader(
+              colors: colors,
+              user: me,
+              onMenuSelected: (value) => _onHeaderMenu(context, ref, value),
+              onEditOrg: _isOrgAdmin(me)
+                  ? () => _editOrgName(context, ref)
+                  : null,
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: TextField(
+                controller: _searchCtrl,
+                onChanged: (v) => setState(() => _query = v.trim().toLowerCase()),
+                style: TextStyle(color: colors.text, fontSize: 15),
+                decoration: InputDecoration(
+                  hintText: 'Search messages...',
+                  hintStyle: TextStyle(color: colors.textFaint, fontSize: 15),
+                  prefixIcon:
+                      Icon(Icons.search_rounded, color: colors.textMuted, size: 20),
+                  filled: true,
+                  fillColor: const Color(0xFFF2F2F7),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                    borderSide: BorderSide.none,
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                    borderSide: BorderSide.none,
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                    borderSide: BorderSide(color: colors.brand.withValues(alpha: 0.35)),
+                  ),
+                ),
+              ),
+            ),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: () async => ref.refresh(channelsProvider.future),
+                child: channels.when(
+                  loading: () => const BestieSkeletonList(itemCount: 6),
+                  error: (e, _) => BestieEmptyState(
+                    icon: Icons.cloud_off_outlined,
+                    title: 'Couldn\'t load chats',
+                    description: formatApiError(e),
+                  ),
+                  data: (items) {
+                    if (items.isEmpty) {
+                      return _EmptyState(onNewChat: () => _newChat(context, ref));
+                    }
+
+                    final dms = <Map<String, dynamic>>[];
+                    final groups = <Map<String, dynamic>>[];
+                    final clientChannels = <Map<String, dynamic>>[];
+
+                    for (final c in items) {
+                      final kind = (c['kind'] ?? 'GROUP').toString();
+                      final isClientChannel =
+                          c['isClientChannel'] == true || kind == 'CLIENT';
+                      if (isClientChannel) {
+                        clientChannels.add(c);
+                      } else if (kind == 'DM') {
+                        if (_isRenderableDm(c, me?.id)) dms.add(c);
+                      } else {
+                        groups.add(c);
+                      }
+                    }
+
+                    _sortChannelsByRecent(dms);
+                    _sortChannelsByRecent(groups);
+                    _sortChannelsByRecent(clientChannels);
+
+                    bool matchesQuery(Map<String, dynamic> channel, String kind) {
+                      if (_query.isEmpty) return true;
+                      final members = (channel['members'] as List?)
+                              ?.cast<Map<String, dynamic>>() ??
+                          const [];
+                      Map<String, dynamic>? peer;
+                      if (kind == 'DM') {
+                        peer = _resolveDmPeer(members, me?.id);
+                      }
+                      final name = kind == 'DM'
+                          ? _displayNameForUser(
+                              peer,
+                              fallback: (channel['name'] ?? '').toString(),
+                            )
+                          : (channel['name'] ?? '').toString();
+                      return name.toLowerCase().contains(_query);
+                    }
+
+                    final filteredDms =
+                        dms.where((c) => matchesQuery(c, 'DM')).toList();
+                    final filteredGroups =
+                        groups.where((c) => matchesQuery(c, 'GROUP')).toList();
+                    final filteredClients = clientChannels
+                        .where((c) => matchesQuery(c, 'CLIENT'))
+                        .toList();
+
+                    if (_query.isNotEmpty &&
+                        filteredDms.isEmpty &&
+                        filteredGroups.isEmpty &&
+                        filteredClients.isEmpty) {
+                      return ListView(
+                        children: [
+                          SizedBox(
+                              height: MediaQuery.sizeOf(context).height * 0.2),
+                          const BestieEmptyState(
+                            icon: Icons.search_off_rounded,
+                            title: 'No chats found',
+                            description: 'Try a different name or keyword.',
+                          ),
+                        ],
+                      );
+                    }
+
+                    return ListView(
+                      padding: const EdgeInsets.only(bottom: 88),
+                      children: [
+                        _Section(
+                          title: 'Direct messages',
+                          icon: Icons.chat_bubble_outline_rounded,
+                          count: filteredDms.length,
+                          emptyHint:
+                              'Tap Edit above or the pencil button to start a chat.',
+                          children: [
+                            for (final c in filteredDms)
+                              _ChatTile(
+                                channel: c,
+                                kind: 'DM',
+                                currentUserId: me?.id,
+                              ),
+                          ],
+                        ),
+                        _Section(
+                          title: 'Groups',
+                          icon: Icons.groups_outlined,
+                          count: filteredGroups.length,
+                          emptyHint:
+                              'Create a group to chat with multiple teammates at once.',
+                          children: [
+                            for (final c in filteredGroups)
+                              _ChatTile(
+                                channel: c,
+                                kind: 'GROUP',
+                                currentUserId: me?.id,
+                              ),
+                          ],
+                        ),
+                        _Section(
+                          title: 'Client channels',
+                          icon: Icons.business_center_outlined,
+                          count: filteredClients.length,
+                          emptyHint: 'External client threads will appear here.',
+                          children: [
+                            for (final c in filteredClients)
+                              _ChatTile(
+                                channel: c,
+                                kind: 'CLIENT',
+                                currentUserId: me?.id,
+                              ),
+                          ],
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
+  }
+
+  void _onHeaderMenu(BuildContext context, WidgetRef ref, String value) {
+    switch (value) {
+      case 'search':
+        context.go('/search');
+        break;
+      case 'mark_read':
+        _markAllRead(context, ref);
+        break;
+      case 'new_chat':
+        _newChat(context, ref);
+        break;
+      case 'new_group':
+        _newChat(context, ref, initialTabIndex: 1);
+        break;
+      case 'edit_org':
+        _editOrgName(context, ref);
+        break;
+    }
   }
 
   Future<void> _markAllRead(BuildContext context, WidgetRef ref) async {
@@ -402,22 +415,13 @@ class ChatListScreen extends ConsumerWidget {
     final channels = ref.read(channelsProvider).asData?.value ?? const [];
     if (me == null) return;
     final unreadIds = channels
-        .where((c) {
-          final members =
-              (c['members'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
-          final mine = members.firstWhere((m) => m['userId'] == me.id,
-              orElse: () => const {});
-          return mine.isNotEmpty && mine['lastReadAt'] == null;
-        })
+        .where((c) => ((c['unreadCount'] as num?)?.toInt() ?? 0) > 0)
         .map((c) => c['id'] as String)
         .toList();
     if (unreadIds.isEmpty) {
       bestieToast(context, 'Already all read', kind: BestieToastKind.info);
       return;
     }
-    // Sequential, not parallel — firing 30 concurrent POSTs against the
-    // mark-read endpoint trips the global rate limiter (429). One at a
-    // time with a tiny pause is still nearly instant for normal inboxes.
     for (final id in unreadIds) {
       try {
         await api.markChannelRead(id);
@@ -428,6 +432,60 @@ class ChatListScreen extends ConsumerWidget {
       bestieToast(context,
           'Marked ${unreadIds.length} chat${unreadIds.length == 1 ? '' : 's'} read',
           kind: BestieToastKind.success);
+    }
+  }
+
+  Future<void> _editOrgName(BuildContext context, WidgetRef ref) async {
+    final branding = await ref.read(orgBrandingProvider.future);
+    if (!context.mounted) return;
+    final controller = TextEditingController(text: branding.name);
+    final c = BestieColors.of(context);
+    final saved = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: c.surface,
+        title: const Text('Organization name'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: 'MyTaskKing',
+            labelText: 'Display name',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final v = controller.text.trim();
+              if (v.isNotEmpty) Navigator.pop(ctx, v);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (saved == null || !context.mounted) return;
+    try {
+      await ref.read(apiProvider).setSetting(
+            scope: 'branding',
+            key: 'name',
+            value: saved,
+          );
+      ref.invalidate(orgBrandingProvider);
+      if (context.mounted) {
+        bestieToast(context, 'Organization name updated',
+            kind: BestieToastKind.success);
+      }
+    } catch (e) {
+      if (context.mounted) {
+        bestieToast(context, 'Could not save name',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
     }
   }
 
@@ -442,22 +500,58 @@ class ChatListScreen extends ConsumerWidget {
       context,
       currentUserId: me?.id,
       initialTabIndex: initialTabIndex,
-      fetchEmployees: (q) =>
-          api.listEmployees(q: q.trim().isEmpty ? null : q.trim()),
+      fetchEmployees: (q) => api.listEmployees(
+            q: q.trim().isEmpty ? null : q.trim(),
+            forChat: true,
+            pageSize: 200,
+          ),
       onStartDm: (otherId) async {
         final ch = await api.createChannel(kind: 'DM', memberIds: [otherId]);
         return ch;
       },
-      onStartGroup: (name, memberIds) async {
+      onStartGroup: (name, memberIds, {iconUrl}) async {
         final ch = await api.createChannel(
-            kind: 'GROUP', name: name, memberIds: memberIds);
+          kind: 'GROUP',
+          name: name,
+          memberIds: memberIds,
+          iconUrl: iconUrl,
+        );
         return ch;
       },
+      pickGroupIcon: () async {
+        final result = await FilePicker.platform.pickFiles(
+          type: FileType.image,
+          allowMultiple: false,
+          withData: true,
+        );
+        if (result == null ||
+            result.files.isEmpty ||
+            result.files.first.bytes == null) {
+          return null;
+        }
+        final file = result.files.first;
+        final asset = await api.uploadFile(
+          bytes: file.bytes!,
+          filename: file.name,
+          mimeType: 'image/${file.extension ?? 'jpeg'}',
+        );
+        return asset['url']?.toString();
+      },
       onStartCall: (user, mode) async {
+        if (_isPlatformSuperAdmin(user)) {
+          if (context.mounted) {
+            bestieToast(
+              context,
+              'Calling unavailable',
+              body: 'Platform administrators cannot be called from direct messages.',
+              kind: BestieToastKind.warning,
+            );
+          }
+          return;
+        }
         final targetRole = user['role']?.toString();
         final viewerIsAdmin = me?.role == 'ADMIN' || me?.role == 'SUPER_ADMIN';
-        if (!viewerIsAdmin &&
-            (targetRole == 'ADMIN' || targetRole == 'SUPER_ADMIN')) {
+        if (!viewerIsAdmin && targetRole == 'ADMIN') {
           if (context.mounted) {
             bestieToast(
               context,
@@ -526,8 +620,205 @@ class ChatListScreen extends ConsumerWidget {
 }
 
 // ---------------------------------------------------------------------------
-// section header + chat tile
+// header + chat tile
 // ---------------------------------------------------------------------------
+
+class _ChatsHeader extends ConsumerWidget {
+  final BestieColors colors;
+  final BestieUser? user;
+  final ValueChanged<String> onMenuSelected;
+  final VoidCallback? onEditOrg;
+
+  const _ChatsHeader({
+    required this.colors,
+    required this.user,
+    required this.onMenuSelected,
+    this.onEditOrg,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final branding = ref.watch(orgBrandingProvider).asData?.value;
+    final isAdmin = _isOrgAdmin(user);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 4, 12),
+      child: Row(
+        children: [
+          Expanded(child: _headerBrand(branding)),
+          PopupMenuButton<String>(
+            icon: Icon(Icons.more_vert_rounded, color: colors.text),
+            tooltip: 'More options',
+            onSelected: onMenuSelected,
+            itemBuilder: (ctx) => [
+              PopupMenuItem(
+                value: 'search',
+                child: Row(
+                  children: [
+                    Icon(Icons.search_rounded, color: colors.text, size: 22),
+                    const SizedBox(width: 12),
+                    const Text('Search'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'mark_read',
+                child: Row(
+                  children: [
+                    Icon(Icons.done_all_rounded, color: colors.text, size: 22),
+                    const SizedBox(width: 12),
+                    const Text('Mark all chats read'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'new_chat',
+                child: Row(
+                  children: [
+                    Icon(Icons.edit_square, color: colors.text, size: 22),
+                    const SizedBox(width: 12),
+                    const Text('New chat'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'new_group',
+                child: Row(
+                  children: [
+                    Icon(Icons.group_add_outlined, color: colors.text, size: 22),
+                    const SizedBox(width: 12),
+                    const Text('New group'),
+                  ],
+                ),
+              ),
+              if (isAdmin)
+                PopupMenuItem(
+                  value: 'edit_org',
+                  child: Row(
+                    children: [
+                      Icon(Icons.edit_outlined, color: colors.brand, size: 22),
+                      const SizedBox(width: 12),
+                      const Text('Edit organization name'),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _headerBrand(OrgBranding? branding) {
+    const logoSize = 36.0;
+    const myTaskKingFontSize = 21.0; // +6px over default wordmark (~15px)
+    final orgName = branding?.name ?? 'MyTaskKing';
+    final logoUrl = branding?.logoUrl;
+    final isDefault = orgName == 'MyTaskKing' && logoUrl == null;
+    if (isDefault) {
+      return Row(
+        children: [
+          BestieLogo(size: logoSize, onTap: onEditOrg),
+          SizedBox(width: logoSize * 0.30),
+          GestureDetector(
+            onTap: onEditOrg,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ShaderMask(
+                  blendMode: BlendMode.srcIn,
+                  shaderCallback: (rect) => const LinearGradient(
+                    colors: [
+                      BestieTokens.cAccent,
+                      BestieTokens.cBrand,
+                      Color(0xFF3AA1FF),
+                    ],
+                  ).createShader(rect),
+                  child: const Text(
+                    'MyTaskKing',
+                    style: TextStyle(
+                      fontSize: myTaskKingFontSize,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.54,
+                      height: 1.0,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+                SizedBox(height: logoSize * 0.04),
+                Text(
+                  'Productivity',
+                  style: TextStyle(
+                    fontSize: logoSize * 0.22,
+                    fontWeight: FontWeight.w600,
+                    color: BestieTokens.cTextMuted,
+                    letterSpacing: 0.06 * logoSize * 0.22,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (onEditOrg != null) _editOrgButton(),
+        ],
+      );
+    }
+    return Row(
+      children: [
+        if (logoUrl != null)
+          ClipOval(
+            child: Image.network(
+              logoUrl,
+              width: logoSize,
+              height: logoSize,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) =>
+                  BestieLogo(size: logoSize, ambient: false, onTap: onEditOrg),
+            ),
+          )
+        else
+          BestieLogo(size: logoSize, ambient: false, onTap: onEditOrg),
+        const SizedBox(width: 10),
+        Flexible(
+          child: GestureDetector(
+            onTap: onEditOrg,
+            child: ShaderMask(
+              blendMode: BlendMode.srcIn,
+              shaderCallback: (rect) => const LinearGradient(
+                colors: [
+                  BestieTokens.cAccent,
+                  BestieTokens.cBrand,
+                  Color(0xFF3AA1FF),
+                ],
+              ).createShader(rect),
+              child: Text(
+                orgName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.4,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+        ),
+        if (onEditOrg != null) _editOrgButton(),
+      ],
+    );
+  }
+
+  Widget _editOrgButton() {
+    return IconButton(
+      visualDensity: VisualDensity.compact,
+      tooltip: 'Edit organization name',
+      icon: Icon(Icons.edit_outlined, size: 18, color: colors.textMuted),
+      onPressed: onEditOrg,
+    );
+  }
+}
 
 class _Section extends StatelessWidget {
   final String title;
@@ -628,7 +919,7 @@ class _ChatTile extends ConsumerWidget {
       }
     }
     if (displayName.isEmpty) displayName = 'Chat';
-    final showCallActions = kind == 'DM' && _canCallUser(ref, dmOtherUser);
+    final timestamp = _timeLabel(_channelActivityTime(channel));
 
     final channelId = channel['id']?.toString() ?? '';
     final clearedAt =
@@ -707,157 +998,172 @@ class _ChatTile extends ConsumerWidget {
 
     return Material(
       color: Colors.transparent,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Row(children: [
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () {
-              ProfileAvatarViewer.show(
-                context,
-                name: displayName,
-                imageUrl: kind == 'DM' ? avatarUrl : null,
-                isClient: isClient,
-              );
-            },
-            child: kind == 'DM'
-                ? BestieAvatar(
+      child: InkWell(
+        onTap: () => context.push('/chat/${channel['id']}'),
+        onLongPress: () => _showTileMenu(context, ref, muted),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  ProfileAvatarViewer.show(
+                    context,
                     name: displayName,
-                    imageUrl: avatarUrl,
+                    imageUrl: kind == 'DM' ? avatarUrl : null,
                     isClient: isClient,
-                    size: 44,
-                  )
-                : Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: isClient ? c.clientSoft : c.brandSoft,
-                      borderRadius: BorderRadius.circular(BestieTokens.rMd),
+                  );
+                },
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    kind == 'DM'
+                        ? BestieAvatar(
+                            name: displayName,
+                            imageUrl: avatarUrl,
+                            isClient: isClient,
+                            size: 52,
+                          )
+                        : Container(
+                            width: 52,
+                            height: 52,
+                            decoration: BoxDecoration(
+                              color: isClient ? c.clientSoft : c.brandSoft,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              kind == 'CLIENT'
+                                  ? Icons.business_center_outlined
+                                  : Icons.groups_outlined,
+                              color: isClient ? c.client : c.brandStrong,
+                              size: 24,
+                            ),
+                          ),
+                    if (kind == 'DM')
+                      Positioned(
+                        right: 0,
+                        bottom: 0,
+                        child: Container(
+                          width: 14,
+                          height: 14,
+                          decoration: BoxDecoration(
+                            color: _presenceDotColor(dmOtherUser),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: c.surface, width: 2),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: BestieUserName(
+                            name: displayName,
+                            isClient: isClient,
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: unread
+                                  ? FontWeight.w700
+                                  : FontWeight.w600,
+                              color: c.text,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                    child: Icon(
-                      kind == 'CLIENT'
-                          ? Icons.business_center_outlined
-                          : Icons.groups_outlined,
-                      color: isClient ? c.client : c.brandStrong,
-                      size: 22,
+                    const SizedBox(height: 4),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: isTyping
+                              ? Text(
+                                  'typing…',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: c.brand,
+                                    fontSize: 12,
+                                    fontWeight: BestieTokens.fwSemibold,
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                )
+                              : Text(
+                                  previewLine.isEmpty
+                                      ? 'No messages yet'
+                                      : previewLine,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: c.textMuted,
+                                    fontSize: 12,
+                                    fontWeight: unread
+                                        ? FontWeight.w600
+                                        : FontWeight.w400,
+                                    fontStyle: (lastKind == 'FILE' ||
+                                            lastKind == 'IMAGE')
+                                        ? FontStyle.italic
+                                        : FontStyle.normal,
+                                  ),
+                                ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    timestamp,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: c.textMuted,
+                      fontWeight: FontWeight.w400,
                     ),
                   ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: InkWell(
-              onTap: () => context.push('/chat/${channel['id']}'),
-              onLongPress: () => _showTileMenu(context, ref, muted),
-              borderRadius: BorderRadius.circular(BestieTokens.rMd),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(children: [
-                    Flexible(
-                      child: BestieUserName(
-                        name: displayName,
-                        isClient: isClient,
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: unread
-                              ? BestieTokens.fwBold
-                              : BestieTokens.fwSemibold,
-                          color: c.text,
-                          letterSpacing: BestieTokens.lsSnug,
+                  if (unread) ...[
+                    const SizedBox(height: 6),
+                    Container(
+                      width: 22,
+                      height: 22,
+                      decoration: BoxDecoration(
+                        color: muted ? c.textMuted : c.brand,
+                        shape: BoxShape.circle,
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        unreadCount > 9 ? '9+' : '$unreadCount',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: BestieTokens.fwBold,
+                          height: 1,
                         ),
                       ),
                     ),
-                    if (muted) ...[
-                      const SizedBox(width: 6),
-                      Icon(Icons.volume_off_rounded,
-                          size: 13, color: c.textMuted),
-                    ],
-                  ]),
-                  const SizedBox(height: 3),
-                  isTyping
-                      ? Text(
-                          'typing…',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: c.brand,
-                            fontSize: 13,
-                            fontWeight: BestieTokens.fwSemibold,
-                            fontStyle: FontStyle.italic,
-                          ),
-                        )
-                      : Text(
-                          previewLine.isEmpty ? 'No messages yet' : previewLine,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: unread ? c.text : c.textMuted,
-                            fontSize: 13,
-                            fontWeight: unread
-                                ? BestieTokens.fwSemibold
-                                : BestieTokens.fwRegular,
-                          ),
-                        ),
+                  ] else if (muted) ...[
+                    const SizedBox(height: 6),
+                    Icon(Icons.volume_off_rounded,
+                        size: 14, color: c.textMuted),
+                  ],
                 ],
               ),
-            ),
-          ),
-          if (unread) ...[
-            const SizedBox(width: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-              constraints: const BoxConstraints(minWidth: 18),
-              decoration: BoxDecoration(
-                color: muted ? c.textMuted : c.brand,
-                borderRadius: BorderRadius.circular(BestieTokens.rPill),
-              ),
-              child: Text(
-                unreadCount > 99 ? '99+' : '$unreadCount',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 11,
-                  fontWeight: BestieTokens.fwBold,
-                  height: 1.3,
-                ),
-              ),
-            ),
-          ],
-            if (kind == 'DM') ...[
-              if (showCallActions) ...[
-                _chatListCallButton(
-                  colors: c,
-                  icon: Icons.call_rounded,
-                  tooltip: 'Voice call',
-                  onPressed: () => _startCallFromList(
-                    context,
-                    ref,
-                    user: dmOtherUser!,
-                    channelId: channel['id']?.toString(),
-                    mode: 'voice',
-                  ),
-                ),
-                const SizedBox(width: 4),
-                _chatListCallButton(
-                  colors: c,
-                  icon: Icons.videocam_rounded,
-                  tooltip: 'Video call',
-                  onPressed: () => _startCallFromList(
-                    context,
-                    ref,
-                    user: dmOtherUser!,
-                    channelId: channel['id']?.toString(),
-                    mode: 'video',
-                  ),
-                ),
-              ] else ...[
-                const SizedBox(width: 36),
-                const SizedBox(width: 36),
-              ],
             ],
-          ]),
+          ),
         ),
+      ),
     );
   }
 

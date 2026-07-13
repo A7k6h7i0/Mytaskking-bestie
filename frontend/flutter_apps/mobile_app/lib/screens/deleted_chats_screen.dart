@@ -102,7 +102,7 @@ class _DeletedChatsScreenState extends ConsumerState<DeletedChatsScreen> {
     final isPlatformAdmin = user?.isPlatformSuperAdmin == true;
 
     return Scaffold(
-      backgroundColor: c.bg,
+      backgroundColor: c.surface,
       appBar: AppBar(
         elevation: 0,
         backgroundColor: c.surface,

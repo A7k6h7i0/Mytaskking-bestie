@@ -116,7 +116,7 @@ class _LoginActivityScreenState extends ConsumerState<LoginActivityScreen> {
     final activity = ref.watch(loginActivityProvider(_query));
 
     return Scaffold(
-      backgroundColor: colors.bg,
+      backgroundColor: colors.surface,
       appBar: AppBar(
         title: const Text('Login activity'),
         actions: [

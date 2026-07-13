@@ -100,7 +100,7 @@ class CallForegroundService : Service() {
             Notification.Builder(this)
         }
         return builder
-            .setSmallIcon(applicationInfo.icon)
+            .setSmallIcon(NotificationIcon.smallIcon(this))
             .setContentTitle(title)
             .setContentText(body)
             .setCategory(Notification.CATEGORY_CALL)

@@ -20,6 +20,9 @@ dependencies:
   go_router: ^14.6.1
   flutter_riverpod: ^2.6.1
   agora_rtc_engine: ^6.5.0
+  flutter_webrtc: ^1.5.2
+  mediasfu_mediasoup_client: ^0.1.4
+  socket_io_client: ^3.0.0
   permission_handler: ^11.3.1
   gal: ^2.3.0
   path: ^1.9.0

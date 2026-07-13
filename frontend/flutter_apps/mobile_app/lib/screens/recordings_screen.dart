@@ -77,7 +77,7 @@ class _RecordingsScreenState extends ConsumerState<RecordingsScreen> {
     final role = ref.watch(authStoreProvider).user?.role;
     final canDelete = role == 'SUPER_ADMIN' || role == 'ADMIN';
     return Scaffold(
-      backgroundColor: c.bg,
+      backgroundColor: c.surface,
       appBar: AppBar(
         backgroundColor: c.surface,
         foregroundColor: c.text,

@@ -2,24 +2,47 @@
 class CallEventText {
   CallEventText._();
 
-  static ({String display, String? callId, String? status, String? initiatorId})
-      parseBody(String raw) {
+  static ({
+    String display,
+    String? callId,
+    String? status,
+    String? initiatorId,
+    String? mode,
+  }) parseBody(String raw) {
     final marker = raw.lastIndexOf('|call:');
     if (marker < 0) {
-      return (display: raw, callId: null, status: null, initiatorId: null);
+      return (
+        display: raw,
+        callId: null,
+        status: null,
+        initiatorId: null,
+        mode: null,
+      );
     }
     final display = raw.substring(0, marker);
     final tail = raw.substring(marker + 6);
     final parts = tail.split(':');
+    final mode = parts.length > 3 && parts[3].isNotEmpty ? parts[3] : null;
     return (
       display: display,
       callId: parts.isNotEmpty ? parts[0] : null,
       status: parts.length > 1 ? parts[1] : null,
       initiatorId: parts.length > 2 && parts[2].isNotEmpty ? parts[2] : null,
+      mode: mode,
     );
   }
 
-  /// WhatsApp-style: callee sees "Missed call from Priya", caller sees "No answer".
+  static bool isVideoMode(String? mode, {String? displayFallback}) {
+    if (mode != null && mode.isNotEmpty) {
+      return mode.toUpperCase() == 'VIDEO';
+    }
+    final lower = (displayFallback ?? '').toLowerCase();
+    if (lower.contains('voice')) return false;
+    if (lower.contains('video')) return true;
+    return true;
+  }
+
+  /// WhatsApp-style: callee sees "Missed video call from Priya", caller sees "No answer".
   static String displayForViewer({
     required String rawDisplay,
     required String? status,

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../state.dart';
@@ -14,12 +15,22 @@ class AnnouncementsScreen extends ConsumerWidget {
     final announcements = ref.watch(announcementsProvider);
 
     return Scaffold(
-      backgroundColor: c.bg,
+      backgroundColor: c.surface,
       appBar: AppBar(
         elevation: 0,
         backgroundColor: c.surface,
         foregroundColor: c.text,
         title: const Text('Announcements'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go('/chat');
+            }
+          },
+        ),
       ),
       body: RefreshIndicator(
         onRefresh: () async => ref.refresh(announcementsProvider.future),

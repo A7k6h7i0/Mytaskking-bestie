@@ -41,7 +41,9 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
             return
         }
         if (type == "call.incoming" || type == "meeting.invited") {
-            if (isAppInForeground()) return
+            // Start native ringing when the app is backgrounded/killed OR when the
+            // screen is off — Flutter ringtone plugins cannot play in those states.
+            if (isAppInForeground() && isInteractiveScreen()) return
             try {
                 IncomingCallForegroundService.start(this, data, type)
             } catch (_: Exception) {
@@ -83,7 +85,7 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val builder = notificationBuilder(EMERGENCY_CHANNEL_ID)
-            .setSmallIcon(applicationInfo.icon)
+            .setSmallIcon(NotificationIcon.smallIcon(this))
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(Notification.BigTextStyle().bigText(body))
@@ -138,7 +140,7 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
         )
 
         val builder = notificationBuilder(CALLS_CHANNEL_ID)
-            .setSmallIcon(applicationInfo.icon)
+            .setSmallIcon(NotificationIcon.smallIcon(this))
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(Notification.BigTextStyle().bigText(body))
@@ -192,7 +194,7 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
         )
 
         val builder = notificationBuilder(MESSAGES_CHANNEL_ID)
-            .setSmallIcon(applicationInfo.icon)
+            .setSmallIcon(NotificationIcon.smallIcon(this))
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(Notification.BigTextStyle().bigText(body))
@@ -278,6 +280,14 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
             } == true
         } catch (_: Exception) {
             false
+        }
+    }
+
+    private fun isInteractiveScreen(): Boolean {
+        return try {
+            getSystemService(PowerManager::class.java).isInteractive
+        } catch (_: Exception) {
+            true
         }
     }
 

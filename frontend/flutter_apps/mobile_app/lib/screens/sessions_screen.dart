@@ -17,7 +17,7 @@ class SessionsScreen extends ConsumerWidget {
     final sessions = ref.watch(mySessionsProvider);
 
     return Scaffold(
-      backgroundColor: c.bg,
+      backgroundColor: c.surface,
       appBar: AppBar(
         elevation: 0,
         backgroundColor: c.surface,
@@ -141,7 +141,9 @@ class SessionsScreen extends ConsumerWidget {
     if (!ok) return;
     try {
       await ref.read(apiProvider).signOutEverywhere();
+      await ref.read(authStoreProvider).logout();
       ref.invalidate(mySessionsProvider);
+      if (context.mounted) context.go('/login');
     } catch (e) {
       if (context.mounted)
         bestieToast(context, 'Could not sign out',

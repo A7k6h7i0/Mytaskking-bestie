@@ -3,6 +3,7 @@
 library mytaskking_design;
 
 export 'src/tokens.dart';
+export 'src/palette_extension.dart';
 export 'src/colors.dart';
 export 'src/theme.dart';
 export 'src/motion.dart';

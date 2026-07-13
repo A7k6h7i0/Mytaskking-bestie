@@ -52,7 +52,7 @@ class ChatContactScreen extends StatelessWidget {
         .replaceAll('_', ' ');
 
     return Scaffold(
-      backgroundColor: colors.bg,
+      backgroundColor: colors.surface,
       appBar: AppBar(
         elevation: 0,
         backgroundColor: colors.surface,
@@ -100,7 +100,7 @@ class ChatContactScreen extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 14,
                       color: subtitle == 'Online'
-                          ? BestieTokens.cSuccess
+                          ? BestieTokens.cBrand
                           : colors.textSoft,
                     ),
                   ),

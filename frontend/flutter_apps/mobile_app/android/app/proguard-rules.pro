@@ -17,7 +17,8 @@
 -keep class com.google.android.play.core.** { *; }
 
 # ----- Agora RTC -----
--keep class io.agora.**       { *; }
+-keep class io.agora.** { *; }
+-keep class io.agora.rtc2.extensions.** { *; }
 -keep class com.agora.rtc.**  { *; }
 -dontwarn io.agora.**
 

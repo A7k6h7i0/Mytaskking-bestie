@@ -83,13 +83,29 @@ class _OngoingCallBarState extends ConsumerState<OngoingCallBar> {
   bool _showBubble(WidgetRef ref) {
     if (CallSession.onCallScreen || _onCallRoute(ref)) return false;
     final active = ActiveCallState.current.value;
-    return CallSession.engine != null &&
-        CallSession.joined &&
+    // Engine alive is enough — `joined` can briefly flicker during reconnects
+    // and was hiding the return bubble on 3+ participant calls.
+    return CallSession.isActive &&
         active != null &&
         (active.callId != null || active.meetingSlug != null);
   }
 
+  bool get _isGroupBubble {
+    final active = ActiveCallState.current.value;
+    if (active == null) return false;
+    return active.participants.length > 1 ||
+        active.title.contains(',') ||
+        active.title.contains('+');
+  }
+
   String get _displayName {
+    final active = ActiveCallState.current.value;
+    if (_isGroupBubble &&
+        active != null &&
+        active.title.isNotEmpty &&
+        active.title != 'Call') {
+      return active.title;
+    }
     final cached = CallSession.remotePeerName;
     if (cached != null &&
         cached.isNotEmpty &&
@@ -97,7 +113,6 @@ class _OngoingCallBarState extends ConsumerState<OngoingCallBar> {
         cached != 'Connecting…') {
       return cached;
     }
-    final active = ActiveCallState.current.value;
     if (active != null && active.title.isNotEmpty && active.title != 'Call') {
       return active.title;
     }
@@ -111,6 +126,9 @@ class _OngoingCallBarState extends ConsumerState<OngoingCallBar> {
     }
     return active?.title ?? 'Call';
   }
+
+  String? get _bubbleAvatarUrl =>
+      _isGroupBubble ? null : CallSession.remotePeerAvatarUrl;
 
   String get _elapsedLabel {
     final started = CallSession.connectedAt ??
@@ -141,7 +159,7 @@ class _OngoingCallBarState extends ConsumerState<OngoingCallBar> {
             bottom: bottomPad + 88,
             child: _FloatingCallBubble(
               name: _displayName,
-              imageUrl: CallSession.remotePeerAvatarUrl,
+              imageUrl: _bubbleAvatarUrl,
               elapsed: _elapsedLabel,
               isVideo: CallSession.videoEnabled,
               onTap: _returnToCall,

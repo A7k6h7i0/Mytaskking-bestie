@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:mytaskking_core/mytaskking_core.dart' as core;
 
+import '../mobile_themes_section.dart';
 import '../state.dart' hide ThemeMode;
 
 /// App-level settings and links to the rest of the workspace.
@@ -250,20 +251,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         _goBack(context);
       },
       child: Scaffold(
-        backgroundColor: c.bg,
+        backgroundColor: c.surface,
         appBar: AppBar(
           elevation: 0,
           backgroundColor: c.surface,
           foregroundColor: c.text,
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back_rounded),
-            tooltip: 'Back',
-            onPressed: () => _goBack(context),
-          ),
+          automaticallyImplyLeading: canPop,
+          leading: canPop
+              ? IconButton(
+                  icon: const Icon(Icons.arrow_back_rounded),
+                  tooltip: 'Back',
+                  onPressed: () => _goBack(context),
+                )
+              : null,
           title: const Text('Settings'),
         ),
         body: ListView(
           children: [
+            const MobileThemesSection(),
             if (user != null) _Identity(user: user, colors: c),
             _SectionLabel('Workspace', colors: c),
             if (!(user?.isClient ?? false))
