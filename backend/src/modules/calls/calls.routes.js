@@ -9,7 +9,7 @@ const service = require('./calls.service');
 const audit = require('../../services/audit');
 const fcm = require('../../services/fcm');
 const prisma = require('../../database/prisma');
-const agora = require('../../services/agora');
+const mediasoup = require('../../services/mediasoup');
 const notificationActions = require('../../services/notificationActions');
 const cache = require('../../services/cache');
 const tenant = require('../../services/tenant');
@@ -200,7 +200,7 @@ router.post('/:id/join', asyncHandler(async (req, res) => {
   // (wildcard token flow); fall back to the derived uid for old clients.
   const agoraUid = Number(req.body?.agoraUid) > 0
     ? Number(req.body.agoraUid)
-    : agora.toAgoraUid(req.user.id);
+    : mediasoup.toMediaPeerId(req.user.id);
   emitToCallParticipants(req.app.get('io'), call, 'call.participant.joined', {
     callId: call.id,
     userId: req.user.id,

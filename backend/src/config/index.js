@@ -91,6 +91,13 @@ const config = {
     tokenTtlSeconds: parseInt(process.env.AGORA_TOKEN_TTL_SECONDS || '3600', 10),
   },
 
+  mediasoup: {
+    connectApiUrl: process.env.MEDIASOUP_CONNECT_API_URL || 'https://connect.mytaskking.com',
+    socketUrl: process.env.MEDIASOUP_SOCKET_URL || 'https://connect.mytaskking.com/public',
+    joinSecret: process.env.MEDIASOUP_JOIN_SECRET || process.env.JWT_ACCESS_SECRET || 'dev-access',
+    joinTokenTtlSeconds: parseInt(process.env.MEDIASOUP_JOIN_TOKEN_TTL_SECONDS || '7200', 10),
+  },
+
   exotel: {
     sid: process.env.EXOTEL_SID,
     apiKey: process.env.EXOTEL_API_KEY,
