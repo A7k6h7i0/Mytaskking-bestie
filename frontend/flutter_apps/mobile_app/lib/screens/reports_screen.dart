@@ -29,11 +29,14 @@ class ReportsScreen extends ConsumerWidget {
         body: reports.when(
           loading: () => const BestieSkeletonList(
               itemCount: 4, shape: BestieSkeletonShape.card),
-          error: (e, _) => BestieEmptyState(
-            icon: Icons.error_outline,
-            iconColor: c.danger,
-            title: 'Could not load reports',
-            description: formatApiError(e),
+          error: (e, _) => bestieEmptyScrollable(
+            context,
+            BestieEmptyState(
+              icon: Icons.error_outline,
+              iconColor: c.danger,
+              title: 'Could not load reports',
+              description: formatApiError(e),
+            ),
           ),
           data: (data) {
             final mine = (data['mine'] as List? ?? const [])

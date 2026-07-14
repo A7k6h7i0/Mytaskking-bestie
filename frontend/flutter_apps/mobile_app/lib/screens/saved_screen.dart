@@ -108,11 +108,14 @@ class SavedScreen extends ConsumerWidget {
         onRefresh: () async => ref.refresh(savedProvider.future),
         child: saved.when(
           loading: () => const Center(child: BestieSpinner()),
-          error: (e, _) => BestieEmptyState(
-            icon: Icons.error_outline_rounded,
-            iconColor: c.danger,
-            title: 'Could not load saved items',
-            description: formatApiError(e),
+          error: (e, _) => bestieEmptyScrollable(
+            context,
+            BestieEmptyState(
+              icon: Icons.error_outline_rounded,
+              iconColor: c.danger,
+              title: 'Could not load saved items',
+              description: formatApiError(e),
+            ),
           ),
           data: (items) {
             if (items.isEmpty) {

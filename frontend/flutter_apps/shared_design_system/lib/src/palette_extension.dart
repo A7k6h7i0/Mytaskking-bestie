@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
-/// Optional per-app palette override (Windows desktop themes).
+/// Optional per-app palette override (mobile & desktop themes).
 /// When present on [ThemeData.extensions], [BestieColors.of] uses these values
-/// in light mode instead of the default [BestieTokens].
+/// for brand/accent in both light and dark mode (surfaces stay dark-token-based
+/// in dark mode for readability).
 @immutable
 class BestiePaletteExtension extends ThemeExtension<BestiePaletteExtension> {
   const BestiePaletteExtension({

@@ -365,6 +365,19 @@ class _CheckPainter extends CustomPainter {
 // EMPTY STATE
 // ---------------------------------------------------------------------------
 
+/// Centers [child] vertically inside scrollable / refresh bodies.
+Widget bestieEmptyScrollable(BuildContext context, Widget child) {
+  return LayoutBuilder(
+    builder: (context, constraints) => SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(minHeight: constraints.maxHeight),
+        child: Center(child: child),
+      ),
+    ),
+  );
+}
+
 class BestieEmptyState extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -382,7 +395,7 @@ class BestieEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    final content = Padding(
       padding: const EdgeInsets.all(BestieTokens.s6),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -409,6 +422,20 @@ class BestieEmptyState extends StatelessWidget {
           ],
         ],
       ),
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final h = constraints.maxHeight;
+        if (h.isFinite && h > 0) {
+          return SizedBox(
+            width: constraints.maxWidth,
+            height: h,
+            child: Center(child: content),
+          );
+        }
+        return Center(child: content);
+      },
     );
   }
 }

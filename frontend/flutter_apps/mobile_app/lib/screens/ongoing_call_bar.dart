@@ -131,10 +131,10 @@ class _OngoingCallBarState extends ConsumerState<OngoingCallBar> {
       _isGroupBubble ? null : CallSession.remotePeerAvatarUrl;
 
   String get _elapsedLabel {
-    final started = CallSession.connectedAt ??
+    final connected = CallSession.connectedAt ??
         ActiveCallState.current.value?.connectedAt;
-    if (started == null) return 'Ringing…';
-    return _formatElapsed(DateTime.now().difference(started));
+    if (connected == null) return 'Ringing…';
+    return _formatElapsed(DateTime.now().difference(connected));
   }
 
   String _formatElapsed(Duration d) {

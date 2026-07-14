@@ -27,7 +27,6 @@ class TelecallerOnboardingScreen extends ConsumerStatefulWidget {
 class _TelecallerOnboardingScreenState
     extends ConsumerState<TelecallerOnboardingScreen>
     with WidgetsBindingObserver {
-  static const _primaryBlue = Color(0xFF3B99F6);
   static const _textGrey = Color(0xFF8E8E93);
   static const _bgLight = Color(0xFFF2F7FB);
 
@@ -188,7 +187,8 @@ class _TelecallerOnboardingScreenState
             _linkedFileCount = 1;
           });
           bestieToast(context, 'Test file selected',
-              body: 'Also tap Choose folder so future calls upload automatically.',
+              body:
+                  'Also tap Choose folder so future calls upload automatically.',
               kind: BestieToastKind.info);
         }
         return;
@@ -290,6 +290,7 @@ class _TelecallerOnboardingScreenState
   }
 
   Widget _buildBody() {
+    final brand = BestieColors.of(context).brand;
     switch (_step) {
       case 0:
         return _stepContent(
@@ -309,8 +310,8 @@ class _TelecallerOnboardingScreenState
               icon: const Icon(Icons.settings_outlined, size: 18),
               label: const Text('Open Phone Settings'),
               style: OutlinedButton.styleFrom(
-                foregroundColor: _primaryBlue,
-                side: const BorderSide(color: _primaryBlue),
+                foregroundColor: brand,
+                side: BorderSide(color: brand),
                 padding:
                     const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                 shape: RoundedRectangleBorder(
@@ -349,8 +350,8 @@ class _TelecallerOnboardingScreenState
                     icon: const Icon(Icons.phone_outlined, size: 18),
                     label: Text('Call $phone'),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: _primaryBlue,
-                      side: const BorderSide(color: _primaryBlue),
+                      foregroundColor: brand,
+                      side: BorderSide(color: brand),
                       padding: const EdgeInsets.symmetric(
                           horizontal: 20, vertical: 12),
                       shape: RoundedRectangleBorder(
@@ -385,8 +386,8 @@ class _TelecallerOnboardingScreenState
                 icon: const Icon(Icons.create_new_folder_outlined, size: 18),
                 label: const Text('Choose folder'),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: _primaryBlue,
-                  side: const BorderSide(color: _primaryBlue),
+                  foregroundColor: brand,
+                  side: BorderSide(color: brand),
                   minimumSize: const Size(double.infinity, 48),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(24)),
@@ -398,8 +399,8 @@ class _TelecallerOnboardingScreenState
                 icon: const Icon(Icons.audio_file_outlined, size: 18),
                 label: const Text('Pick a recording file'),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: _primaryBlue,
-                  side: const BorderSide(color: _primaryBlue),
+                  foregroundColor: brand,
+                  side: BorderSide(color: brand),
                   minimumSize: const Size(double.infinity, 48),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(24)),
@@ -647,11 +648,11 @@ class _IconRings extends StatelessWidget {
   final double size;
   final double ringScale;
 
-  static const _primaryBlue = Color(0xFF3B99F6);
   static const _circleBorder = Color(0xFFBCDFFF);
 
   @override
   Widget build(BuildContext context) {
+    final brand = BestieColors.of(context).brand;
     return SizedBox(
       width: 120 * ringScale,
       height: 120 * ringScale,
@@ -661,7 +662,7 @@ class _IconRings extends StatelessWidget {
           _Ring(size: 60 * ringScale, opacity: 1),
           _Ring(size: 85 * ringScale, opacity: 0.6),
           _Ring(size: 110 * ringScale, opacity: 0.3),
-          Icon(icon, size: size, color: _primaryBlue),
+          Icon(icon, size: size, color: brand),
         ],
       ),
     );
@@ -680,7 +681,8 @@ class _Ring extends StatelessWidget {
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        border: Border.all(color: _IconRings._circleBorder.withOpacity(opacity)),
+        border:
+            Border.all(color: _IconRings._circleBorder.withOpacity(opacity)),
       ),
     );
   }
@@ -690,19 +692,19 @@ class _CheckBullet extends StatelessWidget {
   const _CheckBullet({required this.text});
   final String text;
 
-  static const _primaryBlue = Color(0xFF3B99F6);
   static const _textGrey = Color(0xFF8E8E93);
 
   @override
   Widget build(BuildContext context) {
+    final brand = BestieColors.of(context).brand;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
           width: 20,
           height: 20,
-          decoration: const BoxDecoration(
-            color: _primaryBlue,
+          decoration: BoxDecoration(
+            color: brand,
             shape: BoxShape.circle,
           ),
           child: const Icon(Icons.check, size: 11, color: Colors.white),
@@ -711,7 +713,8 @@ class _CheckBullet extends StatelessWidget {
         Expanded(
           child: Text(
             text,
-            style: const TextStyle(fontSize: 14, color: _textGrey, height: 1.35),
+            style:
+                const TextStyle(fontSize: 14, color: _textGrey, height: 1.35),
           ),
         ),
       ],
@@ -732,12 +735,11 @@ class _PrimaryButton extends StatelessWidget {
   final IconData? leading;
   final IconData? trailing;
 
-  static const _primaryBlue = Color(0xFF3B99F6);
-
   @override
   Widget build(BuildContext context) {
+    final brand = BestieColors.of(context).brand;
     return Material(
-      color: _primaryBlue,
+      color: brand,
       borderRadius: BorderRadius.circular(28),
       elevation: 0,
       child: InkWell(
@@ -750,7 +752,7 @@ class _PrimaryButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(28),
             boxShadow: [
               BoxShadow(
-                color: _primaryBlue.withOpacity(0.3),
+                color: brand.withOpacity(0.3),
                 blurRadius: 15,
                 offset: const Offset(0, 4),
               ),
@@ -787,16 +789,15 @@ class _Dot extends StatelessWidget {
   const _Dot({required this.active});
   final bool active;
 
-  static const _primaryBlue = Color(0xFF3B99F6);
-
   @override
   Widget build(BuildContext context) {
+    final brand = BestieColors.of(context).brand;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       width: active ? 20 : 8,
       height: 8,
       decoration: BoxDecoration(
-        color: active ? _primaryBlue : const Color(0xFFE0E0E0),
+        color: active ? brand : const Color(0xFFE0E0E0),
         borderRadius: BorderRadius.circular(10),
       ),
     );
@@ -804,7 +805,8 @@ class _Dot extends StatelessWidget {
 }
 
 /// Returns the post-login route for the current user role + setup state.
-String telecallerPostLoginRoute({required String? role, required bool isDesktop}) {
+String telecallerPostLoginRoute(
+    {required String? role, required bool isDesktop}) {
   if (role == 'TELECALLER') {
     if (!TelecallerRecordingSetup.isComplete) {
       return '/telecaller/setup';

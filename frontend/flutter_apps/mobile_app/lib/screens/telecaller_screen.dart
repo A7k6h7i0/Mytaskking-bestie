@@ -40,7 +40,15 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
   Timer? _resumeTimer;
   DateTime? _callStartedAt;
 
-  static const _statuses = ['ALL', 'NEW', 'CONTACTED', 'INTERESTED', 'FOLLOWUP', 'WON', 'LOST'];
+  static const _statuses = [
+    'ALL',
+    'NEW',
+    'CONTACTED',
+    'INTERESTED',
+    'FOLLOWUP',
+    'WON',
+    'LOST'
+  ];
 
   bool get _isDesktopClient =>
       Platform.isWindows || Platform.isLinux || Platform.isMacOS;
@@ -53,7 +61,8 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
     if (_isDesktopClient) {
       unawaited(TelecallerPendingCall.clear());
     } else {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _recoverPendingCall());
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _recoverPendingCall());
     }
   }
 
@@ -121,17 +130,26 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
   }
 
   Future<void> _fetch() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final items = await ref.read(apiProvider).listLeads(
-        q: _search.text.isEmpty ? null : _search.text,
-        status: _status == null || _status == 'ALL' ? null : _status,
-      );
+            q: _search.text.isEmpty ? null : _search.text,
+            status: _status == null || _status == 'ALL' ? null : _status,
+          );
       if (!mounted) return;
-      setState(() { _leads = items; _loading = false; });
+      setState(() {
+        _leads = items;
+        _loading = false;
+      });
     } catch (e) {
       if (!mounted) return;
-      setState(() { _error = formatApiError(e); _loading = false; });
+      setState(() {
+        _error = formatApiError(e);
+        _loading = false;
+      });
     }
   }
 
@@ -220,7 +238,8 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
     }
   }
 
-  Future<void> _showCallOutcomeSheet({bool includeRecordingStep = false}) async {
+  Future<void> _showCallOutcomeSheet(
+      {bool includeRecordingStep = false}) async {
     if (_isDesktopClient) return;
     final callId = _pendingCallId;
     final lead = _pendingCallLead;
@@ -319,7 +338,8 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
             controller: _search,
             onChanged: _onQuery,
             decoration: InputDecoration(
-              prefixIcon: Icon(Icons.search_rounded, color: c.textMuted, size: 18),
+              prefixIcon:
+                  Icon(Icons.search_rounded, color: c.textMuted, size: 18),
               hintText: 'Find a lead',
               filled: true,
               fillColor: c.surface2,
@@ -332,7 +352,8 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
                 borderSide: BorderSide.none,
               ),
               isDense: true,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
             ),
           ),
         ),
@@ -359,7 +380,8 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
                   fontWeight: BestieTokens.fwSemibold,
                   fontSize: 11,
                 ),
-                shape: StadiumBorder(side: BorderSide(color: active ? c.brand : c.border)),
+                shape: StadiumBorder(
+                    side: BorderSide(color: active ? c.brand : c.border)),
                 backgroundColor: c.surface2,
               );
             },
@@ -370,8 +392,10 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
               ? const Center(child: BestieSpinner())
               : _error != null
                   ? BestieEmptyState(
-                      icon: Icons.error_outline_rounded, iconColor: c.danger,
-                      title: 'Could not load leads', description: _error,
+                      icon: Icons.error_outline_rounded,
+                      iconColor: c.danger,
+                      title: 'Could not load leads',
+                      description: _error,
                     )
                   : _leads.isEmpty
                       ? const BestieEmptyState(
@@ -383,7 +407,8 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
                           onRefresh: _fetch,
                           child: ListView.separated(
                             itemCount: _leads.length,
-                            separatorBuilder: (_, __) => Divider(height: 1, indent: 72, color: c.border),
+                            separatorBuilder: (_, __) =>
+                                Divider(height: 1, indent: 72, color: c.border),
                             itemBuilder: (ctx, i) {
                               final l = _leads[i];
                               final name = (l['name'] ?? '—').toString();
@@ -394,31 +419,43 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
                                 leading: CircleAvatar(
                                   backgroundColor: c.brandSoft,
                                   child: Text(
-                                    name.isNotEmpty ? name[0].toUpperCase() : '?',
-                                    style: TextStyle(color: c.brandStrong, fontWeight: BestieTokens.fwBold),
+                                    name.isNotEmpty
+                                        ? name[0].toUpperCase()
+                                        : '?',
+                                    style: TextStyle(
+                                        color: c.brandStrong,
+                                        fontWeight: BestieTokens.fwBold),
                                   ),
                                 ),
                                 title: Text(name,
-                                    style: TextStyle(fontWeight: BestieTokens.fwSemibold, color: c.text)),
+                                    style: TextStyle(
+                                        fontWeight: BestieTokens.fwSemibold,
+                                        color: c.text)),
                                 subtitle: Text(
-                                  [company, phone].where((s) => s.isNotEmpty).join(' · '),
-                                  style: TextStyle(color: c.textMuted, fontSize: 12),
+                                  [company, phone]
+                                      .where((s) => s.isNotEmpty)
+                                      .join(' · '),
+                                  style: TextStyle(
+                                      color: c.textMuted, fontSize: 12),
                                 ),
-                                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                                  GestureDetector(
-                                    onTap: () => _showStatusSheet(l),
-                                    child: BestieBadge(
-                                      tone: _toneFor(st),
-                                      child: Text(st),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  IconButton(
-                                    icon: Icon(Icons.call_rounded, color: c.success),
-                                    tooltip: 'Call',
-                                    onPressed: () => _call(l),
-                                  ),
-                                ]),
+                                trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      GestureDetector(
+                                        onTap: () => _showStatusSheet(l),
+                                        child: BestieBadge(
+                                          tone: _toneFor(st),
+                                          child: Text(st),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      IconButton(
+                                        icon: Icon(Icons.call_rounded,
+                                            color: c.success),
+                                        tooltip: 'Call',
+                                        onPressed: () => _call(l),
+                                      ),
+                                    ]),
                                 onTap: () => _call(l),
                                 onLongPress: () => _showStatusSheet(l),
                               );
@@ -434,12 +471,12 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
   }
 
   BestieTone _toneFor(String status) => switch (status) {
-        'WON'        => BestieTone.success,
-        'CONTACTED'  => BestieTone.info,
+        'WON' => BestieTone.success,
+        'CONTACTED' => BestieTone.info,
         'INTERESTED' => BestieTone.warning,
-        'FOLLOWUP'   => BestieTone.warning,
-        'LOST'       => BestieTone.danger,
-        _            => BestieTone.brand,
+        'FOLLOWUP' => BestieTone.warning,
+        'LOST' => BestieTone.danger,
+        _ => BestieTone.brand,
       };
 
   Future<void> _showCreateLeadSheet() async {
@@ -705,7 +742,8 @@ class _DesktopTelecallerLayoutState extends State<_DesktopTelecallerLayout> {
                           : RefreshIndicator(
                               onRefresh: widget.onRefresh,
                               child: ListView.separated(
-                                padding: const EdgeInsets.symmetric(vertical: 4),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 4),
                                 itemCount: widget.leads.length,
                                 separatorBuilder: (_, __) =>
                                     Divider(height: 1, color: c.border),
@@ -844,7 +882,8 @@ class _DesktopTelecallerLayoutState extends State<_DesktopTelecallerLayout> {
                                 (selected['company'] ?? '').toString(),
                                 (selected['phone'] ?? '').toString(),
                               ].where((s) => s.isNotEmpty).join(' · '),
-                              style: TextStyle(color: c.textMuted, fontSize: 14),
+                              style:
+                                  TextStyle(color: c.textMuted, fontSize: 14),
                             ),
                           ],
                         ),
@@ -868,9 +907,10 @@ class _DesktopTelecallerLayoutState extends State<_DesktopTelecallerLayout> {
                           key: ValueKey(
                             '${selected['id']}-${selected['status']}',
                           ),
-                          initialValue: _leadStatuses.contains(selected['status'])
-                              ? selected['status'] as String
-                              : 'NEW',
+                          initialValue:
+                              _leadStatuses.contains(selected['status'])
+                                  ? selected['status'] as String
+                                  : 'NEW',
                           isExpanded: true,
                           items: _leadStatuses
                               .map((s) => DropdownMenuItem(
@@ -1419,8 +1459,8 @@ class _BulkAssignLeadsSheetState extends State<_BulkAssignLeadsSheet> {
                     itemBuilder: (_, index) {
                       final person = _telecallers[index];
                       final id = person['id']?.toString();
-                      final name = (person['name'] ?? person['userId'] ?? '')
-                          .toString();
+                      final name =
+                          (person['name'] ?? person['userId'] ?? '').toString();
                       if (id == null) return const SizedBox.shrink();
                       return CheckboxListTile(
                         value: _selectedTelecallerIds.contains(id),
@@ -1555,7 +1595,6 @@ class _CallOutcomeSheet extends StatefulWidget {
 }
 
 class _CallOutcomeSheetState extends State<_CallOutcomeSheet> {
-  static const _primaryBlue = Color(0xFF3B99F6);
   static const _outcomes = [
     ('REACHABLE', 'Reachable'),
     ('NO_ANSWER', 'No answer'),
@@ -1584,7 +1623,8 @@ class _CallOutcomeSheetState extends State<_CallOutcomeSheet> {
       unawaited(TelecallerRecordingSetup.load().then((_) {
         if (mounted) setState(() {});
       }));
-      WidgetsBinding.instance.addPostFrameCallback((_) => _runRecordingUpload());
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _runRecordingUpload());
     } else {
       _recordingFinished = true;
     }
@@ -1663,7 +1703,7 @@ class _CallOutcomeSheetState extends State<_CallOutcomeSheet> {
               ? c.success.withValues(alpha: 0.4)
               : failed
                   ? c.danger.withValues(alpha: 0.35)
-                  : _primaryBlue.withValues(alpha: 0.35),
+                  : c.brand.withValues(alpha: 0.35),
         ),
       ),
       child: Column(
@@ -1710,7 +1750,7 @@ class _CallOutcomeSheetState extends State<_CallOutcomeSheet> {
                       ? c.success
                       : failed
                           ? c.danger
-                          : _primaryBlue,
+                          : c.brand,
                   size: 20,
                 ),
               const SizedBox(width: 10),
@@ -1850,7 +1890,8 @@ class _CallOutcomeSheetState extends State<_CallOutcomeSheet> {
               ),
               const SizedBox(height: 16),
               FilledButton.icon(
-                onPressed: (_saving || (widget.runRecordingUpload && !_recordingFinished))
+                onPressed: (_saving ||
+                        (widget.runRecordingUpload && !_recordingFinished))
                     ? null
                     : _save,
                 icon: _saving
@@ -1887,7 +1928,14 @@ class _LeadStatusSheet extends StatefulWidget {
 }
 
 class _LeadStatusSheetState extends State<_LeadStatusSheet> {
-  static const _statuses = ['NEW', 'CONTACTED', 'INTERESTED', 'FOLLOWUP', 'WON', 'LOST'];
+  static const _statuses = [
+    'NEW',
+    'CONTACTED',
+    'INTERESTED',
+    'FOLLOWUP',
+    'WON',
+    'LOST'
+  ];
 
   late String _status = _statuses.contains(widget.lead['status'])
       ? widget.lead['status'] as String

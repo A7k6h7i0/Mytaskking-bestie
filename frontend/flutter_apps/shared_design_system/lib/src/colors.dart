@@ -141,6 +141,8 @@ class BestieColors {
       );
     }
     if (isDark) {
+      // Keep dark surfaces for readability, but honor the selected palette's
+      // brand/accent so Orange Milk / Forest Slate still tint buttons & chips.
       return BestieColors._(
         isDark: true,
         bg:           BestieTokens.cBgDark,
@@ -157,11 +159,15 @@ class BestieColors {
         textSoft:     BestieTokens.cTextSoftDark,
         textMuted:    BestieTokens.cTextMutedDark,
         textFaint:    BestieTokens.cTextFaintDark,
-        brand:        BestieTokens.cBrand400,
-        brandSoft:    BestieTokens.cBrandSoftDark,
-        brandStrong:  BestieTokens.cBrand300,
-        accent:       BestieTokens.cAccent,
-        accentSoft:   BestieTokens.cAccentSoftDark,
+        brand:        override?.brand ?? BestieTokens.cBrand400,
+        brandSoft:    override != null
+            ? override.brand.withValues(alpha: 0.22)
+            : BestieTokens.cBrandSoftDark,
+        brandStrong:  override?.brandStrong ?? BestieTokens.cBrand300,
+        accent:       override?.accent ?? BestieTokens.cAccent,
+        accentSoft:   override != null
+            ? override.accent.withValues(alpha: 0.18)
+            : BestieTokens.cAccentSoftDark,
         success:      BestieTokens.cSuccess,
         successSoft:  BestieTokens.cSuccessSoftDark,
         warning:      BestieTokens.cWarning,

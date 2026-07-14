@@ -18,7 +18,8 @@ import '../widgets/profile_avatar_viewer.dart';
 /// WhatsApp-style recency — pinned first, then most recent activity.
 DateTime _channelActivityTime(Map<String, dynamic> channel) {
   final lastMsg = (channel['lastMessage'] as Map?)?.cast<String, dynamic>();
-  final fromMessage = DateTime.tryParse(lastMsg?['createdAt']?.toString() ?? '');
+  final fromMessage =
+      DateTime.tryParse(lastMsg?['createdAt']?.toString() ?? '');
   if (fromMessage != null) return fromMessage;
   return DateTime.tryParse(channel['updatedAt']?.toString() ?? '') ??
       DateTime.fromMillisecondsSinceEpoch(0);
@@ -65,12 +66,11 @@ String _displayNameForUser(Map<String, dynamic>? user, {String fallback = ''}) {
 
 bool _isReallyOnline(Map<String, dynamic>? user) =>
     user?['online'] == true ||
-    (((user?['presence'] as Map?)?.cast<String, dynamic>())?['online'] ==
-        true);
+    (((user?['presence'] as Map?)?.cast<String, dynamic>())?['online'] == true);
 
-Color _presenceDotColor(Map<String, dynamic>? user) {
+Color _presenceDotColor(Map<String, dynamic>? user, Color brand) {
   if (user == null) return Colors.transparent;
-  if (_isReallyOnline(user)) return BestieTokens.cBrand;
+  if (_isReallyOnline(user)) return brand;
   final status = (user['status'] ?? '').toString();
   if (status == 'AWAY' || status == 'BUSY') return const Color(0xFFFFC107);
   return const Color(0xFFB4BAC6);
@@ -194,19 +194,23 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
     final colors = BestieColors.of(context);
     final channels = ref.watch(channelsProvider);
     final me = ref.watch(authStoreProvider).user;
+    // Clear the shell's bottom nav without a nested Scaffold bottom bar — an
+    // empty SizedBox there renders as a white strip above the real footer.
+    final shellNavClearance =
+        70.0 + 24 + MediaQuery.of(context).padding.bottom;
 
     return Scaffold(
       backgroundColor: colors.surface,
-      bottomNavigationBar: SizedBox(
-        height: 64.0 + MediaQuery.of(context).padding.bottom,
-      ),
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: BestieTokens.cBrand,
-        foregroundColor: Colors.white,
-        elevation: 4,
-        tooltip: 'New chat',
-        onPressed: () => _newChat(context, ref),
-        child: const Icon(Icons.edit_outlined),
+      floatingActionButton: Padding(
+        padding: EdgeInsets.only(bottom: shellNavClearance),
+        child: FloatingActionButton(
+          backgroundColor: colors.brand,
+          foregroundColor: Colors.white,
+          elevation: 4,
+          tooltip: 'New chat',
+          onPressed: () => _newChat(context, ref),
+          child: const Icon(Icons.edit_outlined),
+        ),
       ),
       body: SafeArea(
         bottom: false,
@@ -217,23 +221,23 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
               colors: colors,
               user: me,
               onMenuSelected: (value) => _onHeaderMenu(context, ref, value),
-              onEditOrg: _isOrgAdmin(me)
-                  ? () => _editOrgName(context, ref)
-                  : null,
+              onEditOrg:
+                  _isOrgAdmin(me) ? () => _editOrgName(context, ref) : null,
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
               child: TextField(
                 controller: _searchCtrl,
-                onChanged: (v) => setState(() => _query = v.trim().toLowerCase()),
+                onChanged: (v) =>
+                    setState(() => _query = v.trim().toLowerCase()),
                 style: TextStyle(color: colors.text, fontSize: 15),
                 decoration: InputDecoration(
                   hintText: 'Search messages...',
                   hintStyle: TextStyle(color: colors.textFaint, fontSize: 15),
-                  prefixIcon:
-                      Icon(Icons.search_rounded, color: colors.textMuted, size: 20),
+                  prefixIcon: Icon(Icons.search_rounded,
+                      color: colors.textMuted, size: 20),
                   filled: true,
-                  fillColor: const Color(0xFFF2F2F7),
+                  fillColor: colors.surface2,
                   contentPadding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                   border: OutlineInputBorder(
@@ -246,7 +250,8 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(24),
-                    borderSide: BorderSide(color: colors.brand.withValues(alpha: 0.35)),
+                    borderSide:
+                        BorderSide(color: colors.brand.withValues(alpha: 0.35)),
                   ),
                 ),
               ),
@@ -263,7 +268,8 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                   ),
                   data: (items) {
                     if (items.isEmpty) {
-                      return _EmptyState(onNewChat: () => _newChat(context, ref));
+                      return _EmptyState(
+                          onNewChat: () => _newChat(context, ref));
                     }
 
                     final dms = <Map<String, dynamic>>[];
@@ -287,7 +293,8 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                     _sortChannelsByRecent(groups);
                     _sortChannelsByRecent(clientChannels);
 
-                    bool matchesQuery(Map<String, dynamic> channel, String kind) {
+                    bool matchesQuery(
+                        Map<String, dynamic> channel, String kind) {
                       if (_query.isEmpty) return true;
                       final members = (channel['members'] as List?)
                               ?.cast<Map<String, dynamic>>() ??
@@ -317,21 +324,18 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                         filteredDms.isEmpty &&
                         filteredGroups.isEmpty &&
                         filteredClients.isEmpty) {
-                      return ListView(
-                        children: [
-                          SizedBox(
-                              height: MediaQuery.sizeOf(context).height * 0.2),
-                          const BestieEmptyState(
-                            icon: Icons.search_off_rounded,
-                            title: 'No chats found',
-                            description: 'Try a different name or keyword.',
-                          ),
-                        ],
+                      return bestieEmptyScrollable(
+                        context,
+                        const BestieEmptyState(
+                          icon: Icons.search_off_rounded,
+                          title: 'No chats found',
+                          description: 'Try a different name or keyword.',
+                        ),
                       );
                     }
 
                     return ListView(
-                      padding: const EdgeInsets.only(bottom: 88),
+                      padding: EdgeInsets.only(bottom: shellNavClearance + 16),
                       children: [
                         _Section(
                           title: 'Direct messages',
@@ -367,7 +371,8 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                           title: 'Client channels',
                           icon: Icons.business_center_outlined,
                           count: filteredClients.length,
-                          emptyHint: 'External client threads will appear here.',
+                          emptyHint:
+                              'External client threads will appear here.',
                           children: [
                             for (final c in filteredClients)
                               _ChatTile(
@@ -501,10 +506,10 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
       currentUserId: me?.id,
       initialTabIndex: initialTabIndex,
       fetchEmployees: (q) => api.listEmployees(
-            q: q.trim().isEmpty ? null : q.trim(),
-            forChat: true,
-            pageSize: 200,
-          ),
+        q: q.trim().isEmpty ? null : q.trim(),
+        forChat: true,
+        pageSize: 200,
+      ),
       onStartDm: (otherId) async {
         final ch = await api.createChannel(kind: 'DM', memberIds: [otherId]);
         return ch;
@@ -543,7 +548,8 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
             bestieToast(
               context,
               'Calling unavailable',
-              body: 'Platform administrators cannot be called from direct messages.',
+              body:
+                  'Platform administrators cannot be called from direct messages.',
               kind: BestieToastKind.warning,
             );
           }
@@ -600,8 +606,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
           } catch (_) {}
           if (context.mounted) {
             bestieToast(context, '${user['name']} is busy',
-                body:
-                    'Waiting for them to accept and add you to their call.',
+                body: 'Waiting for them to accept and add you to their call.',
                 kind: BestieToastKind.info);
           }
           return;
@@ -685,7 +690,8 @@ class _ChatsHeader extends ConsumerWidget {
                 value: 'new_group',
                 child: Row(
                   children: [
-                    Icon(Icons.group_add_outlined, color: colors.text, size: 22),
+                    Icon(Icons.group_add_outlined,
+                        color: colors.text, size: 22),
                     const SizedBox(width: 12),
                     const Text('New group'),
                   ],
@@ -728,11 +734,11 @@ class _ChatsHeader extends ConsumerWidget {
               children: [
                 ShaderMask(
                   blendMode: BlendMode.srcIn,
-                  shaderCallback: (rect) => const LinearGradient(
+                  shaderCallback: (rect) => LinearGradient(
                     colors: [
                       BestieTokens.cAccent,
-                      BestieTokens.cBrand,
-                      Color(0xFF3AA1FF),
+                      colors.brand,
+                      const Color(0xFF3AA1FF),
                     ],
                   ).createShader(rect),
                   child: const Text(
@@ -784,11 +790,11 @@ class _ChatsHeader extends ConsumerWidget {
             onTap: onEditOrg,
             child: ShaderMask(
               blendMode: BlendMode.srcIn,
-              shaderCallback: (rect) => const LinearGradient(
+              shaderCallback: (rect) => LinearGradient(
                 colors: [
                   BestieTokens.cAccent,
-                  BestieTokens.cBrand,
-                  Color(0xFF3AA1FF),
+                  colors.brand,
+                  const Color(0xFF3AA1FF),
                 ],
               ).createShader(rect),
               child: Text(
@@ -910,6 +916,7 @@ class _ChatTile extends ConsumerWidget {
     // Build display name. For DMs prefer the *other* member's name.
     String displayName = (channel['name'] ?? '').toString().trim();
     String? avatarUrl;
+    String? groupIconUrl;
     Map<String, dynamic>? dmOtherUser;
     if (kind == 'DM') {
       dmOtherUser = _resolveDmPeer(members, currentUserId);
@@ -919,11 +926,14 @@ class _ChatTile extends ConsumerWidget {
       }
     }
     if (displayName.isEmpty) displayName = 'Chat';
+    if (kind != 'DM') {
+      final icon = channel['iconUrl']?.toString();
+      if (icon != null && icon.isNotEmpty) groupIconUrl = icon;
+    }
     final timestamp = _timeLabel(_channelActivityTime(channel));
 
     final channelId = channel['id']?.toString() ?? '';
-    final clearedAt =
-        ref.watch(chatClearedAtProvider(channelId)).asData?.value;
+    final clearedAt = ref.watch(chatClearedAtProvider(channelId)).asData?.value;
 
     // Prefer the last message body as the preview line — what WhatsApp /
     // Telegram show. Falls back to the member count.
@@ -1026,7 +1036,35 @@ class _ChatTile extends ConsumerWidget {
                             isClient: isClient,
                             size: 52,
                           )
-                        : Container(
+                        : groupIconUrl != null
+                            ? ClipOval(
+                                child: Image.network(
+                                  groupIconUrl,
+                                  width: 52,
+                                  height: 52,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => Container(
+                                    width: 52,
+                                    height: 52,
+                                    decoration: BoxDecoration(
+                                      color: isClient
+                                          ? c.clientSoft
+                                          : c.brandSoft,
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Icon(
+                                      kind == 'CLIENT'
+                                          ? Icons.business_center_outlined
+                                          : Icons.groups_outlined,
+                                      color: isClient
+                                          ? c.client
+                                          : c.brandStrong,
+                                      size: 24,
+                                    ),
+                                  ),
+                                ),
+                              )
+                            : Container(
                             width: 52,
                             height: 52,
                             decoration: BoxDecoration(
@@ -1049,7 +1087,7 @@ class _ChatTile extends ConsumerWidget {
                           width: 14,
                           height: 14,
                           decoration: BoxDecoration(
-                            color: _presenceDotColor(dmOtherUser),
+                            color: _presenceDotColor(dmOtherUser, c.brand),
                             shape: BoxShape.circle,
                             border: Border.all(color: c.surface, width: 2),
                           ),
@@ -1071,9 +1109,8 @@ class _ChatTile extends ConsumerWidget {
                             isClient: isClient,
                             style: TextStyle(
                               fontSize: 15,
-                              fontWeight: unread
-                                  ? FontWeight.w700
-                                  : FontWeight.w600,
+                              fontWeight:
+                                  unread ? FontWeight.w700 : FontWeight.w600,
                               color: c.text,
                             ),
                           ),
@@ -1242,6 +1279,7 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = BestieColors.of(context);
     return BestieEmptyState(
       icon: Icons.chat_bubble_outline_rounded,
       title: 'No chats yet',
@@ -1249,7 +1287,7 @@ class _EmptyState extends StatelessWidget {
       action: FilledButton.icon(
         onPressed: onNewChat,
         style: FilledButton.styleFrom(
-          backgroundColor: BestieTokens.cBrand,
+          backgroundColor: colors.brand,
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
         ),
         icon: const Icon(Icons.edit_outlined, size: 16),

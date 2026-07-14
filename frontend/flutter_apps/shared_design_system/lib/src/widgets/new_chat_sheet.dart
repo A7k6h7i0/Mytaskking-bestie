@@ -278,7 +278,6 @@ class _NewChatSheetState extends State<_NewChatSheet>
                 controller: _tabs,
                 children: [
                   _PeopleList(
-                    scrollCtrl: scrollCtrl,
                     loading: _loading,
                     error: _error,
                     employees: _employees,
@@ -288,7 +287,6 @@ class _NewChatSheetState extends State<_NewChatSheet>
                     onCall: widget.onStartCall,
                   ),
                   _PeopleList(
-                    scrollCtrl: scrollCtrl,
                     loading: _loading,
                     error: _error,
                     employees: _employees,
@@ -379,8 +377,8 @@ class _SearchField extends StatelessWidget {
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(BestieTokens.rSm),
-            borderSide: const BorderSide(
-              color: BestieTokens.cBrand,
+            borderSide: BorderSide(
+              color: colors.brand,
               width: 1.6,
             ),
           ),
@@ -391,7 +389,6 @@ class _SearchField extends StatelessWidget {
 }
 
 class _PeopleList extends StatelessWidget {
-  final ScrollController scrollCtrl;
   final bool loading;
   final String? error;
   final List<Map<String, dynamic>> employees;
@@ -402,7 +399,6 @@ class _PeopleList extends StatelessWidget {
   final BestieStartCall? onCall;
 
   const _PeopleList({
-    required this.scrollCtrl,
     required this.loading,
     required this.error,
     required this.employees,
@@ -416,48 +412,56 @@ class _PeopleList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
+    final bottomPad = MediaQuery.paddingOf(context).bottom + 24;
     if (loading && employees.isEmpty) {
       return ListView(
-        controller: scrollCtrl,
         physics: const AlwaysScrollableScrollPhysics(),
+        padding: EdgeInsets.only(bottom: bottomPad),
         children: const [
           SizedBox(height: 120, child: Center(child: BestieSpinner())),
         ],
       );
     }
     if (error != null && employees.isEmpty) {
-      return ListView(
-        controller: scrollCtrl,
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.symmetric(vertical: 24),
-        children: [
-          BestieEmptyState(
-            icon: Icons.error_outline_rounded,
-            iconColor: c.danger,
-            title: 'Could not load teammates',
-            description: error,
+      return LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: EdgeInsets.fromLTRB(0, 24, 0, bottomPad),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: Center(
+              child: BestieEmptyState(
+                icon: Icons.error_outline_rounded,
+                iconColor: c.danger,
+                title: 'Could not load teammates',
+                description: error,
+              ),
+            ),
           ),
-        ],
+        ),
       );
     }
     if (employees.isEmpty) {
-      return ListView(
-        controller: scrollCtrl,
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 16),
-        children: const [
-          BestieEmptyState(
-            icon: Icons.person_search_rounded,
-            title: 'No teammates match',
-            description: 'Try a different name or @userid.',
+      return LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: EdgeInsets.fromLTRB(16, 32, 16, bottomPad),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: const Center(
+              child: BestieEmptyState(
+                icon: Icons.person_search_rounded,
+                title: 'No teammates match',
+                description: 'Try a different name or @userid.',
+              ),
+            ),
           ),
-        ],
+        ),
       );
     }
     return ListView.builder(
-      controller: scrollCtrl,
       itemCount: employees.length,
-      padding: const EdgeInsets.fromLTRB(8, 4, 8, 24),
+      padding: EdgeInsets.fromLTRB(8, 4, 8, bottomPad),
       itemBuilder: (ctx, i) {
         final u = employees[i];
         final id = u['id'] as String;
@@ -513,13 +517,9 @@ class _PeopleList extends StatelessWidget {
                       width: 22,
                       height: 22,
                       decoration: BoxDecoration(
-                        color: isSelected
-                            ? BestieTokens.cBrand
-                            : Colors.transparent,
+                        color: isSelected ? c.brand : Colors.transparent,
                         border: Border.all(
-                          color: isSelected
-                              ? BestieTokens.cBrand
-                              : c.borderStrong,
+                          color: isSelected ? c.brand : c.borderStrong,
                           width: 1.5,
                         ),
                         borderRadius: BorderRadius.circular(6),
@@ -659,8 +659,8 @@ class _GroupFooter extends StatelessWidget {
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(BestieTokens.rSm),
-                    borderSide: const BorderSide(
-                      color: BestieTokens.cBrand,
+                    borderSide: BorderSide(
+                      color: colors.brand,
                       width: 1.6,
                     ),
                   ),
@@ -671,7 +671,7 @@ class _GroupFooter extends StatelessWidget {
             FilledButton.icon(
               onPressed: selectedCount == 0 || submitting ? null : onSubmit,
               style: FilledButton.styleFrom(
-                backgroundColor: BestieTokens.cBrand,
+                backgroundColor: colors.brand,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
                   vertical: 14,

@@ -19,10 +19,11 @@ class BestiePrimaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final brand = color ?? Theme.of(context).colorScheme.primary;
     return ElevatedButton(
       onPressed: loading ? null : onPressed,
       style: ElevatedButton.styleFrom(
-        backgroundColor: color ?? BestieTokens.cBrand,
+        backgroundColor: brand,
         foregroundColor: BestieTokens.cTextInvert,
         minimumSize: const Size(0, 44),
       ),

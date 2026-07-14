@@ -272,7 +272,7 @@ extension BestieApiExt on BestieApi {
   ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
 
   // ---- notifications ----
-  Future<Map<String, dynamic>> notificationsGrouped({int pageSize = 200}) =>
+  Future<Map<String, dynamic>> notificationsGrouped({int pageSize = 100}) =>
       get('/notifications/grouped', query: {'pageSize': pageSize});
   Future<void> markNotificationRead(String id) async {
     await post('/notifications/$id/read');
@@ -364,6 +364,28 @@ extension BestieApiExt on BestieApi {
   Future<void> ackAnnouncement(String id) async {
     await post('/announcements/$id/ack');
   }
+
+  Future<Map<String, dynamic>> createAnnouncement({
+    required String title,
+    required String body,
+    String scope = 'GLOBAL',
+    String priority = 'INFO',
+    String? channelId,
+    bool notify = true,
+    bool pinned = true,
+  }) =>
+      post(
+        '/announcements',
+        body: {
+          'title': title,
+          'body': body,
+          'scope': scope,
+          'priority': priority,
+          if (channelId != null && channelId.isNotEmpty) 'channelId': channelId,
+          'notify': notify,
+          'pinned': pinned,
+        },
+      );
 
   // ---- search ----
   Future<Map<String, dynamic>> search(

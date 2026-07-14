@@ -1341,13 +1341,14 @@ class _RingingAvatarState extends State<_RingingAvatar>
   Widget _ring(double t) {
     final size = 130 + 80 * t;
     final opacity = (1 - t).clamp(0.0, 1.0) * 0.45;
+    final colors = BestieColors.of(context);
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         border: Border.all(
-            color: BestieTokens.cBrand.withValues(alpha: opacity), width: 2),
+            color: colors.brand.withValues(alpha: opacity), width: 2),
       ),
     );
   }

@@ -1,10 +1,25 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
+import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:mediasfu_mediasoup_client/mediasfu_mediasoup_client.dart';
 // ignore: implementation_imports
 import 'package:mediasfu_mediasoup_client/src/handlers/handler_interface.dart'
     show RTCIceCredentialType, RTCIceServer;
 import 'package:socket_io_client/socket_io_client.dart' as io;
+
+final List<RTCIceServer> _googleStunFallback = [
+  RTCIceServer(
+    urls: ['stun:stun.l.google.com:19302'],
+    username: '',
+    credentialType: RTCIceCredentialType.password,
+  ),
+  RTCIceServer(
+    urls: ['stun:stun1.l.google.com:19302'],
+    username: '',
+    credentialType: RTCIceCredentialType.password,
+  ),
+];
 
 /// Mediasoup SFU call session for MyTaskKing mobile (connect.mytaskking.com).
 ///
@@ -84,6 +99,7 @@ class MediasoupCallSession {
     _muted = false;
 
     try {
+      await _configurePlatformAudioForCall();
       await _openSocket(connectUrl);
       final joinResult = await _joinRoom(roomId, userName);
       await _loadDevice(joinResult);
@@ -147,7 +163,48 @@ class MediasoupCallSession {
     _iceConfig = null;
     _iceServers = [];
 
+    if (Platform.isAndroid) {
+      try {
+        await Helper.clearAndroidCommunicationDevice();
+      } catch (_) {}
+    }
+
     _notifyStateChanged();
+  }
+
+  /// Must run before getUserMedia / transports — otherwise Android routes
+  /// remote voice on the wrong audio stream (silent call symptom).
+  Future<void> _configurePlatformAudioForCall() async {
+    try {
+      if (WebRTC.platformIsAndroid) {
+        await Helper.setAndroidAudioConfiguration(
+          AndroidAudioConfiguration.communication,
+        );
+      } else if (WebRTC.platformIsIOS) {
+        await Helper.setAppleAudioConfiguration(
+          AppleAudioConfiguration(
+            appleAudioCategory: AppleAudioCategory.playAndRecord,
+            appleAudioCategoryOptions: {
+              AppleAudioCategoryOption.allowBluetooth,
+              AppleAudioCategoryOption.mixWithOthers,
+            },
+            appleAudioMode: AppleAudioMode.voiceChat,
+          ),
+        );
+        await Helper.ensureAudioSession();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> enableRemotePlayback() async {
+    for (final stream in remoteStreams.values) {
+      for (final track in stream.getAudioTracks()) {
+        track.enabled = true;
+        try {
+          await Helper.setVolume(1.0, track);
+        } catch (_) {}
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -551,6 +608,7 @@ class MediasoupCallSession {
     required String socketId,
     String? userName,
   }) async {
+    if (socketId == mySocketId) return;
     if (_consumedProducerIds.contains(producerId)) return;
     _consumedProducerIds.add(producerId);
 
@@ -596,6 +654,13 @@ class MediasoupCallSession {
       }
       final kind = data['kind']?.toString() ?? consumer.kind ?? 'audio';
       _attachRemoteStream(socketId, consumer.stream, kind);
+      if (kind == 'audio') {
+        await enableRemotePlayback();
+      } else if (kind == 'video') {
+        for (final track in consumer.stream.getVideoTracks()) {
+          track.enabled = true;
+        }
+      }
     } catch (e) {
       _consumedProducerIds.remove(producerId);
       onError?.call(e);
@@ -611,6 +676,9 @@ class MediasoupCallSession {
   void _attachRemoteStream(String socketId, MediaStream incoming, String kind) {
     final existing = remoteStreams[socketId];
     if (existing == null) {
+      for (final track in incoming.getTracks()) {
+        track.enabled = true;
+      }
       remoteStreams[socketId] = incoming;
       onRemoteStream?.call(socketId, incoming, kind);
       _notifyStateChanged();
@@ -624,6 +692,7 @@ class MediasoupCallSession {
     }
 
     for (final track in incoming.getTracks()) {
+      track.enabled = true;
       existing.addTrack(track);
     }
     onRemoteStream?.call(socketId, existing, kind);
@@ -686,7 +755,9 @@ class MediasoupCallSession {
   }
 
   List<RTCIceServer> _parseIceServers(Map<String, dynamic>? configData) {
-    if (configData == null) return const [];
+    final googleStun = _googleStunFallback;
+
+    if (configData == null) return googleStun;
 
     dynamic nested = configData['iceServers'];
     List<dynamic> servers;
@@ -695,21 +766,38 @@ class MediasoupCallSession {
     } else if (nested is List) {
       servers = nested;
     } else {
-      return const [];
+      return googleStun;
     }
 
-    return servers.map((raw) {
+    if (servers.isEmpty) return googleStun;
+
+    final parsed = servers.map((raw) {
       final m = Map<String, dynamic>.from(raw as Map);
       final urls = m['urls'];
+      if (urls == null) return null;
+      final urlList = urls is List
+          ? urls.map((u) => u.toString()).where((u) => u.isNotEmpty).toList()
+          : [urls.toString()];
+      if (urlList.isEmpty) return null;
       return RTCIceServer(
-        urls: urls is List
-            ? urls.map((u) => u.toString()).toList()
-            : [urls.toString()],
+        urls: urlList,
         username: m['username']?.toString() ?? '',
         credential: m['credential']?.toString(),
         credentialType: RTCIceCredentialType.password,
       );
-    }).toList();
+    }).whereType<RTCIceServer>().toList();
+
+    if (parsed.isEmpty) return googleStun;
+
+    final hasStun = parsed.any((s) {
+      final urls = s.urls;
+      if (urls is List) {
+        return urls.any((u) => u.toString().startsWith('stun:'));
+      }
+      return urls.toString().startsWith('stun:');
+    });
+    if (!hasStun) return [...parsed, ...googleStun];
+    return parsed;
   }
 
   void _notifyStateChanged() => onStateChanged?.call();

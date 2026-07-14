@@ -142,16 +142,14 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
             shape: BestieSkeletonShape.card,
             padding: EdgeInsets.fromLTRB(12, 8, 12, 96),
           ),
-          error: (e, _) => ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            children: [
-              BestieEmptyState(
-                icon: Icons.error_outline,
-                iconColor: c.danger,
-                title: 'Couldn\'t load tasks',
-                description: formatApiError(e),
-              ),
-            ],
+          error: (e, _) => bestieEmptyScrollable(
+            context,
+            BestieEmptyState(
+              icon: Icons.error_outline,
+              iconColor: c.danger,
+              title: 'Couldn\'t load tasks',
+              description: formatApiError(e),
+            ),
           ),
           data: (data) {
             final all = flattenTasksResponse(data);
@@ -186,21 +184,19 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
             }
 
             if (all.isEmpty) {
-              return ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                children: [
-                  BestieEmptyState(
-                    icon: Icons.task_alt,
-                    title: 'No tasks yet',
-                    description:
-                        'Create one and assign it to anyone in the workspace.',
-                    action: FilledButton.icon(
-                      onPressed: _newTask,
-                      icon: const Icon(Icons.add),
-                      label: const Text('New task'),
-                    ),
+              return bestieEmptyScrollable(
+                context,
+                BestieEmptyState(
+                  icon: Icons.task_alt,
+                  title: 'No tasks yet',
+                  description:
+                      'Create one and assign it to anyone in the workspace.',
+                  action: FilledButton.icon(
+                    onPressed: _newTask,
+                    icon: const Icon(Icons.add),
+                    label: const Text('New task'),
                   ),
-                ],
+                ),
               );
             }
 
@@ -225,19 +221,12 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
                       ),
                     ),
                   ),
-                  SliverToBoxAdapter(
-                    child: SizedBox(
-                      height: 158,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                        itemCount: assignedPending.length,
-                        separatorBuilder: (_, __) => const SizedBox(width: 8),
-                        itemBuilder: (_, i) => SizedBox(
-                          width: 280,
-                          child: _taskCard(assignedPending[i], c),
-                        ),
-                      ),
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                    sliver: SliverList.separated(
+                      itemCount: assignedPending.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (_, i) => _taskCard(assignedPending[i], c),
                     ),
                   ),
                 ],
@@ -272,7 +261,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
           ? null
           : FloatingActionButton.extended(
               onPressed: _newTask,
-              backgroundColor: BestieTokens.cBrand,
+              backgroundColor: c.brand,
               foregroundColor: Colors.white,
               icon: const Icon(Icons.add_rounded),
               label: const Text('New task'),
@@ -416,7 +405,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(BestieTokens.rPill),
-            borderSide: BorderSide(color: BestieTokens.cBrand),
+            borderSide: BorderSide(color: c.brand),
           ),
         ),
       ),
@@ -494,8 +483,8 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
               color: selected ? Colors.white : c.textSoft,
             ),
             backgroundColor: c.surface,
-            selectedColor: BestieTokens.cBrand,
-            side: BorderSide(color: selected ? BestieTokens.cBrand : c.border),
+            selectedColor: c.brand,
+            side: BorderSide(color: selected ? c.brand : c.border),
             shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(BestieTokens.rPill)),
             visualDensity: VisualDensity.compact,
@@ -554,7 +543,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
             color: selected ? c.brandSoft : c.surface,
             borderRadius: BorderRadius.circular(BestieTokens.rMd),
             border: Border.all(
-              color: selected ? BestieTokens.cBrand : c.border,
+              color: selected ? c.brand : c.border,
               width: selected ? 1.5 : 1,
             ),
           ),
@@ -640,94 +629,98 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
               ],
               const SizedBox(height: 10),
               Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                if (assignees.isNotEmpty) ...[
-                  Builder(builder: (context) {
-                    final slots =
-                        assignees.length > 3 ? 4 : assignees.length.clamp(1, 3);
-                    final stackWidth = 24.0 + (slots - 1) * 16.0;
-                    return SizedBox(
-                      height: 24,
-                      width: stackWidth,
-                      child: Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          for (var i = 0; i < assignees.take(3).length; i++)
-                            Positioned(
-                              left: i * 16.0,
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  border:
-                                      Border.all(color: c.surface, width: 2),
-                                ),
-                                child: BestieAvatar(
-                                  name: (assignees[i]['user'] as Map?)?['name']
-                                          ?.toString() ??
-                                      '?',
-                                  imageUrl: (assignees[i]['user']
-                                          as Map?)?['avatarUrl']
-                                      ?.toString(),
-                                  isClient: (assignees[i]['user']
-                                          as Map?)?['isClient'] ??
-                                      false,
-                                  size: 24,
-                                ),
-                              ),
-                            ),
-                          if (assignees.length > 3)
-                            Positioned(
-                              left: 3 * 16.0,
-                              child: Container(
-                                width: 24,
-                                height: 24,
-                                alignment: Alignment.center,
-                                decoration: BoxDecoration(
-                                  color: c.surface2,
-                                  shape: BoxShape.circle,
-                                  border:
-                                      Border.all(color: c.surface, width: 2),
-                                ),
-                                child: Text(
-                                  '+${assignees.length - 3}',
-                                  style: TextStyle(
-                                    fontSize: 9,
-                                    color: c.textSoft,
-                                    fontWeight: BestieTokens.fwBold,
+                  spacing: 8,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    if (assignees.isNotEmpty) ...[
+                      Builder(builder: (context) {
+                        final slots = assignees.length > 3
+                            ? 4
+                            : assignees.length.clamp(1, 3);
+                        final stackWidth = 24.0 + (slots - 1) * 16.0;
+                        return SizedBox(
+                          height: 24,
+                          width: stackWidth,
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              for (var i = 0; i < assignees.take(3).length; i++)
+                                Positioned(
+                                  left: i * 16.0,
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                          color: c.surface, width: 2),
+                                    ),
+                                    child: BestieAvatar(
+                                      name: (assignees[i]['user']
+                                                  as Map?)?['name']
+                                              ?.toString() ??
+                                          '?',
+                                      imageUrl: (assignees[i]['user']
+                                              as Map?)?['avatarUrl']
+                                          ?.toString(),
+                                      isClient: (assignees[i]['user']
+                                              as Map?)?['isClient'] ??
+                                          false,
+                                      size: 24,
+                                    ),
                                   ),
                                 ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    );
-                  }),
-                ],
-                if (dueAt != null)
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: c.warningSoft,
-                      borderRadius: BorderRadius.circular(BestieTokens.rPill),
-                    ),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      Icon(Icons.schedule_rounded, size: 12, color: c.warning),
-                      const SizedBox(width: 4),
-                      Text(
-                        _fmt(dueAt),
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: BestieTokens.fwSemibold,
-                          color: c.warning,
+                              if (assignees.length > 3)
+                                Positioned(
+                                  left: 3 * 16.0,
+                                  child: Container(
+                                    width: 24,
+                                    height: 24,
+                                    alignment: Alignment.center,
+                                    decoration: BoxDecoration(
+                                      color: c.surface2,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                          color: c.surface, width: 2),
+                                    ),
+                                    child: Text(
+                                      '+${assignees.length - 3}',
+                                      style: TextStyle(
+                                        fontSize: 9,
+                                        color: c.textSoft,
+                                        fontWeight: BestieTokens.fwBold,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        );
+                      }),
+                    ],
+                    if (dueAt != null)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: c.warningSoft,
+                          borderRadius:
+                              BorderRadius.circular(BestieTokens.rPill),
                         ),
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          Icon(Icons.schedule_rounded,
+                              size: 12, color: c.warning),
+                          const SizedBox(width: 4),
+                          Text(
+                            _fmt(dueAt),
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: BestieTokens.fwSemibold,
+                              color: c.warning,
+                            ),
+                          ),
+                        ]),
                       ),
-                    ]),
-                  ),
-              ]),
+                  ]),
             ],
           ),
         ),
@@ -861,9 +854,8 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
       context: context,
       firstDate: todayStart,
       lastDate: DateTime.now().add(const Duration(days: 365 * 3)),
-      initialDate: (_due != null && !_due!.isBefore(todayStart))
-          ? _due!
-          : todayStart,
+      initialDate:
+          (_due != null && !_due!.isBefore(todayStart)) ? _due! : todayStart,
     );
     if (picked == null) return;
     setState(() => _due = DateTime(picked.year, picked.month, picked.day,
@@ -888,8 +880,7 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
   Future<void> _pickScheduledAt() async {
     final now = DateTime.now();
     final todayStart = DateTime(now.year, now.month, now.day);
-    final initial =
-        _scheduledAt ?? now.add(const Duration(hours: 1));
+    final initial = _scheduledAt ?? now.add(const Duration(hours: 1));
     final date = await showDatePicker(
       context: context,
       firstDate: todayStart,

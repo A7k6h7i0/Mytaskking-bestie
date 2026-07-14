@@ -170,6 +170,9 @@ final meetingsProvider =
 final calendarRangeProvider = FutureProvider.autoDispose
     .family<List<Map<String, dynamic>>, ({DateTime from, DateTime to})>(
         (ref, range) async {
+  final rt = ref.watch(realtimeProvider);
+  ref.onDispose(rt.onAny('calendar.event.created', ([_]) => ref.invalidateSelf()));
+  ref.onDispose(rt.onAny('calendar.event.updated', ([_]) => ref.invalidateSelf()));
   return ref.watch(apiProvider).listEvents(range.from, range.to);
 });
 

@@ -185,41 +185,35 @@ class MobileThemePalettes {
 
   static ThemeData applyTo(ThemeData base, BestiePaletteExtension palette) {
     final isDark = base.brightness == Brightness.dark;
-    if (isDark) {
-      return base.copyWith(extensions: [palette]);
-    }
-    return base.copyWith(
+    final themed = base.copyWith(
       extensions: [palette],
-      scaffoldBackgroundColor: Colors.transparent,
       colorScheme: base.colorScheme.copyWith(
         primary: palette.brand,
         onPrimary: Colors.white,
-        primaryContainer: palette.brandSoft,
+        primaryContainer: isDark
+            ? palette.brand.withValues(alpha: 0.22)
+            : palette.brandSoft,
         onPrimaryContainer: palette.brandStrong,
         secondary: palette.accent,
         onSecondary: Colors.white,
-        secondaryContainer: palette.accentSoft,
-        surface: palette.surface,
-        onSurface: palette.text,
-        surfaceContainerLowest: palette.surface1,
-        surfaceContainerLow: palette.surface1,
-        surfaceContainer: palette.surface2,
-        surfaceContainerHigh: palette.surface3,
-        outline: palette.borderStrong,
-        outlineVariant: palette.border,
-        onSurfaceVariant: palette.textMuted,
-      ),
-      appBarTheme: base.appBarTheme.copyWith(
-        backgroundColor: palette.surface.withValues(alpha: 0.78),
-        foregroundColor: palette.text,
-      ),
-      cardTheme: base.cardTheme.copyWith(color: palette.surface),
-      inputDecorationTheme: base.inputDecorationTheme.copyWith(
-        fillColor: palette.surface,
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(BestieTokens.rSm),
-          borderSide: BorderSide(color: palette.brand, width: 1.6),
-        ),
+        secondaryContainer: isDark
+            ? palette.accent.withValues(alpha: 0.18)
+            : palette.accentSoft,
+        surface: isDark ? base.colorScheme.surface : palette.surface,
+        onSurface: isDark ? base.colorScheme.onSurface : palette.text,
+        surfaceContainerLowest:
+            isDark ? base.colorScheme.surfaceContainerLowest : palette.surface1,
+        surfaceContainerLow:
+            isDark ? base.colorScheme.surfaceContainerLow : palette.surface1,
+        surfaceContainer:
+            isDark ? base.colorScheme.surfaceContainer : palette.surface2,
+        surfaceContainerHigh:
+            isDark ? base.colorScheme.surfaceContainerHigh : palette.surface3,
+        outline: isDark ? base.colorScheme.outline : palette.borderStrong,
+        outlineVariant:
+            isDark ? base.colorScheme.outlineVariant : palette.border,
+        onSurfaceVariant:
+            isDark ? base.colorScheme.onSurfaceVariant : palette.textMuted,
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
@@ -236,26 +230,53 @@ class MobileThemePalettes {
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(foregroundColor: palette.brandStrong),
       ),
-      navigationBarTheme: base.navigationBarTheme.copyWith(
-        backgroundColor: palette.surface,
-        indicatorColor: palette.brandSoft,
+      floatingActionButtonTheme: base.floatingActionButtonTheme.copyWith(
+        backgroundColor: palette.brand,
+        foregroundColor: Colors.white,
       ),
-      chipTheme: base.chipTheme.copyWith(backgroundColor: palette.surface2),
-      dividerTheme: base.dividerTheme.copyWith(color: palette.border),
       progressIndicatorTheme:
           base.progressIndicatorTheme.copyWith(color: palette.brand),
       switchTheme: SwitchThemeData(
         thumbColor: WidgetStateProperty.resolveWith(
           (s) => s.contains(WidgetState.selected)
               ? Colors.white
-              : palette.surface,
+              : (isDark ? Colors.white70 : palette.surface),
         ),
         trackColor: WidgetStateProperty.resolveWith(
           (s) => s.contains(WidgetState.selected)
               ? palette.brand
-              : palette.borderStrong,
+              : (isDark
+                  ? Colors.white24
+                  : palette.borderStrong),
         ),
       ),
+      checkboxTheme: CheckboxThemeData(
+        fillColor: WidgetStateProperty.resolveWith(
+          (s) => s.contains(WidgetState.selected) ? palette.brand : null,
+        ),
+      ),
+    );
+    if (isDark) return themed;
+    return themed.copyWith(
+      scaffoldBackgroundColor: Colors.transparent,
+      appBarTheme: base.appBarTheme.copyWith(
+        backgroundColor: palette.surface.withValues(alpha: 0.78),
+        foregroundColor: palette.text,
+      ),
+      cardTheme: base.cardTheme.copyWith(color: palette.surface),
+      inputDecorationTheme: base.inputDecorationTheme.copyWith(
+        fillColor: palette.surface,
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(BestieTokens.rSm),
+          borderSide: BorderSide(color: palette.brand, width: 1.6),
+        ),
+      ),
+      navigationBarTheme: base.navigationBarTheme.copyWith(
+        backgroundColor: palette.surface,
+        indicatorColor: palette.brandSoft,
+      ),
+      chipTheme: base.chipTheme.copyWith(backgroundColor: palette.surface2),
+      dividerTheme: base.dividerTheme.copyWith(color: palette.border),
     );
   }
 }

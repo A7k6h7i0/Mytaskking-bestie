@@ -22,7 +22,9 @@ import 'screens/connectivity_banner.dart';
 import 'screens/incoming_call_overlay.dart';
 import 'screens/ongoing_call_bar.dart';
 import 'state.dart' hide ThemeMode;
+import 'branding.dart';
 import 'mobile_local_settings.dart';
+import 'mobile_appearance_providers.dart';
 import 'mobile_theme_palettes.dart';
 import 'telecaller_recording_setup.dart';
 
@@ -425,6 +427,11 @@ class _BestieAppState extends ConsumerState<BestieApp> {
   @override
   void initState() {
     super.initState();
+    // Align Riverpod with persisted appearance prefs before first frame.
+    ref.read(themeModeProvider.notifier).state =
+        MobileLocalSettings.themeMode.value;
+    ref.read(mobileColorThemeProvider.notifier).state =
+        MobileLocalSettings.colorTheme.value;
     _wirePushDeepLinks();
     WidgetsBinding.instance
         .addPostFrameCallback((_) => _requestStartupPermissions());
@@ -618,39 +625,95 @@ class _BestieAppState extends ConsumerState<BestieApp> {
   @override
   Widget build(BuildContext context) {
     final fontScale = ref.watch(fontScaleProvider);
-    return ValueListenableBuilder<MobileThemeId>(
-      valueListenable: MobileLocalSettings.colorTheme,
-      builder: (context, paletteId, _) {
-        return ValueListenableBuilder<core.ThemeMode>(
-          valueListenable: MobileLocalSettings.themeMode,
-          builder: (context, mode, __) {
-            final palette = MobileThemePalettes.paletteFor(paletteId);
-            final light = BestieTheme.light()
-                .copyWith(extensions: [palette]);
-            final dark = BestieTheme.dark().copyWith(extensions: [palette]);
-            return MaterialApp.router(
-              title: 'MyTaskKing',
-              debugShowCheckedModeBanner: false,
-              theme: light,
-              darkTheme: dark,
-              themeMode: switch (mode) {
-                core.ThemeMode.light => ThemeMode.light,
-                core.ThemeMode.dark => ThemeMode.dark,
-                core.ThemeMode.system => ThemeMode.system,
+    // Keep Riverpod in sync when settings screens update appearance.
+    ref.watch(themeModeProvider);
+    ref.watch(mobileColorThemeProvider);
+    return ValueListenableBuilder<int>(
+      valueListenable: MobileLocalSettings.themeEpoch,
+      builder: (context, themeEpoch, _) {
+        return ValueListenableBuilder<MobileThemeId>(
+          valueListenable: MobileLocalSettings.colorTheme,
+          builder: (context, paletteId, __) {
+            return ValueListenableBuilder<
+                Map<MobileThemeId, Map<String, int>>>(
+              valueListenable: MobileLocalSettings.themeColorOverrides,
+              builder: (context, overridesMap, ___) {
+                return ValueListenableBuilder<int?>(
+                  valueListenable: MobileLocalSettings.adminPrimaryColor,
+                  builder: (context, adminPrimary, ____) {
+                    return ValueListenableBuilder<core.ThemeMode>(
+                      valueListenable: MobileLocalSettings.themeMode,
+                      builder: (context, mode, _____) {
+                    final overrides = <String, int>{
+                      ...?overridesMap[paletteId],
+                    };
+                    // Org brand tint only on the default blue theme — otherwise
+                    // Orange Milk / Forest Slate lose their identity.
+                    if (adminPrimary != null &&
+                        paletteId == MobileThemeId.mytaskkingBlue) {
+                      overrides['brand'] = adminPrimary;
+                      overrides['brandStrong'] = adminPrimary;
+                      overrides['accent'] = adminPrimary;
+                      overrides['logoGradientStart'] = adminPrimary;
+                      overrides['logoGradientEnd'] = adminPrimary;
+                      overrides['sidebarActiveStart'] = adminPrimary;
+                      overrides['sidebarActiveEnd'] = adminPrimary;
+                      overrides['backdropDot'] = adminPrimary;
+                    }
+                    final palette = MobileThemePalettes.paletteFor(
+                      paletteId,
+                      overrides: overrides.isEmpty ? null : overrides,
+                    );
+                    final light = MobileThemePalettes.applyTo(
+                      BestieTheme.light(),
+                      palette,
+                    );
+                    final dark = MobileThemePalettes.applyTo(
+                      BestieTheme.dark(),
+                      palette,
+                    );
+                    // Warm branding fetch so admin primaryColor is applied.
+                    ref.watch(orgBrandingProvider);
+                    return MaterialApp.router(
+                      key: ValueKey(
+                        'theme-$themeEpoch-${mode.name}-${paletteId.storageKey}-$adminPrimary',
+                      ),
+                      title: 'MyTaskKing',
+                      debugShowCheckedModeBanner: false,
+                      theme: light,
+                      darkTheme: dark,
+                      themeMode: switch (mode) {
+                        core.ThemeMode.light => ThemeMode.light,
+                        core.ThemeMode.dark => ThemeMode.dark,
+                        core.ThemeMode.system => ThemeMode.system,
+                      },
+                      routerConfig: ref.watch(routerProvider),
+                      builder: (ctx, child) {
+                        final appearanceKey = ValueKey(
+                          '$themeEpoch-${paletteId.storageKey}-${mode.name}-$adminPrimary',
+                        );
+                        return KeyedSubtree(
+                          key: appearanceKey,
+                          child: MediaQuery(
+                            data: MediaQuery.of(ctx).copyWith(
+                              textScaler: TextScaler.linear(fontScale),
+                            ),
+                            child: IncomingCallOverlay(
+                              child: OngoingCallBar(
+                                child: ConnectivityBanner(
+                                  child: child ?? const SizedBox.shrink(),
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    );
+                      },
+                    );
+                  },
+                );
               },
-              routerConfig: ref.watch(routerProvider),
-              builder: (ctx, child) => MediaQuery(
-                data: MediaQuery.of(ctx).copyWith(
-                  textScaler: TextScaler.linear(fontScale),
-                ),
-                child: IncomingCallOverlay(
-                  child: OngoingCallBar(
-                    child: ConnectivityBanner(
-                      child: child ?? const SizedBox.shrink(),
-                    ),
-                  ),
-                ),
-              ),
             );
           },
         );

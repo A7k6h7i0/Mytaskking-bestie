@@ -10,6 +10,9 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  mytaskking_design:
+    path: ../shared_design_system
+  go_router: ^14.6.1
   dio: ^5.7.0
   flutter_secure_storage: ^9.2.2
   socket_io_client: ^3.0.0

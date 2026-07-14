@@ -52,18 +52,24 @@ class SessionsScreen extends ConsumerWidget {
         onRefresh: () async => ref.refresh(mySessionsProvider.future),
         child: sessions.when(
           loading: () => const Center(child: BestieSpinner()),
-          error: (e, _) => BestieEmptyState(
-            icon: Icons.error_outline_rounded,
-            iconColor: c.danger,
-            title: 'Could not load sessions',
-            description: formatApiError(e),
+          error: (e, _) => bestieEmptyScrollable(
+            context,
+            BestieEmptyState(
+              icon: Icons.error_outline_rounded,
+              iconColor: c.danger,
+              title: 'Could not load sessions',
+              description: formatApiError(e),
+            ),
           ),
           data: (items) {
             if (items.isEmpty) {
-              return const BestieEmptyState(
-                icon: Icons.devices_outlined,
-                title: 'No active sessions',
-                description: 'You are not signed in anywhere — odd.',
+              return bestieEmptyScrollable(
+                context,
+                const BestieEmptyState(
+                  icon: Icons.devices_outlined,
+                  title: 'No active sessions',
+                  description: 'You are not signed in anywhere — odd.',
+                ),
               );
             }
             return ListView.separated(

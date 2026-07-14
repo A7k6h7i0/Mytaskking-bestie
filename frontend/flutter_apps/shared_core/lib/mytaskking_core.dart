@@ -7,3 +7,4 @@ export 'src/socket_client.dart';
 export 'src/models.dart';
 export 'src/state.dart';
 export 'src/realtime.dart';
+export 'src/widgets/calendar_view.dart';

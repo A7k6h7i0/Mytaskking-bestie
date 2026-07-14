@@ -36,11 +36,14 @@ class DashboardScreen extends ConsumerWidget {
         },
         child: overview.when(
           loading: () => const Center(child: BestieSpinner()),
-          error: (e, _) => BestieEmptyState(
-            icon: Icons.error_outline,
-            iconColor: BestieTokens.cDanger,
-            title: 'Couldn\'t load',
-            description: formatApiError(e),
+          error: (e, _) => bestieEmptyScrollable(
+            context,
+            BestieEmptyState(
+              icon: Icons.error_outline,
+              iconColor: BestieTokens.cDanger,
+              title: 'Couldn\'t load',
+              description: formatApiError(e),
+            ),
           ),
           data: (data) {
             final counts =
@@ -218,6 +221,7 @@ class DashboardScreen extends ConsumerWidget {
   Widget _checkInBanner(
       BuildContext context, Map<String, dynamic>? attendance) {
     final minWords = (attendance?['minRequiredWords'] as num?)?.toInt() ?? 10;
+    final colors = BestieColors.of(context);
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -226,10 +230,10 @@ class DashboardScreen extends ConsumerWidget {
         child: Container(
           padding: const EdgeInsets.all(BestieTokens.s3),
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
+            gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [BestieTokens.cBrand, BestieTokens.cAccent],
+              colors: [colors.brand, BestieTokens.cAccent],
             ),
             borderRadius: BorderRadius.circular(BestieTokens.rMd),
           ),
@@ -394,6 +398,7 @@ class DashboardScreen extends ConsumerWidget {
 
   List<Widget> _statsFor(BuildContext context, Map<String, dynamic> c,
       {required bool isAdmin, required bool isClient}) {
+    final colors = BestieColors.of(context);
     Widget tile(IconData icon, String label, dynamic v, Color color) {
       final n = v is num ? v : num.tryParse('$v');
       return Container(
@@ -441,8 +446,7 @@ class DashboardScreen extends ConsumerWidget {
 
     if (isAdmin) {
       return [
-        tile(Icons.people_outline, 'Employees', c['employees'],
-            BestieTokens.cBrand),
+        tile(Icons.people_outline, 'Employees', c['employees'], colors.brand),
         tile(Icons.manage_accounts_outlined, 'Clients', c['clients'],
             BestieTokens.cClient),
         tile(Icons.task_alt_outlined, 'Tasks open', c['tasksOpen'],
@@ -457,8 +461,8 @@ class DashboardScreen extends ConsumerWidget {
     }
     if (isClient) {
       return [
-        tile(Icons.chat_bubble_outline, 'Channels', c['channels'],
-            BestieTokens.cBrand),
+        tile(
+            Icons.chat_bubble_outline, 'Channels', c['channels'], colors.brand),
         tile(Icons.notifications_none, 'Unread', c['unreadNotifs'],
             BestieTokens.cWarning),
       ];
@@ -469,7 +473,7 @@ class DashboardScreen extends ConsumerWidget {
       tile(Icons.check_circle_outline, 'Done · 7d', c['myDoneThisWeek'],
           BestieTokens.cSuccess),
       tile(Icons.chat_bubble_outline, 'Channels', c['activeChannels'],
-          BestieTokens.cBrand),
+          colors.brand),
       tile(Icons.notifications_none, 'Unread', c['unreadNotifs'],
           BestieTokens.cInfo),
     ];
@@ -498,6 +502,7 @@ class DashboardScreen extends ConsumerWidget {
   /// returns so it costs us no extra round trip.
   Widget _weeklyStatsCard(BuildContext context, Map<String, dynamic> counts,
       {required bool isAdmin}) {
+    final colors = BestieColors.of(context);
     final done = ((isAdmin
                 ? counts['tasksDoneThisWeek']
                 : counts['myDoneThisWeek']) as num?)
@@ -520,15 +525,14 @@ class DashboardScreen extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            const Icon(Icons.show_chart_rounded,
-                size: 18, color: BestieTokens.cBrand),
+            Icon(Icons.show_chart_rounded, size: 18, color: colors.brand),
             const SizedBox(width: 6),
             const Text('Your week',
                 style: TextStyle(fontWeight: FontWeight.w700)),
             const Spacer(),
             Text('${(pct * 100).round()}%',
-                style: const TextStyle(
-                    color: BestieTokens.cBrand,
+                style: TextStyle(
+                    color: colors.brand,
                     fontSize: 14,
                     fontWeight: FontWeight.w800)),
           ]),
@@ -538,7 +542,7 @@ class DashboardScreen extends ConsumerWidget {
             const SizedBox(width: 24),
             _statSpark('Open', '$open', BestieTokens.cWarning),
             const SizedBox(width: 24),
-            _statSpark('Total', '$total', BestieTokens.cBrand),
+            _statSpark('Total', '$total', colors.brand),
           ]),
           const SizedBox(height: 12),
           // Brand-tinted progress bar showing this-week completion ratio.
@@ -548,7 +552,7 @@ class DashboardScreen extends ConsumerWidget {
               value: pct,
               minHeight: 6,
               backgroundColor: BestieTokens.cBorder,
-              valueColor: const AlwaysStoppedAnimation(BestieTokens.cBrand),
+              valueColor: AlwaysStoppedAnimation(colors.brand),
             ),
           ),
         ],
@@ -588,6 +592,7 @@ class DashboardScreen extends ConsumerWidget {
   Widget _liveMeetingsCard(
       BuildContext context, List<Map<String, dynamic>> all) {
     if (all.isEmpty) return const SizedBox.shrink();
+    final colors = BestieColors.of(context);
     final live = all.where((m) => m['endedAt'] == null).toList();
     if (live.isEmpty) return const SizedBox.shrink();
     return Container(
@@ -666,7 +671,7 @@ class DashboardScreen extends ConsumerWidget {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 12, vertical: 0),
                       minimumSize: const Size(0, 30),
-                      backgroundColor: BestieTokens.cBrand,
+                      backgroundColor: colors.brand,
                       foregroundColor: Colors.white,
                     ),
                     child: const Text('Join',
@@ -691,6 +696,7 @@ class DashboardScreen extends ConsumerWidget {
   }
 
   Widget _activityCard(BuildContext context, List items) {
+    final colors = BestieColors.of(context);
     return Container(
       padding: const EdgeInsets.all(BestieTokens.s3),
       decoration: BoxDecoration(
@@ -724,8 +730,8 @@ class DashboardScreen extends ConsumerWidget {
                   Container(
                       width: 6,
                       height: 6,
-                      decoration: const BoxDecoration(
-                          color: BestieTokens.cBrand, shape: BoxShape.circle)),
+                      decoration: BoxDecoration(
+                          color: colors.brand, shape: BoxShape.circle)),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Wrap(spacing: 6, runSpacing: 2, children: [

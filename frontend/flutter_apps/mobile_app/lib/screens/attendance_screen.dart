@@ -52,7 +52,10 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
   }
 
   Future<void> _refresh() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       // `/attendance/today` returns the full config inline (minRequiredWords,
       // hours, lunch window) alongside today's entry — one round trip is enough.
@@ -73,7 +76,10 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
       _refreshStreak();
     } catch (e) {
       if (!mounted) return;
-      setState(() { _error = formatApiError(e); _loading = false; });
+      setState(() {
+        _error = formatApiError(e);
+        _loading = false;
+      });
     }
   }
 
@@ -84,8 +90,10 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
     try {
       final now = DateTime.now();
       final from = now.subtract(const Duration(days: 60));
-      final resp = await ref.read(apiProvider).attendanceRange(from: from, to: now);
-      final items = (resp['items'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+      final resp =
+          await ref.read(apiProvider).attendanceRange(from: from, to: now);
+      final items =
+          (resp['items'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
       final byDate = <String, Map<String, dynamic>>{
         for (final e in items)
           if (e['localDate'] != null) '${e['localDate']}': e,
@@ -93,6 +101,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
       String fmt(DateTime d) {
         return '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
       }
+
       int streak = 0;
       var day = DateTime(now.year, now.month, now.day);
       // If today isn't checked in yet, start counting from yesterday so we
@@ -103,7 +112,8 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
       }
       for (var i = 0; i < 60; i++) {
         // Weekend: skip without breaking.
-        if (day.weekday == DateTime.saturday || day.weekday == DateTime.sunday) {
+        if (day.weekday == DateTime.saturday ||
+            day.weekday == DateTime.sunday) {
           day = day.subtract(const Duration(days: 1));
           continue;
         }
@@ -139,11 +149,13 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
       await ref.read(apiProvider).attendanceCheckIn(plan: _plan.text.trim());
       _plan.clear();
       await _refresh();
-      if (mounted) bestieToast(context, 'Checked in',
-          body: 'Have a productive day.', kind: BestieToastKind.success);
+      if (mounted)
+        bestieToast(context, 'Checked in',
+            body: 'Have a productive day.', kind: BestieToastKind.success);
     } catch (e) {
-      if (mounted) bestieToast(context, 'Could not check in',
-          body: formatApiError(e), kind: BestieToastKind.error);
+      if (mounted)
+        bestieToast(context, 'Could not check in',
+            body: formatApiError(e), kind: BestieToastKind.error);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -153,8 +165,9 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
     setState(() => _busy = true);
     try {
       await ref.read(apiProvider).attendanceLunch(
-        note: _lunchNote.text.trim().isEmpty ? null : _lunchNote.text.trim(),
-      );
+            note:
+                _lunchNote.text.trim().isEmpty ? null : _lunchNote.text.trim(),
+          );
       _lunchNote.clear();
       await _refresh();
       if (mounted) {
@@ -163,8 +176,9 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
             kind: BestieToastKind.success);
       }
     } catch (e) {
-      if (mounted) bestieToast(context, 'Lunch toggle failed',
-          body: formatApiError(e), kind: BestieToastKind.error);
+      if (mounted)
+        bestieToast(context, 'Lunch toggle failed',
+            body: formatApiError(e), kind: BestieToastKind.error);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -205,14 +219,18 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
     }
     setState(() => _busy = true);
     try {
-      await ref.read(apiProvider).attendanceCheckOut(report: _report.text.trim());
+      await ref
+          .read(apiProvider)
+          .attendanceCheckOut(report: _report.text.trim());
       _report.clear();
       await _refresh();
-      if (mounted) bestieToast(context, 'Logged out for the day',
-          body: 'See you tomorrow.', kind: BestieToastKind.success);
+      if (mounted)
+        bestieToast(context, 'Logged out for the day',
+            body: 'See you tomorrow.', kind: BestieToastKind.success);
     } catch (e) {
-      if (mounted) bestieToast(context, 'Could not check out',
-          body: formatApiError(e), kind: BestieToastKind.error);
+      if (mounted)
+        bestieToast(context, 'Could not check out',
+            body: formatApiError(e), kind: BestieToastKind.error);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -305,7 +323,8 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
     final entry = (_today?['entry'] as Map?)?.cast<String, dynamic>();
     final inAt = DateTime.tryParse('${entry?['checkInAt']}')?.toLocal();
     final outAt = DateTime.tryParse('${entry?['checkOutAt']}')?.toLocal();
-    final lunchStart = DateTime.tryParse('${entry?['lunchStartedAt']}')?.toLocal();
+    final lunchStart =
+        DateTime.tryParse('${entry?['lunchStartedAt']}')?.toLocal();
     final lunchEnd = DateTime.tryParse('${entry?['lunchEndedAt']}')?.toLocal();
     if (inAt == null || outAt == null) return const SizedBox.shrink();
     var worked = outAt.difference(inAt);
@@ -313,8 +332,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
       worked -= lunchEnd.difference(lunchStart);
     }
     if (worked.isNegative) worked = Duration.zero;
-    String fmtDur(Duration d) =>
-        '${d.inHours}h ${d.inMinutes.remainder(60)}m';
+    String fmtDur(Duration d) => '${d.inHours}h ${d.inMinutes.remainder(60)}m';
     String fmtTime(DateTime d) =>
         '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
 
@@ -340,7 +358,8 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
             const SizedBox(width: 6),
             Text("Today's wrap-up",
                 style: TextStyle(
-                  color: c.text, fontSize: 14,
+                  color: c.text,
+                  fontSize: 14,
                   fontWeight: BestieTokens.fwBold,
                 )),
           ]),
@@ -348,7 +367,8 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
           _digestRow(c, '⏰', '${fmtTime(inAt)} → ${fmtTime(outAt)}'),
           _digestRow(c, '🛠', 'Worked ${fmtDur(worked)}'),
           if (lunchStart != null && lunchEnd != null)
-            _digestRow(c, '🍽', 'Lunch ${fmtDur(lunchEnd.difference(lunchStart))}'),
+            _digestRow(
+                c, '🍽', 'Lunch ${fmtDur(lunchEnd.difference(lunchStart))}'),
           if (_streak > 0)
             _digestRow(c, '🔥', '$_streak-day streak — see you tomorrow.'),
           const SizedBox(height: 4),
@@ -361,10 +381,13 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(children: [
-        SizedBox(width: 20, child: Text(emoji, style: const TextStyle(fontSize: 14))),
+        SizedBox(
+            width: 20,
+            child: Text(emoji, style: const TextStyle(fontSize: 14))),
         const SizedBox(width: 8),
-        Expanded(child: Text(text,
-            style: TextStyle(color: c.textSoft, fontSize: 13))),
+        Expanded(
+            child:
+                Text(text, style: TextStyle(color: c.textSoft, fontSize: 13))),
       ]),
     );
   }
@@ -398,7 +421,8 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
       ),
       child: Row(children: [
         Container(
-          width: 44, height: 44,
+          width: 44,
+          height: 44,
           decoration: BoxDecoration(
             color: c.warning.withOpacity(0.20),
             borderRadius: BorderRadius.circular(BestieTokens.rMd),
@@ -413,13 +437,16 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
             children: [
               RichText(
                 text: TextSpan(
-                  style: TextStyle(color: c.text, fontSize: 16,
+                  style: TextStyle(
+                      color: c.text,
+                      fontSize: 16,
                       fontWeight: BestieTokens.fwBold),
                   children: [
                     TextSpan(text: '$_streak '),
                     TextSpan(
                       text: '$label streak',
-                      style: TextStyle(color: c.textSoft,
+                      style: TextStyle(
+                          color: c.textSoft,
                           fontWeight: BestieTokens.fwSemibold,
                           fontSize: 13),
                     ),
@@ -454,15 +481,20 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
       colors: c,
       children: [
         if (checkedIn && (entry?['checkInPlan'] ?? '').toString().isNotEmpty)
-          _ReadOnlyEntry(label: 'Today\'s plan', text: entry!['checkInPlan'].toString(), colors: c)
+          _ReadOnlyEntry(
+              label: 'Today\'s plan',
+              text: entry!['checkInPlan'].toString(),
+              colors: c)
         else ...[
           TextField(
             controller: _plan,
-            minLines: 5, maxLines: 12,
+            minLines: 5,
+            maxLines: 12,
             textCapitalization: TextCapitalization.sentences,
             style: TextStyle(color: c.text, height: 1.45),
             decoration: InputDecoration(
-              hintText: 'Write today\'s plan in ≥ $_minWords words. Mention top priorities, dependencies, and what "done" looks like by end of day.',
+              hintText:
+                  'Write today\'s plan in ≥ $_minWords words. Mention top priorities, dependencies, and what "done" looks like by end of day.',
               hintStyle: TextStyle(color: c.textMuted),
               filled: true,
               fillColor: c.surface2,
@@ -476,7 +508,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(BestieTokens.rMd),
-                borderSide: const BorderSide(color: BestieTokens.cBrand, width: 1.6),
+                borderSide: BorderSide(color: c.brand, width: 1.6),
               ),
             ),
           ),
@@ -489,8 +521,9 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
             FilledButton.icon(
               onPressed: _busy ? null : _checkIn,
               style: FilledButton.styleFrom(
-                backgroundColor: BestieTokens.cBrand,
-                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                backgroundColor: c.brand,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
               ),
               icon: const Icon(Icons.login_rounded, size: 16),
               label: const Text('Check in'),
@@ -554,7 +587,9 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
     final cfg = _config;
     final startHour = (cfg?['lunchStartHour'] as num?)?.toInt() ?? 13;
     final endHour = (cfg?['lunchEndHour'] as num?)?.toInt() ?? 14;
-    final canStart = entry?['checkInAt'] != null && entry?['checkOutAt'] == null && state == null;
+    final canStart = entry?['checkInAt'] != null &&
+        entry?['checkOutAt'] == null &&
+        state == null;
     final canEnd = state == 'STARTED';
     final done = state == 'ENDED';
 
@@ -573,11 +608,14 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
         if (canStart || canEnd) ...[
           TextField(
             controller: _lunchNote,
-            minLines: 1, maxLines: 3,
+            minLines: 1,
+            maxLines: 3,
             textCapitalization: TextCapitalization.sentences,
             style: TextStyle(color: c.text),
             decoration: InputDecoration(
-              hintText: canEnd ? 'Lunch wrap-up note (optional)' : 'Anything blocking? (optional)',
+              hintText: canEnd
+                  ? 'Lunch wrap-up note (optional)'
+                  : 'Anything blocking? (optional)',
               hintStyle: TextStyle(color: c.textMuted),
               filled: true,
               fillColor: c.surface2,
@@ -600,12 +638,16 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
                 backgroundColor: canEnd ? c.success : c.warning,
                 padding: const EdgeInsets.symmetric(vertical: 14),
               ),
-              icon: Icon(canEnd ? Icons.work_rounded : Icons.coffee_rounded, size: 18),
+              icon: Icon(canEnd ? Icons.work_rounded : Icons.coffee_rounded,
+                  size: 18),
               label: Text(canEnd ? 'End lunch' : 'Start lunch'),
             ),
           ),
         ] else if (done && (entry?['lunchNote'] ?? '').toString().isNotEmpty)
-          _ReadOnlyEntry(label: 'Lunch note', text: entry!['lunchNote'].toString(), colors: c),
+          _ReadOnlyEntry(
+              label: 'Lunch note',
+              text: entry!['lunchNote'].toString(),
+              colors: c),
       ],
     );
   }
@@ -631,16 +673,22 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
       disabled: !checkedIn,
       colors: c,
       children: [
-        if (checkedOut && (entry?['checkOutReport'] ?? '').toString().isNotEmpty)
-          _ReadOnlyEntry(label: 'Today\'s report', text: entry!['checkOutReport'].toString(), colors: c)
+        if (checkedOut &&
+            (entry?['checkOutReport'] ?? '').toString().isNotEmpty)
+          _ReadOnlyEntry(
+              label: 'Today\'s report',
+              text: entry!['checkOutReport'].toString(),
+              colors: c)
         else if (checkedIn) ...[
           TextField(
             controller: _report,
-            minLines: 5, maxLines: 12,
+            minLines: 5,
+            maxLines: 12,
             textCapitalization: TextCapitalization.sentences,
             style: TextStyle(color: c.text, height: 1.45),
             decoration: InputDecoration(
-              hintText: 'What did you ship today? Mention shipped, blocked, and rolled-over items in ≥ $_minWords words.',
+              hintText:
+                  'What did you ship today? Mention shipped, blocked, and rolled-over items in ≥ $_minWords words.',
               hintStyle: TextStyle(color: c.textMuted),
               filled: true,
               fillColor: c.surface2,
@@ -654,19 +702,21 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(BestieTokens.rMd),
-                borderSide: const BorderSide(color: BestieTokens.cBrand, width: 1.6),
+                borderSide: BorderSide(color: c.brand, width: 1.6),
               ),
             ),
           ),
           const SizedBox(height: 8),
           Row(children: [
-            Expanded(child: _WordMeter(count: count, min: _minWords, colors: c)),
+            Expanded(
+                child: _WordMeter(count: count, min: _minWords, colors: c)),
             const SizedBox(width: 12),
             FilledButton.icon(
               onPressed: _busy ? null : _checkOut,
               style: FilledButton.styleFrom(
                 backgroundColor: c.danger,
-                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
               ),
               icon: const Icon(Icons.logout_rounded, size: 16),
               label: const Text('Check out'),
@@ -731,7 +781,8 @@ class _StatusCard extends StatelessWidget {
       ),
       child: Row(children: [
         Container(
-          width: 48, height: 48,
+          width: 48,
+          height: 48,
           decoration: BoxDecoration(
             color: phaseColor.withOpacity(0.12),
             borderRadius: BorderRadius.circular(BestieTokens.rMd),
@@ -740,17 +791,22 @@ class _StatusCard extends StatelessWidget {
         ),
         const SizedBox(width: 14),
         Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text('TODAY',
                 style: TextStyle(
-                  fontSize: 11, fontWeight: BestieTokens.fwBold,
-                  letterSpacing: BestieTokens.lsEyebrow, color: colors.textMuted,
+                  fontSize: 11,
+                  fontWeight: BestieTokens.fwBold,
+                  letterSpacing: BestieTokens.lsEyebrow,
+                  color: colors.textMuted,
                 )),
             const SizedBox(height: 2),
             Text(phase,
                 style: TextStyle(
-                  fontSize: 18, fontWeight: BestieTokens.fwBold,
-                  color: colors.text, letterSpacing: BestieTokens.lsTight,
+                  fontSize: 18,
+                  fontWeight: BestieTokens.fwBold,
+                  color: colors.text,
+                  letterSpacing: BestieTokens.lsTight,
                 )),
           ]),
         ),
@@ -795,7 +851,8 @@ class _SectionCard extends StatelessWidget {
           children: [
             Row(children: [
               Container(
-                width: 36, height: 36,
+                width: 36,
+                height: 36,
                 decoration: BoxDecoration(
                   color: iconColor.withOpacity(0.12),
                   borderRadius: BorderRadius.circular(BestieTokens.rSm),
@@ -804,18 +861,24 @@ class _SectionCard extends StatelessWidget {
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(title,
-                      style: TextStyle(
-                        fontWeight: BestieTokens.fwSemibold,
-                        fontSize: 15, color: colors.text,
-                        letterSpacing: BestieTokens.lsSnug,
-                      )),
-                  Text(subtitle,
-                      style: TextStyle(color: colors.textMuted, fontSize: 12)),
-                ]),
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title,
+                          style: TextStyle(
+                            fontWeight: BestieTokens.fwSemibold,
+                            fontSize: 15,
+                            color: colors.text,
+                            letterSpacing: BestieTokens.lsSnug,
+                          )),
+                      Text(subtitle,
+                          style:
+                              TextStyle(color: colors.textMuted, fontSize: 12)),
+                    ]),
               ),
-              if (done) Icon(Icons.check_circle_rounded, color: colors.success, size: 22),
+              if (done)
+                Icon(Icons.check_circle_rounded,
+                    color: colors.success, size: 22),
             ]),
             if (children.isNotEmpty) ...[
               const SizedBox(height: 14),
@@ -832,7 +895,8 @@ class _WordMeter extends StatelessWidget {
   final int count;
   final int min;
   final BestieColors colors;
-  const _WordMeter({required this.count, required this.min, required this.colors});
+  const _WordMeter(
+      {required this.count, required this.min, required this.colors});
 
   @override
   Widget build(BuildContext context) {
@@ -841,14 +905,18 @@ class _WordMeter extends StatelessWidget {
     final accent = ok ? colors.success : colors.brand;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [
-        Text('$count', style: TextStyle(
-          fontSize: 13, fontWeight: BestieTokens.fwBold,
-          color: accent,
-        )),
+        Text('$count',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: BestieTokens.fwBold,
+              color: accent,
+            )),
         Text(' / $min words',
             style: TextStyle(color: colors.textMuted, fontSize: 13)),
         const Spacer(),
-        if (ok) Icon(Icons.check_circle_outline_rounded, size: 14, color: colors.success),
+        if (ok)
+          Icon(Icons.check_circle_outline_rounded,
+              size: 14, color: colors.success),
       ]),
       const SizedBox(height: 6),
       ClipRRect(
@@ -868,7 +936,8 @@ class _ReadOnlyEntry extends StatelessWidget {
   final String label;
   final String text;
   final BestieColors colors;
-  const _ReadOnlyEntry({required this.label, required this.text, required this.colors});
+  const _ReadOnlyEntry(
+      {required this.label, required this.text, required this.colors});
 
   @override
   Widget build(BuildContext context) {
@@ -882,11 +951,14 @@ class _ReadOnlyEntry extends StatelessWidget {
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(label.toUpperCase(),
             style: TextStyle(
-              fontSize: 10, fontWeight: BestieTokens.fwBold,
-              color: colors.textMuted, letterSpacing: BestieTokens.lsEyebrow,
+              fontSize: 10,
+              fontWeight: BestieTokens.fwBold,
+              color: colors.textMuted,
+              letterSpacing: BestieTokens.lsEyebrow,
             )),
         const SizedBox(height: 6),
-        Text(text, style: TextStyle(color: colors.text, height: 1.45, fontSize: 13.5)),
+        Text(text,
+            style: TextStyle(color: colors.text, height: 1.45, fontSize: 13.5)),
       ]),
     );
   }

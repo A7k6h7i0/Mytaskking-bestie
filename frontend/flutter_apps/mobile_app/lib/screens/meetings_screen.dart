@@ -36,11 +36,14 @@ class MeetingsScreen extends ConsumerWidget {
         onRefresh: () async => ref.refresh(meetingsProvider.future),
         child: meetings.when(
           loading: () => const Center(child: BestieSpinner()),
-          error: (e, _) => BestieEmptyState(
-            icon: Icons.error_outline,
-            iconColor: BestieTokens.cDanger,
-            title: 'Couldn\'t load meetings',
-            description: formatApiError(e),
+          error: (e, _) => bestieEmptyScrollable(
+            context,
+            BestieEmptyState(
+              icon: Icons.error_outline,
+              iconColor: BestieTokens.cDanger,
+              title: 'Couldn\'t load meetings',
+              description: formatApiError(e),
+            ),
           ),
           data: (items) {
             if (items.isEmpty) {
@@ -85,7 +88,7 @@ class MeetingsScreen extends ConsumerWidget {
                   'voice' => BestieTokens.cInfo,
                   'webinar' => BestieTokens.cAccent,
                   'livestream' => BestieTokens.cDanger,
-                  _ => BestieTokens.cBrand,
+                  _ => colors.brand,
                 };
                 return Card(
                   child: ListTile(
@@ -219,10 +222,10 @@ class MeetingsScreen extends ConsumerWidget {
                         final date = await showDatePicker(
                           context: ctx,
                           initialDate: initial,
-                          firstDate: DateTime.now()
-                              .subtract(const Duration(days: 1)),
-                          lastDate: DateTime.now()
-                              .add(const Duration(days: 365 * 2)),
+                          firstDate:
+                              DateTime.now().subtract(const Duration(days: 1)),
+                          lastDate:
+                              DateTime.now().add(const Duration(days: 365 * 2)),
                         );
                         if (date == null) return;
                         if (!ctx.mounted) return;
@@ -370,9 +373,21 @@ class MeetingsScreen extends ConsumerWidget {
   /// Formats a scheduled-meeting start time — "Today 4:00 PM", "Tomorrow
   /// 10:30 AM", or "Mon 12 Mar · 9:00 AM" depending on how far out it is.
   String _fmtScheduled(DateTime dt) {
-    const months = ['Jan','Feb','Mar','Apr','May','Jun',
-                    'Jul','Aug','Sep','Oct','Nov','Dec'];
-    const dow = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec'
+    ];
+    const dow = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final when = DateTime(dt.year, dt.month, dt.day);

@@ -26,8 +26,6 @@ class TelecallerRecordingProcessingSheet extends ConsumerStatefulWidget {
 
 class _TelecallerRecordingProcessingSheetState
     extends ConsumerState<TelecallerRecordingProcessingSheet> {
-  static const _primaryBlue = Color(0xFF3B99F6);
-
   RecordingProcessState _state = const RecordingProcessState(
     phase: RecordingProcessPhase.requestingAccess,
     detail: 'Preparing…',
@@ -133,7 +131,7 @@ class _TelecallerRecordingProcessingSheetState
                   : const Icon(Icons.audio_file_outlined),
               label: const Text('Choose recording file manually'),
               style: FilledButton.styleFrom(
-                backgroundColor: _primaryBlue,
+                backgroundColor: c.brand,
                 padding: const EdgeInsets.symmetric(vertical: 14),
               ),
             ),
@@ -146,7 +144,7 @@ class _TelecallerRecordingProcessingSheetState
             FilledButton(
               onPressed: widget.onFinished,
               style: FilledButton.styleFrom(
-                backgroundColor: _primaryBlue,
+                backgroundColor: c.brand,
                 padding: const EdgeInsets.symmetric(vertical: 14),
               ),
               child: const Text('Continue'),
@@ -188,7 +186,7 @@ class _StatusRow extends StatelessWidget {
         break;
       default:
         icon = Icons.folder_open_rounded;
-        iconColor = const Color(0xFF3B99F6);
+        iconColor = c.brand;
     }
 
     return Row(

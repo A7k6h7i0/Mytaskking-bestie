@@ -2,8 +2,11 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../colors.dart';
+
 /// WhatsApp-style seamless doodle wallpaper for chat threads.
 /// Drawn with [CustomPainter] so there are no image tiles or seams.
+/// Background and ink follow [BestieColors] (light / dark / custom palette).
 class BestieChatWallpaper extends StatelessWidget {
   const BestieChatWallpaper({super.key, required this.child});
 
@@ -11,11 +14,17 @@ class BestieChatWallpaper extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
+    final bg = c.isDark ? c.bg : c.bgSoft;
+    final ink = c.isDark
+        ? c.textMuted.withValues(alpha: 0.28)
+        : c.textMuted.withValues(alpha: 0.22);
+
     return Stack(
       fit: StackFit.expand,
       children: [
-        const ColoredBox(color: Colors.white),
-        const CustomPaint(painter: _ChatDoodlePainter()),
+        ColoredBox(color: bg),
+        CustomPaint(painter: _ChatDoodlePainter(bg: bg, ink: ink)),
         child,
       ],
     );
@@ -23,17 +32,17 @@ class BestieChatWallpaper extends StatelessWidget {
 }
 
 class _ChatDoodlePainter extends CustomPainter {
-  const _ChatDoodlePainter();
+  const _ChatDoodlePainter({required this.bg, required this.ink});
 
-  static const _bg = Colors.white;
-  static const _ink = Color(0xFF8D8178);
+  final Color bg;
+  final Color ink;
 
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.drawRect(Offset.zero & size, Paint()..color = _bg);
+    canvas.drawRect(Offset.zero & size, Paint()..color = bg);
 
     final stroke = Paint()
-      ..color = _ink.withValues(alpha: 0.22)
+      ..color = ink
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.15
       ..strokeCap = StrokeCap.round
@@ -227,5 +236,6 @@ class _ChatDoodlePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _ChatDoodlePainter oldDelegate) => false;
+  bool shouldRepaint(covariant _ChatDoodlePainter oldDelegate) =>
+      oldDelegate.bg != bg || oldDelegate.ink != ink;
 }

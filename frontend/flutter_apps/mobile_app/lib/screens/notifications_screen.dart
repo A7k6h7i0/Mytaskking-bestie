@@ -74,11 +74,14 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
       ),
       body: stream.when(
         loading: () => const Center(child: BestieSpinner()),
-        error: (e, _) => BestieEmptyState(
-          icon: Icons.error_outline,
-          iconColor: BestieTokens.cDanger,
-          title: 'Couldn\'t load',
-          description: formatApiError(e),
+        error: (e, _) => bestieEmptyScrollable(
+          context,
+          BestieEmptyState(
+            icon: Icons.error_outline,
+            iconColor: BestieTokens.cDanger,
+            title: 'Couldn\'t load',
+            description: formatApiError(e),
+          ),
         ),
         data: (data) {
           final groups =
@@ -183,13 +186,14 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
   }
 
   Widget _quietBanner(_QuietHours q) {
+    final colors = BestieColors.of(context);
     final inWindow = q.isActiveNow();
-    final color = inWindow ? BestieTokens.cBrand : BestieTokens.cTextMuted;
+    final color = inWindow ? colors.brand : BestieTokens.cTextMuted;
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
       decoration: BoxDecoration(
-        color: BestieTokens.cBrandSoft,
+        color: colors.brandSoft,
         borderRadius: BorderRadius.circular(BestieTokens.rMd),
         border: Border.all(color: color.withValues(alpha: 0.30)),
       ),
@@ -246,6 +250,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
       ),
       builder: (ctx) {
         return StatefulBuilder(builder: (ctx, setSt) {
+          final colors = BestieColors.of(ctx);
           return SafeArea(
             top: false,
             child: Padding(
@@ -261,7 +266,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
                   ),
                 ),
                 Row(children: [
-                  const Icon(Icons.bedtime_rounded, color: BestieTokens.cBrand),
+                  Icon(Icons.bedtime_rounded, color: colors.brand),
                   const SizedBox(width: 8),
                   const Text('Quiet hours',
                       style:
