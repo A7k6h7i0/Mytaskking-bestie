@@ -945,6 +945,15 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
 
   Future<void> _submit() async {
     if (_title.text.trim().isEmpty) return;
+    if (_picked.isEmpty) {
+      bestieToast(
+        context,
+        'Assign someone',
+        body: 'Pick at least one person before creating this task.',
+        kind: BestieToastKind.warning,
+      );
+      return;
+    }
     if (_due != null && _due!.isBefore(DateTime.now())) {
       bestieToast(
         context,
@@ -1205,9 +1214,9 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
           const SizedBox(height: BestieTokens.s4),
 
           BestiePrimaryButton(
-            label: _picked.isEmpty ? 'Create' : 'Create + notify',
+            label: 'Create + notify',
             icon: Icons.send,
-            onPressed: _submit,
+            onPressed: _picked.isEmpty || _submitting ? null : _submit,
             loading: _submitting,
           ),
         ],

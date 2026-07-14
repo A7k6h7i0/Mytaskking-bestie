@@ -103,7 +103,6 @@ final routerProvider = Provider<GoRouter>((ref) {
       // ----- screens outside the bottom-nav shell -----
       GoRoute(path: '/employees', builder: (_, __) => const EmployeesScreen()),
       GoRoute(path: '/clients', builder: (_, __) => const ClientsScreen()),
-      GoRoute(path: '/calendar', builder: (_, __) => const CalendarScreen()),
       GoRoute(
           path: '/announcements',
           builder: (_, __) => const AnnouncementsScreen()),
@@ -166,6 +165,8 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
               path: '/notifications',
               builder: (_, __) => const NotificationsScreen()),
+          GoRoute(
+              path: '/calendar', builder: (_, __) => const CalendarScreen()),
           GoRoute(path: '/profile', builder: (_, __) => const ProfileScreen()),
         ],
       ),

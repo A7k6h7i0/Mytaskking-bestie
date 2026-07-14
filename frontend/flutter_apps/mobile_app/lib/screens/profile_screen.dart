@@ -364,8 +364,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             error: (e, _) => ListTile(
                 title: Text('Couldn\'t load: ${formatApiError(e)}',
                     style: const TextStyle(color: BestieTokens.cDanger))),
-            data: (items) => Column(children: [
-              for (final s in items.take(5))
+            data: (items) {
+              final active = items
+                  .where((s) =>
+                      (s['status'] ?? 'ACTIVE').toString() == 'ACTIVE')
+                  .toList();
+              return Column(children: [
+              for (final s in active.take(5))
                 ListTile(
                   leading: Icon(
                     _isMobile(s) ? Icons.smartphone : Icons.computer,
@@ -393,7 +398,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           tone: BestieTone.neutral,
                           child: Text(s['status'] ?? '')),
                 ),
-              if (items.length > 1)
+              if (active.length > 1)
                 ListTile(
                   leading:
                       const Icon(Icons.logout, color: BestieTokens.cDanger),
@@ -405,7 +410,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         confirmLabel: 'Sign out');
                     if (!ok) return;
                     try {
-                      await ref.read(apiProvider).signOutEverywhere();
+                      await ref.read(apiProvider).signOutEverywhere(
+                            exceptSessionId: ref.read(authStoreProvider).sessionId,
+                          );
                       if (context.mounted) {
                         bestieToast(context, 'Done',
                             kind: BestieToastKind.success);
@@ -420,7 +427,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     }
                   },
                 ),
-            ]),
+              ]);
+            },
           ),
         ]),
 

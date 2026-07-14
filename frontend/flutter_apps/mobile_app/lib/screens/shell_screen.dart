@@ -55,6 +55,27 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
     _Tab('/more', Icons.apps_rounded, Icons.apps_rounded, 'More'),
   ];
 
+  /// Only highlight a bottom tab when the user is actually on that tab route.
+  /// Shell sub-routes like /notifications must not keep Meet/Chat selected.
+  static int _tabIndexForLocation(String location, List<_Tab> tabs) {
+    if (location.startsWith('/notifications') ||
+        location.startsWith('/calendar') ||
+        location.startsWith('/profile') ||
+        location.startsWith('/settings') ||
+        location.startsWith('/sessions') ||
+        location.startsWith('/reports') ||
+        location.startsWith('/announcements') ||
+        location.startsWith('/employees') ||
+        location.startsWith('/clients') ||
+        location.startsWith('/recordings') ||
+        location.startsWith('/login-activity') ||
+        location.startsWith('/work-activity') ||
+        location.startsWith('/ai-review')) {
+      return -1;
+    }
+    return tabs.indexWhere((t) => location.startsWith(t.path));
+  }
+
   List<_Tab> _tabsFor(BestieUser? user) {
     if (user == null) return _employeeTabs;
     if (user.isClient) return _clientTabs;
@@ -103,11 +124,9 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
   }
 
   void _openMoreRoute(BuildContext context, String route) {
-    if (route == '/dashboard' || route == '/calls') {
-      context.go(route);
-      return;
-    }
-    context.push(route);
+    // Use go (not push) so matchedLocation updates — otherwise the previous
+    // bottom tab (e.g. Meet) stays highlighted on Notifications / Calendar.
+    context.go(route);
   }
 
   void _openMore(BuildContext context, WidgetRef ref, BestieUser? user) {
@@ -252,7 +271,7 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
         body: widget.child,
         bottomNavigationBar: _StitchBottomNav(
           tabs: tabs,
-          currentIndex: tabs.indexWhere((t) => location.startsWith(t.path)),
+          currentIndex: _tabIndexForLocation(location, tabs),
           onTap: (i) {
             if (tabs[i].path == '/more') {
               _openMore(context, ref, user);

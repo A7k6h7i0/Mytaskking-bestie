@@ -315,8 +315,11 @@ extension BestieApiExt on BestieApi {
     await dio.delete('/sessions/$id');
   }
 
-  Future<void> signOutEverywhere() async {
-    await post('/sessions/mine/sign-out-everywhere');
+  Future<void> signOutEverywhere({String? exceptSessionId}) async {
+    await post('/sessions/mine/sign-out-everywhere', body: {
+      if (exceptSessionId != null && exceptSessionId.isNotEmpty)
+        'exceptSessionId': exceptSessionId,
+    });
   }
 
   Future<Map<String, dynamic>> sessionActivity({

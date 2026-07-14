@@ -15,6 +15,7 @@ class ChatContactScreen extends StatefulWidget {
   final bool isClient;
   final bool isDm;
   final bool canEditGroupPhoto;
+  final bool canEditGroupName;
   final Map<String, dynamic>? contactUser;
   final List<Map<String, dynamic>> members;
   final VoidCallback? onMediaLinksDocs;
@@ -26,6 +27,7 @@ class ChatContactScreen extends StatefulWidget {
   final bool canCall;
   final Future<String?> Function()? onPickGroupIcon;
   final Future<void> Function()? onRemoveGroupIcon;
+  final Future<void> Function(String name)? onRenameGroup;
 
   const ChatContactScreen({
     super.key,
@@ -37,6 +39,7 @@ class ChatContactScreen extends StatefulWidget {
     this.isClient = false,
     this.isDm = false,
     this.canEditGroupPhoto = false,
+    this.canEditGroupName = false,
     this.contactUser,
     this.members = const [],
     this.onMediaLinksDocs,
@@ -48,6 +51,7 @@ class ChatContactScreen extends StatefulWidget {
     this.canCall = false,
     this.onPickGroupIcon,
     this.onRemoveGroupIcon,
+    this.onRenameGroup,
   });
 
   @override
@@ -57,11 +61,13 @@ class ChatContactScreen extends StatefulWidget {
 class _ChatContactScreenState extends State<ChatContactScreen> {
   String? _groupIconUrl;
   bool _updatingIcon = false;
+  late String _displayTitle;
 
   @override
   void initState() {
     super.initState();
     _groupIconUrl = widget.groupIconUrl;
+    _displayTitle = widget.title;
   }
 
   @override
@@ -69,6 +75,48 @@ class _ChatContactScreenState extends State<ChatContactScreen> {
     super.didUpdateWidget(oldWidget);
     if (widget.groupIconUrl != oldWidget.groupIconUrl) {
       _groupIconUrl = widget.groupIconUrl;
+    }
+    if (widget.title != oldWidget.title) {
+      _displayTitle = widget.title;
+    }
+  }
+
+  Future<void> _renameGroup() async {
+    if (!widget.canEditGroupName || widget.onRenameGroup == null) return;
+    final ctrl = TextEditingController(text: _displayTitle);
+    final c = BestieColors.of(context);
+    final next = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Change group name'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          maxLength: 80,
+          decoration: const InputDecoration(hintText: 'Group name'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Cancel', style: TextStyle(color: c.textMuted)),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (next == null || next.isEmpty || next == _displayTitle) return;
+    try {
+      await widget.onRenameGroup!(next);
+      if (mounted) setState(() => _displayTitle = next);
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not rename group',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
     }
   }
 
@@ -311,7 +359,7 @@ class _ChatContactScreenState extends State<ChatContactScreen> {
                 ),
                 const SizedBox(height: 16),
                 BestieUserName(
-                  name: widget.title,
+                  name: _displayTitle,
                   isClient: widget.isClient,
                   style: TextStyle(
                     fontSize: 22,
@@ -319,6 +367,20 @@ class _ChatContactScreenState extends State<ChatContactScreen> {
                     color: widget.isClient ? colors.client : colors.text,
                   ),
                 ),
+                if (!widget.isDm && widget.canEditGroupName) ...[
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    onPressed: _renameGroup,
+                    icon: Icon(Icons.edit_outlined, size: 16, color: colors.brand),
+                    label: Text(
+                      'Change group name',
+                      style: TextStyle(
+                        color: colors.brand,
+                        fontWeight: BestieTokens.fwSemibold,
+                      ),
+                    ),
+                  ),
+                ],
                 if (widget.subtitle.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   Text(
@@ -395,6 +457,13 @@ class _ChatContactScreenState extends State<ChatContactScreen> {
                 leading: Icon(Icons.photo_camera_outlined, color: colors.text),
                 title: const Text('Change group photo'),
                 onTap: _updatingIcon ? null : _changeGroupPhoto,
+              ),
+            if (!widget.isDm && widget.canEditGroupName)
+              ListTile(
+                leading: Icon(Icons.drive_file_rename_outline_rounded,
+                    color: colors.text),
+                title: const Text('Change group name'),
+                onTap: _renameGroup,
               ),
             ListTile(
               leading: Icon(Icons.perm_media_outlined, color: colors.text),

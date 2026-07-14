@@ -115,8 +115,14 @@ router.post(
 
 router.post(
   '/mine/sign-out-everywhere',
+  validate({ body: Joi.object({ exceptSessionId: Joi.string().optional() }) }),
   asyncHandler(async (req, res) => {
-    const result = await service.revokeAll({ userId: req.user.id, actor: req.user, force: false });
+    const result = await service.revokeAll({
+      userId: req.user.id,
+      actor: req.user,
+      force: false,
+      exceptSessionId: req.body?.exceptSessionId || null,
+    });
     res.json(result);
   })
 );

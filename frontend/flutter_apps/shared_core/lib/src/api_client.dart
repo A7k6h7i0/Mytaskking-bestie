@@ -79,6 +79,7 @@ class BestieApi {
         accessToken: r.data['accessToken'],
         refreshToken: r.data['refreshToken'],
         userJson: r.data['user'] as Map<String, dynamic>,
+        sessionId: (r.data['session'] as Map?)?['id']?.toString(),
       );
       return true;
     } on DioException catch (e) {
@@ -122,6 +123,7 @@ class BestieApi {
       accessToken: r.data['accessToken'],
       refreshToken: r.data['refreshToken'],
       userJson: r.data['user'] as Map<String, dynamic>,
+      sessionId: (r.data['session'] as Map?)?['id']?.toString(),
     );
     return r.data as Map<String, dynamic>;
   }

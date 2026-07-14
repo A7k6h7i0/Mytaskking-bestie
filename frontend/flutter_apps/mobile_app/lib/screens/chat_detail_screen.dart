@@ -1267,6 +1267,15 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     }
   }
 
+  Future<void> _renameGroup(String name) async {
+    await ref.read(apiProvider).updateChannel(widget.channelId, name: name);
+    final fresh = await ref.read(apiProvider).getChannel(widget.channelId);
+    if (mounted) {
+      setState(() => _channel = fresh);
+      ref.invalidate(channelsProvider);
+    }
+  }
+
   Widget _headerGroupAvatar(BestieColors colors, String kind, bool isClient) {
     final iconUrl = _groupIconUrl();
     if (iconUrl != null) {
@@ -2008,6 +2017,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
           isClient: _channel?['isClientChannel'] == true,
           isDm: isDm,
           canEditGroupPhoto: !isDm && _canEditGroupPhoto,
+          canEditGroupName: !isDm && _canEditGroupPhoto,
           contactUser: other,
           members: members,
           muted: muted,
@@ -2015,6 +2025,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
           onPickGroupIcon: !isDm && _canEditGroupPhoto ? _pickAndSaveGroupIcon : null,
           onRemoveGroupIcon:
               !isDm && _canEditGroupPhoto ? _removeGroupIcon : null,
+          onRenameGroup: !isDm && _canEditGroupPhoto ? _renameGroup : null,
           onVoiceCall: isDm
               ? () {
                   Navigator.of(context).pop();

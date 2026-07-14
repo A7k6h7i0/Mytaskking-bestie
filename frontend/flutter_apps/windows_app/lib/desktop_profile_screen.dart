@@ -466,7 +466,9 @@ class _DesktopProfileScreenState extends ConsumerState<DesktopProfileScreen> {
                         );
                         if (!ok) return;
                         try {
-                          await ref.read(apiProvider).signOutEverywhere();
+                          await ref.read(apiProvider).signOutEverywhere(
+                            exceptSessionId: ref.read(authStoreProvider).sessionId,
+                          );
                           if (context.mounted) {
                             bestieToast(
                               context,

@@ -23,10 +23,15 @@ async function startSession({
   latitude = null,
   longitude = null,
   address = null,
+  replaceSameDevice = false,
 }) {
   const ip = req?.ip || null;
   const ua = req?.headers?.['user-agent'] || null;
   const { device, platform } = parseUA(ua);
+
+  if (replaceSameDevice) {
+    await revokeActiveOnSameDevice(user.id, { device, platform }).catch(() => {});
+  }
 
   // Compute a tiny risk score from recent sessions for this user.
   const recent = await prisma.session.findMany({
@@ -51,6 +56,32 @@ async function startSession({
       riskScore: Math.min(risk, 100),
     },
   });
+}
+
+async function revokeActiveOnSameDevice(userId, { device, platform } = {}) {
+  if (!device && !platform) return { revoked: 0 };
+  const where = {
+    userId,
+    status: 'ACTIVE',
+    ...(device ? { device } : { platform }),
+  };
+  const stale = await prisma.session.findMany({
+    where,
+    select: { id: true, refreshTokenId: true },
+  });
+  if (!stale.length) return { revoked: 0 };
+  const now = new Date();
+  await prisma.$transaction([
+    prisma.session.updateMany({
+      where: { id: { in: stale.map((s) => s.id) } },
+      data: { status: 'REVOKED', revokedAt: now },
+    }),
+    prisma.refreshToken.updateMany({
+      where: { id: { in: stale.map((s) => s.refreshTokenId).filter(Boolean) } },
+      data: { revokedAt: now },
+    }),
+  ]);
+  return { revoked: stale.length };
 }
 
 async function touchSession(sessionId) {
@@ -112,9 +143,12 @@ async function revokeAll({ userId, exceptSessionId, actor, force }) {
   return { revoked: sessions.length };
 }
 
-async function listForUser(userId, { includeSelfie = false } = {}) {
+async function listForUser(userId, { includeSelfie = false, activeOnly = true } = {}) {
   const rows = await prisma.session.findMany({
-    where: { userId },
+    where: {
+      userId,
+      ...(activeOnly ? { status: 'ACTIVE' } : {}),
+    },
     orderBy: [{ status: 'asc' }, { lastSeenAt: 'desc' }],
   });
   if (includeSelfie) return rows;
@@ -235,4 +269,13 @@ function parseUA(ua) {
   return { device, platform };
 }
 
-module.exports = { startSession, touchSession, revoke, revokeAll, listForUser, listActivity, getSelfieForAdmin };
+module.exports = {
+  startSession,
+  touchSession,
+  revoke,
+  revokeAll,
+  revokeActiveOnSameDevice,
+  listForUser,
+  listActivity,
+  getSelfieForAdmin,
+};

@@ -62,7 +62,10 @@ class SessionsScreen extends ConsumerWidget {
             ),
           ),
           data: (items) {
-            if (items.isEmpty) {
+            final active = items
+                .where((s) => (s['status'] ?? 'ACTIVE').toString() == 'ACTIVE')
+                .toList();
+            if (active.isEmpty) {
               return bestieEmptyScrollable(
                 context,
                 const BestieEmptyState(
@@ -72,17 +75,27 @@ class SessionsScreen extends ConsumerWidget {
                 ),
               );
             }
+            active.sort((a, b) {
+              final at = DateTime.tryParse(a['lastSeenAt']?.toString() ?? '') ??
+                  DateTime.fromMillisecondsSinceEpoch(0);
+              final bt = DateTime.tryParse(b['lastSeenAt']?.toString() ?? '') ??
+                  DateTime.fromMillisecondsSinceEpoch(0);
+              return bt.compareTo(at);
+            });
+            final storedSessionId = ref.read(authStoreProvider).sessionId;
+            final currentId = storedSessionId ??
+                active.first['id']?.toString();
             return ListView.separated(
               padding: const EdgeInsets.symmetric(vertical: 8),
-              itemCount: items.length,
+              itemCount: active.length,
               separatorBuilder: (_, __) =>
                   Divider(height: 1, indent: 56, color: c.border),
               itemBuilder: (ctx, i) {
-                final s = items[i];
+                final s = active[i];
                 final platform =
                     (s['platform'] ?? 'unknown').toString().toLowerCase();
                 final mobile = platform == 'ios' || platform == 'android';
-                final isCurrent = s['current'] == true;
+                final isCurrent = s['id']?.toString() == currentId;
                 return ListTile(
                   leading: Icon(
                     mobile ? Icons.smartphone_rounded : Icons.computer_rounded,

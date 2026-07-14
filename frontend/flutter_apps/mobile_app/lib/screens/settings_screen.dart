@@ -214,6 +214,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     '/attendance',
     '/meetings',
     '/notifications',
+    '/calendar',
     '/profile',
     '/telecaller',
     '/calls',

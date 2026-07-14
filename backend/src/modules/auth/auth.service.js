@@ -113,6 +113,7 @@ async function login({
     latitude,
     longitude,
     address,
+    replaceSameDevice: true,
   }).catch(() => null);
 
   return {

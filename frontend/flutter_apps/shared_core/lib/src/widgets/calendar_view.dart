@@ -342,13 +342,22 @@ class _BestieCalendarViewState extends ConsumerState<BestieCalendarView> {
                   );
 
                   if (compact) {
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Expanded(flex: 3, child: weekGrid),
-                        const SizedBox(height: 12),
-                        SizedBox(height: 300, child: sidebar()),
-                      ],
+                    return LayoutBuilder(
+                      builder: (context, constraints) {
+                        final gridHeight =
+                            (constraints.maxHeight * 0.52).clamp(260.0, 420.0);
+                        return SingleChildScrollView(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              SizedBox(height: gridHeight, child: weekGrid),
+                              const SizedBox(height: 12),
+                              sidebar(),
+                              const SizedBox(height: 8),
+                            ],
+                          ),
+                        );
+                      },
                     );
                   }
 
@@ -379,6 +388,8 @@ class _CalUi {
 
   static BestieColors get _c =>
       _bound ?? BestieColors.resolve(isDark: false);
+
+  static bool get isDark => _c.isDark;
 
   static Color get bgBody => _c.isDark ? _c.surface2 : const Color(0xFFF8F9FA);
   static Color get bgSurface => _c.surface;
@@ -1899,19 +1910,32 @@ class _EventPalette {
 }
 
 _EventPalette _paletteForKind(String kind) {
+  final dark = _CalUi.isDark;
   switch (kind.toUpperCase()) {
     case 'MEETING':
-      return const _EventPalette(Color(0xFFF3E8FF), Color(0xFF7E22CE));
+      return dark
+          ? const _EventPalette(Color(0xFF3B0764), Color(0xFFE9D5FF))
+          : const _EventPalette(Color(0xFFF3E8FF), Color(0xFF7E22CE));
     case 'CALL':
-      return const _EventPalette(Color(0xFFFCE7F3), Color(0xFFDB2777));
+      return dark
+          ? const _EventPalette(Color(0xFF500724), Color(0xFFFBCFE8))
+          : const _EventPalette(Color(0xFFFCE7F3), Color(0xFFDB2777));
     case 'TASK_DEADLINE':
-      return const _EventPalette(Color(0xFFFEF9C3), Color(0xFFCA8A04));
+      return dark
+          ? const _EventPalette(Color(0xFF422006), Color(0xFFFEF08A))
+          : const _EventPalette(Color(0xFFFEF9C3), Color(0xFFCA8A04));
     case 'REMINDER':
-      return const _EventPalette(Color(0xFFDCFCE7), Color(0xFF16A34A));
+      return dark
+          ? const _EventPalette(Color(0xFF052E16), Color(0xFFBBF7D0))
+          : const _EventPalette(Color(0xFFDCFCE7), Color(0xFF16A34A));
     case 'GENERAL':
-      return const _EventPalette(Color(0xFFE0F2FE), Color(0xFF0284C7));
+      return dark
+          ? const _EventPalette(Color(0xFF0C4A6E), Color(0xFFBAE6FD))
+          : const _EventPalette(Color(0xFFE0F2FE), Color(0xFF0284C7));
     default:
-      return const _EventPalette(Color(0xFFFFEDD5), Color(0xFFEA580C));
+      return dark
+          ? const _EventPalette(Color(0xFF431407), Color(0xFFFED7AA))
+          : const _EventPalette(Color(0xFFFFEDD5), Color(0xFFEA580C));
   }
 }
 
