@@ -43,9 +43,12 @@ class MediasoupCallSession {
   // --- Callbacks ---
 
   void Function(String socketId, String userName)? onRemoteJoined;
-  void Function(String socketId)? onRemoteLeft;
+  /// [userName] is the peer display name just before SFU cleanup (may be null).
+  void Function(String socketId, String? userName)? onRemoteLeft;
   /// [kind] is `audio` or `video` from the SFU consumer.
   void Function(String socketId, MediaStream stream, String kind)? onRemoteStream;
+  /// Fired when a peer publishes a 2nd video track (typically screen share).
+  void Function(String socketId, MediaStream stream)? onRemoteScreenShare;
   void Function()? onStateChanged;
   void Function(Object error)? onError;
 
@@ -65,6 +68,34 @@ class MediasoupCallSession {
 
   Map<String, dynamic>? _iceConfig;
   List<RTCIceServer> _iceServers = [];
+  /// Browser-shaped maps for flutter_webrtc (Android needs urls + username+credential
+  /// together for TURN — MediaSFU [RTCIceServer.toMap] alone is not enough).
+  List<Map<String, dynamic>> _iceServerMaps = [];
+  bool get iceHasTurn => _iceServerMaps.any((m) {
+        final urls = m['urls'];
+        final list = urls is List ? urls : [urls];
+        return list.any((u) {
+          final t = u.toString().toLowerCase();
+          return t.startsWith('turn:') || t.startsWith('turns:');
+        });
+      });
+  String get iceSummary {
+    var stun = 0, turn = 0, turns = 0;
+    for (final m in _iceServerMaps) {
+      final urls = m['urls'];
+      for (final u in (urls is List ? urls : [urls])) {
+        final t = u.toString().toLowerCase();
+        if (t.startsWith('turns:')) {
+          turns++;
+        } else if (t.startsWith('turn:')) {
+          turn++;
+        } else if (t.startsWith('stun:')) {
+          stun++;
+        }
+      }
+    }
+    return 'stun=$stun turn=$turn turns=$turns';
+  }
 
   Producer? _audioProducer;
   Producer? _videoProducer;
@@ -183,6 +214,7 @@ class MediasoupCallSession {
     _roomId = null;
     _iceConfig = null;
     _iceServers = [];
+    _iceServerMaps = [];
 
     if (Platform.isAndroid) {
       try {
@@ -298,10 +330,66 @@ class MediasoupCallSession {
     }
     if (enabled) {
       _videoProducer?.resume();
+      // Voice→video or camera-denied-at-join: produce webcam on demand.
+      if (_videoProducer == null || videoTracks.isEmpty) {
+        unawaited(_ensureWebcamProduced());
+      }
     } else {
       _videoProducer?.pause();
     }
     _notifyStateChanged();
+  }
+
+  /// Lazily add a webcam producer when the user turns camera on mid-call.
+  Future<void> _ensureWebcamProduced() async {
+    if (_videoProducer != null &&
+        (localStream?.getVideoTracks().isNotEmpty ?? false)) {
+      _videoProducer?.resume();
+      return;
+    }
+    final transport = _sendTransport;
+    if (transport == null) return;
+    try {
+      MediaStream cam;
+      try {
+        cam = await navigator.mediaDevices.getUserMedia({
+          'audio': false,
+          'video': {
+            'facingMode': 'user',
+            'width': {'ideal': 1280},
+            'height': {'ideal': 720},
+          },
+        });
+      } catch (_) {
+        cam = await navigator.mediaDevices.getUserMedia({
+          'audio': false,
+          'video': true,
+        });
+      }
+      final tracks = cam.getVideoTracks();
+      if (tracks.isEmpty) {
+        await cam.dispose();
+        onError?.call('Camera produced no video track');
+        return;
+      }
+      localStream ??= await createLocalMediaStream('local-media');
+      for (final track in tracks) {
+        track.enabled = true;
+        final already =
+            localStream!.getVideoTracks().any((t) => t.id == track.id);
+        if (!already) await localStream!.addTrack(track);
+        await _produceTrack(
+          track: track,
+          stream: localStream!,
+          source: 'webcam',
+          onReady: (producer) => _videoProducer = producer,
+        );
+      }
+      _cameraEnabled = true;
+      _notifyStateChanged();
+    } catch (e) {
+      onError?.call('Could not start camera: $e');
+    }
   }
 
   Future<void> setSpeakerphone(bool enabled) async {
@@ -325,10 +413,22 @@ class MediasoupCallSession {
     }
     if (_screenSharing) return;
 
-    _screenStream = await navigator.mediaDevices.getDisplayMedia({
-      'video': true,
-      'audio': false,
-    });
+    try {
+      _screenStream = await navigator.mediaDevices.getDisplayMedia({
+        'video': {
+          'mandatory': {
+            'minWidth': '640',
+            'minHeight': '480',
+            'minFrameRate': '5',
+          },
+        },
+        'audio': false,
+      });
+    } catch (e) {
+      throw StateError(
+        'Screen share unavailable ($e). On Android allow screen capture when prompted.',
+      );
+    }
     final tracks = _screenStream!.getVideoTracks();
     if (tracks.isEmpty) {
       await _screenStream!.dispose();
@@ -336,8 +436,16 @@ class MediasoupCallSession {
       throw StateError('screen share produced no video track');
     }
 
+    final track = tracks.first;
+    try {
+      track.enabled = true;
+    } catch (_) {}
+    track.onEnded = () {
+      unawaited(stopScreenShare());
+    };
+
     await _produceTrack(
-      track: tracks.first,
+      track: track,
       stream: _screenStream!,
       source: 'screen',
       onReady: (producer) => _screenProducer = producer,
@@ -367,7 +475,7 @@ class MediasoupCallSession {
     socket.on('config', (dynamic data) {
       if (data is Map) {
         _iceConfig = Map<String, dynamic>.from(data);
-        _iceServers = _parseIceServers(_iceConfig);
+        _applyIceFromConfig(_iceConfig!);
         if (!configCompleter.isCompleted) {
           configCompleter.complete(_iceConfig!);
         }
@@ -407,8 +515,11 @@ class MediasoupCallSession {
       final map = Map<String, dynamic>.from(data);
       final socketId = map['socketId']?.toString();
       if (socketId == null) return;
+      // Capture name before stream cleanup so the UI can drop joined
+      // participants that never got a userId↔uid mapping.
+      final leftName = remoteNames[socketId];
       _removeRemoteParticipant(socketId);
-      onRemoteLeft?.call(socketId);
+      onRemoteLeft?.call(socketId, leftName);
       _notifyStateChanged();
     });
 
@@ -441,6 +552,14 @@ class MediasoupCallSession {
       const Duration(seconds: 15),
       onTimeout: () => throw TimeoutException('config event timed out'),
     );
+
+    // Same visibility as HTML log: "Got ICE — stun=X turn=Y"
+    // ignore: avoid_print
+    print('[mediasoup] Got ICE (${_iceServerMaps.length}) — $iceSummary');
+    if (!iceHasTurn) {
+      // ignore: avoid_print
+      print('[mediasoup] WARNING: no TURN in SFU config');
+    }
   }
 
   Future<Map<String, dynamic>> _joinRoom(String roomId, String userName) async {
@@ -490,6 +609,10 @@ class MediasoupCallSession {
           .toList(),
       dtlsParameters: DtlsParameters.fromMap(params['dtlsParameters']),
       iceServers: _iceServers,
+      // Override MediaSFU toMap() with Android/iOS-safe maps (TURN credentials).
+      additionalSettings: <String, dynamic>{
+        'iceServers': _iceServerMaps,
+      },
       producerCallback: _onProducerReady,
     );
 
@@ -531,6 +654,15 @@ class MediasoupCallSession {
       }
     });
 
+    transport.on('connectionstatechange', (dynamic data) {
+      final s = data is Map
+          ? (data['connectionState'] ?? data['state'])?.toString()
+          : data?.toString();
+      if (s == 'failed' || s == 'disconnected') {
+        onError?.call('Send transport ICE $s — check TURN / network');
+      }
+    });
+
     return transport;
   }
 
@@ -550,6 +682,9 @@ class MediasoupCallSession {
           .toList(),
       dtlsParameters: DtlsParameters.fromMap(params['dtlsParameters']),
       iceServers: _iceServers,
+      additionalSettings: <String, dynamic>{
+        'iceServers': _iceServerMaps,
+      },
       consumerCallback: _onConsumerReady,
     );
 
@@ -572,6 +707,15 @@ class MediasoupCallSession {
       }
     });
 
+    transport.on('connectionstatechange', (dynamic data) {
+      final s = data is Map
+          ? (data['connectionState'] ?? data['state'])?.toString()
+          : data?.toString();
+      if (s == 'failed' || s == 'disconnected') {
+        onError?.call('Recv transport ICE $s — check TURN / network');
+      }
+    });
+
     return transport;
   }
 
@@ -581,7 +725,14 @@ class MediasoupCallSession {
 
   Future<void> _produceLocalMedia({required bool video}) async {
     // Explicit AEC/NS like proven flutter_webrtc call setups; fall back if
-    // the device rejects constraint maps.
+    // the device rejects constraint maps. Prefer facingMode for mobile cams.
+    final videoConstraints = video
+        ? <String, dynamic>{
+            'facingMode': 'user',
+            'width': {'ideal': 1280},
+            'height': {'ideal': 720},
+          }
+        : false;
     try {
       localStream = await navigator.mediaDevices.getUserMedia({
         'audio': {
@@ -589,13 +740,26 @@ class MediasoupCallSession {
           'noiseSuppression': true,
           'autoGainControl': true,
         },
-        'video': video,
+        'video': videoConstraints,
       });
     } catch (_) {
-      localStream = await navigator.mediaDevices.getUserMedia({
-        'audio': true,
-        'video': video,
-      });
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({
+          'audio': true,
+          'video': video,
+        });
+      } catch (e) {
+        // Last resort: audio-only so the call still connects.
+        if (video) {
+          localStream = await navigator.mediaDevices.getUserMedia({
+            'audio': true,
+            'video': false,
+          });
+          onError?.call('Camera unavailable — joined with audio only');
+        } else {
+          rethrow;
+        }
+      }
     }
 
     for (final track in localStream!.getAudioTracks()) {
@@ -609,7 +773,12 @@ class MediasoupCallSession {
     }
 
     if (video) {
-      for (final track in localStream!.getVideoTracks()) {
+      final videos = localStream!.getVideoTracks();
+      if (videos.isEmpty) {
+        // ignore: avoid_print
+        print('[mediasoup] getUserMedia returned no video tracks');
+      }
+      for (final track in videos) {
         track.enabled = true;
         await _produceTrack(
           track: track,
@@ -783,6 +952,10 @@ class MediasoupCallSession {
     }
 
     onRemoteStream?.call(socketId, peerStream, kind);
+    // Second video track from the same peer = screen share (camera + screen).
+    if (kind == 'video' && peerStream.getVideoTracks().length >= 2) {
+      onRemoteScreenShare?.call(socketId, peerStream);
+    }
     _notifyStateChanged();
   }
 
@@ -857,50 +1030,86 @@ class MediasoupCallSession {
     return completer.future;
   }
 
-  List<RTCIceServer> _parseIceServers(Map<String, dynamic>? configData) {
-    final googleStun = _googleStunFallback;
-
-    if (configData == null) return googleStun;
-
-    dynamic nested = configData['iceServers'];
+  void _applyIceFromConfig(Map<String, dynamic> configData) {
+    // Mirror HTML normalizeIceServers — SFU Coturn TURN + STUN fallback.
+    dynamic nested = configData['iceServers'] ?? configData;
     List<dynamic> servers;
     if (nested is Map && nested['iceServers'] is List) {
       servers = nested['iceServers'] as List;
     } else if (nested is List) {
       servers = nested;
     } else {
-      return googleStun;
+      servers = const [];
     }
 
-    if (servers.isEmpty) return googleStun;
+    final maps = <Map<String, dynamic>>[];
+    final rtc = <RTCIceServer>[];
 
-    final parsed = servers.map((raw) {
-      final m = Map<String, dynamic>.from(raw as Map);
-      final urls = m['urls'];
-      if (urls == null) return null;
-      final urlList = urls is List
-          ? urls.map((u) => u.toString()).where((u) => u.isNotEmpty).toList()
-          : [urls.toString()];
-      if (urlList.isEmpty) return null;
-      return RTCIceServer(
-        urls: urlList,
-        username: m['username']?.toString() ?? '',
-        credential: m['credential']?.toString(),
-        credentialType: RTCIceCredentialType.password,
-      );
-    }).whereType<RTCIceServer>().toList();
+    for (final raw in servers) {
+      if (raw is! Map) continue;
+      final m = Map<String, dynamic>.from(raw);
+      final urlsRaw = m['urls'] ?? m['url'];
+      if (urlsRaw == null) continue;
+      final urlList = urlsRaw is List
+          ? urlsRaw
+              .map((u) => u.toString().trim())
+              .where((u) => u.isNotEmpty)
+              .toList()
+          : [urlsRaw.toString().trim()];
+      if (urlList.isEmpty) continue;
 
-    if (parsed.isEmpty) return googleStun;
+      final username = (m['username'] ?? m['userName'])?.toString() ?? '';
+      final credential = (m['credential'] ?? m['password'])?.toString();
 
-    final hasStun = parsed.any((s) {
-      final urls = s.urls;
-      if (urls is List) {
-        return urls.any((u) => u.toString().startsWith('stun:'));
+      // One entry per URL (Android iceServers path is most reliable this way).
+      for (final url in urlList) {
+        final isTurn = url.toLowerCase().startsWith('turn:') ||
+            url.toLowerCase().startsWith('turns:');
+        final map = <String, dynamic>{'urls': url};
+        if (isTurn && username.isNotEmpty && credential != null && credential.isNotEmpty) {
+          map['username'] = username;
+          map['credential'] = credential;
+        } else if (!isTurn) {
+          // STUN — no credentials
+        } else if (username.isNotEmpty && credential != null) {
+          map['username'] = username;
+          map['credential'] = credential;
+        }
+        maps.add(map);
+
+        rtc.add(
+          RTCIceServer(
+            urls: [url],
+            username: map['username']?.toString() ?? '',
+            credential: map['credential']?.toString(),
+            credentialType: RTCIceCredentialType.password,
+          ),
+        );
       }
-      return urls.toString().startsWith('stun:');
-    });
-    if (!hasStun) return [...parsed, ...googleStun];
-    return parsed;
+    }
+
+    if (maps.isEmpty) {
+      _iceServerMaps = _googleStunFallback
+          .expand((s) => s.urls.map((u) => <String, dynamic>{'urls': u}))
+          .toList();
+      _iceServers = List<RTCIceServer>.from(_googleStunFallback);
+      return;
+    }
+
+    final hasStun = maps.any(
+      (m) => m['urls'].toString().toLowerCase().startsWith('stun:'),
+    );
+    if (!hasStun) {
+      for (final s in _googleStunFallback) {
+        for (final u in s.urls) {
+          maps.add({'urls': u});
+        }
+        rtc.add(s);
+      }
+    }
+
+    _iceServerMaps = maps;
+    _iceServers = rtc;
   }
 
   void _notifyStateChanged() => onStateChanged?.call();

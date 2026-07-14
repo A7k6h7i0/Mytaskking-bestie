@@ -32,14 +32,14 @@
 <body>
   <h1>connect.mytaskking.com — calls.md prototype</h1>
   <p style="color:#9ca3af;font-size:13px;margin:0 0 12px">
-    Open this file in <b>two browser tabs</b> (or two PCs). Same room id = same call. Mic/cam required.
-    Uses Socket.IO only (no REST) because the SFU blocks browser CORS on <code>/api/room</code>.
+    Open via <b>https://</b> or a local server (not bare <code>file://</code>) — phones block mic/cam on file pages.
+    Same room id = same call. Log must show <b>turn≥1</b> from SFU Coturn.
   </p>
 
   <div class="row">
     <input id="roomId" placeholder="room id (blank = create)" style="min-width:180px" />
     <input id="userName" value="WebTester" style="width:140px" />
-    <label><input type="checkbox" id="wantVideo" checked /> video</label>
+    <label><input type="checkbox" id="wantVideo" /> video</label>
     <button id="btnJoin">Join</button>
     <button id="btnLeave" class="danger" disabled>Leave</button>
   </div>
@@ -87,12 +87,72 @@
       return `${n()}-${n()}-${n()}`;
     }
 
+    // Normalize SFU config.iceServers into a RTCPeerConnection-ready list.
+    // Supports: [{urls}], [{url}], nested { iceServers: [...] }, username/credential.
+    function normalizeIceServers(raw) {
+      const nested = raw?.iceServers ?? raw;
+      const list = Array.isArray(nested?.iceServers)
+        ? nested.iceServers
+        : Array.isArray(nested)
+          ? nested
+          : [];
+      const out = [];
+      for (const s of list) {
+        if (!s || typeof s !== 'object') continue;
+        const urlsRaw = s.urls ?? s.url;
+        if (!urlsRaw) continue;
+        const urls = (Array.isArray(urlsRaw) ? urlsRaw : [urlsRaw])
+          .map((u) => String(u).trim())
+          .filter(Boolean);
+        if (!urls.length) continue;
+        const entry = { urls };
+        const user = s.username ?? s.userName;
+        const cred = s.credential ?? s.password;
+        if (user) entry.username = String(user);
+        if (cred) entry.credential = String(cred);
+        out.push(entry);
+      }
+      // Always keep Google STUN as backup if SFU list has none.
+      const hasStun = out.some((e) =>
+        (Array.isArray(e.urls) ? e.urls : [e.urls]).some((u) =>
+          String(u).startsWith('stun:')
+        )
+      );
+      if (!hasStun) {
+        out.push({ urls: 'stun:stun.l.google.com:19302' });
+        out.push({ urls: 'stun:stun1.l.google.com:19302' });
+      }
+      return out;
+    }
+
+    function summarizeIce(servers) {
+      let stun = 0, turn = 0, turns = 0;
+      for (const s of servers) {
+        for (const u of (Array.isArray(s.urls) ? s.urls : [s.urls])) {
+          const t = String(u);
+          if (t.startsWith('turns:')) turns++;
+          else if (t.startsWith('turn:')) turn++;
+          else if (t.startsWith('stun:')) stun++;
+        }
+      }
+      return `stun=${stun} turn=${turn} turns=${turns}`;
+    }
+
     async function join() {
       document.getElementById('btnJoin').disabled = true;
       try {
         let roomId = document.getElementById('roomId').value.trim();
         const userName = document.getElementById('userName').value.trim() || 'WebTester';
         const wantVideo = document.getElementById('wantVideo').checked;
+
+        if (!window.isSecureContext) {
+          throw new Error(
+            'Permission will fail: page is not secure. Open via https:// or http://localhost (not file://).'
+          );
+        }
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error('getUserMedia not available in this browser');
+        }
 
         if (!roomId) {
           roomId = makeRoomId();
@@ -102,7 +162,37 @@
           log(`Using room ${roomId}`, 'ok');
         }
 
-        // 1. Socket + config
+        // Mic/cam FIRST — clearer permission prompt before long signaling.
+        log('Requesting mic/cam… tap Allow', 'ok');
+        try {
+          localStream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: wantVideo,
+          });
+        } catch (mediaErr) {
+          const name = mediaErr?.name || '';
+          const msg = mediaErr?.message || String(mediaErr);
+          if (name === 'NotAllowedError' || /permission/i.test(msg)) {
+            throw new Error(
+              'Mic/camera permission denied. In Chrome: site settings → allow Microphone' +
+                (wantVideo ? ' + Camera' : '') +
+                '. Also avoid file:// — use https or a local http server.'
+            );
+          }
+          if (wantVideo) {
+            log(`Camera failed (${msg}) — trying audio only`, 'err');
+            localStream = await navigator.mediaDevices.getUserMedia({
+              audio: true,
+              video: false,
+            });
+          } else {
+            throw mediaErr;
+          }
+        }
+        document.getElementById('localVideo').srcObject = localStream;
+        log(`Got local media a=${localStream.getAudioTracks().length} v=${localStream.getVideoTracks().length}`, 'ok');
+
+        // 1. Socket + config (Kalyan SFU should include Coturn TURN here)
         let iceServers = [];
         const configReady = new Promise((resolve, reject) => {
           const t = setTimeout(() => reject(new Error('config timeout')), 15000);
@@ -110,9 +200,13 @@
           socket.on('connect', () => log(`Socket connected ${socket.id}`, 'ok'));
           socket.on('config', (data) => {
             clearTimeout(t);
-            const nested = data?.iceServers;
-            iceServers = nested?.iceServers || nested || [];
-            log(`Got ICE (${Array.isArray(iceServers) ? iceServers.length : 0} servers)`, 'ok');
+            iceServers = normalizeIceServers(data);
+            log(`Got ICE (${iceServers.length}) — ${summarizeIce(iceServers)}`, 'ok');
+            if (!summarizeIce(iceServers).includes('turn=')) {
+              log('WARNING: no turn:/turns: in config — Coturn may not be in SFU iceServers', 'err');
+            } else {
+              log('TURN present — phone networks should use relay when needed', 'ok');
+            }
             resolve();
           });
           socket.on('connect_error', (e) => {
@@ -132,7 +226,7 @@
         await device.load({ routerRtpCapabilities: joinResult.routerRtpCapabilities });
         log('Device loaded', 'ok');
 
-        // 4. Send transport
+        // 4. Send transport (iceServers includes Coturn TURN from SFU config)
         {
           const res = await emitAck('createWebRTCTransport', { roomId, direction: 'send' });
           const p = res.params;
@@ -153,6 +247,9 @@
               roomId, transportId: sendTransport.id, kind, rtpParameters,
             }).then((r) => callback({ id: r.id })).catch(errback);
           });
+          sendTransport.on('connectionstatechange', (state) => {
+            log(`Send ICE ${state}`, state === 'failed' || state === 'disconnected' ? 'err' : 'ok');
+          });
           log('Send transport ready', 'ok');
         }
 
@@ -172,28 +269,13 @@
               roomId, transportId: recvTransport.id, dtlsParameters, direction: 'recv',
             }).then(() => callback()).catch(errback);
           });
+          recvTransport.on('connectionstatechange', (state) => {
+            log(`Recv ICE ${state}`, state === 'failed' || state === 'disconnected' ? 'err' : 'ok');
+          });
           log('Recv transport ready', 'ok');
         }
 
-        // 6. Local media + produce
-        // "Requested device not found" = no cam/mic (or in use) — not an SFU error.
-        try {
-          localStream = await navigator.mediaDevices.getUserMedia({
-            audio: true,
-            video: wantVideo,
-          });
-        } catch (mediaErr) {
-          if (wantVideo) {
-            log(`Camera failed (${mediaErr.message}) — trying audio only`, 'err');
-            localStream = await navigator.mediaDevices.getUserMedia({
-              audio: true,
-              video: false,
-            });
-          } else {
-            throw mediaErr;
-          }
-        }
-        document.getElementById('localVideo').srcObject = localStream;
+        // 6. Produce local tracks (getUserMedia already done at start)
         for (const track of localStream.getAudioTracks()) {
           producers.push(await sendTransport.produce({ track }));
           log('Produced audio', 'ok');

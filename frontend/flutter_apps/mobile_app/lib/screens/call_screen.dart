@@ -33,6 +33,12 @@ const _callNotificationChannel = MethodChannel('mytaskking/call_notification');
 const _kPremiumControlGridWidth = 354.0;
 const _kPremiumControlColumnGap = 10.0;
 
+/// Screen share is temporarily disabled in the call UI (SFU path unfinished).
+const _kScreenShareUiEnabled = false;
+
+/// SFU records server-side automatically (see calls.md) — no client Record button.
+const _kClientRecordUiEnabled = false;
+
 /// Outbound ring with no answer — matches server `RING_NO_ANSWER_MS` (60s).
 const _kOutgoingRingTimeout = Duration(seconds: 60);
 
@@ -449,7 +455,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   void _subscribeCallLifecycle() {
     final callId = widget.callId;
-    if (callId == null) return;
+    if (callId == null) {
+      _subscribeMeetingLifecycle();
+      return;
+    }
     final rt = ref.read(realtimeProvider);
     _callUnsubs.add(rt.onAny('call.declined', ([data]) {
       if (data is! Map || data['callId'] != callId) return;
@@ -613,6 +622,77 @@ class _CallScreenState extends ConsumerState<CallScreen>
       _syncParticipantsFromCallMeta();
       if (mounted) setState(() {});
     }));
+  }
+
+  /// Meetings don't use call.* sockets. Wire meeting join events so invitees
+  /// who connect appear on everyone's participant grid.
+  void _subscribeMeetingLifecycle() {
+    final slug = widget.meetingSlug;
+    if (slug == null || slug.isEmpty) return;
+    final rt = ref.read(realtimeProvider);
+    _callUnsubs.add(rt.onAny('meeting.participant.joined', ([data]) {
+      if (data is! Map) return;
+      if (data['slug']?.toString() != slug &&
+          data['roomId']?.toString() !=
+              (_callMeta?['room'] as Map?)?['id']?.toString()) {
+        return;
+      }
+      final part = (data['participant'] as Map?)?.cast<String, dynamic>();
+      if (part == null) return;
+      final userId = part['userId']?.toString();
+      final name =
+          (part['displayName'] ?? part['userName'] ?? 'Participant').toString();
+      final uidRaw = part['agoraUid'];
+      final agoraUid = uidRaw is int ? uidRaw : int.tryParse('$uidRaw');
+      final me = ref.read(authStoreProvider).user;
+      if (userId != null && userId.isNotEmpty && userId != me?.id) {
+        _markParticipantJoined(userId, name);
+        if (agoraUid != null && agoraUid > 0) {
+          _agoraUidToUserId[agoraUid] = userId;
+          _remoteNames[agoraUid] = name;
+          _seenPeerUids.add(agoraUid);
+          // Agora onUserJoined also adds the uid; keep map ready either way.
+          if (_remoteUids.contains(agoraUid) || _joined) {
+            _remoteUids.add(agoraUid);
+          }
+        }
+      }
+      if (mounted) {
+        if (_connectedAt == null && _joined) _markRemoteConnected();
+        setState(() => _status = 'Connected');
+      }
+    }));
+  }
+
+  /// Apply meeting token roster (userId + agoraUid + name) so tiles map
+  /// before / without announce sockets.
+  void _syncMeetingRoster(Map<String, dynamic>? tokenOrMeta) {
+    if (!_isMeeting || tokenOrMeta == null) return;
+    final me = ref.read(authStoreProvider).user;
+    if (me != null) _markParticipantJoined(me.id, me.name);
+
+    final raw = tokenOrMeta['participants'];
+    if (raw is! List) return;
+    for (final entry in raw) {
+      if (entry is! Map) continue;
+      final p = Map<String, dynamic>.from(entry);
+      final userId = p['userId']?.toString();
+      if (userId == null || userId.isEmpty) continue;
+      final name =
+          (p['displayName'] ?? p['userName'] ?? 'Participant').toString().trim();
+      final resolved = name.isEmpty ? 'Participant' : name;
+      _markParticipantJoined(userId, resolved);
+      final uidRaw = p['agoraUid'];
+      final agoraUid = uidRaw is int ? uidRaw : int.tryParse('$uidRaw');
+      if (agoraUid == null || agoraUid <= 0) continue;
+      _agoraUidToUserId[agoraUid] = userId;
+      if (userId == me?.id) continue;
+      _remoteNames[agoraUid] = resolved;
+      // Promote to live tile if Agora already reported this peer.
+      if (_remoteUids.contains(agoraUid) || _seenPeerUids.contains(agoraUid)) {
+        _remoteUids.add(agoraUid);
+      }
+    }
   }
 
   /// Tell the other call participants this device's real Agora uid + name so
@@ -785,12 +865,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
     if (userId == null || userId.isEmpty) return;
     final me = ref.read(authStoreProvider).user?.id;
     if (userId == me) return;
-    _participantLeaveTimers[userId]?.cancel();
-    _participantLeaveTimers[userId] = Timer(const Duration(seconds: 4), () {
-      _participantLeaveTimers.remove(userId);
-      _joinedParticipants.remove(userId);
-      if (mounted) setState(() {});
-    });
+    // Drop live tiles immediately — 4s grace left ghosts after hang-up.
+    _removeRemotePeersForUser(userId);
+    if (mounted) setState(() {});
   }
 
   void _cancelRemoteOfflineGrace(int uid) {
@@ -908,10 +985,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
     }
   }
 
-  /// Keep one Agora uid per user when a newer announce arrives.
+  /// Keep one UI uid per user — hash fallback + announce uid caused
+  /// "Tester2 Tester2" when a 3rd person joined.
   void _dedupeRemoteUidsForUser(String userId, {required int keepUid}) {
-    // Mediasoup multi-party / meetings may have one user on multiple devices.
-    if (_CallSession.useMediasoup && !_isOneToOneCall()) return;
     final keepName = _remoteNames[keepUid];
     final stale = <int>[];
     for (final uid in _remoteUids) {
@@ -929,12 +1005,156 @@ class _CallScreenState extends ConsumerState<CallScreen>
       }
     }
     for (final uid in stale) {
+      final sock = _CallSession.uidToSocketId.remove(uid);
+      if (sock != null && _CallSession.socketIdToUid[sock] == uid) {
+        _CallSession.socketIdToUid[sock] = keepUid;
+        _CallSession.uidToSocketId[keepUid] = sock;
+      }
       _remoteUids.remove(uid);
       _remoteNames.remove(uid);
       _remoteMuted.remove(uid);
+      _remoteVideoMuted.remove(uid);
       _agoraUidToUserId.remove(uid);
       _seenPeerUids.remove(uid);
+      _cancelRemoteOfflineGrace(uid);
     }
+  }
+
+  /// Immediate cleanup when someone leaves the mediasoup room / call.
+  void _removeRemotePeerByUid(int uid, {String? userIdHint, String? nameHint}) {
+    _cancelRemoteOfflineGrace(uid);
+    final sock = _CallSession.uidToSocketId.remove(uid);
+    if (sock != null && _CallSession.socketIdToUid[sock] == uid) {
+      _CallSession.socketIdToUid.remove(sock);
+    }
+    final leftName =
+        (nameHint ?? _remoteNames[uid])?.trim();
+    _remoteUids.remove(uid);
+    _remoteNames.remove(uid);
+    _remoteMuted.remove(uid);
+    _remoteVideoMuted.remove(uid);
+    final userId = userIdHint ?? _agoraUidToUserId.remove(uid);
+    _agoraUidToUserId.remove(uid);
+    _seenPeerUids.remove(uid);
+    if (_remoteScreenShareUid == uid) {
+      _remoteScreenShareUid = null;
+      _remoteScreenShareUserId = null;
+    }
+    if (userId != null && userId.isNotEmpty) {
+      _participantLeaveTimers.remove(userId)?.cancel();
+      _joinedParticipants.remove(userId);
+    }
+    // Drop joined entries that only matched by display name (no userId map).
+    if (leftName != null && leftName.isNotEmpty && leftName != 'Participant') {
+      final me = ref.read(authStoreProvider).user?.id;
+      final stale = <String>[];
+      for (final e in _joinedParticipants.entries) {
+        if (e.key == me) continue;
+        if (e.value.trim() == leftName) stale.add(e.key);
+      }
+      for (final id in stale) {
+        _joinedParticipants.remove(id);
+        _participantLeaveTimers.remove(id)?.cancel();
+      }
+    }
+  }
+
+  void _removeRemotePeerBySocket(String socketId, {String? userName}) {
+    final mappedUid = _CallSession.socketIdToUid[socketId];
+    final uids = <int>{
+      if (mappedUid != null) mappedUid,
+      for (final e in _CallSession.uidToSocketId.entries)
+        if (e.value == socketId) e.key,
+    };
+    // Also clear any hash uid that still lists this peer by name.
+    final name = userName?.trim();
+    if (name != null && name.isNotEmpty && name != 'Participant') {
+      for (final uid in _remoteUids.toList()) {
+        if (_remoteNames[uid]?.trim() == name) uids.add(uid);
+      }
+    }
+    if (uids.isEmpty) {
+      // Mapping never settled — still scrub joined list by name.
+      if (name != null && name.isNotEmpty && name != 'Participant') {
+        final me = ref.read(authStoreProvider).user?.id;
+        final stale = <String>[];
+        for (final e in _joinedParticipants.entries) {
+          if (e.key == me) continue;
+          if (e.value.trim() == name) stale.add(e.key);
+        }
+        for (final id in stale) {
+          _joinedParticipants.remove(id);
+          _participantLeaveTimers.remove(id)?.cancel();
+        }
+      }
+      _CallSession.socketIdToUid.remove(socketId);
+      return;
+    }
+    for (final uid in uids) {
+      _removeRemotePeerByUid(
+        uid,
+        userIdHint: _agoraUidToUserId[uid],
+        nameHint: name,
+      );
+    }
+    _CallSession.socketIdToUid.remove(socketId);
+    _pruneGhostMediasoupRemotes();
+  }
+
+  /// Drop remotes that no longer have an SFU socket / stream.
+  void _pruneGhostMediasoupRemotes() {
+    final session = _CallSession.mediasoup;
+    if (!_CallSession.useMediasoup || session == null) return;
+    final liveSockets = session.remoteNames.keys
+        .where((id) => id != session.mySocketId)
+        .toSet()
+      ..addAll(session.remoteStreams.keys
+          .where((id) => id != session.mySocketId));
+    for (final uid in _remoteUids.toList()) {
+      final sock = _CallSession.uidToSocketId[uid];
+      if (sock != null && liveSockets.contains(sock)) continue;
+      // Keep briefly if socket not mapped yet but name still live in SFU.
+      final n = _remoteNames[uid]?.trim();
+      if (n != null &&
+          n.isNotEmpty &&
+          session.remoteNames.values.any((v) => v.trim() == n)) {
+        continue;
+      }
+      if (sock == null && liveSockets.isEmpty && _waitingForAnswer) continue;
+      _removeRemotePeerByUid(uid, userIdHint: _agoraUidToUserId[uid]);
+    }
+    // Also drop joined-map ghosts once we know SFU membership.
+    if (!_waitingForAnswer) {
+      final me = ref.read(authStoreProvider).user?.id;
+      final drop = <String>[];
+      for (final e in _joinedParticipants.entries) {
+        if (e.key == me) continue;
+        if (!_isStillLiveMediasoupParticipant(
+            userId: e.key, name: e.value)) {
+          drop.add(e.key);
+        }
+      }
+      for (final id in drop) {
+        _joinedParticipants.remove(id);
+        _participantLeaveTimers.remove(id)?.cancel();
+      }
+    }
+  }
+
+  void _removeRemotePeersForUser(String userId) {
+    final toRemove = <int>[];
+    for (final e in _agoraUidToUserId.entries) {
+      if (e.value == userId) toRemove.add(e.key);
+    }
+    for (final uid in _remoteUids.toList()) {
+      if (_agoraUidToUserId[uid] == userId) toRemove.add(uid);
+    }
+    for (final uid in toRemove.toSet()) {
+      _removeRemotePeerByUid(uid, userIdHint: userId);
+    }
+    _participantLeaveTimers.remove(userId)?.cancel();
+    _joinedParticipants.remove(userId);
+    _pruneGhostMediasoupRemotes();
   }
 
   int? _agoraUidForUserId(String? userId) {
@@ -1184,6 +1404,25 @@ class _CallScreenState extends ConsumerState<CallScreen>
   /// Stable participant count for the header chip — prefers backend join state
   /// over raw Agora uid count so reconnect blips don't flicker 1 ↔ 2.
   int get _participantCount {
+    final me = ref.read(authStoreProvider).user?.id;
+    if (_CallSession.useMediasoup && _CallSession.mediasoup != null) {
+      var n = 1; // self
+      for (final e in _joinedParticipants.entries) {
+        if (e.key == me) continue;
+        if (_isStillLiveMediasoupParticipant(userId: e.key, name: e.value)) {
+          n++;
+        }
+      }
+      // Include unmapped live remotes on SFU.
+      for (final uid in _remoteUids) {
+        if (uid == _CallSession.myUid) continue;
+        final id = _agoraUidToUserId[uid];
+        if (id != null && id == me) continue;
+        if (id != null && _joinedParticipants.containsKey(id)) continue;
+        n++;
+      }
+      return max(1, n);
+    }
     final backend = _joinedParticipants.length;
     if (backend > 0) return backend;
     return max(1, 1 + _remoteUids.length);
@@ -1774,11 +2013,14 @@ class _CallScreenState extends ConsumerState<CallScreen>
           _joined = true;
           _reconnecting = false;
           _error = null;
-          // Before anyone answers we're ringing them, not connected.
-          _status = _remoteUids.isEmpty ? 'Ringing…' : 'Connected';
+          // Meetings: never show "Ringing…" after we ourselves joined Agora.
+          _status = _isMeeting
+              ? (_remoteUids.isEmpty ? 'Waiting for others…' : 'Connected')
+              : (_remoteUids.isEmpty ? 'Ringing…' : 'Connected');
         });
         unawaited(_enableSpeakerHighlight());
         _purgeSelfFromRemoteTracking();
+        if (_isMeeting) _syncMeetingRoster(_callMeta);
         _publishActiveCallState();
         _showOngoingCallNotification();
         _CallSession.startAudioRouteKeepAlive();
@@ -1789,16 +2031,25 @@ class _CallScreenState extends ConsumerState<CallScreen>
           _startOutgoingRingTimeout();
           _startWaitingForAnswerPoll();
         }
+        if (_isMeeting && _connectedAt == null) {
+          _markRemoteConnected();
+        }
         if (!_isVideo) unawaited(_startProximityIfVoice());
       },
       onUserJoined: (conn, remoteUid, elapsed) {
         if (!mounted) return;
         _remoteHangupFallbackTimer?.cancel();
         _bindRemoteUidName(remoteUid);
+        if (_isMeeting) {
+          // Roster may already know this hashed uid → userId/name.
+          _syncMeetingRoster(_callMeta);
+          _bindRemoteUidName(remoteUid);
+        }
         _cancelRemoteOfflineGrace(remoteUid);
         setState(() {
           _remoteUids.add(remoteUid);
           _reconnecting = false;
+          if (_isMeeting) _status = 'Connected';
         });
         unawaited(_ensureRemoteVideoSubscribed(remoteUid));
         // During outbound ringing, prefer the server join event — but if that
@@ -2304,6 +2555,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
       final tokenResp = await _fetchToken();
       _callMeta = tokenResp;
       _CallSession.callMeta = tokenResp;
+      if (_isMeeting) {
+        _syncMeetingRoster(tokenResp);
+      }
       _videoEnabled = _routeWantsVideo;
       _syncParticipantsFromCallMeta();
       try {
@@ -2467,6 +2721,19 @@ class _CallScreenState extends ConsumerState<CallScreen>
         // Announce again over the socket once we're in — covers participants
         // who were already in the call before us.
         _announceSelf();
+      } else if (_isMeeting) {
+        _syncMeetingRoster(_callMeta);
+        // Token fetch already recorded us; refresh roster so late names map.
+        unawaited(() async {
+          try {
+            final fresh = await _fetchToken();
+            if (!mounted) return;
+            _callMeta = {...?_callMeta, ...fresh};
+            _CallSession.callMeta = _callMeta;
+            _syncMeetingRoster(fresh);
+            if (mounted) setState(() {});
+          } catch (_) {}
+        }());
       }
     } on AgoraRtcException catch (e) {
       if (!mounted) return;
@@ -2625,6 +2892,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     _remoteNames[uid] = name;
     _seenPeerUids.add(uid);
     _remoteUids.add(uid);
+    _dedupeRemoteUidsForUser(userId, keepUid: uid);
     if (mounted) setState(() {});
   }
 
@@ -2641,6 +2909,15 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final mappedUserId = _agoraUidToUserId[uid];
     if (mappedUserId != null && mappedUserId.isNotEmpty) {
       _dedupeRemoteUidsForUser(mappedUserId, keepUid: uid);
+    } else if (userName.isNotEmpty && userName != 'Participant') {
+      // Dedup by name against hash-uids before announce maps userId.
+      for (final other in _remoteUids.toList()) {
+        if (other == uid) continue;
+        if (_remoteNames[other] == userName &&
+            (_agoraUidToUserId[other] == null)) {
+          _removeRemotePeerByUid(other);
+        }
+      }
     }
     _syncRemotePeerSnapshot();
 
@@ -2671,12 +2948,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
       unawaited(_reassertAudio());
       if (mounted) setState(() {});
     };
-    session.onRemoteLeft = (socketId) {
+    session.onRemoteLeft = (socketId, userName) {
       if (!mounted) return;
-      final uid = _CallSession.socketIdToUid[socketId];
-      if (uid != null) {
-        _scheduleRemoteOfflineGrace(uid);
-      }
+      _removeRemotePeerBySocket(socketId, userName: userName);
+      if (mounted) setState(() {});
+      _CallSession._ping();
     };
     session.onRemoteStream = (socketId, stream, kind) {
       if (!mounted) return;
@@ -2706,6 +2982,26 @@ class _CallScreenState extends ConsumerState<CallScreen>
         _clearMediaHint();
       }
       if (mounted) setState(() {});
+      _CallSession._ping();
+    };
+    session.onRemoteScreenShare = (socketId, stream) {
+      if (!mounted) return;
+      final uid = _CallSession.socketIdToUid[socketId] ??
+          _resolveRemoteUid(
+            socketId,
+            session.remoteNames[socketId] ?? 'Participant',
+          );
+      _ensureMediasoupRemoteTracked(
+        socketId,
+        session.remoteNames[socketId] ?? 'Participant',
+      );
+      setState(() {
+        _remoteScreenShareUid = uid;
+        final userId = _agoraUidToUserId[uid];
+        if (userId != null) _remoteScreenShareUserId = userId;
+        _remoteVideoMuted[uid] = false;
+      });
+      unawaited(session.enableRemotePlayback());
       _CallSession._ping();
     };
     session.onStateChanged = () {
@@ -2741,10 +3037,27 @@ class _CallScreenState extends ConsumerState<CallScreen>
     if (videos.length <= 1) return stream;
     for (final track in videos) {
       final label = (track.label ?? '').toLowerCase();
-      if (label.contains('screen') || label.contains('display')) {
+      if (label.contains('screen') ||
+          label.contains('display') ||
+          label.contains('web-contents') ||
+          label.contains('window')) {
+        // Prefer labeled screen track for display.
+        try {
+          for (final t in videos) {
+            t.enabled = identical(t, track) ||
+                !((t.label ?? '').toLowerCase().contains('camera') ||
+                    (t.label ?? '').toLowerCase().contains('facing'));
+          }
+        } catch (_) {}
         return stream;
       }
     }
+    // No label — use last video track (screen is usually produced after camera).
+    try {
+      for (var i = 0; i < videos.length; i++) {
+        videos[i].enabled = i == videos.length - 1;
+      }
+    } catch (_) {}
     return stream;
   }
 
@@ -2756,34 +3069,52 @@ class _CallScreenState extends ConsumerState<CallScreen>
     if (session == null) return null;
     final mySocket = session.mySocketId;
 
+    MediaStream? withVideo(MediaStream? s) {
+      if (s == null || s.getVideoTracks().isEmpty) return null;
+      return s;
+    }
+
     if (uid != null) {
-      final direct = _mediasoupStreamForUid(uid, local: false);
-      if (direct != null && direct.getVideoTracks().isNotEmpty) {
-        return direct;
-      }
+      final byUid = withVideo(_mediasoupStreamForUid(uid, local: false));
+      if (byUid != null) return byUid;
+
       final mappedSocket = _CallSession.uidToSocketId[uid];
       if (mappedSocket != null) {
-        final bySocket = session.remoteStreams[mappedSocket];
-        if (bySocket != null && bySocket.getVideoTracks().isNotEmpty) {
-          return bySocket;
-        }
+        final bySocket = withVideo(session.remoteStreams[mappedSocket]);
+        if (bySocket != null) return bySocket;
       }
+
       for (final entry in session.remoteStreams.entries) {
         if (entry.key == mySocket) continue;
-        if (entry.value.getVideoTracks().isEmpty) continue;
         if (_CallSession.socketIdToUid[entry.key] == uid) {
-          return entry.value;
+          final hit = withVideo(entry.value);
+          if (hit != null) return hit;
+        }
+      }
+
+      // Match by display name when uid↔socket lagging after 3rd join.
+      final wantName = (_remoteNames[uid] ?? '').trim();
+      if (wantName.isNotEmpty && wantName != 'Participant') {
+        for (final entry in session.remoteNames.entries) {
+          if (entry.key == mySocket) continue;
+          if (entry.value.trim() != wantName) continue;
+          final hit = withVideo(session.remoteStreams[entry.key]);
+          if (hit != null) {
+            _CallSession.socketIdToUid[entry.key] = uid;
+            _CallSession.uidToSocketId[uid] = entry.key;
+            return hit;
+          }
         }
       }
     }
 
-    for (final entry in session.remoteStreams.entries) {
-      if (entry.key == mySocket) continue;
-      if (entry.value.getVideoTracks().isEmpty) continue;
-      if (uid == null || (!_isMeeting && _distinctRemoteUserCount <= 1)) {
-        return entry.value;
-      }
-    }
+    // 1:1 / single remote: any remote video stream is fine.
+    final videoPeers = session.remoteStreams.entries
+        .where((e) =>
+            e.key != mySocket && e.value.getVideoTracks().isNotEmpty)
+        .toList();
+    if (videoPeers.length == 1) return videoPeers.first.value;
+    if (uid == null && videoPeers.isNotEmpty) return videoPeers.first.value;
     return null;
   }
 
@@ -2846,12 +3177,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
       if (entry.key == mySocket) continue;
       final stream = entry.value;
       if (stream.getAudioTracks().isEmpty) continue;
-      // Video tile [MediasoupVideoView] already owns playout for this stream.
-      if (_isVideo &&
-          stream.getVideoTracks().isNotEmpty &&
-          _mediasoupVideoSurfaceActiveFor(entry.key)) {
-        continue;
-      }
+      // Never dual-bind: if the stream has video, the video tile owns it
+      // (plays audio too). Dual RTCVideoRenderer = silent / blank remote.
+      if (_isVideo && stream.getVideoTracks().isNotEmpty) continue;
       sinks.add(
         SizedBox(
           width: 64,
@@ -2970,6 +3298,23 @@ class _CallScreenState extends ConsumerState<CallScreen>
       userName: userName,
       video: _routeWantsVideo,
     );
+
+    if (mounted) {
+      final ice = session.iceSummary;
+      if (session.iceHasTurn) {
+        bestieToast(
+          context,
+          'Call media ready ($ice)',
+          kind: BestieToastKind.success,
+        );
+      } else {
+        bestieToast(
+          context,
+          'No TURN in ICE ($ice) — voice may fail on mobile data',
+          kind: BestieToastKind.warning,
+        );
+      }
+    }
 
     _syncMediasoupRemotesFromSession(session);
 
@@ -3370,6 +3715,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   Future<void> _toggleShare() async {
+    if (!_kScreenShareUiEnabled) return;
     if (!_hasLiveMediaEngine) return;
     if (!_joined) {
       if (mounted) {
@@ -3522,7 +3868,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
   /// the Agora SDK, then on stop uploads it and attaches the URL to the
   /// call/meeting so it surfaces in the admin panel. Fully client-side — no
   /// Agora Cloud Recording add-on needed.
+  ///
+  /// Mediasoup calls are recorded automatically server-side (calls.md) —
+  /// client Record UI is disabled via [_kClientRecordUiEnabled].
   Future<void> _toggleRecord() async {
+    if (!_kClientRecordUiEnabled || _CallSession.useMediasoup) return;
     final engine = _engine;
     if (engine == null || _savingRecording) return;
     if (!_recording) {
@@ -6075,6 +6425,61 @@ class _CallScreenState extends ConsumerState<CallScreen>
     return null;
   }
 
+  /// True while this person is still present on the mediasoup SFU (or we are
+  /// still ringing / connecting and have not yet received any remote SFU peer).
+  bool _isStillLiveMediasoupParticipant({
+    required String userId,
+    required String name,
+  }) {
+    final session = _CallSession.mediasoup;
+    if (!_CallSession.useMediasoup || session == null) return true;
+
+    final uid = _agoraUidForUserId(userId);
+    if (uid != null && _remoteUids.contains(uid)) {
+      final sock = _CallSession.uidToSocketId[uid];
+      if (sock != null &&
+          (session.remoteNames.containsKey(sock) ||
+              session.remoteStreams.containsKey(sock))) {
+        return true;
+      }
+    }
+
+    final want = name.trim();
+    if (want.isNotEmpty && want != 'Participant') {
+      for (final entry in session.remoteNames.entries) {
+        if (entry.key == session.mySocketId) continue;
+        if (entry.value.trim() == want) return true;
+      }
+    }
+
+    final liveRemoteCount = session.remoteNames.keys
+        .where((id) => id != session.mySocketId)
+        .length;
+    // Still ringing / waiting — keep invited people on the stage.
+    if (liveRemoteCount == 0 && _waitingForAnswer) {
+      return true;
+    }
+    return false;
+  }
+
+  int? _mediasoupUidForParticipantName(String name) {
+    final want = name.trim();
+    if (want.isEmpty || want == 'Participant') return null;
+    final session = _CallSession.mediasoup;
+    if (session == null) return null;
+    for (final entry in session.remoteNames.entries) {
+      if (entry.key == session.mySocketId) continue;
+      if (entry.value.trim() != want) continue;
+      final mapped = _CallSession.socketIdToUid[entry.key];
+      if (mapped != null) return mapped;
+      return _resolveRemoteUid(entry.key, entry.value);
+    }
+    for (final uid in _remoteUids) {
+      if (_remoteNames[uid]?.trim() == want) return uid;
+    }
+    return null;
+  }
+
   List<
       ({
         String name,
@@ -6109,8 +6514,17 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final seen = <String>{if (me?.id != null) me!.id};
     for (final entry in _joinedParticipants.entries) {
       if (entry.key == me?.id || seen.contains(entry.key)) continue;
+      // Mediasoup: do not keep a tile after the peer left the SFU room.
+      if (_CallSession.useMediasoup &&
+          !_isStillLiveMediasoupParticipant(
+            userId: entry.key,
+            name: entry.value,
+          )) {
+        continue;
+      }
       seen.add(entry.key);
-      final uid = _agoraUidForUserId(entry.key);
+      var uid = _agoraUidForUserId(entry.key);
+      uid ??= _mediasoupUidForParticipantName(entry.value);
       tiles.add((
         name: entry.value,
         userId: entry.key,
@@ -6121,12 +6535,56 @@ class _CallScreenState extends ConsumerState<CallScreen>
         videoMuted: uid != null ? (_remoteVideoMuted[uid] ?? false) : false,
       ));
     }
-    // Only attach live Agora streams that map to a known person.
-    // Never create ghost tiles labeled "Participant" for unmapped UIDs.
+    // Live Agora remotes: for meetings always show a tile even before userId
+    // mapping arrives (call.announce never runs on the meeting path).
     for (final uid in _remoteUids) {
       if (uid == _CallSession.myUid) continue;
       final mappedUserId = _agoraUidToUserId[uid];
-      if (mappedUserId == null || mappedUserId.isEmpty) continue;
+      if (mappedUserId == null || mappedUserId.isEmpty) {
+        if (_CallSession.useMediasoup) {
+          final announced = _remoteNames[uid]?.trim();
+          if (announced == null ||
+              announced.isEmpty ||
+              announced == 'Participant') {
+            continue;
+          }
+          if (tiles.any((t) => !t.isLocal && t.name.trim() == announced)) {
+            continue;
+          }
+          tiles.add((
+            name: announced,
+            userId: null,
+            imageUrl: null,
+            agoraUid: uid,
+            isLocal: false,
+            muted: _remoteMuted[uid] ?? false,
+            videoMuted: _remoteVideoMuted[uid] ?? false,
+          ));
+          continue;
+        }
+        if (!_isMeeting) continue;
+        // Agora meeting: show connected peer even without userId yet.
+        final announced = _remoteNames[uid]?.trim();
+        final displayName = (announced != null && announced.isNotEmpty)
+            ? announced
+            : 'Participant';
+        if (tiles.any((t) =>
+            !t.isLocal &&
+            (t.agoraUid == uid ||
+                (t.name == displayName && displayName != 'Participant')))) {
+          continue;
+        }
+        tiles.add((
+          name: displayName,
+          userId: null,
+          imageUrl: null,
+          agoraUid: uid,
+          isLocal: false,
+          muted: _remoteMuted[uid] ?? false,
+          videoMuted: _remoteVideoMuted[uid] ?? false,
+        ));
+        continue;
+      }
       if (mappedUserId == me?.id) continue;
 
       final announced = _remoteNames[uid]?.trim();
@@ -6154,17 +6612,30 @@ class _CallScreenState extends ConsumerState<CallScreen>
           videoMuted: _remoteVideoMuted[uid] ?? false,
         );
       } else {
-        final sameUserTiles =
-            tiles.where((t) => !t.isLocal && t.userId == mappedUserId).length;
-        final allowMultiDeviceTiles =
-            _CallSession.useMediasoup && !_isOneToOneCall();
-        final tileName = sameUserTiles > 0 && allowMultiDeviceTiles
-            ? '$displayName (${sameUserTiles + 1})'
-            : displayName;
-        if (!seen.contains(mappedUserId) || allowMultiDeviceTiles) {
+        final sameUserIdx =
+            tiles.indexWhere((t) => !t.isLocal && t.userId == mappedUserId);
+        if (sameUserIdx >= 0) {
+          // Prefer the uid that actually has a mediasoup stream / camera.
+          final existing = tiles[sameUserIdx];
+          final preferNew = _CallSession.useMediasoup &&
+              _mediasoupRemoteVideoStreamForUid(uid) != null &&
+              (existing.agoraUid == null ||
+                  _mediasoupRemoteVideoStreamForUid(existing.agoraUid) == null);
+          if (preferNew) {
+            tiles[sameUserIdx] = (
+              name: displayName,
+              userId: mappedUserId,
+              imageUrl: _avatarUrlForUserId(mappedUserId),
+              agoraUid: uid,
+              isLocal: false,
+              muted: _remoteMuted[uid] ?? false,
+              videoMuted: _remoteVideoMuted[uid] ?? false,
+            );
+          }
+        } else if (!seen.contains(mappedUserId)) {
           seen.add(mappedUserId);
           tiles.add((
-            name: tileName,
+            name: displayName,
             userId: mappedUserId,
             imageUrl: _avatarUrlForUserId(mappedUserId),
             agoraUid: uid,
@@ -6882,15 +7353,16 @@ class _CallScreenState extends ConsumerState<CallScreen>
         danger: false,
         onTap: _showCallNotes,
       ),
-      (
-        label: _sharing ? 'Stop' : 'Share',
-        icon: _sharing
-            ? Icons.stop_screen_share_rounded
-            : Icons.screen_share_rounded,
-        selected: _sharing,
-        danger: false,
-        onTap: _toggleShare,
-      ),
+      if (_kScreenShareUiEnabled)
+        (
+          label: _sharing ? 'Stop' : 'Share',
+          icon: _sharing
+              ? Icons.stop_screen_share_rounded
+              : Icons.screen_share_rounded,
+          selected: _sharing,
+          danger: false,
+          onTap: _toggleShare,
+        ),
       (
         label: 'End',
         icon: Icons.call_end_rounded,
@@ -7061,20 +7533,21 @@ class _CallScreenState extends ConsumerState<CallScreen>
       ], gap: rowGap),
       const SizedBox(height: 8),
       _premiumControlRow([
-        CallUiGlassControlButton(
-          label: _sharing ? 'Stop share' : 'Share screen',
-          icon: _sharing
-              ? Icons.stop_screen_share_rounded
-              : Icons.screen_share_rounded,
-          isSelected: _sharing,
-          onTap: _toggleShare,
-          lightControls: lightControls,
-          compact: compact,
-          iconGradient: const [
-            CallScreenUiColors.neonBlue,
-            CallScreenUiColors.verifiedBlue,
-          ],
-        ),
+        if (_kScreenShareUiEnabled)
+          CallUiGlassControlButton(
+            label: _sharing ? 'Stop share' : 'Share screen',
+            icon: _sharing
+                ? Icons.stop_screen_share_rounded
+                : Icons.screen_share_rounded,
+            isSelected: _sharing,
+            onTap: _toggleShare,
+            lightControls: lightControls,
+            compact: compact,
+            iconGradient: const [
+              CallScreenUiColors.neonBlue,
+              CallScreenUiColors.verifiedBlue,
+            ],
+          ),
         CallUiGlassControlButton(
           label: 'Add Participant',
           icon: Icons.person_add_outlined,
@@ -7086,18 +7559,19 @@ class _CallScreenState extends ConsumerState<CallScreen>
             CallScreenUiColors.neonPurple,
           ],
         ),
-        CallUiGlassControlButton(
-          label: 'Record',
-          icon: Icons.fiber_manual_record_outlined,
-          isSelected: _recording,
-          onTap: _toggleRecord,
-          lightControls: lightControls,
-          compact: compact,
-          iconGradient: const [
-            Color(0xFFFF6B6B),
-            Color(0xFFFF4757),
-          ],
-        ),
+        if (_kClientRecordUiEnabled)
+          CallUiGlassControlButton(
+            label: 'Record',
+            icon: Icons.fiber_manual_record_outlined,
+            isSelected: _recording,
+            onTap: _toggleRecord,
+            lightControls: lightControls,
+            compact: compact,
+            iconGradient: const [
+              Color(0xFFFF6B6B),
+              Color(0xFFFF4757),
+            ],
+          ),
         CallUiGlassControlButton(
           label: 'Call Notes',
           icon: Icons.edit_note_outlined,
@@ -7247,10 +7721,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
                 ? ((!_videoEnabled || _cameraOff)
                     ? Icons.videocam_off_rounded
                     : Icons.videocam_rounded)
-                : (_sharing
-                    ? Icons.stop_screen_share_rounded
-                    : Icons.screen_share_rounded),
-            onTap: _isVideo ? _toggleCamera : _toggleShare,
+                : Icons.dialpad_rounded,
+            onTap: _isVideo
+                ? _toggleCamera
+                : (_kScreenShareUiEnabled ? _toggleShare : _showDialPad),
             active: _isVideo && !_cameraOff,
             size: buttonSize,
             iconSize: iconSize,
@@ -7327,26 +7801,28 @@ class _CallScreenState extends ConsumerState<CallScreen>
               tile(Icons.dialpad, 'Keypad', _showDialPad),
               tile(Icons.person_add_alt_1_rounded, 'Add participant',
                   _showInvite),
-              tile(
-                _sharing
-                    ? Icons.stop_screen_share_rounded
-                    : Icons.screen_share_rounded,
-                _sharing ? 'Stop sharing' : 'Share screen',
-                _toggleShare,
-                color: _sharing ? c.danger : null,
-              ),
-              tile(
-                _savingRecording
-                    ? Icons.hourglass_top_rounded
-                    : (_recording
-                        ? Icons.stop_circle_rounded
-                        : Icons.fiber_manual_record_rounded),
-                _savingRecording
-                    ? 'Saving recording…'
-                    : (_recording ? 'Stop recording' : 'Record call'),
-                _toggleRecord,
-                color: _recording ? c.danger : null,
-              ),
+              if (_kScreenShareUiEnabled)
+                tile(
+                  _sharing
+                      ? Icons.stop_screen_share_rounded
+                      : Icons.screen_share_rounded,
+                  _sharing ? 'Stop sharing' : 'Share screen',
+                  _toggleShare,
+                  color: _sharing ? c.danger : null,
+                ),
+              if (_kClientRecordUiEnabled)
+                tile(
+                  _savingRecording
+                      ? Icons.hourglass_top_rounded
+                      : (_recording
+                          ? Icons.stop_circle_rounded
+                          : Icons.fiber_manual_record_rounded),
+                  _savingRecording
+                      ? 'Saving recording…'
+                      : (_recording ? 'Stop recording' : 'Record call'),
+                  _toggleRecord,
+                  color: _recording ? c.danger : null,
+                ),
               tile(Icons.notes_rounded, 'Call notes', _showCallNotes),
               tile(Icons.campaign_rounded, 'Buzzer', _sendEmergencyBuzzer),
               tile(Icons.people_alt_rounded, 'Participants', _showParticipants),
@@ -7375,15 +7851,16 @@ class _CallScreenState extends ConsumerState<CallScreen>
           border: Border.all(color: Colors.white.withOpacity(0.08)),
         ),
         child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
-          _ctrlCircle(
-            icon: _sharing
-                ? Icons.stop_screen_share_rounded
-                : Icons.screen_share_rounded,
-            onTap: _toggleShare,
-            active: _sharing,
-            size: compact ? 42 : 52,
-            iconSize: compact ? 18 : 22,
-          ),
+          if (_kScreenShareUiEnabled)
+            _ctrlCircle(
+              icon: _sharing
+                  ? Icons.stop_screen_share_rounded
+                  : Icons.screen_share_rounded,
+              onTap: _toggleShare,
+              active: _sharing,
+              size: compact ? 42 : 52,
+              iconSize: compact ? 18 : 22,
+            ),
           _ctrlCircle(
             icon: (!_videoEnabled || _cameraOff)
                 ? Icons.videocam_off_rounded
@@ -7465,15 +7942,16 @@ class _CallScreenState extends ConsumerState<CallScreen>
               size: compact ? 42 : 52,
               iconSize: compact ? 18 : 22,
             ),
-          _ctrlCircle(
-            icon: _sharing
-                ? Icons.stop_screen_share_rounded
-                : Icons.present_to_all_rounded,
-            onTap: _toggleShare,
-            active: _sharing,
-            size: compact ? 42 : 52,
-            iconSize: compact ? 18 : 22,
-          ),
+          if (_kScreenShareUiEnabled)
+            _ctrlCircle(
+              icon: _sharing
+                  ? Icons.stop_screen_share_rounded
+                  : Icons.present_to_all_rounded,
+              onTap: _toggleShare,
+              active: _sharing,
+              size: compact ? 42 : 52,
+              iconSize: compact ? 18 : 22,
+            ),
           _ctrlCircle(
             icon: _handRaised
                 ? Icons.front_hand_rounded
@@ -7540,26 +8018,28 @@ class _CallScreenState extends ConsumerState<CallScreen>
                   borderRadius: BorderRadius.circular(BestieTokens.rPill),
                 ),
               ),
-              tile(
-                _sharing
-                    ? Icons.stop_screen_share_rounded
-                    : Icons.screen_share_rounded,
-                _sharing ? 'Stop sharing' : 'Share screen',
-                _toggleShare,
-                color: _sharing ? c.danger : null,
-              ),
-              tile(
-                _savingRecording
-                    ? Icons.hourglass_top_rounded
-                    : (_recording
-                        ? Icons.stop_circle_rounded
-                        : Icons.fiber_manual_record_rounded),
-                _savingRecording
-                    ? 'Saving recording…'
-                    : (_recording ? 'Stop recording' : 'Record call'),
-                _toggleRecord,
-                color: _recording ? c.danger : null,
-              ),
+              if (_kScreenShareUiEnabled)
+                tile(
+                  _sharing
+                      ? Icons.stop_screen_share_rounded
+                      : Icons.screen_share_rounded,
+                  _sharing ? 'Stop sharing' : 'Share screen',
+                  _toggleShare,
+                  color: _sharing ? c.danger : null,
+                ),
+              if (_kClientRecordUiEnabled)
+                tile(
+                  _savingRecording
+                      ? Icons.hourglass_top_rounded
+                      : (_recording
+                          ? Icons.stop_circle_rounded
+                          : Icons.fiber_manual_record_rounded),
+                  _savingRecording
+                      ? 'Saving recording…'
+                      : (_recording ? 'Stop recording' : 'Record call'),
+                  _toggleRecord,
+                  color: _recording ? c.danger : null,
+                ),
               if (_isVideo)
                 tile(Icons.cameraswitch_outlined, 'Flip camera', _flipCamera),
               tile(Icons.people_alt_rounded, 'Participants', _showParticipants),

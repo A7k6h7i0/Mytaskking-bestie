@@ -40,9 +40,15 @@ async function recordParticipant({ room, userId = null, displayName, joinedVia }
       where: { roomId: room.id, userId },
     });
     if (existing) {
+      // Token / guest join upgrades INVITED → INTERNAL so the live roster
+      // can tell invitees who actually entered the Agora channel.
       return prisma.meetingRoomParticipant.update({
         where: { id: existing.id },
-        data: { lastSeenAt: new Date(), displayName },
+        data: {
+          lastSeenAt: new Date(),
+          displayName,
+          joinedVia: joinedVia || existing.joinedVia,
+        },
       });
     }
   }
@@ -58,7 +64,7 @@ async function recordParticipant({ room, userId = null, displayName, joinedVia }
 }
 
 function notifyMeetingJoin(io, room, participant) {
-  io?.to(`user:${room.hostId}`).emit('meeting.participant.joined', {
+  const payload = {
     roomId: room.id,
     slug: room.slug,
     name: room.name,
@@ -68,8 +74,43 @@ function notifyMeetingJoin(io, room, participant) {
       joinedVia: participant.joinedVia,
       joinedAt: participant.joinedAt,
       userId: participant.userId,
+      agoraUid: participant.userId
+        ? agora.toAgoraUid(participant.userId)
+        : null,
     },
-  });
+  };
+  // Host always gets the event.
+  const targets = new Set([room.hostId].filter(Boolean));
+  // Also notify other authenticated participants already in the roster so
+  // everyone mid-meeting updates their tiles (not only the host).
+  if (Array.isArray(room._notifyUserIds)) {
+    for (const uid of room._notifyUserIds) {
+      if (uid) targets.add(uid);
+    }
+  }
+  for (const uid of targets) {
+    if (uid === participant.userId) continue;
+    io?.to(`user:${uid}`).emit('meeting.participant.joined', payload);
+  }
+}
+
+function serializeMeetingRoster(participants = []) {
+  return participants
+    .filter((p) => p && p.userId)
+    .filter((p) => {
+      // Only people who actually entered (token/guest), not invite-only rows.
+      const via = String(p.joinedVia || '');
+      return via === 'INTERNAL' || via === 'GUEST' || Boolean(p.lastSeenAt);
+    })
+    .map((p) => ({
+      id: p.id,
+      userId: p.userId,
+      displayName: p.displayName || 'Participant',
+      joinedVia: p.joinedVia,
+      joinedAt: p.joinedAt,
+      lastSeenAt: p.lastSeenAt || null,
+      agoraUid: agora.toAgoraUid(p.userId),
+    }));
 }
 
 router.get(
@@ -201,7 +242,14 @@ router.post(
       displayName: guestName,
       joinedVia: 'GUEST',
     }).catch(() => null);
-    if (participant) notifyMeetingJoin(req.app.get('io'), room, participant);
+    if (participant) {
+      const rosterRows = await prisma.meetingRoomParticipant.findMany({
+        where: { roomId: room.id, userId: { not: null } },
+        select: { userId: true },
+      });
+      room._notifyUserIds = rosterRows.map((r) => r.userId).filter(Boolean);
+      notifyMeetingJoin(req.app.get('io'), room, participant);
+    }
     res.json({
       ...token,
       mode: room.mode,
@@ -522,8 +570,31 @@ router.post(
       displayName: req.user.name,
       joinedVia: 'INTERNAL',
     });
-    if (req.user.id !== room.hostId) notifyMeetingJoin(req.app.get('io'), room, participant);
-    res.json({ ...token, mode: room.mode, room: serializeRoom({ id: room.id, slug: room.slug, name: room.name, mode: room.mode }) });
+
+    const rosterRows = await prisma.meetingRoomParticipant.findMany({
+      where: { roomId: room.id, userId: { not: null } },
+      orderBy: { joinedAt: 'desc' },
+      take: 100,
+    });
+    room._notifyUserIds = rosterRows.map((r) => r.userId).filter(Boolean);
+
+    if (req.user.id !== room.hostId) {
+      notifyMeetingJoin(req.app.get('io'), room, participant);
+    }
+
+    res.json({
+      ...token,
+      mode: room.mode,
+      room: serializeRoom({
+        id: room.id,
+        slug: room.slug,
+        name: room.name,
+        mode: room.mode,
+        hostId: room.hostId,
+      }),
+      // Live roster so Flutter can map Agora uid → name without call.announce.
+      participants: serializeMeetingRoster(rosterRows),
+    });
   })
 );
 

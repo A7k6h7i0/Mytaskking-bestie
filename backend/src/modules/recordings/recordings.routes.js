@@ -8,7 +8,8 @@ const { requireAuth, requireAdmin } = require('../../middleware/auth');
 const prisma = require('../../database/prisma');
 const audit = require('../../services/audit');
 const tenant = require('../../services/tenant');
-const { NotFound } = require('../../utils/errors');
+const mediasoup = require('../../services/mediasoup');
+const { NotFound, BadRequest } = require('../../utils/errors');
 
 const router = Router();
 router.use(requireAuth, requireAdmin);
@@ -38,6 +39,133 @@ function telecallerCallWhere(req) {
   };
 }
 
+function mediaFilesFromSfu(rec) {
+  const files = Array.isArray(rec?.files) ? rec.files : [];
+  return files
+    .filter((f) => f && (f.url || f.name) && (f.type === 'media' || f.kind || /\.webm$/i.test(String(f.name || ''))))
+    .map((f) => {
+      const relative =
+        f.url ||
+        `/api/recordings/${encodeURIComponent(rec.id)}/files/${encodeURIComponent(f.name)}`;
+      const kind =
+        f.kind ||
+        (String(f.name || '').includes('_video_') ? 'video' : 'audio');
+      return {
+        name: f.name,
+        kind,
+        participantId: f.participantId || null,
+        size: f.size || null,
+        url: mediasoup.absoluteRecordingFileUrl(relative),
+      };
+    });
+}
+
+function primaryMediaUrl(files) {
+  if (!files.length) return null;
+  const audio = files.find((f) => f.kind === 'audio');
+  return (audio || files[0]).url;
+}
+
+/**
+ * Map connect.mytaskking.com SFU recordings (calls.md) into admin list items.
+ * Scoped to the org via Call.channelName === roomId when not platform view.
+ */
+async function buildMediasoupItems(req, { platformView, tenantById }) {
+  if (!mediasoup.isConfigured()) return [];
+
+  let sfu;
+  try {
+    sfu = await mediasoup.listRecordings();
+  } catch (err) {
+    console.warn('[recordings] mediasoup list failed:', err.message);
+    return [];
+  }
+
+  const recordings = sfu.recordings || [];
+  if (!recordings.length) return [];
+
+  const roomIds = [
+    ...new Set(
+      recordings
+        .map((r) => r.roomId?.toString())
+        .filter((id) => id && id.length > 0),
+    ),
+  ];
+
+  const callWhereClause = platformView
+    ? { channelName: { in: roomIds } }
+    : tenant.scopedWhere(req, { channelName: { in: roomIds } });
+
+  const matchedCalls = roomIds.length
+    ? await prisma.call.findMany({
+        where: callWhereClause,
+        include: {
+          initiator: { select: { id: true, name: true, tenantId: true } },
+          participants: {
+            include: { user: { select: { id: true, name: true } } },
+          },
+        },
+      })
+    : [];
+
+  const callByRoom = new Map(
+    matchedCalls.map((c) => [c.channelName, c]),
+  );
+
+  const items = [];
+  for (const rec of recordings) {
+    const roomId = rec.roomId?.toString();
+    if (!roomId) continue;
+    const call = callByRoom.get(roomId);
+
+    // Org admins only see rooms that belong to their tenant.
+    // Platform SUPER_ADMIN sees every connect SFU recording (calls.md).
+    const includeUnmatched =
+      platformView || tenant.isPlatformSuperAdmin(req.user);
+    if (!includeUnmatched && !call) continue;
+
+    const files = mediaFilesFromSfu(rec);
+    if (!files.length) continue;
+
+    const participantNames = call
+      ? (call.participants || [])
+          .map((p) => p.user?.name)
+          .filter(Boolean)
+      : Array.isArray(rec.participants)
+        ? rec.participants.map(String)
+        : [];
+
+    const title = call
+      ? `${call.kind === 'GROUP' ? 'Group call' : 'Call'} · ${call.initiator?.name || 'Unknown'}`
+      : `Call room · ${roomId}`;
+
+    const createdAt =
+      rec.startTime || rec.createdAt || call?.createdAt || new Date().toISOString();
+
+    items.push({
+      id: String(rec.id),
+      source: 'MEDIASOUP',
+      title,
+      roomId,
+      callId: call?.id || null,
+      recordingUrl: primaryMediaUrl(files),
+      files,
+      participants: participantNames,
+      startedAt: rec.startTime || call?.startedAt || null,
+      endedAt: rec.endTime || call?.endedAt || null,
+      createdAt,
+      state: rec.state || null,
+      size: rec.size || null,
+      tenantId: call?.tenantId || call?.initiator?.tenantId || null,
+      organisation: platformView
+        ? tenantById.get(call?.tenantId || call?.initiator?.tenantId) || null
+        : undefined,
+    });
+  }
+
+  return items;
+}
+
 router.get(
   '/',
   validate({
@@ -52,54 +180,92 @@ router.get(
     const platformView =
       tenant.isPlatformSuperAdmin(req.user) && req.query.scope === 'platform';
 
-    const [calls, meetings, telecallerCalls, tenants] = await Promise.all([
-      prisma.call.findMany({
-        where: callWhere(req),
-        include: {
-          initiator: { select: { id: true, name: true, tenantId: true } },
-          participants: { include: { user: { select: { id: true, name: true } } } },
-        },
-        orderBy: { createdAt: 'desc' },
-      }),
-      prisma.meetingRoom.findMany({
-        where: meetingWhere(req),
-        orderBy: { createdAt: 'desc' },
-      }),
-      prisma.telecallerCall.findMany({
-        where: telecallerCallWhere(req),
-        include: {
-          lead: { select: { id: true, name: true, phone: true, company: true } },
-          agent: { select: { id: true, name: true, tenantId: true } },
-        },
-        orderBy: { createdAt: 'desc' },
-      }),
-      platformView
-        ? prisma.tenant.findMany({ select: { id: true, name: true, slug: true } })
-        : Promise.resolve([]),
-    ]);
+    const [calls, meetings, telecallerCalls, tenants, mediasoupItems] =
+      await Promise.all([
+        prisma.call.findMany({
+          where: callWhere(req),
+          include: {
+            initiator: { select: { id: true, name: true, tenantId: true } },
+            participants: {
+              include: { user: { select: { id: true, name: true } } },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+        }),
+        prisma.meetingRoom.findMany({
+          where: meetingWhere(req),
+          orderBy: { createdAt: 'desc' },
+        }),
+        prisma.telecallerCall.findMany({
+          where: telecallerCallWhere(req),
+          include: {
+            lead: {
+              select: { id: true, name: true, phone: true, company: true },
+            },
+            agent: { select: { id: true, name: true, tenantId: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+        }),
+        platformView
+          ? prisma.tenant.findMany({
+              select: { id: true, name: true, slug: true },
+            })
+          : Promise.resolve([]),
+        buildMediasoupItems(req, {
+          platformView,
+          tenantById: new Map(),
+        }),
+      ]);
 
     const tenantById = new Map(tenants.map((t) => [t.id, t]));
 
-    const items = [
-      ...calls.map((c) => ({
-        id: c.id,
-        source: 'CALL',
-        title: `${c.kind === 'GROUP' ? 'Group call' : 'Call'} · ${c.initiator?.name || 'Unknown'}`,
-        recordingUrl: c.recordingUrl,
-        participants: (c.participants || []).map((p) => p.user?.name).filter(Boolean),
-        startedAt: c.startedAt,
-        endedAt: c.endedAt,
-        createdAt: c.createdAt,
-        tenantId: c.tenantId,
-        organisation: platformView
-          ? tenantById.get(c.tenantId) || null
-          : undefined,
-      })),
+    // Re-run mediasoup mapping with tenant names available for platform view.
+    const sfuItems =
+      platformView && mediasoupItems.length
+        ? mediasoupItems.map((item) => ({
+            ...item,
+            organisation: item.tenantId
+              ? tenantById.get(item.tenantId) || null
+              : null,
+          }))
+        : mediasoupItems;
+
+    // Avoid duplicating a call that already has an SFU entry for the same
+    // uploaded recordingUrl (legacy client uploads).
+    const sfuCallIds = new Set(
+      sfuItems.map((i) => i.callId).filter(Boolean),
+    );
+
+    const legacyItems = [
+      ...calls
+        .filter((c) => !sfuCallIds.has(c.id))
+        .map((c) => ({
+          id: c.id,
+          source: 'CALL',
+          title: `${c.kind === 'GROUP' ? 'Group call' : 'Call'} · ${c.initiator?.name || 'Unknown'}`,
+          recordingUrl: c.recordingUrl,
+          files: c.recordingUrl
+            ? [{ name: 'recording', kind: 'audio', url: c.recordingUrl }]
+            : [],
+          participants: (c.participants || [])
+            .map((p) => p.user?.name)
+            .filter(Boolean),
+          startedAt: c.startedAt,
+          endedAt: c.endedAt,
+          createdAt: c.createdAt,
+          tenantId: c.tenantId,
+          organisation: platformView
+            ? tenantById.get(c.tenantId) || null
+            : undefined,
+        })),
       ...meetings.map((m) => ({
         id: m.id,
         source: 'MEETING',
         title: m.name,
         recordingUrl: m.recordingUrl,
+        files: m.recordingUrl
+          ? [{ name: 'recording', kind: 'audio', url: m.recordingUrl }]
+          : [],
         participants: [],
         startedAt: m.scheduledAt,
         endedAt: m.endedAt,
@@ -114,6 +280,9 @@ router.get(
         source: 'TELECALLER',
         title: `Telecaller · ${tc.lead?.name || tc.toNumber || 'Lead'}`,
         recordingUrl: tc.recordingUrl,
+        files: tc.recordingUrl
+          ? [{ name: 'recording', kind: 'audio', url: tc.recordingUrl }]
+          : [],
         participants: [tc.agent?.name, tc.lead?.name].filter(Boolean),
         startedAt: tc.startedAt,
         endedAt: tc.endedAt,
@@ -123,7 +292,11 @@ router.get(
           ? tenantById.get(tc.agent?.tenantId) || null
           : undefined,
       })),
-    ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    ];
+
+    const items = [...sfuItems, ...legacyItems].sort(
+      (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
+    );
 
     const total = items.length;
     const start = (page - 1) * pageSize;
@@ -135,20 +308,61 @@ router.get(
       page,
       pageSize,
       scope: platformView ? 'platform' : 'org',
+      mediasoupConfigured: mediasoup.isConfigured(),
     });
-  })
+  }),
 );
 
 router.delete(
   '/:source/:id',
   validate({
     params: Joi.object({
-      source: Joi.string().valid('CALL', 'MEETING', 'TELECALLER').required(),
+      source: Joi.string()
+        .valid('CALL', 'MEETING', 'TELECALLER', 'MEDIASOUP')
+        .required(),
       id: Joi.string().required(),
     }),
   }),
   asyncHandler(async (req, res) => {
     const { source, id } = req.params;
+
+    if (source === 'MEDIASOUP') {
+      // Org admins may only delete if the room maps to their tenant call.
+      if (!tenant.isPlatformSuperAdmin(req.user)) {
+        let sfu;
+        try {
+          sfu = await mediasoup.listRecordings();
+        } catch (err) {
+          throw BadRequest(err.message || 'Could not verify recording');
+        }
+        const rec = (sfu.recordings || []).find((r) => String(r.id) === id);
+        if (!rec?.roomId) throw NotFound('Recording not found');
+        const call = await prisma.call.findFirst({
+          where: tenant.scopedWhere(req, {
+            channelName: String(rec.roomId),
+          }),
+          select: { id: true },
+        });
+        if (!call) throw NotFound('Recording not found');
+      }
+
+      try {
+        await mediasoup.deleteRecording(id);
+      } catch (err) {
+        throw BadRequest(err.message || 'Could not delete SFU recording');
+      }
+
+      audit.record({
+        kind: 'recording.deleted',
+        entity: 'mediasoup_recording',
+        entityId: id,
+        payload: { source: 'MEDIASOUP' },
+        req,
+      });
+      res.status(204).end();
+      return;
+    }
+
     const scoped = tenant.scopedWhere(req, { id, recordingUrl: { not: null } });
     let result;
     if (source === 'CALL') {
@@ -179,13 +393,18 @@ router.delete(
 
     audit.record({
       kind: 'recording.deleted',
-      entity: source === 'CALL' ? 'call' : source === 'MEETING' ? 'meeting' : 'telecaller_call',
+      entity:
+        source === 'CALL'
+          ? 'call'
+          : source === 'MEETING'
+            ? 'meeting'
+            : 'telecaller_call',
       entityId: id,
       payload: { source },
       req,
     });
     res.status(204).end();
-  })
+  }),
 );
 
 module.exports = router;

@@ -43,19 +43,66 @@ class _RecordingsScreenState extends ConsumerState<RecordingsScreen> {
     }
   }
 
+  List<Map<String, dynamic>> _filesOf(Map<String, dynamic> item) {
+    final raw = item['files'];
+    if (raw is List && raw.isNotEmpty) {
+      return raw
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .where((e) => (e['url']?.toString() ?? '').isNotEmpty)
+          .toList();
+    }
+    final url = item['recordingUrl']?.toString() ?? '';
+    if (url.isEmpty) return const [];
+    return [
+      {'name': 'recording', 'kind': 'audio', 'url': url},
+    ];
+  }
+
+  String _sourceLabel(String source) {
+    switch (source.toUpperCase()) {
+      case 'MEDIASOUP':
+        return 'SFU call';
+      case 'TELECALLER':
+        return 'Telecaller';
+      case 'MEETING':
+        return 'Meeting';
+      case 'CALL':
+        return 'Uploaded call';
+      default:
+        return source;
+    }
+  }
+
+  IconData _sourceIcon(String source) {
+    switch (source.toUpperCase()) {
+      case 'MEETING':
+        return Icons.videocam_outlined;
+      case 'TELECALLER':
+        return Icons.headset_mic_outlined;
+      case 'MEDIASOUP':
+        return Icons.podcasts_rounded;
+      default:
+        return Icons.phone_outlined;
+    }
+  }
+
   Future<void> _delete(Map<String, dynamic> item) async {
     final title = (item['title'] ?? 'this recording').toString();
+    final source = (item['source'] ?? '').toString().toUpperCase();
     final ok = await bestieConfirm(
       context,
       title: 'Delete recording?',
-      description: 'This removes "$title" from the recordings list.',
+      description: source == 'MEDIASOUP'
+          ? 'This deletes the SFU recording "$title" from connect.'
+          : 'This removes "$title" from the recordings list.',
       confirmLabel: 'Delete',
     );
     if (!ok) return;
 
     try {
       await ref.read(apiProvider).deleteRecording(
-            (item['source'] ?? '').toString(),
+            source,
             (item['id'] ?? '').toString(),
           );
       await _refresh();
@@ -69,6 +116,51 @@ class _RecordingsScreenState extends ConsumerState<RecordingsScreen> {
             body: formatApiError(e), kind: BestieToastKind.error);
       }
     }
+  }
+
+  Future<void> _openFilesSheet(Map<String, dynamic> item) async {
+    final files = _filesOf(item);
+    if (files.isEmpty) return;
+    if (files.length == 1) {
+      await _download(files.first['url']!.toString());
+      return;
+    }
+    final c = BestieColors.of(context);
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: c.surface,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final f in files)
+              ListTile(
+                leading: Icon(
+                  (f['kind']?.toString() ?? '') == 'video'
+                      ? Icons.videocam_outlined
+                      : Icons.audiotrack_rounded,
+                  color: c.brand,
+                ),
+                title: Text(
+                  (f['kind']?.toString() ?? 'file').toUpperCase(),
+                  style: TextStyle(color: c.text),
+                ),
+                subtitle: Text(
+                  (f['name'] ?? '').toString(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: c.textMuted, fontSize: 12),
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _download(f['url']!.toString());
+                },
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -104,7 +196,7 @@ class _RecordingsScreenState extends ConsumerState<RecordingsScreen> {
               icon: Icons.fiber_manual_record_outlined,
               title: 'No recordings yet',
               description:
-                  'Start recording during a call or meeting. Saved recordings will appear here.',
+                  'SFU calls are recorded automatically. Uploaded call, meeting, and telecaller recordings also appear here.',
             );
           }
           return RefreshIndicator(
@@ -119,33 +211,31 @@ class _RecordingsScreenState extends ConsumerState<RecordingsScreen> {
                     .map((e) => e.toString())
                     .where((e) => e.isNotEmpty)
                     .join(', ');
-                final url = item['recordingUrl']?.toString() ?? '';
+                final files = _filesOf(item);
+                final label = _sourceLabel(source);
+                final subtitle = people.isEmpty
+                    ? '$label · ${files.length} file${files.length == 1 ? '' : 's'}'
+                    : '$label · $people';
                 return ListTile(
-                  leading: Icon(
-                    source == 'MEETING'
-                        ? Icons.videocam_outlined
-                        : source == 'TELECALLER'
-                            ? Icons.headset_mic_outlined
-                            : Icons.phone_outlined,
-                    color: c.brand,
-                  ),
+                  leading: Icon(_sourceIcon(source), color: c.brand),
                   title: Text(
                     (item['title'] ?? 'Recording').toString(),
                     style: TextStyle(
                         color: c.text, fontWeight: BestieTokens.fwSemibold),
                   ),
-                  subtitle: people.isEmpty
-                      ? Text(source, style: TextStyle(color: c.textMuted))
-                      : Text('$source · $people',
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: c.textMuted)),
+                  subtitle: Text(
+                    subtitle,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: c.textMuted),
+                  ),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       IconButton(
-                        tooltip: 'Download recording',
-                        onPressed: url.isEmpty ? null : () => _download(url),
+                        tooltip: 'Open recording',
+                        onPressed:
+                            files.isEmpty ? null : () => _openFilesSheet(item),
                         icon: const Icon(Icons.download_rounded),
                       ),
                       if (canDelete)
@@ -157,7 +247,7 @@ class _RecordingsScreenState extends ConsumerState<RecordingsScreen> {
                         ),
                     ],
                   ),
-                  onTap: url.isEmpty ? null : () => _download(url),
+                  onTap: files.isEmpty ? null : () => _openFilesSheet(item),
                 );
               },
             ),
