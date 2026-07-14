@@ -118,11 +118,9 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
     final c = BestieColors.of(context);
     final tasks = ref.watch(tasksKanbanProvider);
 
-    // Reserve the floating nav footprint (70 px height + safe-area inset
-    // plus a small gap) so the inner body stops above the nav
-    // pill rather than extending behind it. Lets the default FAB anchor
-    // sit naturally above the nav without any custom positioning.
-    final navReserve = 70.0 + MediaQuery.of(context).padding.bottom - 18;
+    // Clear the shell nav without an empty Scaffold bottom bar (white strip).
+    final shellNavClearance =
+        70.0 + 24 + MediaQuery.of(context).padding.bottom;
     return Scaffold(
       backgroundColor: c.surface,
       appBar: _selecting
@@ -133,14 +131,13 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
               foregroundColor: c.text,
               title: const Text('Tasks'),
             ),
-      bottomNavigationBar: SizedBox(height: navReserve),
       body: RefreshIndicator(
         onRefresh: () async => ref.refresh(tasksKanbanProvider.future),
         child: tasks.when(
-          loading: () => const BestieSkeletonList(
+          loading: () => BestieSkeletonList(
             itemCount: 5,
             shape: BestieSkeletonShape.card,
-            padding: EdgeInsets.fromLTRB(12, 8, 12, 96),
+            padding: EdgeInsets.fromLTRB(12, 8, 12, shellNavClearance),
           ),
           error: (e, _) => bestieEmptyScrollable(
             context,
@@ -175,8 +172,13 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
               final mine = _myAssignment(t, me?.id);
               return mine != null && mine['state']?.toString() == 'PENDING';
             }).toList();
-            final pendingIds =
-                assignedPending.map((t) => t['id']?.toString()).toSet();
+            // Hide pending-accept block on due/overdue filters so it doesn't
+            // sit above the "no tasks" empty state (user sees both).
+            final showAssignedPending = assignedPending.isNotEmpty &&
+                (_filter == _TaskFilter.all || _filter == _TaskFilter.mine);
+            final pendingIds = showAssignedPending
+                ? assignedPending.map((t) => t['id']?.toString()).toSet()
+                : <String?>{};
             if (pendingIds.isNotEmpty) {
               filtered = filtered
                   .where((t) => !pendingIds.contains(t['id']?.toString()))
@@ -205,8 +207,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
               slivers: [
                 SliverToBoxAdapter(child: _searchBar(c)),
                 SliverToBoxAdapter(child: _filterRow(c, counts)),
-                if (assignedPending.isNotEmpty &&
-                    _filter != _TaskFilter.done) ...[
+                if (showAssignedPending) ...[
                   SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
@@ -235,17 +236,28 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
                     hasScrollBody: false,
                     child: BestieEmptyState(
                       icon: Icons.filter_alt_off_outlined,
-                      title: _filter == _TaskFilter.mine
-                          ? 'No tasks assigned to you'
-                          : 'No tasks match',
-                      description: _filter == _TaskFilter.mine
-                          ? 'Tasks assigned to you will appear here.'
-                          : 'Try a different filter or search term.',
+                      title: switch (_filter) {
+                        _TaskFilter.mine => 'No tasks assigned to you',
+                        _TaskFilter.dueToday => 'No tasks due today',
+                        _TaskFilter.overdue => 'No overdue tasks',
+                        _TaskFilter.done => 'No completed tasks',
+                        _ => 'No tasks match',
+                      },
+                      description: switch (_filter) {
+                        _TaskFilter.mine =>
+                          'Tasks assigned to you will appear here.',
+                        _TaskFilter.dueToday => 'Nothing is due today.',
+                        _TaskFilter.overdue =>
+                          'You\'re all caught up — no overdue tasks.',
+                        _TaskFilter.done =>
+                          'Completed tasks will show here.',
+                        _ => 'Try a different filter or search term.',
+                      },
                     ),
                   )
                 else
                   SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 96),
+                    padding: EdgeInsets.fromLTRB(12, 4, 12, shellNavClearance),
                     sliver: SliverList.separated(
                       itemBuilder: (_, i) => _taskCard(filtered[i], c),
                       separatorBuilder: (_, __) => const SizedBox(height: 8),
@@ -259,12 +271,15 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
       ),
       floatingActionButton: _selecting
           ? null
-          : FloatingActionButton.extended(
-              onPressed: _newTask,
-              backgroundColor: c.brand,
-              foregroundColor: Colors.white,
-              icon: const Icon(Icons.add_rounded),
-              label: const Text('New task'),
+          : Padding(
+              padding: EdgeInsets.only(bottom: shellNavClearance - 24),
+              child: FloatingActionButton.extended(
+                onPressed: _newTask,
+                backgroundColor: c.brand,
+                foregroundColor: Colors.white,
+                icon: const Icon(Icons.add_rounded),
+                label: const Text('New task'),
+              ),
             ),
     );
   }
@@ -332,13 +347,16 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
       final status = (t['status'] ?? 'TODO').toString();
       final done = status == 'DONE' || status == 'CANCELLED';
       final mine = meId != null && _isAssignedToMe(t, meId);
-      final dueDay = _dueDateOnly(t['dueAt']);
+      final due = DateTime.tryParse('${t['dueAt']}')?.toLocal();
+      final dueDay = due == null ? null : DateTime(due.year, due.month, due.day);
       out[_TaskFilter.all] = out[_TaskFilter.all]! + 1;
       if (mine && !done) out[_TaskFilter.mine] = out[_TaskFilter.mine]! + 1;
-      if (dueDay != null && dueDay == today && !done) {
+      // Due today: same calendar day and not yet past the due time (or all-day).
+      if (dueDay != null && dueDay == today && !done && !due!.isBefore(now)) {
         out[_TaskFilter.dueToday] = out[_TaskFilter.dueToday]! + 1;
       }
-      if (dueDay != null && dueDay.isBefore(today) && !done) {
+      // Overdue: past due datetime (includes earlier today).
+      if (due != null && due.isBefore(now) && !done) {
         out[_TaskFilter.overdue] = out[_TaskFilter.overdue]! + 1;
       }
       if (status == 'DONE') out[_TaskFilter.done] = out[_TaskFilter.done]! + 1;
@@ -355,14 +373,18 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
       final status = (t['status'] ?? 'TODO').toString();
       final done = status == 'DONE' || status == 'CANCELLED';
       final mine = meId != null && _isAssignedToMe(t, meId);
-      final dueDay = _dueDateOnly(t['dueAt']);
+      final due = DateTime.tryParse('${t['dueAt']}')?.toLocal();
+      final dueDay = due == null ? null : DateTime(due.year, due.month, due.day);
       switch (f) {
         case _TaskFilter.mine:
           return mine && !done;
         case _TaskFilter.dueToday:
-          return dueDay != null && dueDay == today && !done;
+          return dueDay != null &&
+              dueDay == today &&
+              !done &&
+              !due!.isBefore(now);
         case _TaskFilter.overdue:
-          return dueDay != null && dueDay.isBefore(today) && !done;
+          return due != null && due.isBefore(now) && !done;
         case _TaskFilter.done:
           return status == 'DONE';
         case _TaskFilter.all:
@@ -869,8 +891,20 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
     );
     if (picked == null) return;
     final base = _due ?? DateTime.now();
-    setState(() => _due =
-        DateTime(base.year, base.month, base.day, picked.hour, picked.minute));
+    final next = DateTime(
+        base.year, base.month, base.day, picked.hour, picked.minute);
+    if (next.isBefore(DateTime.now())) {
+      if (mounted) {
+        bestieToast(
+          context,
+          'Time must be in the future',
+          body: 'Pick a later time for today, or choose a future date.',
+          kind: BestieToastKind.warning,
+        );
+      }
+      return;
+    }
+    setState(() => _due = next);
   }
 
   /// Two-step date + time picker for "deliver to assignee at" — when set,
@@ -911,6 +945,15 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
 
   Future<void> _submit() async {
     if (_title.text.trim().isEmpty) return;
+    if (_due != null && _due!.isBefore(DateTime.now())) {
+      bestieToast(
+        context,
+        'Time must be in the future',
+        body: 'Pick a later due date and time.',
+        kind: BestieToastKind.warning,
+      );
+      return;
+    }
     setState(() => _submitting = true);
     try {
       await widget.ref.read(apiProvider).post('/tasks', body: {
@@ -972,6 +1015,7 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
     final pickedIds = _picked.map((p) => p['id']).toSet();
     final candidates =
         _people.where((p) => !pickedIds.contains(p['id'])).take(8).toList();
@@ -997,11 +1041,11 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
           const SizedBox(height: BestieTokens.s2),
 
           // ----- priority -----
-          const Text('Priority',
+          Text('Priority',
               style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: BestieTokens.cTextSoft)),
+                  color: c.textMuted)),
           const SizedBox(height: 6),
           BestieSegmentedControl<String>(
             value: _priority,
@@ -1038,21 +1082,21 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
             ),
           ]),
           if (_due != null)
-            const Padding(
-              padding: EdgeInsets.only(top: 6),
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
               child: Text(
                 'Pings 15 min, 5 min, and at the deadline — then every 30 min while overdue.',
-                style: TextStyle(color: BestieTokens.cTextMuted, fontSize: 12),
+                style: TextStyle(color: c.textMuted, fontSize: 12),
               ),
             ),
           const SizedBox(height: BestieTokens.s3),
 
           // ----- deliver-at (scheduled task) -----
-          const Text('Deliver to assignee at (optional)',
+          Text('Deliver to assignee at (optional)',
               style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: BestieTokens.cTextSoft)),
+                  color: c.textMuted)),
           const SizedBox(height: 6),
           OutlinedButton.icon(
             icon: Icon(
@@ -1069,11 +1113,10 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
           if (_scheduledAt != null) ...[
             const SizedBox(height: 4),
             Row(children: [
-              const Expanded(
+              Expanded(
                 child: Text(
                   'Assignee won\'t see this task or get notified until then.',
-                  style:
-                      TextStyle(color: BestieTokens.cTextMuted, fontSize: 12),
+                  style: TextStyle(color: c.textMuted, fontSize: 12),
                 ),
               ),
               TextButton(
@@ -1085,11 +1128,11 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
           const SizedBox(height: BestieTokens.s3),
 
           // ----- assignees -----
-          const Text('Assign to',
+          Text('Assign to',
               style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: BestieTokens.cTextSoft)),
+                  color: c.textMuted)),
           if (_picked.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 6),
@@ -1144,8 +1187,7 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
                       style: const TextStyle(fontWeight: FontWeight.w600)),
                   subtitle: Text(
                     '${p['userId']} · ${p['role']?.toString().replaceAll('_', ' ') ?? ''}',
-                    style: const TextStyle(
-                        color: BestieTokens.cTextMuted, fontSize: 12),
+                    style: TextStyle(color: c.textMuted, fontSize: 12),
                   ),
                   trailing: isMe
                       ? const BestieBadge(child: Text('YOU'))

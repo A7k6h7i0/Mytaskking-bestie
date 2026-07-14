@@ -192,6 +192,8 @@ class _BestieCalendarViewState extends ConsumerState<BestieCalendarView> {
 
   @override
   Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
+    _CalUi.bind(c);
     final meId = ref.watch(authStoreProvider).user?.id;
     final eventsAsync =
         ref.watch(calendarRangeProvider((from: _rangeFrom, to: _rangeTo)));
@@ -202,7 +204,7 @@ class _BestieCalendarViewState extends ConsumerState<BestieCalendarView> {
     final outerPad = compact ? 12.0 : 24.0;
 
     return ColoredBox(
-      color: _CalUi.bgBody,
+      color: c.surface,
       child: Padding(
         padding: EdgeInsets.all(outerPad),
         child: Column(
@@ -369,16 +371,25 @@ class _BestieCalendarViewState extends ConsumerState<BestieCalendarView> {
 }
 
 class _CalUi {
-  static const bgBody = Color(0xFFF8F9FA);
-  static const bgSurface = Color(0xFFFFFFFF);
-  static const textPrimary = Color(0xFF111827);
-  static const textSecondary = Color(0xFF6B7280);
-  static const textTertiary = Color(0xFF9CA3AF);
-  static const borderColor = Color(0xFFF3F4F6);
-  static const borderDarker = Color(0xFFE5E7EB);
-  static const primaryBlue = Color(0xFF3B82F6);
-  static const blueLight = Color(0xFFEFF6FF);
-  static const statusRed = Color(0xFFEF4444);
+  static BestieColors? _bound;
+
+  /// Call once at the start of [BestieCalendarView] build so static tokens
+  /// follow the active theme without threading [BuildContext] everywhere.
+  static void bind(BestieColors colors) => _bound = colors;
+
+  static BestieColors get _c =>
+      _bound ?? BestieColors.resolve(isDark: false);
+
+  static Color get bgBody => _c.isDark ? _c.surface2 : const Color(0xFFF8F9FA);
+  static Color get bgSurface => _c.surface;
+  static Color get textPrimary => _c.text;
+  static Color get textSecondary => _c.textMuted;
+  static Color get textTertiary => _c.textFaint;
+  static Color get borderColor => _c.borderSoft;
+  static Color get borderDarker => _c.border;
+  static Color get primaryBlue => _c.brand;
+  static Color get blueLight => _c.brandSoft;
+  static Color get statusRed => _c.danger;
 }
 
 class _Header extends StatelessWidget {
@@ -406,6 +417,7 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
     final end = weekStart.add(const Duration(days: 6));
     const months = [
       'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -424,18 +436,18 @@ class _Header extends StatelessWidget {
               Expanded(
                 child: Text(
                   range,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w600,
-                    color: _CalUi.textPrimary,
+                    color: c.text,
                   ),
                 ),
               ),
               OutlinedButton(
                 onPressed: onToday,
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: _CalUi.textPrimary,
-                  side: const BorderSide(color: _CalUi.borderDarker),
+                  foregroundColor: c.text,
+                  side: BorderSide(color: c.border),
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   visualDensity: VisualDensity.compact,
                 ),
@@ -448,18 +460,18 @@ class _Header extends StatelessWidget {
             children: [
               IconButton(
                 onPressed: onPrev,
-                icon: const Icon(Icons.chevron_left_rounded, color: _CalUi.textSecondary),
+                icon: Icon(Icons.chevron_left_rounded, color: c.textMuted),
               ),
               IconButton(
                 onPressed: onNext,
-                icon: const Icon(Icons.chevron_right_rounded, color: _CalUi.textSecondary),
+                icon: Icon(Icons.chevron_right_rounded, color: c.textMuted),
               ),
               const Spacer(),
               DecoratedBox(
                 decoration: BoxDecoration(
-                  border: Border.all(color: _CalUi.borderDarker),
+                  border: Border.all(color: c.border),
                   borderRadius: BorderRadius.circular(8),
-                  color: _CalUi.bgSurface,
+                  color: c.surface2,
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -469,14 +481,6 @@ class _Header extends StatelessWidget {
                       icon: Icons.calendar_view_week_outlined,
                       active: view == _CalendarView.week,
                       onTap: () => onView(_CalendarView.week),
-                      showDivider: true,
-                      compact: true,
-                    ),
-                    _ViewToggleBtn(
-                      label: 'Month',
-                      icon: Icons.calendar_month_outlined,
-                      active: view == _CalendarView.month,
-                      onTap: () => onView(_CalendarView.month),
                       showDivider: false,
                       compact: true,
                     ),
@@ -487,7 +491,7 @@ class _Header extends StatelessWidget {
               FilledButton.icon(
                 onPressed: onNewEvent,
                 style: FilledButton.styleFrom(
-                  backgroundColor: _CalUi.primaryBlue,
+                  backgroundColor: c.brand,
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   visualDensity: VisualDensity.compact,
                 ),
@@ -503,20 +507,20 @@ class _Header extends StatelessWidget {
     return Row(
       children: [
         if (showTitle)
-          const Text(
+          Text(
             'Calendar',
             style: TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.w600,
-              color: _CalUi.textPrimary,
+              color: c.text,
             ),
           ),
         if (showTitle) const SizedBox(width: 24),
         OutlinedButton(
           onPressed: onToday,
           style: OutlinedButton.styleFrom(
-            foregroundColor: _CalUi.textPrimary,
-            side: const BorderSide(color: _CalUi.borderDarker),
+            foregroundColor: c.text,
+            side: BorderSide(color: c.border),
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           ),
@@ -525,33 +529,33 @@ class _Header extends StatelessWidget {
         const SizedBox(width: 16),
         IconButton(
           onPressed: onPrev,
-          icon: const Icon(Icons.chevron_left_rounded, color: _CalUi.textSecondary),
+          icon: Icon(Icons.chevron_left_rounded, color: c.textMuted),
         ),
         IconButton(
           onPressed: onNext,
-          icon: const Icon(Icons.chevron_right_rounded, color: _CalUi.textSecondary),
+          icon: Icon(Icons.chevron_right_rounded, color: c.textMuted),
         ),
         const SizedBox(width: 8),
         Row(
           children: [
             Text(
               range,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
-                color: _CalUi.textPrimary,
+                color: c.text,
               ),
             ),
-            const Icon(Icons.keyboard_arrow_down_rounded,
-                color: _CalUi.textSecondary, size: 18),
+            Icon(Icons.keyboard_arrow_down_rounded,
+                color: c.textMuted, size: 18),
           ],
         ),
         const Spacer(),
         DecoratedBox(
           decoration: BoxDecoration(
-            border: Border.all(color: _CalUi.borderDarker),
+            border: Border.all(color: c.border),
             borderRadius: BorderRadius.circular(8),
-            color: _CalUi.bgSurface,
+            color: c.surface2,
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -561,13 +565,6 @@ class _Header extends StatelessWidget {
                 icon: Icons.calendar_view_week_outlined,
                 active: view == _CalendarView.week,
                 onTap: () => onView(_CalendarView.week),
-                showDivider: true,
-              ),
-              _ViewToggleBtn(
-                label: 'Month',
-                icon: Icons.calendar_month_outlined,
-                active: view == _CalendarView.month,
-                onTap: () => onView(_CalendarView.month),
                 showDivider: false,
               ),
             ],
@@ -577,7 +574,7 @@ class _Header extends StatelessWidget {
         FilledButton.icon(
           onPressed: onNewEvent,
           style: FilledButton.styleFrom(
-            backgroundColor: _CalUi.primaryBlue,
+            backgroundColor: c.brand,
             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           ),
@@ -608,8 +605,9 @@ class _ViewToggleBtn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
     return Material(
-      color: active ? _CalUi.blueLight : Colors.transparent,
+      color: active ? c.brandSoft : Colors.transparent,
       child: InkWell(
         onTap: onTap,
         child: Container(
@@ -619,21 +617,21 @@ class _ViewToggleBtn extends StatelessWidget {
           ),
           decoration: BoxDecoration(
             border: showDivider
-                ? const Border(right: BorderSide(color: _CalUi.borderDarker))
+                ? Border(right: BorderSide(color: c.border))
                 : null,
           ),
           child: Row(
             children: [
               Icon(icon,
                   size: 16,
-                  color: active ? _CalUi.primaryBlue : _CalUi.textSecondary),
+                  color: active ? c.brand : c.textMuted),
               const SizedBox(width: 6),
               Text(
                 label,
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
-                  color: active ? _CalUi.primaryBlue : _CalUi.textSecondary,
+                  color: active ? c.brand : c.textMuted,
                 ),
               ),
             ],
@@ -687,11 +685,11 @@ class _WeekTimeGrid extends StatelessWidget {
               SizedBox(
                 width: 70,
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: EdgeInsets.all(16),
                   child: Text(
                     tz,
                     textAlign: TextAlign.right,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 11,
                       color: _CalUi.textTertiary,
                     ),
@@ -710,7 +708,7 @@ class _WeekTimeGrid extends StatelessWidget {
               ),
             ],
           ),
-          const Divider(height: 1, color: _CalUi.borderDarker),
+          Divider(height: 1, color: _CalUi.borderDarker),
           _AllDayRow(weekStart: weekStart, entries: allDay),
           Expanded(
             child: SingleChildScrollView(
@@ -729,10 +727,10 @@ class _WeekTimeGrid extends StatelessWidget {
                               child: Align(
                                 alignment: Alignment.topRight,
                                 child: Padding(
-                                  padding: const EdgeInsets.only(top: 0, right: 8),
+                                  padding: EdgeInsets.only(top: 0, right: 8),
                                   child: Text(
                                     _formatHourLabel(h),
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontSize: 11,
                                       fontWeight: FontWeight.w500,
                                       color: _CalUi.textSecondary,
@@ -760,7 +758,7 @@ class _WeekTimeGrid extends StatelessWidget {
                                           totalHours,
                                           (_) => Container(
                                             height: hourHeight,
-                                            decoration: const BoxDecoration(
+                                            decoration: BoxDecoration(
                                               border: Border(
                                                 right: BorderSide(
                                                   color: _CalUi.borderDarker,
@@ -892,8 +890,8 @@ class _DayHeaderCell extends StatelessWidget {
     final isToday = _sameDay(day, now);
     const names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16),
-      decoration: const BoxDecoration(
+      padding: EdgeInsets.symmetric(vertical: 16),
+      decoration: BoxDecoration(
         border: Border(right: BorderSide(color: _CalUi.borderDarker)),
       ),
       child: Column(
@@ -906,7 +904,7 @@ class _DayHeaderCell extends StatelessWidget {
               color: isToday ? _CalUi.primaryBlue : _CalUi.textSecondary,
             ),
           ),
-          const SizedBox(height: 4),
+          SizedBox(height: 4),
           Container(
             width: 28,
             height: 28,
@@ -942,7 +940,7 @@ class _AllDayRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const SizedBox(
+          SizedBox(
             width: 70,
             child: Padding(
               padding: EdgeInsets.only(top: 16, right: 8),
@@ -959,7 +957,7 @@ class _AllDayRow extends StatelessWidget {
                 for (int i = 0; i < 7; i++)
                   Expanded(
                     child: Container(
-                      padding: const EdgeInsets.all(6),
+                      padding: EdgeInsets.all(6),
                       decoration: BoxDecoration(
                         border: Border(
                           right: BorderSide(
@@ -1099,7 +1097,7 @@ class _CurrentTimeLine extends StatelessWidget {
             left: -60,
             top: -10,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+              padding: EdgeInsets.symmetric(horizontal: 6, vertical: 3),
               decoration: BoxDecoration(
                 color: _CalUi.statusRed,
                 borderRadius: BorderRadius.circular(12),
@@ -1120,7 +1118,7 @@ class _CurrentTimeLine extends StatelessWidget {
             child: Container(
               width: 8,
               height: 8,
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 color: _CalUi.statusRed,
                 shape: BoxShape.circle,
               ),
@@ -1189,8 +1187,8 @@ class _Sidebar extends StatelessWidget {
                         onNext: onMonthNext,
                         onSelectDay: onSelectWeek,
                       ),
-                      const SizedBox(height: 24),
-                      const Text(
+                      SizedBox(height: 24),
+                      Text(
                         'Upcoming',
                         style: TextStyle(
                           fontSize: 14,
@@ -1198,10 +1196,10 @@ class _Sidebar extends StatelessWidget {
                           color: _CalUi.textPrimary,
                         ),
                       ),
-                      const SizedBox(height: 16),
+                      SizedBox(height: 16),
                       Expanded(
                         child: upcoming.isEmpty
-                            ? const Text(
+                            ? Text(
                                 'No upcoming events this week.',
                                 style: TextStyle(
                                   color: _CalUi.textSecondary,
@@ -1211,7 +1209,7 @@ class _Sidebar extends StatelessWidget {
                             : ListView.separated(
                                 itemCount: upcoming.length,
                                 separatorBuilder: (_, __) =>
-                                    const SizedBox(height: 16),
+                                    SizedBox(height: 16),
                                 itemBuilder: (_, i) =>
                                     _UpcomingRow(entry: upcoming[i]),
                               ),
@@ -1222,8 +1220,8 @@ class _Sidebar extends StatelessWidget {
                         child: InkWell(
                           onTap: onViewFullSchedule,
                           borderRadius: BorderRadius.circular(8),
-                          child: const Padding(
-                            padding: EdgeInsets.symmetric(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
                               horizontal: 16,
                               vertical: 12,
                             ),
@@ -1335,10 +1333,10 @@ class _MiniCalendar extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: 16),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: const [
+          children: [
             Text('M', style: TextStyle(fontSize: 10, color: _CalUi.textSecondary)),
             Text('T', style: TextStyle(fontSize: 10, color: _CalUi.textSecondary)),
             Text('W', style: TextStyle(fontSize: 10, color: _CalUi.textSecondary)),
@@ -1414,7 +1412,7 @@ class _MiniCalendar extends StatelessWidget {
                       child: Container(
                         width: 4,
                         height: 4,
-                        decoration: const BoxDecoration(
+                        decoration: BoxDecoration(
                           color: _CalUi.primaryBlue,
                           shape: BoxShape.circle,
                         ),
@@ -1459,7 +1457,7 @@ class _UpcomingRow extends StatelessWidget {
                       entry.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w500,
                         color: _CalUi.textPrimary,
@@ -1467,7 +1465,7 @@ class _UpcomingRow extends StatelessWidget {
                     ),
                     Text(
                       '${_formatUpcomingWhen(entry.startsAt)} · ${_formatClock(entry.startsAt)}',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 11,
                         color: _CalUi.textSecondary,
                       ),
@@ -1560,7 +1558,7 @@ class _MonthGridView extends StatelessWidget {
                   final dayEvents =
                       entries.where((e) => _sameDay(e.startsAt, date)).toList();
                   return Container(
-                    padding: const EdgeInsets.all(8),
+                    padding: EdgeInsets.all(8),
                     decoration: BoxDecoration(
                       border: Border.all(color: _CalUi.borderDarker),
                       borderRadius: BorderRadius.circular(8),

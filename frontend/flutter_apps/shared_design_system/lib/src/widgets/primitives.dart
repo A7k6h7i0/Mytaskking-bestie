@@ -459,10 +459,11 @@ class BestieSegmentedControl<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
     return Container(
       padding: const EdgeInsets.all(2),
       decoration: BoxDecoration(
-        color: BestieTokens.cSurface2,
+        color: c.surface2,
         borderRadius: BorderRadius.circular(BestieTokens.rPill),
       ),
       child: Row(
@@ -472,7 +473,7 @@ class BestieSegmentedControl<T> extends StatelessWidget {
           return Padding(
             padding: const EdgeInsets.symmetric(horizontal: 1),
             child: Material(
-              color: active ? BestieTokens.cSurface : Colors.transparent,
+              color: active ? c.surface : Colors.transparent,
               borderRadius: BorderRadius.circular(BestieTokens.rPill),
               elevation: active ? 1 : 0,
               child: InkWell(
@@ -483,11 +484,18 @@ class BestieSegmentedControl<T> extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (o.icon != null) ...[Icon(o.icon, size: 14, color: active ? BestieTokens.cText : BestieTokens.cTextMuted), const SizedBox(width: 6)],
-                      Text(o.label, style: TextStyle(
-                        fontWeight: FontWeight.w600, fontSize: 13,
-                        color: active ? BestieTokens.cText : BestieTokens.cTextMuted,
-                      )),
+                      if (o.icon != null) ...[
+                        Icon(o.icon,
+                            size: 14,
+                            color: active ? c.text : c.textMuted),
+                        const SizedBox(width: 6),
+                      ],
+                      Text(o.label,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                            color: active ? c.text : c.textMuted,
+                          )),
                     ],
                   ),
                 ),
@@ -599,33 +607,56 @@ Future<T?> bestieBottomSheet<T>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (ctx) => SafeArea(
-      top: false,
-      child: Container(
-        constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.86),
-        decoration: const BoxDecoration(
-          color: BestieTokens.cSurface,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(BestieTokens.rLg)),
+    builder: (ctx) {
+      final c = BestieColors.of(ctx);
+      return SafeArea(
+        top: false,
+        child: Container(
+          constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(ctx).size.height * 0.86),
+          decoration: BoxDecoration(
+            color: c.surface,
+            borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(BestieTokens.rLg)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                margin: const EdgeInsets.only(top: 10, bottom: 6),
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: c.borderStrong,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              if (title != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                      BestieTokens.s4, BestieTokens.s2, BestieTokens.s4, BestieTokens.s2),
+                  child: Row(children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                          color: c.text,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      icon: Icon(Icons.close, size: 18, color: c.textMuted),
+                    ),
+                  ]),
+                ),
+              Flexible(child: builder(ctx)),
+            ],
+          ),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              margin: const EdgeInsets.only(top: 10, bottom: 6),
-              width: 36, height: 4,
-              decoration: BoxDecoration(color: BestieTokens.cBorderStrong, borderRadius: BorderRadius.circular(2)),
-            ),
-            if (title != null) Padding(
-              padding: const EdgeInsets.fromLTRB(BestieTokens.s4, BestieTokens.s2, BestieTokens.s4, BestieTokens.s2),
-              child: Row(children: [
-                Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16))),
-                IconButton(onPressed: () => Navigator.pop(ctx), icon: const Icon(Icons.close, size: 18)),
-              ]),
-            ),
-            Flexible(child: builder(ctx)),
-          ],
-        ),
-      ),
-    ),
+      );
+    },
   );
 }

@@ -108,6 +108,7 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
     }
 
     final t = _task!;
+    final c = BestieColors.of(context);
     final me = ref.read(authStoreProvider).user;
     final assignees =
         (t['assignees'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
@@ -156,11 +157,14 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: BestieTokens.cSurface1,
-                  border: Border.all(color: BestieTokens.cBorder),
+                  color: c.surface2,
+                  border: Border.all(color: c.border),
                   borderRadius: BorderRadius.circular(BestieTokens.rSm),
                 ),
-                child: Text(t['description']),
+                child: Text(
+                  t['description'],
+                  style: TextStyle(color: c.text),
+                ),
               ),
             ],
 

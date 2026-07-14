@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../colors.dart';
 import '../tokens.dart';
 
 class BestieTextField extends StatefulWidget {
@@ -40,11 +41,12 @@ class _BestieTextFieldState extends State<BestieTextField> {
 
   @override
   Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(widget.label, style: const TextStyle(
-          fontSize: 13, fontWeight: FontWeight.w600, color: BestieTokens.cTextSoft,
+        Text(widget.label, style: TextStyle(
+          fontSize: 13, fontWeight: FontWeight.w600, color: c.textSoft,
         )),
         const SizedBox(height: 6),
         TextField(
@@ -60,7 +62,7 @@ class _BestieTextFieldState extends State<BestieTextField> {
             hintText: widget.hint,
             errorText: widget.errorText,
             prefixIcon: widget.icon != null
-                ? Icon(widget.icon, size: 18, color: BestieTokens.cTextMuted)
+                ? Icon(widget.icon, size: 18, color: c.textMuted)
                 : null,
             // Eye toggle for password fields — tap to reveal/hide.
             suffixIcon: widget.obscure
@@ -70,7 +72,7 @@ class _BestieTextFieldState extends State<BestieTextField> {
                           ? Icons.visibility_off_outlined
                           : Icons.visibility_outlined,
                       size: 20,
-                      color: BestieTokens.cTextMuted,
+                      color: c.textMuted,
                     ),
                     tooltip: _obscured ? 'Show password' : 'Hide password',
                     onPressed: () => setState(() => _obscured = !_obscured),

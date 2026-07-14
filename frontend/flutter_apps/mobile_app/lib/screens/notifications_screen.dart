@@ -158,7 +158,12 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
           }
 
           return ListView(
-            padding: const EdgeInsets.symmetric(vertical: 8),
+            padding: EdgeInsets.fromLTRB(
+              0,
+              8,
+              0,
+              70.0 + 24 + MediaQuery.of(context).padding.bottom,
+            ),
             children: children,
           );
         },
@@ -181,7 +186,16 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
     if (!context.mounted) return;
     final route = _routeForNotification(n);
     if (route != null) {
-      context.push(route);
+      // Tab roots use go so bottom nav selection stays correct.
+      if (route == '/meetings' ||
+          route == '/chat' ||
+          route == '/tasks' ||
+          route == '/telecaller' ||
+          route == '/dashboard') {
+        context.go(route);
+      } else {
+        context.push(route);
+      }
     }
   }
 
@@ -452,14 +466,13 @@ String? _routeForNotification(Map<String, dynamic> n) {
 
   final meetingSlug = data['meetingSlug']?.toString();
   if (meetingSlug != null && meetingSlug.isNotEmpty) {
-    final mode =
-        data['mode']?.toString().toLowerCase() == 'voice' ? 'voice' : 'video';
-    return '/meeting/$meetingSlug?mode=$mode';
+    // Open Meet tab (list), not live CallScreen which hijacks shell highlight.
+    return '/meetings';
   }
 
   if ((n['kind'] ?? '').toString().toUpperCase() == 'LEAD_FOLLOWUP') {
     return '/telecaller';
   }
 
-  return '/calendar';
+  return '/chat';
 }

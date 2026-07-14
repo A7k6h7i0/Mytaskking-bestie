@@ -732,25 +732,43 @@ class _ChatsHeader extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                ShaderMask(
-                  blendMode: BlendMode.srcIn,
-                  shaderCallback: (rect) => LinearGradient(
-                    colors: [
-                      BestieTokens.cAccent,
-                      colors.brand,
-                      const Color(0xFF3AA1FF),
-                    ],
-                  ).createShader(rect),
-                  child: const Text(
-                    'MyTaskKing',
-                    style: TextStyle(
-                      fontSize: myTaskKingFontSize,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -0.54,
-                      height: 1.0,
-                      color: Colors.white,
+                // Stroke so brand text stays readable on light/dark surfaces.
+                Stack(
+                  children: [
+                    Text(
+                      'MyTaskKing',
+                      style: TextStyle(
+                        fontSize: myTaskKingFontSize,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.54,
+                        height: 1.05,
+                        foreground: Paint()
+                          ..style = PaintingStyle.stroke
+                          ..strokeWidth = 1.4
+                          ..color = colors.text.withValues(alpha: 0.35),
+                      ),
                     ),
-                  ),
+                    ShaderMask(
+                      blendMode: BlendMode.srcIn,
+                      shaderCallback: (rect) => LinearGradient(
+                        colors: [
+                          BestieTokens.cAccent,
+                          colors.brand,
+                          const Color(0xFF3AA1FF),
+                        ],
+                      ).createShader(rect),
+                      child: const Text(
+                        'MyTaskKing',
+                        style: TextStyle(
+                          fontSize: myTaskKingFontSize,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.54,
+                          height: 1.05,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 SizedBox(height: logoSize * 0.04),
                 Text(
@@ -1022,7 +1040,7 @@ class _ChatTile extends ConsumerWidget {
                   ProfileAvatarViewer.show(
                     context,
                     name: displayName,
-                    imageUrl: kind == 'DM' ? avatarUrl : null,
+                    imageUrl: kind == 'DM' ? avatarUrl : groupIconUrl,
                     isClient: isClient,
                   );
                 },

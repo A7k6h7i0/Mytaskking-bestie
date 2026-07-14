@@ -106,6 +106,8 @@ class _ReportCard extends ConsumerWidget {
       (r) => r['userId'] == me?.id,
       orElse: () => const {},
     );
+    final body = report['body']?.toString() ?? '';
+    final title = task['title']?.toString() ?? 'Task report';
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -126,7 +128,7 @@ class _ReportCard extends ConsumerWidget {
         ]),
         const SizedBox(height: 8),
         Text(
-          task['title']?.toString() ?? 'Task report',
+          title,
           style: TextStyle(
               fontSize: 17, fontWeight: BestieTokens.fwBold, color: c.text),
         ),
@@ -136,36 +138,22 @@ class _ReportCard extends ConsumerWidget {
             subtitle:
                 'Completion report - ${report['wordCount'] ?? 0}/120 words'),
         const SizedBox(height: 8),
-        Text(report['body']?.toString() ?? '',
+        Text(_previewWords(body),
             style: TextStyle(color: c.text, height: 1.35)),
-        const SizedBox(height: 12),
-        ...recipients.map((r) {
-          final user = (r['user'] as Map?)?.cast<String, dynamic>() ?? const {};
-          final response = r['responseBody']?.toString();
-          return Container(
-            margin: const EdgeInsets.only(top: 8, left: 22),
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: c.surface2,
-              borderRadius: BorderRadius.circular(BestieTokens.rSm),
-              border: Border.all(color: c.border),
-            ),
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              _PersonLine(
-                user: user,
-                subtitle: response == null || response.isEmpty
-                    ? 'No response yet'
-                    : 'Responded ${_fmt(r['responseUpdatedAt'] ?? r['respondedAt'])}',
-              ),
-              if (response != null && response.isNotEmpty) ...[
-                const SizedBox(height: 6),
-                Text(response, style: TextStyle(color: c.text)),
-              ],
-            ]),
-          );
-        }),
-        const SizedBox(height: 12),
+        TextButton(
+          onPressed: () => _showDetails(
+            context,
+            title: title,
+            body: body,
+            author: author,
+            recipients: recipients,
+            createdAt: report['createdAt'],
+            wordCount: report['wordCount'],
+            priority: task['priority'],
+          ),
+          child: const Text('View details'),
+        ),
+        const SizedBox(height: 4),
         if (mode == _ReportMode.mine)
           Align(
             alignment: Alignment.centerRight,
@@ -187,6 +175,126 @@ class _ReportCard extends ConsumerWidget {
             ),
           ),
       ]),
+    );
+  }
+
+  void _showDetails(
+    BuildContext context, {
+    required String title,
+    required String body,
+    required Map<String, dynamic> author,
+    required List<Map<String, dynamic>> recipients,
+    required dynamic createdAt,
+    required dynamic wordCount,
+    required dynamic priority,
+  }) {
+    final c = BestieColors.of(context);
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: c.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        final sheetC = BestieColors.of(ctx);
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: sheetC.border,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                  Row(children: [
+                    BestieBadge(
+                      tone: _priorityTone(priority),
+                      dot: true,
+                      child: Text('${priority ?? 'TASK'}'),
+                    ),
+                    const Spacer(),
+                    Text(_fmt(createdAt),
+                        style: TextStyle(color: sheetC.textMuted, fontSize: 12)),
+                  ]),
+                  const SizedBox(height: 10),
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: BestieTokens.fwBold,
+                      color: sheetC.text,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _PersonLine(
+                    user: author,
+                    subtitle: 'Completion report - ${wordCount ?? 0}/120 words',
+                  ),
+                  const SizedBox(height: 12),
+                  Text(body, style: TextStyle(color: sheetC.text, height: 1.4)),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Responses',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: sheetC.text,
+                    ),
+                  ),
+                  if (recipients.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        'No recipients yet.',
+                        style: TextStyle(color: sheetC.textMuted),
+                      ),
+                    ),
+                  ...recipients.map((r) {
+                    final user =
+                        (r['user'] as Map?)?.cast<String, dynamic>() ??
+                            const {};
+                    final response = r['responseBody']?.toString();
+                    return Container(
+                      margin: const EdgeInsets.only(top: 8),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: sheetC.surface2,
+                        borderRadius: BorderRadius.circular(BestieTokens.rSm),
+                        border: Border.all(color: sheetC.border),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _PersonLine(
+                            user: user,
+                            subtitle: response == null || response.isEmpty
+                                ? 'No response yet'
+                                : 'Responded ${_fmt(r['responseUpdatedAt'] ?? r['respondedAt'])}',
+                          ),
+                          if (response != null && response.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Text(response,
+                                style: TextStyle(color: sheetC.text)),
+                          ],
+                        ],
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -484,6 +592,13 @@ BestieTone _priorityTone(dynamic priority) {
     default:
       return BestieTone.neutral;
   }
+}
+
+String _previewWords(String text, {int max = 20}) {
+  final words =
+      text.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+  if (words.length <= max) return text.trim();
+  return '${words.take(max).join(' ')}…';
 }
 
 String _fmt(dynamic iso) {

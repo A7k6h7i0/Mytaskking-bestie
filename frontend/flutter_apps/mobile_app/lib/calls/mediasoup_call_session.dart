@@ -74,6 +74,10 @@ class MediasoupCallSession {
   final Set<String> _consumedProducerIds = {};
   final Map<String, Completer<Consumer>> _pendingConsumers = {};
   final Map<String, Completer<Producer>> _pendingProducers = {};
+  /// Live consumers — need client-side [Consumer.resume] after server
+  /// `resumeConsumer` (MediaSFU / mediasoup-client pattern; HTML JS also
+  /// enables the track before play).
+  final Map<String, Consumer> _consumersByProducerId = {};
 
   // ---------------------------------------------------------------------------
   // Lifecycle
@@ -99,13 +103,23 @@ class MediasoupCallSession {
     _muted = false;
 
     try {
-      await _configurePlatformAudioForCall();
+      await _configurePlatformAudioForCall(video: video);
       await _openSocket(connectUrl);
       final joinResult = await _joinRoom(roomId, userName);
       await _loadDevice(joinResult);
       await _createTransports(roomId);
       await _produceLocalMedia(video: video);
       await _consumeExistingProducers(joinResult);
+      // Match HTML: media is live — force playout path again after first
+      // produce/consume (ADM often only binds after getUserMedia).
+      await enableRemotePlayback();
+      if (video) {
+        try {
+          await Helper.setSpeakerphoneOnButPreferBluetooth();
+        } catch (_) {
+          await Helper.setSpeakerphoneOn(true);
+        }
+      }
       joined = true;
       _notifyStateChanged();
     } catch (e) {
@@ -130,17 +144,24 @@ class MediasoupCallSession {
 
     await _stopScreenShareInternal(notify: false);
 
-    for (final stream in remoteStreams.values) {
-      for (final track in stream.getTracks()) {
-        await track.stop();
-      }
-      await stream.dispose();
+    for (final c in _consumersByProducerId.values) {
+      try {
+        await c.close();
+      } catch (_) {}
     }
-    remoteStreams.clear();
-    remoteNames.clear();
+    _consumersByProducerId.clear();
     _consumedProducerIds.clear();
     _pendingConsumers.clear();
     _pendingProducers.clear();
+
+    // Peer streams only aggregate consumer tracks — don't stop tracks here.
+    for (final stream in remoteStreams.values) {
+      try {
+        await stream.dispose();
+      } catch (_) {}
+    }
+    remoteStreams.clear();
+    remoteNames.clear();
 
     if (localStream != null) {
       for (final track in localStream!.getTracks()) {
@@ -172,14 +193,30 @@ class MediasoupCallSession {
     _notifyStateChanged();
   }
 
-  /// Must run before getUserMedia / transports — otherwise Android routes
-  /// remote voice on the wrong audio stream (silent call symptom).
-  Future<void> _configurePlatformAudioForCall() async {
+  /// Must run before getUserMedia / transports — otherwise Android/iOS route
+  /// remote voice to a dormant ADM / wrong stream (silent-call symptom).
+  /// Patterns from flutter_webrtc#1772 / #1032 + MediaSFU consumerResume.
+  Future<void> _configurePlatformAudioForCall({required bool video}) async {
     try {
       if (WebRTC.platformIsAndroid) {
-        await Helper.setAndroidAudioConfiguration(
-          AndroidAudioConfiguration.communication,
+        final androidConfig = AndroidAudioConfiguration(
+          manageAudioFocus: true,
+          androidAudioMode: AndroidAudioMode.inCommunication,
+          androidAudioFocusMode: AndroidAudioFocusMode.gain,
+          androidAudioStreamType: AndroidAudioStreamType.voiceCall,
+          androidAudioAttributesUsageType:
+              AndroidAudioAttributesUsageType.voiceCommunication,
+          androidAudioAttributesContentType:
+              AndroidAudioAttributesContentType.speech,
         );
+        try {
+          await WebRTC.initialize(options: {
+            'androidAudioConfiguration': androidConfig.toMap(),
+          });
+        } catch (_) {
+          // Already initialized for this process — re-apply via Helper.
+        }
+        await Helper.setAndroidAudioConfiguration(androidConfig);
       } else if (WebRTC.platformIsIOS) {
         await Helper.setAppleAudioConfiguration(
           AppleAudioConfiguration(
@@ -187,22 +224,44 @@ class MediasoupCallSession {
             appleAudioCategoryOptions: {
               AppleAudioCategoryOption.allowBluetooth,
               AppleAudioCategoryOption.mixWithOthers,
+              if (video) AppleAudioCategoryOption.defaultToSpeaker,
             },
-            appleAudioMode: AppleAudioMode.voiceChat,
+            // videoChat unlocks louder speaker path; voiceChat for earpiece VoIP.
+            appleAudioMode:
+                video ? AppleAudioMode.videoChat : AppleAudioMode.voiceChat,
           ),
         );
         await Helper.ensureAudioSession();
+      }
+
+      // Speaker for video; for voice leave earpiece until CallScreen sets route.
+      // Prefer Bluetooth when a headset is connected (flutter_webrtc guidance).
+      if (video) {
+        try {
+          await Helper.setSpeakerphoneOnButPreferBluetooth();
+        } catch (_) {
+          await Helper.setSpeakerphoneOn(true);
+        }
       }
     } catch (_) {}
   }
 
   Future<void> enableRemotePlayback() async {
+    for (final consumer in _consumersByProducerId.values) {
+      try {
+        consumer.resume();
+        consumer.track.enabled = true;
+      } catch (_) {}
+    }
     for (final stream in remoteStreams.values) {
       for (final track in stream.getAudioTracks()) {
         track.enabled = true;
         try {
           await Helper.setVolume(1.0, track);
         } catch (_) {}
+      }
+      for (final track in stream.getVideoTracks()) {
+        track.enabled = true;
       }
     }
   }
@@ -246,7 +305,17 @@ class MediasoupCallSession {
   }
 
   Future<void> setSpeakerphone(bool enabled) async {
-    await Helper.setSpeakerphoneOn(enabled);
+    if (enabled) {
+      try {
+        await Helper.setSpeakerphoneOnButPreferBluetooth();
+      } catch (_) {
+        await Helper.setSpeakerphoneOn(true);
+      }
+    } else {
+      await Helper.setSpeakerphoneOn(false);
+    }
+    // Re-enable remote tracks after route flips (Android often mutes briefly).
+    await enableRemotePlayback();
     _notifyStateChanged();
   }
 
@@ -511,12 +580,26 @@ class MediasoupCallSession {
   // ---------------------------------------------------------------------------
 
   Future<void> _produceLocalMedia({required bool video}) async {
-    localStream = await navigator.mediaDevices.getUserMedia({
-      'audio': true,
-      'video': video,
-    });
+    // Explicit AEC/NS like proven flutter_webrtc call setups; fall back if
+    // the device rejects constraint maps.
+    try {
+      localStream = await navigator.mediaDevices.getUserMedia({
+        'audio': {
+          'echoCancellation': true,
+          'noiseSuppression': true,
+          'autoGainControl': true,
+        },
+        'video': video,
+      });
+    } catch (_) {
+      localStream = await navigator.mediaDevices.getUserMedia({
+        'audio': true,
+        'video': video,
+      });
+    }
 
     for (final track in localStream!.getAudioTracks()) {
+      track.enabled = true;
       await _produceTrack(
         track: track,
         stream: localStream!,
@@ -527,6 +610,7 @@ class MediasoupCallSession {
 
     if (video) {
       for (final track in localStream!.getVideoTracks()) {
+        track.enabled = true;
         await _produceTrack(
           track: track,
           stream: localStream!,
@@ -647,22 +731,28 @@ class MediasoupCallSession {
         onTimeout: () => throw TimeoutException('consume timed out'),
       );
 
+      _consumersByProducerId[producerId] = consumer;
+
+      // Server must unpause first (calls.md / HTML), then client Consumer.resume
+      // enables the local MediaStreamTrack (MediaSFU consumerResume pattern).
       await _emitAck('resumeConsumer', {'consumerId': consumer.id});
+      consumer.resume();
+      consumer.track.enabled = true;
 
       if (userName != null && userName.isNotEmpty) {
         remoteNames[socketId] = userName;
       }
       final kind = data['kind']?.toString() ?? consumer.kind ?? 'audio';
-      _attachRemoteStream(socketId, consumer.stream, kind);
-      if (kind == 'audio') {
+      // HTML does: el.srcObject = new MediaStream(); el.srcObject.addTrack(track)
+      await _attachRemoteTrack(socketId, consumer.track, kind);
+      await enableRemotePlayback();
+      // Android ADM sometimes binds a tick after tracks appear.
+      Future<void>.delayed(const Duration(milliseconds: 300), () async {
         await enableRemotePlayback();
-      } else if (kind == 'video') {
-        for (final track in consumer.stream.getVideoTracks()) {
-          track.enabled = true;
-        }
-      }
+      });
     } catch (e) {
       _consumedProducerIds.remove(producerId);
+      _consumersByProducerId.remove(producerId);
       onError?.call(e);
     }
   }
@@ -673,41 +763,54 @@ class MediasoupCallSession {
     completer?.complete(consumer);
   }
 
-  void _attachRemoteStream(String socketId, MediaStream incoming, String kind) {
-    final existing = remoteStreams[socketId];
-    if (existing == null) {
-      for (final track in incoming.getTracks()) {
-        track.enabled = true;
-      }
-      remoteStreams[socketId] = incoming;
-      onRemoteStream?.call(socketId, incoming, kind);
-      _notifyStateChanged();
-      return;
+  /// One MediaStream per remote peer (same as the HTML test's video element).
+  Future<void> _attachRemoteTrack(
+    String socketId,
+    MediaStreamTrack track,
+    String kind,
+  ) async {
+    track.enabled = true;
+
+    var peerStream = remoteStreams[socketId];
+    if (peerStream == null) {
+      peerStream = await createLocalMediaStream('remote-$socketId');
+      remoteStreams[socketId] = peerStream;
     }
 
-    if (existing.id == incoming.id) {
-      onRemoteStream?.call(socketId, existing, kind);
-      _notifyStateChanged();
-      return;
+    final already = peerStream.getTracks().any((t) => t.id == track.id);
+    if (!already) {
+      await peerStream.addTrack(track);
     }
 
-    for (final track in incoming.getTracks()) {
-      track.enabled = true;
-      existing.addTrack(track);
-    }
-    onRemoteStream?.call(socketId, existing, kind);
+    onRemoteStream?.call(socketId, peerStream, kind);
     _notifyStateChanged();
   }
 
   void _removeRemoteParticipant(String socketId) {
     remoteNames.remove(socketId);
+
+    final toClose = <String>[];
+    for (final entry in _consumersByProducerId.entries) {
+      if (entry.value.peerId == socketId) {
+        toClose.add(entry.key);
+      }
+    }
+    for (final producerId in toClose) {
+      final c = _consumersByProducerId.remove(producerId);
+      _consumedProducerIds.remove(producerId);
+      try {
+        unawaited(c?.close() ?? Future.value());
+      } catch (_) {}
+    }
+
     final stream = remoteStreams.remove(socketId);
     if (stream != null) {
       unawaited(() async {
-        for (final track in stream.getTracks()) {
-          await track.stop();
-        }
-        await stream.dispose();
+        // Tracks belong to consumers — don't stop them here; closing the
+        // consumer tears them down. Just drop our peer aggregator stream.
+        try {
+          await stream.dispose();
+        } catch (_) {}
       }());
     }
   }

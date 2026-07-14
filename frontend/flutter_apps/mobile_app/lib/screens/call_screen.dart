@@ -284,6 +284,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
   String? _lastEmittedSpeakerUserId;
   bool _reconnecting = false;
   String? _error;
+  /// Soft non-fatal media hint (e.g. connected but no remote audio yet).
+  String? _mediaStatusHint;
   Map<String, dynamic>? _callMeta;
   final List<void Function()> _callUnsubs = [];
   bool _remoteClosed = false;
@@ -339,7 +341,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
   bool get _isLiveCallActive =>
       !_hangingUp &&
       !_remoteClosed &&
-      _CallSession.engine != null &&
+      (_CallSession.engine != null ||
+          (_CallSession.useMediasoup && _CallSession.mediasoup != null)) &&
       (_CallSession.connectedAt != null || _joined);
 
   /// UI-only: show "Ending call…" only while we are actually tearing down.
@@ -1356,9 +1359,73 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   void _startAudioHealthCheck() {
     _audioHealthTimer?.cancel();
-    _audioHealthTimer = Timer.periodic(const Duration(seconds: 12), (_) {
-      if (_joined && !_held) _reassertAudio();
+    _audioHealthTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+      if (!_joined || _held) return;
+      unawaited(_reassertAudio());
+      if (!_CallSession.useMediasoup) return;
+      if (_connectedAt == null) return;
+      final session = _CallSession.mediasoup;
+      if (session == null || !session.joined) {
+        _setMediaHint('Call media disconnected. Trying to recover…');
+        return;
+      }
+      final hasRemoteAudio = session.remoteStreams.values.any(
+        (s) => s.getAudioTracks().any((t) => t.enabled),
+      );
+      if (_remoteUids.isNotEmpty && !hasRemoteAudio) {
+        _setMediaHint(
+          'Connected but no remote audio yet. Check mic permission and speaker.',
+        );
+        unawaited(session.enableRemotePlayback());
+        unawaited(_primeMediasoupPlayback());
+      } else if (hasRemoteAudio) {
+        _clearMediaHint();
+      }
     });
+  }
+
+  void _setMediaHint(String message) {
+    if (!mounted) return;
+    if (_mediaStatusHint == message) return;
+    setState(() => _mediaStatusHint = message);
+  }
+
+  void _clearMediaHint() {
+    if (_mediaStatusHint == null) return;
+    if (mounted) setState(() => _mediaStatusHint = null);
+  }
+
+  String _friendlyCallError(Object error) {
+    final raw = error.toString();
+    final lower = raw.toLowerCase();
+    if (lower.contains('permission') || lower.contains('notallowed')) {
+      return 'Microphone or camera permission denied. Enable it in Settings and retry.';
+    }
+    if (lower.contains('timeout') || lower.contains('timed out')) {
+      return 'Call setup timed out. Check your internet and try again.';
+    }
+    if (lower.contains('socket') || lower.contains('connect')) {
+      return 'Could not reach the call server. Check your connection and retry.';
+    }
+    if (lower.contains('device') || lower.contains('getusermedia')) {
+      return 'Could not open mic/camera. Close other apps using them and retry.';
+    }
+    if (lower.contains('consume') || lower.contains('produce')) {
+      return 'Media negotiation failed. Leave and call again.';
+    }
+    if (raw.length > 160) return '${raw.substring(0, 160)}…';
+    return raw;
+  }
+
+  void _reportCallFailure(Object error, {String status = 'Failed'}) {
+    final msg = _friendlyCallError(error);
+    if (!mounted) return;
+    setState(() {
+      _error = msg;
+      _status = status;
+      _mediaStatusHint = null;
+    });
+    bestieToast(context, msg, kind: BestieToastKind.error);
   }
 
   void _startTokenRefresh() {
@@ -1636,6 +1703,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     _stopWaitingForAnswerPoll();
     _startTimer();
     _syncRemotePeerSnapshot();
+    _clearMediaHint();
     if (mounted) setState(() => _status = 'Connected');
   }
 
@@ -2074,11 +2142,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     if (_CallSession.useMediasoup) {
       final session = _CallSession.mediasoup;
       if (session != null) {
-        for (final stream in session.remoteStreams.values) {
-          for (final track in stream.getAudioTracks()) {
-            track.enabled = true;
-          }
-        }
+        await session.enableRemotePlayback();
       }
       await _applyAudioRoute(_route);
       return;
@@ -2408,11 +2472,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
       if (!mounted) return;
       final code = e.code;
       final hint = _hintForAgoraCode(code, step);
-      setState(() {
-        _error =
-            'Agora error $code at "$step"${hint != null ? '\n\n$hint' : ''}';
-        _status = 'Failed';
-      });
+      _reportCallFailure(
+        'Agora error $code at "$step"${hint != null ? '\n\n$hint' : ''}',
+      );
     } catch (e) {
       if (!mounted) return;
       if (_isCallEndedError(e)) {
@@ -2420,10 +2482,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
         if (mounted) context.go('/chat');
         return;
       }
-      setState(() {
-        _error = formatApiError(e);
-        _status = 'Failed';
-      });
+      _reportCallFailure(e);
     } finally {
       _booting = false;
     }
@@ -2587,7 +2646,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
     if (_waitingForAnswer) {
       unawaited(_stopRingback());
-      _markRemoteConnected();
+      // Don't treat SFU join of callee as connected until they actually join
+      // the call (remote tracks / answer meta). Remote track callback marks it.
     }
   }
 
@@ -2642,6 +2702,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
         unawaited(_stopRingback());
         _markRemoteConnected();
       }
+      if (stream.getAudioTracks().isNotEmpty) {
+        _clearMediaHint();
+      }
       if (mounted) setState(() {});
       _CallSession._ping();
     };
@@ -2651,10 +2714,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     };
     session.onError = (error) {
       if (!mounted) return;
-      setState(() {
-        _error = error.toString();
-        _status = 'Failed';
-      });
+      _reportCallFailure(error, status: 'Call error');
     };
   }
 
@@ -2772,7 +2832,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   /// flutter_webrtc plays remote audio through an [RTCVideoRenderer]. Voice-only
-  /// 1:1 layouts never mount video widgets, so keep hidden renderers alive.
+  /// layouts never mount video widgets, so keep hidden renderers alive.
+  ///
+  /// Critical: do NOT bind the same [MediaStream] to two [RTCVideoRenderer]s
+  /// (video tile + this layer) — Android goes silent. Skip peers already shown
+  /// as a video [MediasoupVideoView].
   Widget _mediasoupRemoteAudioLayer() {
     final session = _CallSession.mediasoup;
     if (session == null) return const SizedBox.shrink();
@@ -2782,27 +2846,56 @@ class _CallScreenState extends ConsumerState<CallScreen>
       if (entry.key == mySocket) continue;
       final stream = entry.value;
       if (stream.getAudioTracks().isEmpty) continue;
+      // Video tile [MediasoupVideoView] already owns playout for this stream.
+      if (_isVideo &&
+          stream.getVideoTracks().isNotEmpty &&
+          _mediasoupVideoSurfaceActiveFor(entry.key)) {
+        continue;
+      }
       sinks.add(
-        MediasoupVideoView(
-          key: ValueKey('ms-audio-${entry.key}-${stream.id}'),
-          stream: stream,
+        SizedBox(
+          width: 64,
+          height: 64,
+          child: MediasoupVideoView(
+            key: ValueKey(
+              'ms-audio-${entry.key}-${stream.id}-${stream.getAudioTracks().length}',
+            ),
+            stream: stream,
+          ),
         ),
       );
     }
     if (sinks.isEmpty) return const SizedBox.shrink();
-    // Needs a real (but off-screen) surface — 1×1 views are skipped on Android.
+    // Needs a real (off-screen) surface — 0-size / opacity-0 views are skipped
+    // on Android WebRTC (known silent-call footgun).
     return Positioned(
-      left: -96,
-      top: -96,
-      width: 64,
-      height: 64,
+      left: -120,
+      top: -120,
+      width: 72,
+      height: 72.0 * sinks.length.clamp(1, 4),
       child: IgnorePointer(
         child: Opacity(
-          opacity: 0.01,
-          child: Stack(fit: StackFit.passthrough, children: sinks),
+          opacity: 0.02,
+          child: Column(children: sinks),
         ),
       ),
     );
+  }
+
+  /// True when a video tile / fullscreen remote view is rendering this peer.
+  bool _mediasoupVideoSurfaceActiveFor(String socketId) {
+    if (!_isVideo) return false;
+    final uid = _CallSession.socketIdToUid[socketId];
+    if (uid != null && _remoteUids.contains(uid)) {
+      if (_remoteVideoMuted[uid] == true) return false;
+      return true;
+    }
+    // 1:1 before uid↔socket map settles — fullscreen remote still mounts.
+    if (!_isMeeting && _distinctRemoteUserCount <= 1) {
+      final stream = _CallSession.mediasoup?.remoteStreams[socketId];
+      return stream != null && stream.getVideoTracks().isNotEmpty;
+    }
+    return false;
   }
 
   Future<void> _primeMediasoupPlayback() async {
@@ -2882,8 +2975,17 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
     _CallSession.joined = true;
     _joined = true;
-    _connectedAt = DateTime.now();
-    ActiveCallState.markConnected(_connectedAt!);
+    // Keep "Ringing…" + ringback until the callee answers. Setting connectedAt
+    // here made the UI jump to 00:00 before anyone picked up.
+    final shouldStartConnected =
+        _isMeeting || !_isCallInitiator || _remoteUids.isNotEmpty;
+    if (shouldStartConnected) {
+      _connectedAt = DateTime.now();
+      ActiveCallState.markConnected(_connectedAt!);
+    } else {
+      _connectedAt = null;
+      _elapsed = Duration.zero;
+    }
 
     if (me != null) {
       _agoraUidToUserId[deviceUid] = me.id;
@@ -2910,8 +3012,15 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
     if (mounted) {
       setState(() {
-        _status = _remoteUids.isEmpty ? 'Ringing…' : 'Connected';
+        if (_connectedAt != null) {
+          _status = 'Connected';
+        } else if (_isCallInitiator && !_isMeeting) {
+          _status = 'Ringing…';
+        } else {
+          _status = _remoteUids.isEmpty ? 'Connecting…' : 'Connected';
+        }
         _error = null;
+        _mediaStatusHint = null;
       });
     }
 
@@ -3965,6 +4074,52 @@ class _CallScreenState extends ConsumerState<CallScreen>
                                     ),
                                   ]),
                             ),
+                    ),
+                  ),
+                if (_mediaStatusHint != null &&
+                    _error == null &&
+                    !_reconnecting &&
+                    _joined)
+                  Positioned(
+                    top: topInset +
+                        (_useWhatsAppParticipantGrid
+                            ? 52
+                            : (_muteStatusText() == null ? 64 : 104)),
+                    left: 16,
+                    right: 16,
+                    child: Material(
+                      color: const Color(0xFF1E3A5F).withValues(alpha: 0.95),
+                      borderRadius: BorderRadius.circular(14),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 10),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.volume_off_rounded,
+                                color: Colors.white70, size: 18),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                _mediaStatusHint!,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12.5,
+                                  fontWeight: BestieTokens.fwSemibold,
+                                ),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                _clearMediaHint();
+                                unawaited(_primeMediasoupPlayback());
+                                unawaited(_reassertAudio());
+                              },
+                              child: const Text('Fix',
+                                  style: TextStyle(color: Colors.white)),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 // Controls fade + slide up on entrance.
@@ -5609,7 +5764,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     if (_sharing || _remoteScreenShareUid != null) {
       return _screenShareSurface();
     }
-    if (_error != null && !(_joined && _engine != null)) {
+    if (_error != null && !(_joined && _hasLiveMediaEngine)) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -5625,6 +5780,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
               onPressed: () {
                 setState(() {
                   _error = null;
+                  _mediaStatusHint = null;
                 });
                 _bootstrap();
               },

@@ -12,6 +12,9 @@ class MeetingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = BestieColors.of(context);
     final meetings = ref.watch(meetingsProvider);
+    // Clear shell nav without an empty Scaffold bottom bar (white strip).
+    final shellNavClearance =
+        70.0 + 24 + MediaQuery.of(context).padding.bottom;
 
     return Scaffold(
       backgroundColor: colors.surface,
@@ -28,10 +31,7 @@ class MeetingsScreen extends ConsumerWidget {
           ),
         ],
       ),
-      bottomNavigationBar: SizedBox(
-        // Reserve the floating nav footprint so the body stops above it.
-        height: 70.0 + MediaQuery.of(context).padding.bottom - 18,
-      ),
+      bottomNavigationBar: null,
       body: RefreshIndicator(
         onRefresh: () async => ref.refresh(meetingsProvider.future),
         child: meetings.when(
@@ -49,7 +49,7 @@ class MeetingsScreen extends ConsumerWidget {
             if (items.isEmpty) {
               return Center(
                 child: Padding(
-                  padding: const EdgeInsets.all(24),
+                  padding: EdgeInsets.fromLTRB(24, 24, 24, shellNavClearance),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -78,7 +78,12 @@ class MeetingsScreen extends ConsumerWidget {
               );
             }
             return ListView.separated(
-              padding: const EdgeInsets.all(BestieTokens.s3),
+              padding: EdgeInsets.fromLTRB(
+                BestieTokens.s3,
+                BestieTokens.s3,
+                BestieTokens.s3,
+                shellNavClearance,
+              ),
               itemCount: items.length,
               separatorBuilder: (_, __) => const SizedBox(height: 8),
               itemBuilder: (_, i) {
@@ -128,10 +133,13 @@ class MeetingsScreen extends ConsumerWidget {
           },
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _create(context, ref),
-        icon: const Icon(Icons.add),
-        label: const Text('New meeting'),
+      floatingActionButton: Padding(
+        padding: EdgeInsets.only(bottom: shellNavClearance - 24),
+        child: FloatingActionButton.extended(
+          onPressed: () => _create(context, ref),
+          icon: const Icon(Icons.add),
+          label: const Text('New meeting'),
+        ),
       ),
     );
   }
