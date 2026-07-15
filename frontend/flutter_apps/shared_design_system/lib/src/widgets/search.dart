@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../colors.dart';
 import '../tokens.dart';
 import 'avatar.dart';
 import 'user_name.dart';
@@ -175,6 +176,7 @@ class _BestieSearchScreenState extends State<BestieSearchScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
     final flat = <_FlatHit>[];
     for (final kind in _kindOrder) {
       for (final item in _results[kind] ?? const []) {
@@ -184,7 +186,7 @@ class _BestieSearchScreenState extends State<BestieSearchScreen> {
     final showRecents = _term.trim().isEmpty && _recents.isNotEmpty;
 
     return Scaffold(
-      backgroundColor: BestieTokens.cBg,
+      backgroundColor: c.bg,
       appBar: _SearchBar(
         controller: _ctrl,
         focusNode: _focus,
@@ -273,19 +275,20 @@ class _SearchBar extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
     return SafeArea(
       bottom: false,
       child: Container(
         height: 64,
         padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
         decoration: BoxDecoration(
-          color: BestieTokens.cSurface,
-          border: Border(bottom: BorderSide(color: BestieTokens.cBorder.withOpacity(0.7))),
+          color: c.surface,
+          border: Border(bottom: BorderSide(color: c.border.withOpacity(0.7))),
         ),
         child: Row(children: [
           IconButton(
             icon: const Icon(Icons.arrow_back_rounded, size: 22),
-            color: BestieTokens.cTextSoft,
+            color: c.textSoft,
             tooltip: 'Back',
             onPressed: onClose,
           ),
@@ -297,12 +300,14 @@ class _SearchBar extends StatelessWidget implements PreferredSizeWidget {
                 focusNode: focusNode,
                 autocorrect: false,
                 enableSuggestions: false,
+                cursorColor: c.brand,
                 textInputAction: TextInputAction.search,
                 inputFormatters: [LengthLimitingTextInputFormatter(200)],
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 15,
                   fontWeight: BestieTokens.fwMedium,
                   letterSpacing: BestieTokens.lsNormal,
+                  color: c.text,
                 ),
                 decoration: InputDecoration(
                   isCollapsed: true,
@@ -316,18 +321,18 @@ class _SearchBar extends StatelessWidget implements PreferredSizeWidget {
                   suffixIcon: v.text.isNotEmpty
                       ? IconButton(
                           icon: const Icon(Icons.close_rounded, size: 18),
-                          color: BestieTokens.cTextMuted,
+                          color: c.textMuted,
                           tooltip: 'Clear',
                           onPressed: onClear,
                         )
-                      : const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 12),
+                      : Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
                           child: Icon(Icons.search_rounded,
-                              size: 20, color: BestieTokens.cTextMuted),
+                              size: 20, color: c.textMuted),
                         ),
                   hintText: 'Search people, messages, files…',
-                  hintStyle: const TextStyle(
-                    color: BestieTokens.cTextMuted,
+                  hintStyle: TextStyle(
+                    color: c.textMuted,
                     fontWeight: BestieTokens.fwRegular,
                   ),
                   contentPadding: const EdgeInsets.fromLTRB(8, 12, 0, 12),
@@ -371,11 +376,12 @@ class _Chips extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = BestieColors.of(context);
     return Container(
       height: 52,
       decoration: BoxDecoration(
-        color: BestieTokens.cSurface,
-        border: Border(bottom: BorderSide(color: BestieTokens.cBorder.withOpacity(0.7))),
+        color: colors.surface,
+        border: Border(bottom: BorderSide(color: colors.border.withOpacity(0.7))),
       ),
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
@@ -383,9 +389,9 @@ class _Chips extends StatelessWidget {
         itemCount: _chips.length,
         separatorBuilder: (_, __) => const SizedBox(width: 6),
         itemBuilder: (ctx, i) {
-          final c = _chips[i];
-          final isActive = active == c.value;
-          final count = c.value == null ? total : (results[c.value]?.length ?? 0);
+          final chip = _chips[i];
+          final isActive = active == chip.value;
+          final count = chip.value == null ? total : (results[chip.value]?.length ?? 0);
           final showCount = total > 0 && count > 0;
           return AnimatedContainer(
             duration: const Duration(milliseconds: 180),
@@ -396,37 +402,37 @@ class _Chips extends StatelessWidget {
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                       colors: [
-                        BestieTokens.cBrand.withOpacity(0.18),
-                        BestieTokens.cAccent.withOpacity(0.10),
+                        colors.brand.withOpacity(0.18),
+                        colors.accent.withOpacity(0.10),
                       ],
                     )
                   : null,
-              color: isActive ? null : BestieTokens.cSurface2,
+              color: isActive ? null : colors.surface2,
               borderRadius: BorderRadius.circular(BestieTokens.rPill),
               border: Border.all(
                 color: isActive
-                    ? BestieTokens.cBrand.withOpacity(0.30)
-                    : BestieTokens.cBorder.withOpacity(0.7),
+                    ? colors.brand.withOpacity(0.30)
+                    : colors.border.withOpacity(0.7),
               ),
             ),
             child: Material(
               color: Colors.transparent,
               child: InkWell(
                 borderRadius: BorderRadius.circular(BestieTokens.rPill),
-                onTap: () => onChange(c.value),
+                onTap: () => onChange(chip.value),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(c.icon, size: 14, color: isActive ? BestieTokens.cBrandStrong : BestieTokens.cTextSoft),
+                      Icon(chip.icon, size: 14, color: isActive ? colors.brandStrong : colors.textSoft),
                       const SizedBox(width: 6),
                       Text(
-                        c.label,
+                        chip.label,
                         style: TextStyle(
                           fontSize: 12.5,
                           fontWeight: BestieTokens.fwSemibold,
-                          color: isActive ? BestieTokens.cBrandStrong : BestieTokens.cTextSoft,
+                          color: isActive ? colors.brandStrong : colors.textSoft,
                           letterSpacing: BestieTokens.lsNormal,
                         ),
                       ),
@@ -436,8 +442,8 @@ class _Chips extends StatelessWidget {
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                           decoration: BoxDecoration(
                             color: isActive
-                                ? BestieTokens.cBrand.withOpacity(0.22)
-                                : BestieTokens.cText.withOpacity(0.06),
+                                ? colors.brand.withOpacity(0.22)
+                                : colors.text.withOpacity(0.06),
                             borderRadius: BorderRadius.circular(BestieTokens.rPill),
                           ),
                           child: Text(
@@ -445,7 +451,7 @@ class _Chips extends StatelessWidget {
                             style: TextStyle(
                               fontSize: 10,
                               fontWeight: BestieTokens.fwBold,
-                              color: isActive ? BestieTokens.cBrandStrong : BestieTokens.cTextSoft,
+                              color: isActive ? colors.brandStrong : colors.textSoft,
                             ),
                           ),
                         ),
@@ -475,19 +481,20 @@ class _RecentSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Padding(
         padding: const EdgeInsets.fromLTRB(16, 18, 12, 6),
         child: Row(children: [
-          const Icon(Icons.history_rounded, size: 13, color: BestieTokens.cTextMuted),
+          Icon(Icons.history_rounded, size: 13, color: c.textMuted),
           const SizedBox(width: 6),
-          const Expanded(
+          Expanded(
             child: Text('RECENT',
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: BestieTokens.fwBold,
                   letterSpacing: BestieTokens.lsEyebrow,
-                  color: BestieTokens.cTextMuted,
+                  color: c.textMuted,
                 )),
           ),
           TextButton(
@@ -495,7 +502,7 @@ class _RecentSection extends StatelessWidget {
             style: TextButton.styleFrom(
               minimumSize: const Size(0, 28),
               padding: const EdgeInsets.symmetric(horizontal: 8),
-              foregroundColor: BestieTokens.cTextMuted,
+              foregroundColor: c.textMuted,
               textStyle: const TextStyle(fontSize: 10, fontWeight: BestieTokens.fwSemibold, letterSpacing: BestieTokens.lsWide),
             ),
             child: const Text('CLEAR'),
@@ -511,19 +518,19 @@ class _RecentSection extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               child: Row(children: [
-                const Icon(Icons.search_rounded, size: 14, color: BestieTokens.cTextMuted),
+                Icon(Icons.search_rounded, size: 14, color: c.textMuted),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     r,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 13.5,
-                      color: BestieTokens.cTextSoft,
+                      color: c.textSoft,
                       fontWeight: BestieTokens.fwMedium,
                     ),
                   ),
                 ),
-                const Icon(Icons.north_west_rounded, size: 14, color: BestieTokens.cTextFaint),
+                Icon(Icons.north_west_rounded, size: 14, color: c.textFaint),
               ]),
             ),
           ),
@@ -577,14 +584,15 @@ class _LoadingDotsState extends State<_LoadingDots> with SingleTickerProviderSta
             children: List.generate(3, (i) {
               final phase = ((t + i * 0.16) % 1.0);
               final opacity = (0.3 + 0.7 * (1 - (phase - 0.5).abs() * 2)).clamp(0.2, 1.0);
+              final brand = BestieColors.of(context).brand;
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
                 child: Opacity(
                   opacity: opacity,
                   child: Container(
                     width: 8, height: 8,
-                    decoration: const BoxDecoration(
-                      color: BestieTokens.cBrand,
+                    decoration: BoxDecoration(
+                      color: brand,
                       shape: BoxShape.circle,
                     ),
                   ),
@@ -631,17 +639,18 @@ class _GroupHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 14, 12, 6),
       child: Row(children: [
-        Icon(_icons[kind] ?? Icons.tune_rounded, size: 13, color: BestieTokens.cTextMuted),
+        Icon(_icons[kind] ?? Icons.tune_rounded, size: 13, color: c.textMuted),
         const SizedBox(width: 6),
         Text(
           _labels[kind] ?? kind.toUpperCase(),
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 11,
             fontWeight: BestieTokens.fwBold,
-            color: BestieTokens.cTextMuted,
+            color: c.textMuted,
             letterSpacing: BestieTokens.lsEyebrow,
           ),
         ),
@@ -667,27 +676,28 @@ class _HitRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
     Widget child;
     switch (kind) {
-      case 'users':    child = _personRow(); break;
-      case 'messages': child = _messageRow(); break;
-      case 'files':    child = _fileRow();    break;
-      case 'channels': child = _compactRow(Icons.tag_rounded,
+      case 'users':    child = _personRow(c); break;
+      case 'messages': child = _messageRow(c); break;
+      case 'files':    child = _fileRow(c);    break;
+      case 'channels': child = _compactRow(c, Icons.tag_rounded,
         (item['name'] ?? 'Direct message').toString(),
         item['description']?.toString() ?? (item['kind']?.toString() ?? ''),
         isClient: item['isClientChannel'] == true);
         break;
-      case 'tasks':    child = _compactRow(Icons.task_alt_outlined,
+      case 'tasks':    child = _compactRow(c, Icons.task_alt_outlined,
         (item['title'] ?? '').toString(),
         (item['status'] ?? '').toString(),
         meta: item['dueAt'] != null ? _ago(DateTime.tryParse(item['dueAt'].toString())) : null);
         break;
-      case 'leads':    child = _compactRow(Icons.headset_mic_outlined,
+      case 'leads':    child = _compactRow(c, Icons.headset_mic_outlined,
         (item['name'] ?? '').toString(),
         '${item['company'] ?? 'No company'} · ${item['phone'] ?? ''}',
         meta: item['status']?.toString());
         break;
-      default:         child = _compactRow(Icons.search_rounded, item.toString(), null);
+      default:         child = _compactRow(c, Icons.search_rounded, item.toString(), null);
     }
     return Material(
       color: Colors.transparent,
@@ -709,7 +719,7 @@ class _HitRow extends StatelessWidget {
   }
 
   // ----- person row -----
-  Widget _personRow() {
+  Widget _personRow(BestieColors c) {
     final name = (item['name'] ?? '').toString();
     final role = (item['customTitle'] ?? '').toString().isNotEmpty
         ? item['customTitle'].toString()
@@ -745,9 +755,9 @@ class _HitRow extends StatelessWidget {
               if (role.isNotEmpty)
                 Text(
                   role,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11.5,
-                    color: BestieTokens.cTextMuted,
+                    color: c.textMuted,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -758,7 +768,7 @@ class _HitRow extends StatelessWidget {
         if (lastSeen != null) ...[
           const SizedBox(width: 8),
           Text(lastSeen,
-              style: const TextStyle(fontSize: 11, color: BestieTokens.cTextFaint)),
+              style: TextStyle(fontSize: 11, color: c.textFaint)),
         ],
         if (onScopeToPerson != null) ...[
           const SizedBox(width: 8),
@@ -769,7 +779,7 @@ class _HitRow extends StatelessWidget {
   }
 
   // ----- message row -----
-  Widget _messageRow() {
+  Widget _messageRow(BestieColors c) {
     final author = (item['author'] as Map?)?.cast<String, dynamic>() ?? const {};
     final channel = (item['channel'] as Map?)?.cast<String, dynamic>() ?? const {};
     final attachments = (item['attachments'] as List?) ?? const [];
@@ -809,9 +819,9 @@ class _HitRow extends StatelessWidget {
                 Flexible(
                   child: Text(
                     '#${channel['name'] ?? 'dm'}',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 11.5,
-                      color: BestieTokens.cBrand,
+                      color: c.brand,
                       fontWeight: BestieTokens.fwSemibold,
                     ),
                     overflow: TextOverflow.ellipsis,
@@ -820,7 +830,7 @@ class _HitRow extends StatelessWidget {
                 if (time.isNotEmpty) ...[
                   const Spacer(),
                   Text(time,
-                      style: const TextStyle(fontSize: 11, color: BestieTokens.cTextFaint)),
+                      style: TextStyle(fontSize: 11, color: c.textFaint)),
                 ],
               ]),
               const SizedBox(height: 3),
@@ -831,18 +841,18 @@ class _HitRow extends StatelessWidget {
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
-                      color: BestieTokens.cSurface2,
+                      color: c.surface2,
                       borderRadius: BorderRadius.circular(BestieTokens.rPill),
                     ),
                     child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      const Icon(Icons.attach_file_rounded, size: 11, color: BestieTokens.cTextMuted),
+                      Icon(Icons.attach_file_rounded, size: 11, color: c.textMuted),
                       const SizedBox(width: 3),
                       Text(
                         '${attachments.length}',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 10,
                           fontWeight: BestieTokens.fwBold,
-                          color: BestieTokens.cTextMuted,
+                          color: c.textMuted,
                         ),
                       ),
                     ]),
@@ -856,7 +866,7 @@ class _HitRow extends StatelessWidget {
   }
 
   // ----- file row -----
-  Widget _fileRow() {
+  Widget _fileRow(BestieColors c) {
     final mime = (item['mimeType'] ?? '').toString();
     final name = (item['originalName'] ?? 'file').toString();
     final size = (item['size'] as num?)?.toInt();
@@ -886,15 +896,15 @@ class _HitRow extends StatelessWidget {
         Container(
           width: 42, height: 42,
           decoration: BoxDecoration(
-            color: BestieTokens.cSurface2,
-            border: Border.all(color: BestieTokens.cBorder),
+            color: c.surface2,
+            border: Border.all(color: c.border),
             borderRadius: BorderRadius.circular(BestieTokens.rSm),
           ),
           clipBehavior: Clip.antiAlias,
           child: thumb != null
               ? Image.network(thumb, fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Icon(icon, size: 18, color: BestieTokens.cTextSoft))
-              : Icon(icon, size: 18, color: BestieTokens.cTextSoft),
+                  errorBuilder: (_, __, ___) => Icon(icon, size: 18, color: c.textSoft))
+              : Icon(icon, size: 18, color: c.textSoft),
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -905,10 +915,10 @@ class _HitRow extends StatelessWidget {
               _HighlightedText(
                 text: name,
                 term: term,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 13.5,
                   fontWeight: BestieTokens.fwSemibold,
-                  color: BestieTokens.cText,
+                  color: c.text,
                   letterSpacing: BestieTokens.lsSnug,
                 ),
                 maxLines: 1,
@@ -916,7 +926,7 @@ class _HitRow extends StatelessWidget {
               Text(sub,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 11.5, color: BestieTokens.cTextMuted)),
+                  style: TextStyle(fontSize: 11.5, color: c.textMuted)),
             ],
           ),
         ),
@@ -925,16 +935,16 @@ class _HitRow extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
-              color: BestieTokens.cSurface2,
-              border: Border.all(color: BestieTokens.cBorder),
+              color: c.surface2,
+              border: Border.all(color: c.border),
               borderRadius: BorderRadius.circular(BestieTokens.rXs),
             ),
             child: Text(
               metaParts.join(' · '),
-              style: const TextStyle(
+              style: TextStyle(
                 fontFamily: 'monospace',
                 fontSize: 10,
-                color: BestieTokens.cTextSoft,
+                color: c.textSoft,
                 fontWeight: BestieTokens.fwSemibold,
               ),
             ),
@@ -944,9 +954,9 @@ class _HitRow extends StatelessWidget {
     );
   }
 
-  Widget _compactRow(IconData icon, String label, String? sub, {String? meta, bool isClient = false}) {
+  Widget _compactRow(BestieColors c, IconData icon, String label, String? sub, {String? meta, bool isClient = false}) {
     return Row(children: [
-      Icon(icon, size: 16, color: BestieTokens.cTextSoft),
+      Icon(icon, size: 16, color: c.textSoft),
       const SizedBox(width: 10),
       Expanded(
         child: Column(
@@ -959,7 +969,7 @@ class _HitRow extends StatelessWidget {
               style: TextStyle(
                 fontSize: 13.5,
                 fontWeight: BestieTokens.fwSemibold,
-                color: isClient ? BestieTokens.cClient : BestieTokens.cText,
+                color: isClient ? c.client : c.text,
                 letterSpacing: BestieTokens.lsSnug,
               ),
               maxLines: 1,
@@ -968,13 +978,13 @@ class _HitRow extends StatelessWidget {
               Text(sub,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 11.5, color: BestieTokens.cTextMuted)),
+                  style: TextStyle(fontSize: 11.5, color: c.textMuted)),
           ],
         ),
       ),
       if (meta != null && meta.isNotEmpty) ...[
         const SizedBox(width: 8),
-        Text(meta, style: const TextStyle(fontSize: 11, color: BestieTokens.cTextFaint)),
+        Text(meta, style: TextStyle(fontSize: 11, color: c.textFaint)),
       ],
     ]);
   }
@@ -986,6 +996,7 @@ class _ScopeButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -994,19 +1005,19 @@ class _ScopeButton extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
-            color: BestieTokens.cSurface,
-            border: Border.all(color: BestieTokens.cBorderStrong),
+            color: c.surface,
+            border: Border.all(color: c.borderStrong),
             borderRadius: BorderRadius.circular(BestieTokens.rPill),
           ),
-          child: const Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.filter_alt_outlined, size: 12, color: BestieTokens.cTextSoft),
-            SizedBox(width: 4),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.filter_alt_outlined, size: 12, color: c.textSoft),
+            const SizedBox(width: 4),
             Text(
               'messages',
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: BestieTokens.fwSemibold,
-                color: BestieTokens.cTextSoft,
+                color: c.textSoft,
               ),
             ),
           ]),
@@ -1024,13 +1035,14 @@ class _Snippet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
     return _HighlightedText(
       text: text,
       term: term,
-      style: const TextStyle(
+      style: TextStyle(
         fontSize: 13,
         height: 1.4,
-        color: BestieTokens.cTextSoft,
+        color: c.textSoft,
       ),
       maxLines: maxLines,
     );
@@ -1054,6 +1066,7 @@ class _HighlightedText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
     final cleanedTerm = _termWithoutFilters(term).trim();
     if (cleanedTerm.isEmpty) {
       return Text(text, style: style, maxLines: maxLines, overflow: TextOverflow.ellipsis);
@@ -1073,10 +1086,10 @@ class _HighlightedText extends StatelessWidget {
           text: text.substring(idx, idx + cleanedTerm.length),
           style: style.copyWith(
             background: Paint()
-              ..color = BestieTokens.cWarning.withOpacity(0.35)
+              ..color = c.warning.withOpacity(0.35)
               ..strokeWidth = 0,
             fontWeight: BestieTokens.fwBold,
-            color: BestieTokens.cText,
+            color: c.text,
           ),
         ),
         TextSpan(text: text.substring(idx + cleanedTerm.length)),

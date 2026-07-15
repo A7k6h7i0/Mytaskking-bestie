@@ -112,7 +112,10 @@ router.delete(
   asyncHandler(async (req, res) => {
     const message = await service.deleteMessage({ id: req.params.id, user: req.user });
     audit.record({ kind: 'message.deleted', entity: 'message', entityId: message.id, payload: { channelId: message.channelId }, req });
-    req.app.get('io')?.to(`channel:${message.channelId}`).emit('chat.message.deleted', { id: message.id });
+    req.app.get('io')?.to(`channel:${message.channelId}`).emit('chat.message.deleted', {
+      id: message.id,
+      channelId: message.channelId,
+    });
     res.json({ ok: true });
   })
 );

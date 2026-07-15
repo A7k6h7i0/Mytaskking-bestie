@@ -635,12 +635,24 @@ class _CallScreenState extends ConsumerState<CallScreen>
     }));
   }
 
-  /// Meetings don't use call.* sockets. Wire meeting join events so invitees
-  /// who connect appear on everyone's participant grid.
+  /// Meetings don't use call.* lifecycle events. Wire meeting join + peer
+  /// signals (raise hand, etc.) so invitees stay in sync.
   void _subscribeMeetingLifecycle() {
     final slug = widget.meetingSlug;
     if (slug == null || slug.isEmpty) return;
     final rt = ref.read(realtimeProvider);
+    // Peers still deliver raise-hand / in-meeting UX over call.signal with
+    // meetingSlug in the payload (same relay as 1:1 calls).
+    _callUnsubs.add(rt.onAny('call.signal', ([data]) {
+      if (data is! Map) return;
+      final payload = (data['payload'] as Map?)?.cast<String, dynamic>();
+      if (payload == null) return;
+      final enriched = Map<String, dynamic>.from(payload);
+      if (enriched['fromUserId'] == null && data['from'] != null) {
+        enriched['fromUserId'] = data['from'];
+      }
+      _handleCallSignalPayload(enriched);
+    }));
     _callUnsubs.add(rt.onAny('meeting.participant.joined', ([data]) {
       if (data is! Map) return;
       if (data['slug']?.toString() != slug &&
@@ -1226,6 +1238,20 @@ class _CallScreenState extends ConsumerState<CallScreen>
       ..._joinedParticipants.keys,
       ..._agoraUidToUserId.values,
     };
+    // Meeting roster (token/meta) — raise-hand must reach invitees even before
+    // they land in `_joinedParticipants` / uid maps.
+    if (_isMeeting) {
+      final raw = (_callMeta?['participants'] as List?) ??
+          (_callMeta?['room'] is Map
+              ? ((_callMeta!['room'] as Map)['participants'] as List?)
+              : null) ??
+          const [];
+      for (final entry in raw) {
+        if (entry is! Map) continue;
+        final uid = entry['userId']?.toString();
+        if (uid != null && uid.isNotEmpty) peers.add(uid);
+      }
+    }
     if (meId != null) peers.remove(meId);
     peers.removeWhere((id) => id.isEmpty);
     return peers;
@@ -1260,8 +1286,16 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   void _broadcastCallSignal(Map<String, dynamic> payload) {
     final callId = widget.callId;
-    if (callId == null) return;
-    final envelope = {...payload, 'callId': callId};
+    final meetingSlug = widget.meetingSlug;
+    if (callId == null && (meetingSlug == null || meetingSlug.isEmpty)) {
+      return;
+    }
+    final envelope = {
+      ...payload,
+      if (callId != null) 'callId': callId,
+      if (meetingSlug != null && meetingSlug.isNotEmpty)
+        'meetingSlug': meetingSlug,
+    };
     final rt = ref.read(realtimeProvider);
     for (final peerId in _callPeerUserIds()) {
       rt.emit('call.signal', {'to': peerId, 'payload': envelope});
@@ -1270,7 +1304,14 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   void _handleCallSignalPayload(Map<String, dynamic> payload) {
     final callId = widget.callId;
-    if (callId == null || payload['callId'] != callId) return;
+    final meetingSlug = widget.meetingSlug;
+    if (callId != null) {
+      if (payload['callId'] != callId) return;
+    } else if (meetingSlug != null && meetingSlug.isNotEmpty) {
+      if (payload['meetingSlug']?.toString() != meetingSlug) return;
+    } else {
+      return;
+    }
     final type = payload['type']?.toString();
     if (type == 'activeSpeaker') {
       final speakerId = payload['userId']?.toString();
@@ -1473,19 +1514,28 @@ class _CallScreenState extends ConsumerState<CallScreen>
   int get _participantCount {
     final me = ref.read(authStoreProvider).user?.id;
     if (_CallSession.useMediasoup && _CallSession.mediasoup != null) {
+      // Prefer SFU socket cardinality (1 peer = 1 socket) so uid/hash blips
+      // don't inflate 1:1 calls into “3 people”.
+      final sfuRemotes = _mediasoupLiveRemotePeerCount;
+      if (sfuRemotes > 0) return 1 + sfuRemotes;
+
       var n = 1; // self
+      final seenUser = <String>{};
       for (final e in _joinedParticipants.entries) {
-        if (e.key == me) continue;
+        if (e.key == me || seenUser.contains(e.key)) continue;
         if (_isStillLiveMediasoupParticipant(userId: e.key, name: e.value)) {
+          seenUser.add(e.key);
           n++;
         }
       }
-      // Include unmapped live remotes on SFU.
+      final seenUid = <int>{};
       for (final uid in _remoteUids) {
-        if (uid == _CallSession.myUid) continue;
+        if (uid == _CallSession.myUid || seenUid.contains(uid)) continue;
         final id = _agoraUidToUserId[uid];
         if (id != null && id == me) continue;
-        if (id != null && _joinedParticipants.containsKey(id)) continue;
+        if (id != null && seenUser.contains(id)) continue;
+        seenUid.add(uid);
+        if (id != null) seenUser.add(id);
         n++;
       }
       return max(1, n);
@@ -1500,29 +1550,55 @@ class _CallScreenState extends ConsumerState<CallScreen>
   int get _distinctRemoteUserCount {
     final me = ref.read(authStoreProvider).user?.id;
     final ids = <String>{};
-    for (final uid in _remoteUids) {
-      if (uid == _CallSession.myUid) continue;
-      final userId = _agoraUidToUserId[uid];
-      if (userId != null && userId.isNotEmpty && userId != me) {
-        ids.add(userId);
-      } else {
-        // Unmapped mediasoup peers still count as separate people on the grid.
-        ids.add('uid:$uid');
-      }
-    }
+    final countedUids = <int>{};
+    final countedSocks = <String>{};
+
     for (final entry in _joinedParticipants.entries) {
       if (entry.key != me) ids.add(entry.key);
     }
-    // SFU socket count is authoritative when announce lagging on the host.
+
+    for (final uid in _remoteUids) {
+      if (uid == _CallSession.myUid || countedUids.contains(uid)) continue;
+      final userId = _agoraUidToUserId[uid];
+      if (userId != null && userId.isNotEmpty && userId != me) {
+        ids.add(userId);
+      } else if (userId != me) {
+        ids.add('uid:$uid');
+      } else {
+        continue;
+      }
+      countedUids.add(uid);
+      final sock = _CallSession.uidToSocketId[uid];
+      if (sock != null) countedSocks.add(sock);
+    }
+
+    // Only count SFU sockets that are not already represented by a uid/userId.
     final session = _CallSession.mediasoup;
     if (_CallSession.useMediasoup && session != null) {
-      for (final sock in session.remoteNames.keys) {
-        if (sock == session.mySocketId) continue;
+      final socks = <String>{
+        ...session.remoteNames.keys,
+        ...session.remoteStreams.keys,
+      }..remove(session.mySocketId);
+      for (final sock in socks) {
+        if (countedSocks.contains(sock)) continue;
+        final uid = _CallSession.socketIdToUid[sock];
+        if (uid != null) {
+          if (uid == _CallSession.myUid || countedUids.contains(uid)) {
+            countedSocks.add(sock);
+            continue;
+          }
+          final userId = _agoraUidToUserId[uid];
+          if (userId != null && userId.isNotEmpty && userId != me) {
+            ids.add(userId);
+          } else {
+            ids.add('uid:$uid');
+          }
+          countedUids.add(uid);
+          countedSocks.add(sock);
+          continue;
+        }
         ids.add('sock:$sock');
-      }
-      for (final sock in session.remoteStreams.keys) {
-        if (sock == session.mySocketId) continue;
-        ids.add('sock:$sock');
+        countedSocks.add(sock);
       }
     }
     return ids.length;
@@ -1554,14 +1630,25 @@ class _CallScreenState extends ConsumerState<CallScreen>
       ((_callMeta?['call'] as Map?)?['kind'] == 'GROUP' &&
           _participantCount >= 2);
 
-  bool get _useWhatsAppParticipantGrid =>
-      _isMeeting ||
-      _isVideo ||
-      _participantCount > 2 ||
-      _joinedParticipants.length > 2 ||
-      _distinctRemoteUserCount > 1 ||
-      ((_callMeta?['call'] as Map?)?['kind'] == 'GROUP' &&
-          _participantCount >= 3);
+  /// Voice 1:1 must stay on the avatar stage. Grid only when SFU (or
+  /// participant maps) clearly show 2+ remote people — never because one
+  /// peer was counted twice as uid + sock.
+  bool get _useWhatsAppParticipantGrid {
+    if (_isMeeting) return true;
+    if (_isVideo) {
+      // Video chrome helpers; 1:1 vs multi tile layout is gated separately.
+      return true;
+    }
+    // Voice:
+    if (_CallSession.useMediasoup) {
+      return _mediasoupLiveRemotePeerCount > 1;
+    }
+    return _participantCount > 2 ||
+        _joinedParticipants.length > 2 ||
+        _distinctRemoteUserCount > 1 ||
+        ((_callMeta?['call'] as Map?)?['kind'] == 'GROUP' &&
+            _participantCount >= 3);
+  }
 
   Future<void> _enableSpeakerHighlight() async {
     final engine = _engine;

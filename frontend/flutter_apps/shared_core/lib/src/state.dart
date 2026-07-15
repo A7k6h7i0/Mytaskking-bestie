@@ -80,7 +80,28 @@ final channelsProvider =
       .watch(realtimeProvider)
       .onAny('chat.message.created', ([_]) => ref.invalidateSelf());
   ref.onDispose(unsub);
-  return ref.watch(apiProvider).listChannels();
+  final api = ref.watch(apiProvider);
+  // Extra app-level retry if dio still surfaces a 500 after interceptors.
+  Object? lastError;
+  for (var i = 0; i < 3; i++) {
+    try {
+      return await api.listChannels();
+    } catch (e) {
+      lastError = e;
+      final code = e is DioException ? e.response?.statusCode : null;
+      final retryable = code == 500 ||
+          code == 502 ||
+          code == 503 ||
+          code == 504 ||
+          (e is DioException &&
+              (e.type == DioExceptionType.connectionTimeout ||
+                  e.type == DioExceptionType.receiveTimeout ||
+                  e.type == DioExceptionType.connectionError));
+      if (!retryable || i == 2) rethrow;
+      await Future<void>.delayed(Duration(milliseconds: 500 * (i + 1)));
+    }
+  }
+  Error.throwWithStackTrace(lastError!, StackTrace.current);
 });
 
 // ----- chat history for a specific channel -----
@@ -91,6 +112,16 @@ final messagesProvider = FutureProvider.autoDispose
   // Register listeners with onDispose unsubscribes so a rebuild
   // (invalidateSelf on each incoming message) doesn't leak duplicate handlers.
   ref.onDispose(rt.onAny('chat.message.created', ([data]) {
+    if (data is Map && data['channelId'] == channelId) {
+      ref.invalidateSelf();
+    }
+  }));
+  ref.onDispose(rt.onAny('chat.message.updated', ([data]) {
+    if (data is Map && data['channelId'] == channelId) {
+      ref.invalidateSelf();
+    }
+  }));
+  ref.onDispose(rt.onAny('chat.message.deleted', ([data]) {
     if (data is Map && data['channelId'] == channelId) {
       ref.invalidateSelf();
     }

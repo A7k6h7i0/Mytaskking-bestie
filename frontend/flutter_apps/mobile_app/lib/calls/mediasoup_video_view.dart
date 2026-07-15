@@ -16,7 +16,9 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 /// with [createLocalMediaStream] often leaves remote video black.
 ///
 /// Android front-camera frames are often delivered landscape; when the UI is
-/// portrait we auto-rotate so peers see upright video (not sideways).
+/// portrait we auto-rotate 90° CCW so peers see upright video (not sideways
+/// or upside-down). Local preview should keep [autoCorrectOrientation] false
+/// and only use [mirror] for the front camera.
 class MediasoupVideoView extends StatefulWidget {
   const MediasoupVideoView({
     super.key,
@@ -29,8 +31,8 @@ class MediasoupVideoView extends StatefulWidget {
   final MediaStream stream;
   final bool mirror;
   final RTCVideoViewObjectFit objectFit;
-  /// When true (default), landscape frames in a portrait layout are rotated
-  /// upright for the other party.
+  /// When true (default for remotes), landscape buffers in a portrait layout
+  /// are rotated 90° CCW. Local preview should pass false.
   final bool autoCorrectOrientation;
 
   @override
@@ -60,9 +62,11 @@ class _MediasoupVideoViewState extends State<MediasoupVideoView> {
     final w = _renderer.videoWidth;
     final h = _renderer.videoHeight;
     if (w <= 0 || h <= 0) return;
-    // Landscape buffer shown in a normally-portrait phone call UI → rotate.
+    // Landscape buffer in a portrait call UI → straighten.
+    // Android front-camera / WebRTC buffers need 90° CCW (quarterTurns: 3).
+    // 90° CW (1) was leaving the peer upside-down / inverted.
     final needsRotate = w > h;
-    final next = needsRotate ? 1 : 0; // 90° CW — uprights phone selfie feeds
+    final next = needsRotate ? 3 : 0;
     if (next != _quarterTurns) {
       setState(() => _quarterTurns = next);
     }

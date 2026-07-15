@@ -52,20 +52,25 @@ class BestieApi {
             }
           }
 
-          // Transient gateway / overload blips — common on cellular with many
-          // devices polling the same APIs. Retry idempotent GETs once.
+          // Transient server / gateway blips — retry idempotent GETs a few
+          // times (500 often clears after a short pause on warm restarts).
           final status = e.response?.statusCode;
           final method = e.requestOptions.method.toUpperCase();
-          final retried = e.requestOptions.extra['mtk_retry'] == true;
-          final transient = status == 502 ||
+          final attempt =
+              (e.requestOptions.extra['mtk_retry_count'] as int?) ?? 0;
+          final transient = status == 500 ||
+              status == 502 ||
               status == 503 ||
               status == 504 ||
               e.type == DioExceptionType.connectionTimeout ||
               e.type == DioExceptionType.receiveTimeout;
-          if (!retried && method == 'GET' && transient) {
+          if (method == 'GET' && transient && attempt < 2) {
             final req = e.requestOptions;
+            req.extra['mtk_retry_count'] = attempt + 1;
             req.extra['mtk_retry'] = true;
-            await Future<void>.delayed(const Duration(milliseconds: 500));
+            await Future<void>.delayed(
+              Duration(milliseconds: 400 + (attempt * 600)),
+            );
             try {
               final r = await dio.fetch(req);
               return handler.resolve(r);

@@ -34,6 +34,57 @@ final _prefsProvider = FutureProvider<SharedPreferences>(
   (_) => SharedPreferences.getInstance(),
 );
 
+/// Remove one photo/file from a chat message **without** a backend attach API:
+/// soft-delete the message, then re-send remaining attachments (and caption).
+Future<void> _removeChatAttachmentClientOnly({
+  required BestieApi api,
+  required Map<String, dynamic> message,
+  required String assetId,
+}) async {
+  final messageId = message['id']?.toString();
+  final channelId = message['channelId']?.toString();
+  if (messageId == null ||
+      messageId.isEmpty ||
+      channelId == null ||
+      channelId.isEmpty) {
+    throw 'Message is missing ids';
+  }
+  final attachments =
+      (message['attachments'] as List?)?.cast<Map<String, dynamic>>() ??
+          const <Map<String, dynamic>>[];
+  final remainingIds = attachments
+      .map((a) => a['id']?.toString())
+      .whereType<String>()
+      .where((id) => id.isNotEmpty && id != assetId)
+      .toList();
+  final body = (message['body'] ?? '').toString().trim();
+
+  await api.deleteMessageForEveryone(messageId);
+
+  if (remainingIds.isEmpty) {
+    if (body.isNotEmpty) {
+      await api.sendMessage(channelId, body: body, kind: 'TEXT');
+    }
+    return;
+  }
+
+  // Keep caption on the first remaining photo; each other file is its own
+  // message (same as the new multi-select send path).
+  await api.sendMessage(
+    channelId,
+    body: body.isEmpty ? null : body,
+    attachmentIds: [remainingIds.first],
+    kind: 'FILE',
+  );
+  for (final id in remainingIds.skip(1)) {
+    await api.sendMessage(
+      channelId,
+      attachmentIds: [id],
+      kind: 'FILE',
+    );
+  }
+}
+
 /// Per-channel set of message ids the local user has hidden via "delete for
 /// me". The chat detail filters these out of the rendered list. Other
 /// members still see the original message — this is a client-side mask only.
@@ -949,7 +1000,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
         if (files.isEmpty) throw 'Could not read the picked file(s)';
       }
 
-      final assetIds = <String>[];
+      // One message per file so deleting one photo does not wipe the rest
+      // (no special backend attachment API needed).
       for (var i = 0; i < files.length; i++) {
         final file = files[i];
         final asset = await ref.read(apiProvider).uploadFile(
@@ -967,9 +1019,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
         if (assetId == null) {
           throw 'Upload succeeded but no asset id was returned';
         }
-        assetIds.add(assetId);
+        await _send(attachmentIds: [assetId]);
       }
-      await _send(attachmentIds: assetIds);
     } catch (e) {
       if (mounted)
         bestieToast(context, 'Attachment failed',
@@ -3706,12 +3757,22 @@ class _MessageBubble extends ConsumerWidget {
                       Stack(
                         clipBehavior: Clip.none,
                         children: [
-                          _Attachment(asset: a, mine: mine, colors: c),
+                          _Attachment(
+                            asset: a,
+                            mine: mine,
+                            colors: c,
+                            message: message,
+                          ),
                           imageTimeOverlay(),
                         ],
                       )
                     else
-                      _Attachment(asset: a, mine: mine, colors: c),
+                      _Attachment(
+                        asset: a,
+                        mine: mine,
+                        colors: c,
+                        message: message,
+                      ),
                     const SizedBox(height: 4),
                   ],
                 if (isDeleted)
@@ -3984,10 +4045,20 @@ class _MessageBubble extends ConsumerWidget {
                     ListTile(
                       leading:
                           Icon(Icons.delete_outline_rounded, color: c.danger),
-                      title: Text('Delete for everyone',
+                      title: Text(
+                          attachments.length > 1
+                              ? 'Delete entire message'
+                              : 'Delete for everyone',
                           style: TextStyle(
                               color: c.danger,
                               fontWeight: BestieTokens.fwSemibold)),
+                      subtitle: attachments.length > 1
+                          ? Text(
+                              'Removes all ${attachments.length} photos. To remove one photo, long-press it.',
+                              style: TextStyle(
+                                  color: c.textMuted, fontSize: 12),
+                            )
+                          : null,
                       onTap: () {
                         Navigator.pop(ctx);
                         _deleteForEveryone(context, ref);
@@ -4641,8 +4712,13 @@ class _Attachment extends ConsumerWidget {
   final Map<String, dynamic> asset;
   final bool mine;
   final BestieColors colors;
-  const _Attachment(
-      {required this.asset, required this.mine, required this.colors});
+  final Map<String, dynamic>? message;
+  const _Attachment({
+    required this.asset,
+    required this.mine,
+    required this.colors,
+    this.message,
+  });
 
   Future<String> _resolveUrl(WidgetRef ref) async {
     final id = asset['id']?.toString();
@@ -4677,6 +4753,102 @@ class _Attachment extends ConsumerWidget {
     }
   }
 
+  bool get _canRemoveThis {
+    if (!mine || message == null) return false;
+    final msgId = message!['id']?.toString();
+    final assetId = asset['id']?.toString();
+    return msgId != null &&
+        msgId.isNotEmpty &&
+        assetId != null &&
+        assetId.isNotEmpty;
+  }
+
+  int get _attachmentCount {
+    final list = (message?['attachments'] as List?) ?? const [];
+    return list.length;
+  }
+
+  Future<void> _removeThisAttachment(BuildContext context, WidgetRef ref) async {
+    if (!_canRemoveThis) return;
+    final onlyOne = _attachmentCount <= 1;
+    final ok = await bestieConfirm(
+      context,
+      title: onlyOne ? 'Delete this photo?' : 'Remove this photo?',
+      description: onlyOne
+          ? 'This photo will be deleted for everyone.'
+          : 'Only this photo will be removed. Other photos stay.',
+      confirmLabel: onlyOne ? 'Delete' : 'Remove',
+    );
+    if (!ok) return;
+    try {
+      await _removeChatAttachmentClientOnly(
+        api: ref.read(apiProvider),
+        message: message!,
+        assetId: asset['id'].toString(),
+      );
+      final channelId = message!['channelId']?.toString();
+      if (channelId != null) {
+        ref.invalidate(messagesProvider(channelId));
+      }
+      if (context.mounted) {
+        bestieToast(
+          context,
+          onlyOne ? 'Photo deleted' : 'Photo removed',
+          kind: BestieToastKind.success,
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        bestieToast(context, 'Could not remove photo',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    }
+  }
+
+  Future<void> _showImageActions(BuildContext context, WidgetRef ref) async {
+    final c = BestieColors.of(context);
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: c.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius:
+            BorderRadius.vertical(top: Radius.circular(BestieTokens.rXl)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(
+            leading: Icon(Icons.download_rounded, color: c.textSoft),
+            title: Text('Save photo', style: TextStyle(color: c.text)),
+            onTap: () async {
+              Navigator.pop(ctx);
+              await _saveAsset(context, ref);
+            },
+          ),
+          if (_canRemoveThis)
+            ListTile(
+              leading: Icon(Icons.delete_outline_rounded, color: c.danger),
+              title: Text(
+                _attachmentCount > 1
+                    ? 'Remove this photo only'
+                    : 'Delete this photo',
+                style: TextStyle(
+                    color: c.danger, fontWeight: BestieTokens.fwSemibold),
+              ),
+              onTap: () {
+                Navigator.pop(ctx);
+                _removeThisAttachment(context, ref);
+              },
+            ),
+          ListTile(
+            leading: Icon(Icons.close_rounded, color: c.textMuted),
+            title: Text('Cancel', style: TextStyle(color: c.textMuted)),
+            onTap: () => Navigator.pop(ctx),
+          ),
+        ]),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final mime = (asset['mimeType'] ?? '').toString();
@@ -4701,6 +4873,8 @@ class _Attachment extends ConsumerWidget {
                 heroTag: tag,
                 name: name,
                 asset: asset,
+                message: message,
+                canRemove: _canRemoveThis,
               ),
               transitionsBuilder: (_, anim, __, child) =>
                   FadeTransition(opacity: anim, child: child),
@@ -4712,6 +4886,7 @@ class _Attachment extends ConsumerWidget {
             }
           }
         },
+        onLongPress: () => _showImageActions(context, ref),
         child: Hero(
           tag: tag,
           child: ClipRRect(
@@ -5529,12 +5704,57 @@ class _FullscreenImage extends ConsumerWidget {
   final String heroTag;
   final String name;
   final Map<String, dynamic>? asset;
+  final Map<String, dynamic>? message;
+  final bool canRemove;
   const _FullscreenImage({
     required this.url,
     required this.heroTag,
     required this.name,
     this.asset,
+    this.message,
+    this.canRemove = false,
   });
+
+  Future<void> _removePhoto(BuildContext context, WidgetRef ref) async {
+    final msg = message;
+    final assetId = asset?['id']?.toString();
+    final channelId = msg?['channelId']?.toString();
+    if (msg == null || assetId == null) return;
+    final attachCount = ((msg['attachments'] as List?) ?? const []).length;
+    final onlyOne = attachCount <= 1;
+    final ok = await bestieConfirm(
+      context,
+      title: onlyOne ? 'Delete this photo?' : 'Remove this photo?',
+      description: onlyOne
+          ? 'This photo will be deleted for everyone.'
+          : 'Only this photo will be removed. Other photos stay in the chat.',
+      confirmLabel: onlyOne ? 'Delete' : 'Remove',
+    );
+    if (!ok) return;
+    try {
+      await _removeChatAttachmentClientOnly(
+        api: ref.read(apiProvider),
+        message: msg,
+        assetId: assetId,
+      );
+      if (channelId != null) {
+        ref.invalidate(messagesProvider(channelId));
+      }
+      if (context.mounted) {
+        Navigator.of(context).pop();
+        bestieToast(
+          context,
+          onlyOne ? 'Photo deleted' : 'Photo removed',
+          kind: BestieToastKind.success,
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        bestieToast(context, 'Could not remove photo',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -5612,6 +5832,19 @@ class _FullscreenImage extends ConsumerWidget {
                 },
               ),
             ),
+            if (canRemove) ...[
+              const SizedBox(width: 8),
+              Material(
+                color: Colors.black54,
+                shape: const CircleBorder(),
+                child: IconButton(
+                  icon: const Icon(Icons.delete_outline_rounded,
+                      color: Colors.white),
+                  tooltip: 'Remove this photo',
+                  onPressed: () => _removePhoto(context, ref),
+                ),
+              ),
+            ],
             const SizedBox(width: 8),
             Material(
               color: Colors.black54,

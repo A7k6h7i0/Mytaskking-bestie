@@ -261,10 +261,29 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                 onRefresh: () async => ref.refresh(channelsProvider.future),
                 child: channels.when(
                   loading: () => const BestieSkeletonList(itemCount: 6),
-                  error: (e, _) => BestieEmptyState(
-                    icon: Icons.cloud_off_outlined,
-                    title: 'Couldn\'t load chats',
-                    description: formatApiError(e),
+                  error: (e, _) => ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      SizedBox(
+                        height: MediaQuery.sizeOf(context).height * 0.55,
+                        child: BestieEmptyState(
+                          icon: Icons.cloud_off_outlined,
+                          title: 'Couldn\'t load chats',
+                          description: formatApiError(e),
+                          action: FilledButton.icon(
+                            onPressed: () =>
+                                ref.invalidate(channelsProvider),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: colors.brand,
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 18, vertical: 12),
+                            ),
+                            icon: const Icon(Icons.refresh_rounded, size: 18),
+                            label: const Text('Retry'),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   data: (items) {
                     if (items.isEmpty) {
@@ -396,6 +415,9 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
 
   void _onHeaderMenu(BuildContext context, WidgetRef ref, String value) {
     switch (value) {
+      case 'refresh':
+        ref.invalidate(channelsProvider);
+        break;
       case 'search':
         context.go('/search');
         break;
@@ -651,11 +673,26 @@ class _ChatsHeader extends ConsumerWidget {
       child: Row(
         children: [
           Expanded(child: _headerBrand(branding)),
+          IconButton(
+            tooltip: 'Refresh chats',
+            icon: Icon(Icons.refresh_rounded, color: colors.text),
+            onPressed: () => onMenuSelected('refresh'),
+          ),
           PopupMenuButton<String>(
             icon: Icon(Icons.more_vert_rounded, color: colors.text),
             tooltip: 'More options',
             onSelected: onMenuSelected,
             itemBuilder: (ctx) => [
+              PopupMenuItem(
+                value: 'refresh',
+                child: Row(
+                  children: [
+                    Icon(Icons.refresh_rounded, color: colors.text, size: 22),
+                    const SizedBox(width: 12),
+                    const Text('Refresh'),
+                  ],
+                ),
+              ),
               PopupMenuItem(
                 value: 'search',
                 child: Row(

@@ -395,6 +395,8 @@ class BestieEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
+    final accent = iconColor ?? c.brand;
     final content = Padding(
       padding: const EdgeInsets.all(BestieTokens.s6),
       child: Column(
@@ -404,17 +406,17 @@ class BestieEmptyState extends StatelessWidget {
           Container(
             width: 72, height: 72,
             decoration: BoxDecoration(
-              color: (iconColor ?? BestieTokens.cBrand).withOpacity(0.12),
+              color: accent.withOpacity(0.12),
               borderRadius: BorderRadius.circular(20),
             ),
-            child: Icon(icon, color: iconColor ?? BestieTokens.cBrand, size: 32),
+            child: Icon(icon, color: accent, size: 32),
           ),
           const SizedBox(height: BestieTokens.s3),
-          Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+          Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: c.text)),
           if (description != null) ...[
             const SizedBox(height: 4),
             Text(description!, textAlign: TextAlign.center,
-                style: const TextStyle(color: BestieTokens.cTextMuted)),
+                style: TextStyle(color: c.textMuted)),
           ],
           if (action != null) ...[
             const SizedBox(height: BestieTokens.s3),
