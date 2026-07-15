@@ -368,12 +368,15 @@ class MediasoupCallSession {
     try {
       MediaStream cam;
       try {
+        // Portrait-first ideals — landscape 1280x720 made remote peers see
+        // sideways video on Android phones.
         cam = await navigator.mediaDevices.getUserMedia({
           'audio': false,
           'video': {
             'facingMode': 'user',
-            'width': {'ideal': 1280},
-            'height': {'ideal': 720},
+            'width': {'ideal': 720},
+            'height': {'ideal': 1280},
+            'aspectRatio': {'ideal': 0.5625},
           },
         });
       } catch (_) {
@@ -777,8 +780,9 @@ class MediasoupCallSession {
     final videoConstraints = video
         ? <String, dynamic>{
             'facingMode': 'user',
-            'width': {'ideal': 1280},
-            'height': {'ideal': 720},
+            'width': {'ideal': 720},
+            'height': {'ideal': 1280},
+            'aspectRatio': {'ideal': 0.5625},
           }
         : false;
     try {

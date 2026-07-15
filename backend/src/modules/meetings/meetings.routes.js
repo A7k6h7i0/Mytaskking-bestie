@@ -344,19 +344,43 @@ router.use(requireAuth);
 
 router.get(
   '/',
+  validate({
+    query: Joi.object({
+      includeEnded: Joi.alternatives().try(Joi.boolean(), Joi.string().valid('1', '0', 'true', 'false')),
+    }),
+  }),
   asyncHandler(async (req, res) => {
     // Show meetings the user is hosting OR has been explicitly invited to
     // (via participantIds at create time). Random members of the tenant no
     // longer see other people's rooms.
+    const includeEndedRaw = req.query.includeEnded;
+    const includeEnded =
+      includeEndedRaw === true ||
+      includeEndedRaw === '1' ||
+      includeEndedRaw === 'true';
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const access = {
+      OR: [
+        { hostId: req.user.id },
+        { participants: { some: { userId: req.user.id } } },
+      ],
+    };
+    const where = includeEnded
+      ? {
+          AND: [
+            access,
+            {
+              OR: [
+                { endedAt: null },
+                { endedAt: { gte: since } },
+              ],
+            },
+          ],
+        }
+      : { endedAt: null, ...access };
     const items = await prisma.meetingRoom.findMany({
-      where: {
-        endedAt: null,
-        OR: [
-          { hostId: req.user.id },
-          { participants: { some: { userId: req.user.id } } },
-        ],
-      },
-      orderBy: { createdAt: 'desc' },
+      where,
+      orderBy: [{ endedAt: 'asc' }, { createdAt: 'desc' }],
       include: {
         _count: { select: { participants: true } },
         guestRequests: {
@@ -692,7 +716,75 @@ router.post(
     const updated = await prisma.meetingRoom.update({ where: { id: room.id }, data: { endedAt: new Date() } });
     audit.record({ kind: 'meeting.ended', entity: 'meeting', entityId: room.id, req });
     await eventBus.publish('meeting.ended', { meetingId: room.id }, { tenantId: room.tenantId });
+    req.app.get('io')?.emit('meeting.ended', { slug: room.slug, meetingId: room.id });
     res.json(updated);
+  })
+);
+
+/**
+ * Leave a live meeting. When the last INTERNAL/GUEST participant exits
+ * (everyone including the host), the meeting auto-ends — no End button needed.
+ */
+router.post(
+  '/:slug/leave',
+  asyncHandler(async (req, res) => {
+    const room = await prisma.meetingRoom.findUnique({ where: { slug: req.params.slug } });
+    if (!room) return res.json({ ok: true, ended: true });
+    if (room.endedAt) return res.json({ ok: true, ended: true });
+
+    const membership = await prisma.meetingRoomParticipant.findFirst({
+      where: { roomId: room.id, userId: req.user.id },
+    });
+    if (!membership && room.hostId !== req.user.id) {
+      throw Forbidden('Not a participant');
+    }
+
+    if (membership && ['INTERNAL', 'GUEST'].includes(String(membership.joinedVia || ''))) {
+      await prisma.meetingRoomParticipant.update({
+        where: { id: membership.id },
+        data: { joinedVia: 'LEFT', lastSeenAt: new Date() },
+      });
+    } else if (room.hostId === req.user.id && !membership) {
+      // Host was INTERNAL at create; if row missing, still count empties below.
+    } else if (membership && membership.joinedVia === 'INVITED') {
+      // Invitee never entered media — no live presence to clear.
+    }
+
+    const active = await prisma.meetingRoomParticipant.count({
+      where: {
+        roomId: room.id,
+        userId: { not: null },
+        joinedVia: { in: ['INTERNAL', 'GUEST'] },
+      },
+    });
+
+    let ended = false;
+    if (active === 0) {
+      await prisma.meetingRoom.update({
+        where: { id: room.id },
+        data: { endedAt: new Date() },
+      });
+      ended = true;
+      audit.record({
+        kind: 'meeting.ended',
+        entity: 'meeting',
+        entityId: room.id,
+        payload: { reason: 'empty_room' },
+        req,
+      });
+      await eventBus.publish(
+        'meeting.ended',
+        { meetingId: room.id, reason: 'empty_room' },
+        { tenantId: room.tenantId }
+      );
+      req.app.get('io')?.emit('meeting.ended', {
+        slug: room.slug,
+        meetingId: room.id,
+        reason: 'empty_room',
+      });
+    }
+
+    res.json({ ok: true, ended, activeParticipants: active });
   })
 );
 

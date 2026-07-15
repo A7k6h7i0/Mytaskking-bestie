@@ -56,13 +56,14 @@ class MeetingsScreen extends ConsumerWidget {
                       Icon(Icons.videocam_outlined,
                           size: 64, color: colors.textFaint),
                       const SizedBox(height: 16),
-                      Text('No live rooms',
+                      Text('No meetings yet',
                           style: TextStyle(
                               color: colors.text,
                               fontSize: 18,
                               fontWeight: BestieTokens.fwBold)),
                       const SizedBox(height: 6),
-                      Text('Create a room or join one with its meeting ID.',
+                      Text(
+                          'Live rooms and recent ended meetings show here. Create one or join by ID.',
                           textAlign: TextAlign.center,
                           style:
                               TextStyle(color: colors.textMuted, fontSize: 13)),
@@ -77,6 +78,7 @@ class MeetingsScreen extends ConsumerWidget {
                 ),
               );
             }
+            final me = ref.read(authStoreProvider).user;
             return ListView.separated(
               padding: EdgeInsets.fromLTRB(
                 BestieTokens.s3,
@@ -89,42 +91,101 @@ class MeetingsScreen extends ConsumerWidget {
               itemBuilder: (_, i) {
                 final m = items[i];
                 final mode = (m['mode'] as String? ?? 'VIDEO').toLowerCase();
-                final accentColor = switch (mode) {
-                  'voice' => BestieTokens.cInfo,
-                  'webinar' => BestieTokens.cAccent,
-                  'livestream' => BestieTokens.cDanger,
-                  _ => colors.brand,
-                };
+                final ended = m['endedAt'] != null;
+                final isHost = m['hostId']?.toString() == me?.id ||
+                    (m['host'] as Map?)?['id']?.toString() == me?.id;
+                final canEnd = !ended &&
+                    (isHost ||
+                        me?.role == 'ADMIN' ||
+                        me?.role == 'SUPER_ADMIN');
+                final accentColor = ended
+                    ? colors.textMuted
+                    : switch (mode) {
+                        'voice' => BestieTokens.cInfo,
+                        'webinar' => BestieTokens.cAccent,
+                        'livestream' => BestieTokens.cDanger,
+                        _ => colors.brand,
+                      };
                 return Card(
                   child: ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: accentColor.withOpacity(0.12),
-                      child: Icon(
-                        mode == 'voice'
-                            ? Icons.call_outlined
-                            : Icons.videocam_outlined,
-                        color: accentColor,
-                      ),
+                    leading: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        CircleAvatar(
+                          backgroundColor: accentColor.withOpacity(0.12),
+                          child: Icon(
+                            ended
+                                ? Icons.history_rounded
+                                : mode == 'voice'
+                                    ? Icons.call_outlined
+                                    : Icons.videocam_outlined,
+                            color: accentColor,
+                          ),
+                        ),
+                        if (!ended)
+                          Positioned(
+                            right: -1,
+                            bottom: -1,
+                            child: Container(
+                              width: 12,
+                              height: 12,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF22C55E),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: colors.surface,
+                                  width: 2,
+                                ),
+                                boxShadow: const [
+                                  BoxShadow(
+                                    color: Color(0x6622C55E),
+                                    blurRadius: 4,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                     title: Text(m['name'] ?? '—',
                         style: const TextStyle(fontWeight: FontWeight.w700)),
-                    subtitle: Wrap(spacing: 6, children: [
-                      BestieBadge(child: Text(mode.toUpperCase())),
+                    subtitle: Wrap(spacing: 6, runSpacing: 4, children: [
+                      BestieBadge(
+                          child: Text(ended ? 'ENDED' : 'LIVE')),
+                      if (!ended)
+                        BestieBadge(child: Text(mode.toUpperCase())),
                       Text(m['slug'] ?? '',
                           style: const TextStyle(
                               color: BestieTokens.cTextMuted, fontSize: 11)),
+                      if ((_participantCount(m)) > 0)
+                        Text(
+                          '${_participantCount(m)} people',
+                          style: TextStyle(
+                              color: colors.textMuted, fontSize: 11),
+                        ),
                     ]),
                     trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                      IconButton(
-                        icon: const Icon(Icons.login),
-                        onPressed: () => _join(context, ref, m),
-                        tooltip: 'Join',
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.stop_circle_outlined),
-                        onPressed: () => _end(context, ref, m['slug']),
-                        tooltip: 'End',
-                      ),
+                      if (!ended)
+                        IconButton(
+                          icon: const Icon(Icons.arrow_forward_ios_rounded,
+                              size: 18),
+                          onPressed: () => _join(context, ref, m),
+                          tooltip: 'Join meeting',
+                        )
+                      else
+                        IconButton(
+                          icon: Icon(Icons.info_outline,
+                              color: colors.textMuted),
+                          onPressed: () => _showEndedDetails(context, m, colors),
+                          tooltip: 'Meeting history',
+                        ),
+                      if (canEnd)
+                        IconButton(
+                          icon: const Icon(Icons.stop_circle_outlined),
+                          onPressed: () =>
+                              _end(context, ref, m['slug']?.toString() ?? ''),
+                          tooltip: 'End for everyone',
+                        ),
                     ]),
                   ),
                 );
@@ -498,6 +559,11 @@ class MeetingsScreen extends ConsumerWidget {
       BuildContext context, WidgetRef ref, Map<String, dynamic> m) async {
     final slug = m['slug']?.toString();
     if (slug == null) return;
+    if (m['endedAt'] != null) {
+      bestieToast(context, 'Meeting already ended',
+          kind: BestieToastKind.info);
+      return;
+    }
     final mode = (m['mode'] ?? 'VIDEO').toString().toLowerCase() == 'voice'
         ? 'voice'
         : 'video';
@@ -505,6 +571,7 @@ class MeetingsScreen extends ConsumerWidget {
   }
 
   Future<void> _end(BuildContext context, WidgetRef ref, String slug) async {
+    if (slug.isEmpty) return;
     final ok = await bestieConfirm(context,
         title: 'End this meeting?',
         description: 'Participants will be disconnected.',
@@ -518,5 +585,75 @@ class MeetingsScreen extends ConsumerWidget {
         bestieToast(context, 'Couldn\'t end',
             body: formatApiError(e), kind: BestieToastKind.error);
     }
+  }
+
+  static int _participantCount(Map<String, dynamic> m) {
+    final count = m['_count'];
+    if (count is Map) {
+      final n = count['participants'];
+      if (n is int) return n;
+      return int.tryParse('$n') ?? 0;
+    }
+    final n = m['participantCount'];
+    if (n is int) return n;
+    return int.tryParse('$n') ?? 0;
+  }
+
+  static void _showEndedDetails(
+    BuildContext context,
+    Map<String, dynamic> m,
+    BestieColors colors,
+  ) {
+    final ended = m['endedAt']?.toString() ?? '';
+    final created = m['createdAt']?.toString() ?? '';
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: colors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                m['name']?.toString() ?? 'Meeting',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: BestieTokens.fwBold,
+                  color: colors.text,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text('Status: Ended',
+                  style: TextStyle(color: colors.textMuted, fontSize: 13)),
+              Text('Mode: ${m['mode'] ?? 'VIDEO'}',
+                  style: TextStyle(color: colors.textMuted, fontSize: 13)),
+              if (created.isNotEmpty)
+                Text('Started: ${created.replaceFirst('T', ' ')}',
+                    style: TextStyle(color: colors.textMuted, fontSize: 13)),
+              if (ended.isNotEmpty)
+                Text('Ended: ${ended.replaceFirst('T', ' ')}',
+                    style: TextStyle(color: colors.textMuted, fontSize: 13)),
+              Text(
+                'People: ${_participantCount(m)}',
+                style: TextStyle(color: colors.textMuted, fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Close'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

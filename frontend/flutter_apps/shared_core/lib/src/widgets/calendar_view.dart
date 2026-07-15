@@ -202,16 +202,16 @@ class _BestieCalendarViewState extends ConsumerState<BestieCalendarView> {
     final hourHeight =
         compact ? _hourHeightCompact : _hourHeightDesktop;
     final outerPad = compact ? 10.0 : 24.0;
-    // Shell NavBar is 56 + system inset (extendBody). Clear that only — no
-    // extra dead space under the mini-calendar.
+    // Only clear the opaque tab bar (56) + home indicator. Do not add extra
+    // dead space — previous larger clearance showed as a white bottom band.
     final bottomClearance = compact
-        ? 56.0 + MediaQuery.paddingOf(context).bottom
+        ? 56.0 + MediaQuery.viewPaddingOf(context).bottom
         : outerPad;
 
     return ColoredBox(
       color: c.surface,
       child: Padding(
-        padding: EdgeInsets.fromLTRB(outerPad, outerPad, outerPad, bottomClearance),
+        padding: EdgeInsets.fromLTRB(outerPad, outerPad, outerPad, 0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -287,34 +287,38 @@ class _BestieCalendarViewState extends ConsumerState<BestieCalendarView> {
                           final sideH = short
                               ? (constraints.maxHeight * 0.38).clamp(160.0, 220.0)
                               : (constraints.maxHeight * 0.42).clamp(180.0, 260.0);
-                          return Column(
-                            children: [
-                              Expanded(
-                                child: _MonthGridView(
-                                  month: _sidebarMonth,
-                                  entries: entries,
-                                  onPrev: () => setState(() {
-                                    _sidebarMonth = DateTime(
-                                      _sidebarMonth.year,
-                                      _sidebarMonth.month - 1,
-                                      1,
-                                    );
-                                  }),
-                                  onNext: () => setState(() {
-                                    _sidebarMonth = DateTime(
-                                      _sidebarMonth.year,
-                                      _sidebarMonth.month + 1,
-                                      1,
-                                    );
-                                  }),
+                          return Padding(
+                            padding: EdgeInsets.only(bottom: bottomClearance),
+                            child: Column(
+                              children: [
+                                Expanded(
+                                  child: _MonthGridView(
+                                    month: _sidebarMonth,
+                                    entries: entries,
+                                    onPrev: () => setState(() {
+                                      _sidebarMonth = DateTime(
+                                        _sidebarMonth.year,
+                                        _sidebarMonth.month - 1,
+                                        1,
+                                      );
+                                    }),
+                                    onNext: () => setState(() {
+                                      _sidebarMonth = DateTime(
+                                        _sidebarMonth.year,
+                                        _sidebarMonth.month + 1,
+                                        1,
+                                      );
+                                    }),
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 8),
-                              SizedBox(
-                                height: sideH,
-                                child: SingleChildScrollView(child: sidebar()),
-                              ),
-                            ],
+                                const SizedBox(height: 8),
+                                SizedBox(
+                                  height: sideH,
+                                  child:
+                                      SingleChildScrollView(child: sidebar()),
+                                ),
+                              ],
+                            ),
                           );
                         },
                       );
@@ -357,9 +361,8 @@ class _BestieCalendarViewState extends ConsumerState<BestieCalendarView> {
                   );
 
                   if (compact) {
-                    // Fixed week card + scrollable mini-calendar below — never
-                    // nest Expanded sidebar inside unbounded scroll (collapsed
-                    // week / overlapping dates when changing weeks).
+                    // Scroll the whole week + mini-calendar. Avoid Expanded
+                    // leftover empty area that looked like a white bottom band.
                     return LayoutBuilder(
                       builder: (context, constraints) {
                         final h = constraints.maxHeight;
@@ -367,18 +370,17 @@ class _BestieCalendarViewState extends ConsumerState<BestieCalendarView> {
                         final gridHeight = short
                             ? (h * 0.48).clamp(200.0, 280.0)
                             : (h * 0.50).clamp(240.0, 360.0);
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            SizedBox(height: gridHeight, child: weekGrid),
-                            const SizedBox(height: 8),
-                            Expanded(
-                              child: SingleChildScrollView(
-                                physics: const BouncingScrollPhysics(),
-                                child: sidebar(),
-                              ),
-                            ),
-                          ],
+                        return SingleChildScrollView(
+                          physics: const BouncingScrollPhysics(),
+                          padding: EdgeInsets.only(bottom: bottomClearance),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              SizedBox(height: gridHeight, child: weekGrid),
+                              const SizedBox(height: 8),
+                              sidebar(),
+                            ],
+                          ),
                         );
                       },
                     );

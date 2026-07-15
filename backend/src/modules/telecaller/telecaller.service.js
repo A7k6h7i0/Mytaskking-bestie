@@ -22,6 +22,33 @@ function normalizePhoneNumber(value) {
   return String(value || '').trim().replace(/[^\d+]/g, '');
 }
 
+/**
+ * Accept +917076119520, 07076119520, 7076119520 and general E.164-ish numbers.
+ * Returns normalized string or null if invalid.
+ */
+function normalizeLeadPhone(value) {
+  const trimmed = String(value || '')
+    .trim()
+    .replace(/[\s\-().]/g, '');
+  if (!trimmed) return null;
+  const hasPlus = trimmed.startsWith('+');
+  const digits = trimmed.replace(/[^\d]/g, '');
+  if (digits.length < 8 || digits.length > 15) return null;
+
+  if (digits.length === 10 && /^[6-9]\d{9}$/.test(digits)) return digits;
+  if (digits.length === 11 && digits.startsWith('0')) {
+    const rest = digits.slice(1);
+    if (/^[6-9]\d{9}$/.test(rest)) return rest;
+  }
+  if (digits.length === 12 && digits.startsWith('91')) {
+    const rest = digits.slice(2);
+    if (/^[6-9]\d{9}$/.test(rest)) return `+91${rest}`;
+  }
+  if (hasPlus && digits.length >= 8 && digits.length <= 15) return `+${digits}`;
+  if (digits.length >= 8 && digits.length <= 15) return digits;
+  return null;
+}
+
 function leadStatusForOutcome(outcome, currentStatus) {
   if (outcome === 'REACHABLE') return currentStatus === 'NEW' ? 'CONTACTED' : currentStatus;
   if (outcome === 'FOLLOWUP_REQUIRED') return 'FOLLOWUP';
@@ -268,6 +295,12 @@ async function getLead(id, user) {
 
 async function createLead(input, creator) {
   const ownerId = input.ownerId || creator.id;
+  const phone = normalizeLeadPhone(input.phone);
+  if (!phone) {
+    throw BadRequest(
+      'Invalid phone number. Use formats like +917076119520, 07076119520, or 7076119520'
+    );
+  }
   if (input.ownerId && tenant.MULTI_TENANT) {
     const owner = await prisma.user.findUnique({
       where: { id: ownerId },
@@ -278,7 +311,7 @@ async function createLead(input, creator) {
   return prisma.lead.create({
     data: {
       name: input.name,
-      phone: input.phone,
+      phone,
       company: input.company || null,
       email: input.email || null,
       status: input.status || 'NEW',

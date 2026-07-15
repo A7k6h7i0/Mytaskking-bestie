@@ -480,10 +480,16 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
       };
 
   Future<void> _showCreateLeadSheet() async {
+    final user = ref.read(authStoreProvider).user;
+    final canManageLeads =
+        user?.role == 'ADMIN' || user?.role == 'SUPER_ADMIN';
     final created = await bestieBottomSheet<bool>(
       context,
       title: 'Add lead',
-      builder: (_) => _CreateLeadSheet(ref: ref),
+      builder: (_) => _CreateLeadSheet(
+        ref: ref,
+        canAssignTelecaller: canManageLeads,
+      ),
     );
     if (created == true) {
       await _fetch();
@@ -1075,10 +1081,44 @@ class _DesktopTelecallerLayoutState extends State<_DesktopTelecallerLayout> {
   }
 }
 
+/// Normalize/validate lead phones.
+/// Accepts: +917076119520, 07076119520, 7076119520 (and general E.164).
+String? normalizeLeadPhone(String raw) {
+  final trimmed = raw.trim().replaceAll(RegExp(r'[\s\-().]'), '');
+  if (trimmed.isEmpty) return null;
+  final hasPlus = trimmed.startsWith('+');
+  final digits = trimmed.replaceAll(RegExp(r'[^\d]'), '');
+  if (digits.length < 8 || digits.length > 15) return null;
+
+  // India 10-digit mobile (6–9…): 7076119520
+  if (digits.length == 10 && RegExp(r'^[6-9]\d{9}$').hasMatch(digits)) {
+    return digits;
+  }
+  // Leading trunk 0: 07076119520 → 7076119520
+  if (digits.length == 11 && digits.startsWith('0')) {
+    final rest = digits.substring(1);
+    if (RegExp(r'^[6-9]\d{9}$').hasMatch(rest)) return rest;
+  }
+  // +91 / 91 prefix: +917076119520 → +917076119520
+  if (digits.length == 12 && digits.startsWith('91')) {
+    final rest = digits.substring(2);
+    if (RegExp(r'^[6-9]\d{9}$').hasMatch(rest)) return '+91$rest';
+  }
+  if (hasPlus && digits.length >= 8 && digits.length <= 15) {
+    return '+$digits';
+  }
+  if (digits.length >= 8 && digits.length <= 15) return digits;
+  return null;
+}
+
 class _CreateLeadSheet extends StatefulWidget {
-  const _CreateLeadSheet({required this.ref});
+  const _CreateLeadSheet({
+    required this.ref,
+    this.canAssignTelecaller = false,
+  });
 
   final WidgetRef ref;
+  final bool canAssignTelecaller;
 
   @override
   State<_CreateLeadSheet> createState() => _CreateLeadSheetState();
@@ -1092,6 +1132,34 @@ class _CreateLeadSheetState extends State<_CreateLeadSheet> {
   final _source = TextEditingController();
   final _notes = TextEditingController();
   bool _saving = false;
+  bool _loadingTelecallers = false;
+  List<Map<String, dynamic>> _telecallers = const [];
+  String? _ownerId;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.canAssignTelecaller) {
+      _loadingTelecallers = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _loadTelecallers());
+    }
+  }
+
+  Future<void> _loadTelecallers() async {
+    try {
+      final items = await widget.ref.read(apiProvider).listEmployees(
+            role: 'TELECALLER',
+            pageSize: 100,
+          );
+      if (!mounted) return;
+      setState(() {
+        _telecallers = items;
+        _loadingTelecallers = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingTelecallers = false);
+    }
+  }
 
   @override
   void dispose() {
@@ -1106,10 +1174,18 @@ class _CreateLeadSheetState extends State<_CreateLeadSheet> {
 
   Future<void> _save() async {
     final name = _name.text.trim();
-    final phone = _phone.text.trim();
-    if (name.isEmpty || phone.isEmpty) {
-      bestieToast(context, 'Name and phone are required',
-          kind: BestieToastKind.warning);
+    final phone = normalizeLeadPhone(_phone.text);
+    if (name.isEmpty) {
+      bestieToast(context, 'Name is required', kind: BestieToastKind.warning);
+      return;
+    }
+    if (phone == null) {
+      bestieToast(
+        context,
+        'Enter a valid phone number',
+        body: 'Examples: +917076119520, 07076119520, 7076119520',
+        kind: BestieToastKind.warning,
+      );
       return;
     }
 
@@ -1123,6 +1199,7 @@ class _CreateLeadSheetState extends State<_CreateLeadSheet> {
         'status': 'NEW',
         if (_source.text.trim().isNotEmpty) 'source': _source.text.trim(),
         if (_notes.text.trim().isNotEmpty) 'notes': _notes.text.trim(),
+        if (_ownerId != null && _ownerId!.isNotEmpty) 'ownerId': _ownerId,
       });
       if (!mounted) return;
       bestieToast(context, 'Lead created', kind: BestieToastKind.success);
@@ -1139,6 +1216,7 @@ class _CreateLeadSheetState extends State<_CreateLeadSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
     return SafeArea(
       top: false,
       child: Padding(
@@ -1159,7 +1237,60 @@ class _CreateLeadSheetState extends State<_CreateLeadSheet> {
                 label: 'Phone *',
                 keyboardType: TextInputType.phone,
               ),
-              const SizedBox(height: 10),
+              Padding(
+                padding: const EdgeInsets.only(top: 4, bottom: 6),
+                child: Text(
+                  'Accepts +917076119520 · 07076119520 · 7076119520',
+                  style: TextStyle(fontSize: 11, color: c.textMuted),
+                ),
+              ),
+              if (widget.canAssignTelecaller) ...[
+                Text(
+                  'Assign to telecaller',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: BestieTokens.fwSemibold,
+                    color: c.textSoft,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                if (_loadingTelecallers)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8),
+                    child: Center(
+                      child: SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                  )
+                else
+                  DropdownButtonFormField<String?>(
+                    value: _ownerId,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    hint: const Text('Me (default)'),
+                    items: [
+                      const DropdownMenuItem<String?>(
+                        value: null,
+                        child: Text('Me (default)'),
+                      ),
+                      ..._telecallers.map((t) {
+                        final id = t['id']?.toString() ?? '';
+                        final name = (t['name'] ?? 'Telecaller').toString();
+                        return DropdownMenuItem<String?>(
+                          value: id,
+                          child: Text(name),
+                        );
+                      }),
+                    ],
+                    onChanged: (v) => setState(() => _ownerId = v),
+                  ),
+                const SizedBox(height: 10),
+              ],
               _LeadField(controller: _company, label: 'Company'),
               const SizedBox(height: 10),
               _LeadField(

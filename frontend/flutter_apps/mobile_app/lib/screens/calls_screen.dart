@@ -118,13 +118,10 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
                       },
                       child: ListView.separated(
                         controller: _scroll,
-                        // Shell already draws the tab bar (extendBody) — clear
-                        // it with list padding only. A nested bottomNavigationBar
-                        // left a huge empty band under the history.
+                        // Clear the opaque tab bar only — no extra gap/band.
                         padding: EdgeInsets.only(
                           bottom: 56.0 +
-                              8.0 +
-                              MediaQuery.of(context).padding.bottom,
+                              MediaQuery.viewPaddingOf(context).bottom,
                         ),
                         itemCount: _items.length + 1,
                         separatorBuilder: (_, __) =>
@@ -720,79 +717,99 @@ void _showCallOrMeetingDetails(
 
   showModalBottomSheet<void>(
     context: context,
+    isScrollControlled: true,
     backgroundColor: colors.surface,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
     builder: (ctx) {
+      final maxH = MediaQuery.sizeOf(ctx).height * 0.9;
+      final bottomInset = MediaQuery.viewInsetsOf(ctx).bottom;
       return SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: BestieTokens.fwBold,
-                  color: colors.text,
-                ),
-              ),
-              const SizedBox(height: 12),
-              _detailLine(colors, 'Type', isMeeting ? 'Meeting' : 'Call'),
-              _detailLine(colors, 'Mode', mode),
-              _detailLine(colors, 'Status', status),
-              if (hostName.isNotEmpty)
-                _detailLine(colors, isMeeting ? 'Host' : 'Initiator', hostName),
-              if (created.isNotEmpty)
-                _detailLine(colors, 'Started', created.replaceFirst('T', ' ')),
-              if (ended.isNotEmpty)
-                _detailLine(colors, 'Ended', ended.replaceFirst('T', ' ')),
-              const SizedBox(height: 12),
-              Text(
-                'People (${participants.length})',
-                style: TextStyle(
-                  fontWeight: BestieTokens.fwSemibold,
-                  color: colors.text,
-                ),
-              ),
-              const SizedBox(height: 8),
-              if (participants.isEmpty)
-                Text('No participant list',
-                    style: TextStyle(color: colors.textMuted, fontSize: 13))
-              else
-                ...participants.take(12).map((p) {
-                  final n = (p['displayName'] ??
-                          (p['user'] as Map?)?['name'] ??
-                          'Participant')
-                      .toString();
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Row(
-                      children: [
-                        Icon(Icons.person_outline,
-                            size: 18, color: colors.textMuted),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(n,
-                              style: TextStyle(
-                                  color: colors.text, fontSize: 14)),
-                        ),
-                      ],
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: maxH),
+          child: SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            padding: EdgeInsets.fromLTRB(20, 16, 20, 12 + bottomInset),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: colors.borderStrong,
+                      borderRadius: BorderRadius.circular(BestieTokens.rPill),
                     ),
-                  );
-                }),
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Close'),
+                  ),
                 ),
-              ),
-            ],
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: BestieTokens.fwBold,
+                    color: colors.text,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _detailLine(colors, 'Type', isMeeting ? 'Meeting' : 'Call'),
+                _detailLine(colors, 'Mode', mode),
+                _detailLine(colors, 'Status', status),
+                if (hostName.isNotEmpty)
+                  _detailLine(
+                      colors, isMeeting ? 'Host' : 'Initiator', hostName),
+                if (created.isNotEmpty)
+                  _detailLine(
+                      colors, 'Started', created.replaceFirst('T', ' ')),
+                if (ended.isNotEmpty)
+                  _detailLine(colors, 'Ended', ended.replaceFirst('T', ' ')),
+                const SizedBox(height: 12),
+                Text(
+                  'People (${participants.length})',
+                  style: TextStyle(
+                    fontWeight: BestieTokens.fwSemibold,
+                    color: colors.text,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                if (participants.isEmpty)
+                  Text('No participant list',
+                      style:
+                          TextStyle(color: colors.textMuted, fontSize: 13))
+                else
+                  ...participants.map((p) {
+                    final n = (p['displayName'] ??
+                            (p['user'] as Map?)?['name'] ??
+                            'Participant')
+                        .toString();
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        children: [
+                          Icon(Icons.person_outline,
+                              size: 18, color: colors.textMuted),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(n,
+                                style: TextStyle(
+                                    color: colors.text, fontSize: 14)),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Close'),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       );

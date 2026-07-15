@@ -14,17 +14,24 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 ///
 /// Prefer binding mediasoup [Consumer.stream] directly — re-wrapping tracks
 /// with [createLocalMediaStream] often leaves remote video black.
+///
+/// Android front-camera frames are often delivered landscape; when the UI is
+/// portrait we auto-rotate so peers see upright video (not sideways).
 class MediasoupVideoView extends StatefulWidget {
   const MediasoupVideoView({
     super.key,
     required this.stream,
     this.mirror = false,
     this.objectFit = RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+    this.autoCorrectOrientation = true,
   });
 
   final MediaStream stream;
   final bool mirror;
   final RTCVideoViewObjectFit objectFit;
+  /// When true (default), landscape frames in a portrait layout are rotated
+  /// upright for the other party.
+  final bool autoCorrectOrientation;
 
   @override
   State<MediasoupVideoView> createState() => _MediasoupVideoViewState();
@@ -38,6 +45,7 @@ class _MediasoupVideoViewState extends State<MediasoupVideoView> {
   String? _streamId;
   String? _trackFingerprint;
   int _bindGen = 0;
+  int _quarterTurns = 0;
 
   String _fingerprint(MediaStream stream) {
     final ids = <String>[
@@ -47,9 +55,23 @@ class _MediasoupVideoViewState extends State<MediasoupVideoView> {
     return ids.join('|');
   }
 
+  void _onRendererUpdate() {
+    if (!mounted || !widget.autoCorrectOrientation) return;
+    final w = _renderer.videoWidth;
+    final h = _renderer.videoHeight;
+    if (w <= 0 || h <= 0) return;
+    // Landscape buffer shown in a normally-portrait phone call UI → rotate.
+    final needsRotate = w > h;
+    final next = needsRotate ? 1 : 0; // 90° CW — uprights phone selfie feeds
+    if (next != _quarterTurns) {
+      setState(() => _quarterTurns = next);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    _renderer.onResize = _onRendererUpdate;
     _initRenderer();
   }
 
@@ -77,8 +99,6 @@ class _MediasoupVideoViewState extends State<MediasoupVideoView> {
       track.enabled = true;
     }
 
-    // Clear then set — same as HTML re-assigning <video>.srcObject after tracks
-    // change. Required for Android texture views to pick up remote video.
     _renderer.srcObject = null;
     if (!mounted || gen != _bindGen) return;
     await Future<void>.delayed(const Duration(milliseconds: 32));
@@ -88,13 +108,12 @@ class _MediasoupVideoViewState extends State<MediasoupVideoView> {
       await _renderer.setVolume(1.0);
     } catch (_) {}
 
-    // Second bind after a short delay — consumer tracks often start muted /
-    // not ready for the first texture attach (matches HTML play() retry).
     await Future<void>.delayed(const Duration(milliseconds: 200));
     if (!mounted || gen != _bindGen) return;
     if (_renderer.srcObject != stream) {
       _renderer.srcObject = stream;
     }
+    _onRendererUpdate();
     if (mounted && gen == _bindGen) setState(() {});
   }
 
@@ -116,6 +135,7 @@ class _MediasoupVideoViewState extends State<MediasoupVideoView> {
   @override
   void dispose() {
     _bindGen++;
+    _renderer.onResize = null;
     _renderer.srcObject = null;
     _renderer.dispose();
     super.dispose();
@@ -126,10 +146,14 @@ class _MediasoupVideoViewState extends State<MediasoupVideoView> {
     if (!_ready) {
       return const SizedBox(width: 4, height: 4);
     }
-    return RTCVideoView(
+    Widget video = RTCVideoView(
       _renderer,
       mirror: widget.mirror,
       objectFit: widget.objectFit,
     );
+    if (_quarterTurns != 0) {
+      video = RotatedBox(quarterTurns: _quarterTurns, child: video);
+    }
+    return video;
   }
 }

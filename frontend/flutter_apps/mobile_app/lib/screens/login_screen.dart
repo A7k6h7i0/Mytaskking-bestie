@@ -212,7 +212,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          // Brand gradient backdrop with soft decorative glows.
+          // Same animated mesh / spider-web backdrop as Windows login.
           const Positioned.fill(child: _LoginBackdrop()),
           SafeArea(
             child: Center(
@@ -382,45 +382,37 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 }
 
-/// Brand gradient + two soft radial glows behind the login card.
-class _LoginBackdrop extends StatelessWidget {
+/// Animated mesh / spider-web backdrop — matches Windows login panel art.
+class _LoginBackdrop extends StatefulWidget {
   const _LoginBackdrop();
 
   @override
+  State<_LoginBackdrop> createState() => _LoginBackdropState();
+}
+
+class _LoginBackdropState extends State<_LoginBackdrop>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 14),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF7C5CFF), Color(0xFF5B8CFF), Color(0xFF3AA1FF)],
-        ),
-      ),
-      child: Stack(
-        children: [
-          Positioned(
-            top: -90,
-            left: -60,
-            child: _glow(220, const Color(0x33FFFFFF)),
-          ),
-          Positioned(
-            bottom: -120,
-            right: -80,
-            child: _glow(300, const Color(0x26FFFFFF)),
-          ),
-        ],
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) => CustomPaint(
+        painter: _DesktopLoginMeshPainter(_controller.value),
+        child: const SizedBox.expand(),
       ),
     );
   }
-
-  Widget _glow(double size, Color color) => Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: RadialGradient(colors: [color, color.withValues(alpha: 0)]),
-        ),
-      );
 }
 
 class _DesktopLoginShell extends StatefulWidget {

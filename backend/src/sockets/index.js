@@ -201,10 +201,14 @@ module.exports = function initSockets(server) {
     // Mid-call voice → video upgrade so remotes flip UI (not only decode tracks).
     socket.on('call.videoEnabled', ({ callId, enabled, agoraUid }) => {
       if (!callId) return;
+      // Explicit false = camera off (peers show profile DP). Undefined stays on
+      // for older clients that only emit the upgrade event without a flag.
+      const cameraOff =
+        enabled === false || enabled === 'false' || enabled === 0 || enabled === '0';
       fanoutToCallParticipants(callId, 'call.videoEnabled', {
         callId,
         userId,
-        enabled: enabled !== false,
+        enabled: !cameraOff,
         agoraUid: Number(agoraUid) > 0 ? Number(agoraUid) : null,
       }).catch(() => {});
     });

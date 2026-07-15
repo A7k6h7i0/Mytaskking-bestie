@@ -225,9 +225,11 @@ extension BestieApiExt on BestieApi {
       if (channelId != null) 'channelId': channelId,
     },
   );
-  Future<List<Map<String, dynamic>>> listMeetings() => get(
-    '/meetings',
-  ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
+  Future<List<Map<String, dynamic>>> listMeetings({bool includeEnded = true}) =>
+      get(
+        '/meetings',
+        query: {if (includeEnded) 'includeEnded': '1'},
+      ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
   Future<Map<String, dynamic>> createMeeting({
     required String name,
     String mode = 'VIDEO',
@@ -256,6 +258,10 @@ extension BestieApiExt on BestieApi {
   Future<void> endMeeting(String slug) async {
     await post('/meetings/$slug/end');
   }
+
+  /// Leave a meeting; server auto-ends the room when the last person exits.
+  Future<Map<String, dynamic>> leaveMeeting(String slug) =>
+      post('/meetings/$slug/leave');
 
   // ---- calendar ----
   Future<List<Map<String, dynamic>>> listEvents(
