@@ -124,9 +124,25 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
   }
 
   void _openMoreRoute(BuildContext context, String route) {
-    // Use go (not push) so matchedLocation updates — otherwise the previous
-    // bottom tab (e.g. Meet) stays highlighted on Notifications / Calendar.
-    context.go(route);
+    // Shell tabs keep using go (single active tab). Outside-shell screens
+    // use push so Android back returns instead of exiting the app.
+    const shellRoutes = {
+      '/dashboard',
+      '/chat',
+      '/telecaller',
+      '/calls',
+      '/tasks',
+      '/attendance',
+      '/meetings',
+      '/notifications',
+      '/calendar',
+      '/profile',
+    };
+    if (shellRoutes.contains(route)) {
+      context.go(route);
+    } else {
+      context.push(route);
+    }
   }
 
   void _openMore(BuildContext context, WidgetRef ref, BestieUser? user) {

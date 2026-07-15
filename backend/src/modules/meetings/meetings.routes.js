@@ -8,6 +8,7 @@ const validate = require('../../middleware/validate');
 const { requireAuth } = require('../../middleware/auth');
 const prisma = require('../../database/prisma');
 const agora = require('../../services/agora');
+const mediasoup = require('../../services/mediasoup');
 const audit = require('../../services/audit');
 const eventBus = require('../../services/eventBus');
 const { NotFound, Forbidden, BadRequest } = require('../../utils/errors');
@@ -32,6 +33,19 @@ function serializeRoom(room) {
 
 function canManageRoom(room, user) {
   return room.hostId === user.id || ['SUPER_ADMIN', 'ADMIN'].includes(user.role);
+}
+
+/** Host, explicit invitee, or already-joined participant — not any logged-in user. */
+async function assertCanJoinMeeting(room, user) {
+  if (canManageRoom(room, user)) return;
+  if (room.hostId === user.id) return;
+  const row = await prisma.meetingRoomParticipant.findFirst({
+    where: { roomId: room.id, userId: user.id },
+    select: { id: true },
+  });
+  if (!row) {
+    throw Forbidden('You are not invited to this meeting');
+  }
 }
 
 async function recordParticipant({ room, userId = null, displayName, joinedVia }) {
@@ -229,14 +243,30 @@ router.post(
   validate({
     body: Joi.object({
       guestName: Joi.string().trim().min(2).max(120).required(),
+      requestId: Joi.string().required(),
     }),
   }),
   asyncHandler(async (req, res) => {
     const room = await prisma.meetingRoom.findUnique({ where: { slug: req.params.slug } });
     if (!room || room.endedAt) throw NotFound('Meeting not found');
     const guestName = req.body.guestName.trim();
-    const guestUid = `guest_${nanoid(12)}`;
-    const token = agora.generateRtcToken({ channelName: room.channelName, uid: guestUid });
+    // Knock first — guests cannot silently mint a media session.
+    const request = await prisma.meetingRoomGuestRequest.findFirst({
+      where: { id: req.body.requestId, roomId: room.id },
+    });
+    if (!request) throw NotFound('Guest request not found');
+    if (request.status !== 'APPROVED') {
+      throw Forbidden('Host has not approved your join request yet');
+    }
+    if (request.guestName.trim().toLowerCase() !== guestName.toLowerCase()) {
+      throw BadRequest('Guest name does not match the approved request');
+    }
+    const guestUid = request.guestUid || `guest_${nanoid(12)}`;
+    const media = await mediasoup.prepareCallRoom(
+      room.channelName,
+      guestUid,
+      guestName
+    );
     const participant = await recordParticipant({
       room,
       displayName: guestName,
@@ -251,7 +281,11 @@ router.post(
       notifyMeetingJoin(req.app.get('io'), room, participant);
     }
     res.json({
-      ...token,
+      ...media,
+      // Keep legacy field names some web clients still read.
+      uid: media.mediaPeerId,
+      appId: null,
+      token: media.joinToken,
       mode: room.mode,
       guestName,
       room: serializeRoom({ id: room.id, slug: room.slug, name: room.name, mode: room.mode }),
@@ -467,11 +501,20 @@ router.post(
     body: Joi.object({
       name: Joi.string().min(1).max(180).required(),
       mode: Mode.default('VIDEO'),
-      scheduledAt: Joi.date().iso().allow(null),
+      scheduledAt: Joi.alternatives()
+        .try(Joi.valid(null), Joi.date().iso().greater('now'))
+        .optional(),
       participantIds: Joi.array().items(Joi.string()),
     }),
   }),
   asyncHandler(async (req, res) => {
+    let scheduledAt = null;
+    if (req.body.scheduledAt) {
+      scheduledAt = new Date(req.body.scheduledAt);
+      if (Number.isNaN(scheduledAt.getTime()) || scheduledAt.getTime() < Date.now() - 30_000) {
+        throw BadRequest('Meeting cannot be scheduled in the past');
+      }
+    }
     const slug = nanoid(10);
     const room = await prisma.meetingRoom.create({
       data: {
@@ -480,12 +523,22 @@ router.post(
         mode: req.body.mode,
         channelName: `meet_${slug}`,
         hostId: req.user.id,
-        scheduledAt: req.body.scheduledAt ? new Date(req.body.scheduledAt) : null,
+        scheduledAt,
         tenantId: req.user.tenantId || null,
       },
     });
     audit.record({ kind: 'meeting.created', entity: 'meeting', entityId: room.id, payload: { mode: room.mode }, req });
     await eventBus.publish('meeting.created', { meetingId: room.id, mode: room.mode }, { tenantId: room.tenantId });
+
+    // Host row so join auth + roster stay consistent.
+    await prisma.meetingRoomParticipant.create({
+      data: {
+        roomId: room.id,
+        userId: req.user.id,
+        displayName: req.user.name || 'Host',
+        joinedVia: 'INTERNAL',
+      },
+    }).catch(() => {});
 
     // Ring the invitees in real time + FCM push so they get a meeting
     // preview (like an incoming call) even if the app is backgrounded.
@@ -560,10 +613,14 @@ router.post(
     const room = await prisma.meetingRoom.findUnique({ where: { slug: req.params.slug } });
     if (!room) throw NotFound('Meeting not found');
     if (room.endedAt) throw BadRequest('Meeting has ended');
+    await assertCanJoinMeeting(room, req.user);
 
-    // Same Agora primitive as voice calls — video is just a different
-    // publish track on the same channel. The token doesn't change shape.
-    const token = agora.generateRtcToken({ channelName: room.channelName, uid: req.user.id });
+    // Meetings use the same mediasoup SFU as 1:1 calls (connect.mytaskking.com).
+    const media = await mediasoup.prepareCallRoom(
+      room.channelName,
+      req.user.id,
+      req.user.name
+    );
     const participant = await recordParticipant({
       room,
       userId: req.user.id,
@@ -583,7 +640,10 @@ router.post(
     }
 
     res.json({
-      ...token,
+      ...media,
+      uid: media.mediaPeerId,
+      appId: null,
+      token: media.joinToken,
       mode: room.mode,
       room: serializeRoom({
         id: room.id,
@@ -592,7 +652,7 @@ router.post(
         mode: room.mode,
         hostId: room.hostId,
       }),
-      // Live roster so Flutter can map Agora uid → name without call.announce.
+      // Live roster so Flutter can map peer id → name without call.announce.
       participants: serializeMeetingRoster(rosterRows),
     });
   })

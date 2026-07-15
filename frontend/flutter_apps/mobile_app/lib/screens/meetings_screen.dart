@@ -227,13 +227,14 @@ class MeetingsScreen extends ConsumerWidget {
                       onPressed: () async {
                         final initial = scheduledAt ??
                             DateTime.now().add(const Duration(hours: 1));
+                        final now = DateTime.now();
                         final date = await showDatePicker(
                           context: ctx,
-                          initialDate: initial,
-                          firstDate:
-                              DateTime.now().subtract(const Duration(days: 1)),
+                          initialDate:
+                              initial.isBefore(now) ? now : initial,
+                          firstDate: DateTime(now.year, now.month, now.day),
                           lastDate:
-                              DateTime.now().add(const Duration(days: 365 * 2)),
+                              now.add(const Duration(days: 365 * 2)),
                         );
                         if (date == null) return;
                         if (!ctx.mounted) return;
@@ -243,8 +244,19 @@ class MeetingsScreen extends ConsumerWidget {
                               hour: initial.hour, minute: initial.minute),
                         );
                         if (time == null) return;
-                        set(() => scheduledAt = DateTime(date.year, date.month,
-                            date.day, time.hour, time.minute));
+                        final picked = DateTime(date.year, date.month,
+                            date.day, time.hour, time.minute);
+                        if (picked.isBefore(DateTime.now())) {
+                          if (ctx.mounted) {
+                            bestieToast(
+                              ctx,
+                              'Pick a future time',
+                              kind: BestieToastKind.warning,
+                            );
+                          }
+                          return;
+                        }
+                        set(() => scheduledAt = picked);
                       },
                     ),
                     if (scheduledAt != null)
@@ -339,6 +351,15 @@ class MeetingsScreen extends ConsumerWidget {
                     : 'Create + invite ${picked.length}',
                 onPressed: () async {
                   if (name.text.trim().isEmpty) return;
+                  if (scheduledAt != null &&
+                      scheduledAt!.isBefore(DateTime.now())) {
+                    bestieToast(
+                      ctx,
+                      'Meeting cannot be scheduled in the past',
+                      kind: BestieToastKind.warning,
+                    );
+                    return;
+                  }
                   try {
                     // The backend now handles invite fan-out (socket
                     // ringer + FCM push) when we pass participantIds.

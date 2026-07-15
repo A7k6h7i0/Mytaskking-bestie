@@ -10,6 +10,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 /// role as HTML `<video autoplay playsinline>`).
 ///
 /// Only one [RTCVideoRenderer] may bind a given [MediaStream] at a time.
+/// Dual-binding the same stream blanks remote video (Android).
 class MediasoupVideoView extends StatefulWidget {
   const MediasoupVideoView({
     super.key,
@@ -32,6 +33,7 @@ class _MediasoupVideoViewState extends State<MediasoupVideoView> {
   int _audioTracks = 0;
   int _videoTracks = 0;
   String? _streamId;
+  int _bindGen = 0;
 
   @override
   void initState() {
@@ -46,6 +48,7 @@ class _MediasoupVideoViewState extends State<MediasoupVideoView> {
   }
 
   Future<void> _bindStream() async {
+    final gen = ++_bindGen;
     _streamId = widget.stream.id;
     _audioTracks = widget.stream.getAudioTracks().length;
     _videoTracks = widget.stream.getVideoTracks().length;
@@ -58,10 +61,18 @@ class _MediasoupVideoViewState extends State<MediasoupVideoView> {
     for (final track in widget.stream.getVideoTracks()) {
       track.enabled = true;
     }
+
+    // HTML: re-assign a fresh MediaStream to <video>.srcObject.
+    // Flutter: clear then set — same stream object after addTrack stays black.
+    _renderer.srcObject = null;
+    if (!mounted || gen != _bindGen) return;
+    await Future<void>.delayed(const Duration(milliseconds: 16));
+    if (!mounted || gen != _bindGen) return;
     _renderer.srcObject = widget.stream;
     try {
       await _renderer.setVolume(1.0);
     } catch (_) {}
+    if (mounted && gen == _bindGen) setState(() {});
   }
 
   @override
@@ -79,6 +90,7 @@ class _MediasoupVideoViewState extends State<MediasoupVideoView> {
 
   @override
   void dispose() {
+    _bindGen++;
     _renderer.srcObject = null;
     _renderer.dispose();
     super.dispose();

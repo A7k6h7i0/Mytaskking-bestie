@@ -159,7 +159,7 @@ async function updateReport({ id, user, body, recipientIds, io }) {
   }
   const count = assertReportBody(body);
   const before = new Set(existing.recipients.map((recipient) => recipient.userId));
-  const ids = await ensureRecipients(recipientIds, author);
+  const ids = await ensureRecipients(recipientIds, user);
 
   const report = await prisma.$transaction(async (tx) => {
     await tx.taskCompletionReport.update({

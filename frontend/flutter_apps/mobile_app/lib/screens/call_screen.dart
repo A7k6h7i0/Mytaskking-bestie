@@ -44,8 +44,8 @@ const _kOutgoingRingTimeout = Duration(seconds: 60);
 
 enum _CallMemberConnection { connected, ringing, notConnected }
 
-/// Live audio/video call view. Mobile 1:1 calls use mediasoup SFU; meetings
-/// still use Agora RTC.
+/// Live audio/video call view. Mobile 1:1 calls and meetings use mediasoup SFU.
+/// Agora remains only as a legacy fallback if the server does not return mediasoup.
 class CallScreen extends ConsumerStatefulWidget {
   final String? callId;
   final String? meetingSlug;
@@ -2570,7 +2570,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
       } catch (_) {}
 
       final mediaEngine = tokenResp['mediaEngine']?.toString();
-      if (widget.callId != null && mediaEngine == 'mediasoup') {
+      // 1:1 calls and meetings both join mediasoup when the server says so.
+      if (mediaEngine == 'mediasoup') {
         step = 'mediasoup-connect';
         await _bootstrapMediasoup(tokenResp);
         return;
@@ -2968,11 +2969,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
       unawaited(_reassertAudio());
       final uid = _CallSession.socketIdToUid[socketId];
       if (kind == 'video' && stream.getVideoTracks().isNotEmpty) {
-        if (uid != null) {
-          setState(() => _remoteVideoMuted[uid] = false);
-        } else if (mounted) {
-          setState(() {});
+        // Clear "camera off" so the tile mounts video instead of avatar.
+        final targetUid = uid ?? _CallSession.socketIdToUid[socketId];
+        if (targetUid != null) {
+          _remoteVideoMuted[targetUid] = false;
         }
+        if (mounted) setState(() {});
       }
       if (_waitingForAnswer && _remoteUids.isNotEmpty) {
         unawaited(_stopRingback());
@@ -3146,7 +3148,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
       }
       return MediasoupVideoView(
         key: ValueKey(
-          'ms-video-$uid-${stream.id}-${stream.getVideoTracks().length}',
+          'ms-video-$uid-${stream.id}-v${stream.getVideoTracks().length}'
+          '-a${stream.getAudioTracks().length}',
         ),
         stream: stream,
       );
@@ -3177,16 +3180,17 @@ class _CallScreenState extends ConsumerState<CallScreen>
       if (entry.key == mySocket) continue;
       final stream = entry.value;
       if (stream.getAudioTracks().isEmpty) continue;
-      // Never dual-bind: if the stream has video, the video tile owns it
-      // (plays audio too). Dual RTCVideoRenderer = silent / blank remote.
-      if (_isVideo && stream.getVideoTracks().isNotEmpty) continue;
+      // Never dual-bind the same MediaStream to two RTCVideoRenderers —
+      // Android goes silent / blank remote (HTML uses one <video> per peer).
+      if (stream.getVideoTracks().isNotEmpty) continue;
+      if (_mediasoupVideoSurfaceActiveFor(entry.key)) continue;
       sinks.add(
         SizedBox(
           width: 64,
           height: 64,
           child: MediasoupVideoView(
             key: ValueKey(
-              'ms-audio-${entry.key}-${stream.id}-${stream.getAudioTracks().length}',
+              'ms-audio-${entry.key}-${stream.id}-a${stream.getAudioTracks().length}',
             ),
             stream: stream,
           ),
@@ -3297,6 +3301,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       roomId: roomId,
       userName: userName,
       video: _routeWantsVideo,
+      joinToken: tokenResp['joinToken']?.toString(),
     );
 
     if (mounted) {
@@ -6200,7 +6205,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
             children: [
               Positioned.fill(
                 child: MediasoupVideoView(
-                  key: ValueKey('ms-remote-full-${remoteStream.id}'),
+                  key: ValueKey(
+                    'ms-remote-full-${remoteStream.id}'
+                    '-v${remoteStream.getVideoTracks().length}'
+                    '-a${remoteStream.getAudioTracks().length}',
+                  ),
                   stream: remoteStream,
                 ),
               ),
@@ -6301,7 +6310,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
         child: mediasoupRemote != null
             ? MediasoupVideoView(
                 key: ValueKey(
-                  'ms-remote-main-$firstRemote-${mediasoupRemote.id}',
+                  'ms-remote-main-$firstRemote-${mediasoupRemote.id}'
+                  '-v${mediasoupRemote.getVideoTracks().length}'
+                  '-a${mediasoupRemote.getAudioTracks().length}',
                 ),
                 stream: mediasoupRemote,
               )
@@ -7660,13 +7671,25 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   Widget _premiumControlRow(List<Widget> children,
       {double gap = _kPremiumControlColumnGap}) {
-    return Row(
-      children: [
-        for (var i = 0; i < children.length; i++) ...[
-          if (i > 0) SizedBox(width: gap),
-          Expanded(child: children[i]),
-        ],
-      ],
+    // Always fill 4 equal slots so removing Record / Share doesn't stretch
+    // the remaining buttons.
+    const slots = 4;
+    final items = List<Widget>.from(children);
+    while (items.length < slots) {
+      items.add(const SizedBox.shrink());
+    }
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: _kPremiumControlGridWidth),
+        child: Row(
+          children: [
+            for (var i = 0; i < slots; i++) ...[
+              if (i > 0) SizedBox(width: gap),
+              Expanded(child: items[i]),
+            ],
+          ],
+        ),
+      ),
     );
   }
 

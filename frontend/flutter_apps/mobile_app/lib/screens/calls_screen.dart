@@ -153,7 +153,8 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
                       ),
                     ))),
       bottomNavigationBar: SizedBox(
-        height: 70.0 + MediaQuery.of(context).padding.bottom - 18,
+        // Clear shell nav without the old oversized spacer.
+        height: 52.0 + MediaQuery.of(context).padding.bottom,
       ),
     );
   }

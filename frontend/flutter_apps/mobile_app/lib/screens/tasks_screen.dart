@@ -359,7 +359,11 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
       if (due != null && due.isBefore(now) && !done) {
         out[_TaskFilter.overdue] = out[_TaskFilter.overdue]! + 1;
       }
-      if (status == 'DONE') out[_TaskFilter.done] = out[_TaskFilter.done]! + 1;
+      final myDone = meId != null &&
+          _myAssignment(t, meId)?['state']?.toString() == 'COMPLETED';
+      if (status == 'DONE' || myDone) {
+        out[_TaskFilter.done] = out[_TaskFilter.done]! + 1;
+      }
     }
     return out;
   }
@@ -386,7 +390,11 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
         case _TaskFilter.overdue:
           return due != null && due.isBefore(now) && !done;
         case _TaskFilter.done:
-          return status == 'DONE';
+          // Show full DONE tasks or tasks I personally completed (others may
+          // still be pending — user expects to see their completion here).
+          final myDone = meId != null &&
+              _myAssignment(t, meId)?['state']?.toString() == 'COMPLETED';
+          return status == 'DONE' || myDone;
         case _TaskFilter.all:
           return true;
       }

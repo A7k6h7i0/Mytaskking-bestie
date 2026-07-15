@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../state.dart';
@@ -7,11 +9,29 @@ import '../state.dart';
 class ReportsScreen extends ConsumerWidget {
   const ReportsScreen({super.key});
 
+  void _goBack(BuildContext context) {
+    if (context.canPop()) {
+      context.pop();
+      return;
+    }
+    final desktop = defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.linux ||
+        defaultTargetPlatform == TargetPlatform.macOS;
+    context.go(desktop ? '/dashboard' : '/chat');
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = BestieColors.of(context);
     final reports = ref.watch(taskReportsProvider);
-    return DefaultTabController(
+    final canPop = context.canPop();
+    return PopScope(
+      canPop: canPop,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        _goBack(context);
+      },
+      child: DefaultTabController(
       length: 2,
       child: Scaffold(
         backgroundColor: c.surface,
@@ -19,6 +39,16 @@ class ReportsScreen extends ConsumerWidget {
           title: const Text('Reports'),
           backgroundColor: c.surface,
           foregroundColor: c.text,
+          automaticallyImplyLeading: canPop,
+          leading: canPop
+              ? IconButton(
+                  icon: const Icon(Icons.arrow_back_rounded),
+                  onPressed: () => _goBack(context),
+                )
+              : IconButton(
+                  icon: const Icon(Icons.arrow_back_rounded),
+                  onPressed: () => _goBack(context),
+                ),
           bottom: const TabBar(
             tabs: [
               Tab(text: 'My reports'),
@@ -52,6 +82,7 @@ class ReportsScreen extends ConsumerWidget {
           },
         ),
       ),
+    ),
     );
   }
 }

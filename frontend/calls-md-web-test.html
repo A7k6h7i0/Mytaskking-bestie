@@ -2,45 +2,69 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>calls.md SFU test</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark" />
+  <title>calls.md SFU video test</title>
   <style>
-    :root { font-family: system-ui, sans-serif; }
-    body { margin: 0; padding: 16px; background: #0f1419; color: #e7ecf3; }
-    h1 { font-size: 18px; margin: 0 0 12px; }
-    .row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; align-items: center; }
+    :root { font-family: system-ui, -apple-system, sans-serif; }
+    body { margin: 0; padding: 12px; padding-bottom: 28px; background: #0f1419; color: #e7ecf3; }
+    h1 { font-size: 17px; margin: 0 0 8px; }
+    .hint { color: #9ca3af; font-size: 13px; margin: 0 0 12px; line-height: 1.45; }
+    .hint code { background: #1f2937; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+    .banner {
+      display: none; margin: 0 0 12px; padding: 10px 12px; border-radius: 10px;
+      background: #7f1d1d; color: #fecaca; font-size: 13px; line-height: 1.4;
+    }
+    .banner.show { display: block; }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; align-items: center; }
     input, button {
-      padding: 8px 12px; border-radius: 8px; border: 1px solid #334;
+      padding: 10px 12px; border-radius: 8px; border: 1px solid #334;
       background: #1a2332; color: #fff; font-size: 14px;
     }
-    button { cursor: pointer; background: #2563eb; border-color: #2563eb; }
+    input { min-width: 0; flex: 1 1 140px; }
+    button { cursor: pointer; background: #2563eb; border-color: #2563eb; flex: 0 0 auto; }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
     button.danger { background: #dc2626; border-color: #dc2626; }
+    button.secondary { background: #374151; border-color: #4b5563; }
+    label.chk { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; user-select: none; }
     #log {
-      white-space: pre-wrap; font: 12px/1.4 ui-monospace, monospace;
-      background: #111827; border-radius: 8px; padding: 12px; max-height: 220px;
+      white-space: pre-wrap; font: 11px/1.4 ui-monospace, monospace;
+      background: #111827; border-radius: 8px; padding: 10px; max-height: 180px;
       overflow: auto; border: 1px solid #1f2937;
     }
-    #videos { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
-    .tile { background: #111827; border-radius: 12px; overflow: hidden; min-height: 180px; }
+    #videos { display: grid; grid-template-columns: 1fr; gap: 10px; margin-top: 12px; }
+    @media (min-width: 700px) { #videos { grid-template-columns: 1fr 1fr; } }
+    .tile { background: #111827; border-radius: 12px; overflow: hidden; min-height: 160px; }
     .tile label { display: block; padding: 6px 10px; font-size: 12px; color: #9ca3af; }
-    video { width: 100%; height: 220px; object-fit: cover; background: #000; }
+    video { width: 100%; height: 240px; object-fit: cover; background: #000; display: block; }
+    #remoteVideos { display: grid; gap: 8px; }
+    #remoteVideos video { height: 240px; }
     .ok { color: #4ade80; }
     .err { color: #f87171; }
+    .warn { color: #fbbf24; }
   </style>
 </head>
 <body>
-  <h1>connect.mytaskking.com — calls.md prototype</h1>
-  <p style="color:#9ca3af;font-size:13px;margin:0 0 12px">
-    Open via <b>https://</b> or a local server (not bare <code>file://</code>) — phones block mic/cam on file pages.
-    Same room id = same call. Log must show <b>turn≥1</b> from SFU Coturn.
+  <h1>connect.mytaskking.com — video call test</h1>
+  <p class="hint">
+    <b>Phone test:</b> do <u>not</u> open via <code>file://</code>. Serve over HTTPS (or localhost), then open that URL on the phone.
+    PC: <code>npx --yes serve frontend -l 5173</code> then tunnel with Cloudflare/ngrok for a public https link, or use USB
+    <code>adb reverse tcp:5173 tcp:5173</code> and open <code>http://localhost:5173/calls-md-web-test.html</code> on the phone.
+    Same <b>room id</b> on two devices = one call. Log must show <b>turn≥1</b>.
   </p>
+  <div id="secureBanner" class="banner">
+    This page is not a secure context — mic/camera will be blocked. Open via https:// or http://localhost.
+  </div>
 
   <div class="row">
-    <input id="roomId" placeholder="room id (blank = create)" style="min-width:180px" />
-    <input id="userName" value="WebTester" style="width:140px" />
-    <label><input type="checkbox" id="wantVideo" /> video</label>
-    <button id="btnJoin">Join</button>
+    <input id="roomId" placeholder="room id (blank = create)" autocomplete="off" />
+    <input id="userName" value="WebTester" autocomplete="off" style="flex:0 1 120px" />
+  </div>
+  <div class="row">
+    <label class="chk"><input type="checkbox" id="wantVideo" checked /> video (camera)</label>
+    <label class="chk"><input type="checkbox" id="wantAudio" checked /> audio</label>
+    <button id="btnJoin">Join video call</button>
+    <button id="btnShare" class="secondary" type="button">Copy join link</button>
     <button id="btnLeave" class="danger" disabled>Leave</button>
   </div>
 
@@ -50,18 +74,32 @@
     <div class="tile"><label>Remote</label><div id="remoteVideos"></div></div>
   </div>
 
-  <!-- Load via ESM — mediasoup-client has no browser UMD on jsDelivr (old CDN 404'd). -->
   <script type="module">
     import { io } from 'https://cdn.jsdelivr.net/npm/socket.io-client@4.7.5/+esm';
     import * as mediasoupClient from 'https://esm.sh/mediasoup-client@3.7.17';
 
     const SOCKET_URL = 'https://connect.mytaskking.com/public';
+    const API_URL = 'https://connect.mytaskking.com';
+    const Device =
+      mediasoupClient.Device ||
+      mediasoupClient.default?.Device ||
+      mediasoupClient.default;
 
-    let socket, device, sendTransport, recvTransport, localStream;
+    let socket, device, sendTransport, recvTransport, localStream, currentRoomId;
     const producers = [];
     const consumed = new Set();
 
     const logEl = document.getElementById('log');
+    const qs = new URLSearchParams(location.search);
+    if (qs.get('room')) document.getElementById('roomId').value = qs.get('room');
+    if (qs.get('user')) document.getElementById('userName').value = qs.get('user');
+    if (qs.get('video') === '0') document.getElementById('wantVideo').checked = false;
+    if (qs.get('video') === '1') document.getElementById('wantVideo').checked = true;
+
+    if (!window.isSecureContext) {
+      document.getElementById('secureBanner').classList.add('show');
+    }
+
     function log(msg, cls) {
       const line = document.createElement('div');
       if (cls) line.className = cls;
@@ -71,25 +109,47 @@
       console.log(msg);
     }
 
-    function emitAck(event, data) {
+    function emitAck(event, data, timeoutMs = 20000) {
       return new Promise((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error(`${event} timeout`)), timeoutMs);
         socket.emit(event, data, (res) => {
-          if (res && res.error) reject(res.error);
+          clearTimeout(t);
+          if (res && res.error) reject(typeof res.error === 'string' ? new Error(res.error) : res.error);
           else resolve(res);
         });
       });
     }
 
-    // Browser cannot call POST /api/room from file:// — SFU has no CORS.
-    // calls.md: room is created lazily on joinRoom.
     function makeRoomId() {
       const n = () => String(Math.floor(Math.random() * 900) + 100);
       return `${n()}-${n()}-${n()}`;
     }
 
-    // Normalize SFU config.iceServers into a RTCPeerConnection-ready list.
-    // Supports: [{urls}], [{url}], nested { iceServers: [...] }, username/credential.
+    async function ensureRoomId(preferred) {
+      if (preferred) return preferred;
+      try {
+        const res = await fetch(`${API_URL}/api/room`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        });
+        if (res.ok) {
+          const body = await res.json();
+          if (body.roomId) {
+            log(`POST /api/room → ${body.roomId}`, 'ok');
+            return body.roomId;
+          }
+        }
+      } catch (e) {
+        log(`POST /api/room skipped (${e.message || e}) — local id`, 'warn');
+      }
+      const id = makeRoomId();
+      log(`Using local room ${id} (created on joinRoom)`, 'ok');
+      return id;
+    }
+
     function normalizeIceServers(raw) {
+      // calls.md: config = { iceServers: { iceServers: [...], iceCandidatePoolSize } }
       const nested = raw?.iceServers ?? raw;
       const list = Array.isArray(nested?.iceServers)
         ? nested.iceServers
@@ -112,7 +172,6 @@
         if (cred) entry.credential = String(cred);
         out.push(entry);
       }
-      // Always keep Google STUN as backup if SFU list has none.
       const hasStun = out.some((e) =>
         (Array.isArray(e.urls) ? e.urls : [e.urls]).some((u) =>
           String(u).startsWith('stun:')
@@ -138,74 +197,185 @@
       return `stun=${stun} turn=${turn} turns=${turns}`;
     }
 
+    function isLikelyMobile() {
+      return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    }
+
+    async function listMediaDevices() {
+      try {
+        // Labels stay empty until permission — still shows device counts.
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const cams = devices.filter((d) => d.kind === 'videoinput');
+        const mics = devices.filter((d) => d.kind === 'audioinput');
+        log(
+          `Devices: ${cams.length} camera(s), ${mics.length} mic(s)` +
+            (cams[0]?.label ? ` · cam="${cams[0].label}"` : '') +
+            (mics[0]?.label ? ` · mic="${mics[0].label}"` : ''),
+          cams.length || mics.length ? 'ok' : 'err'
+        );
+        return { cams, mics };
+      } catch (e) {
+        log(`enumerateDevices failed: ${e.message || e}`, 'warn');
+        return { cams: [], mics: [] };
+      }
+    }
+
+    async function getLocalMedia(wantAudio, wantVideo) {
+      if (!wantAudio && !wantVideo) {
+        throw new Error('Enable audio and/or video');
+      }
+
+      const { cams, mics } = await listMediaDevices();
+      // Don't ask for a device kind the OS/browser does not expose.
+      let useVideo = wantVideo && (cams.length > 0 || cams.length === 0);
+      let useAudio = wantAudio && (mics.length > 0 || mics.length === 0);
+      // If we already know the counts, skip kinds with zero devices.
+      if (cams.length === 0 && mics.length === 0) {
+        // Before permission, some browsers report 0 — still try getUserMedia once.
+        log('No devices listed yet — still trying getUserMedia (may prompt)', 'warn');
+      } else {
+        if (wantVideo && cams.length === 0) {
+          log('No camera listed by browser — will try audio only', 'warn');
+          useVideo = false;
+        }
+        if (wantAudio && mics.length === 0) {
+          log('No microphone listed by browser — will try video only', 'warn');
+          useAudio = false;
+        }
+      }
+      if (!useAudio && !useVideo) {
+        throw new Error(
+          'No camera or microphone found. Check Windows Privacy → Camera/Microphone ' +
+            '(allow apps & your browser), close Zoom/Teams if they own the cam, ' +
+            'or plug in a webcam/headset. Site “Allow” alone is not enough if HW is missing.'
+        );
+      }
+
+      const mobile = isLikelyMobile();
+      const attempts = [];
+      // Softest first — facingMode often throws NotFoundError on desktop laptops.
+      if (useAudio && useVideo) {
+        attempts.push({ audio: true, video: true });
+        if (mobile) {
+          attempts.push({
+            audio: true,
+            video: { facingMode: 'user' },
+          });
+        }
+      }
+      if (useVideo) attempts.push({ audio: false, video: true });
+      if (useAudio) attempts.push({ audio: true, video: false });
+
+      let lastErr;
+      for (const constraints of attempts) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia(constraints);
+          log(
+            `getUserMedia ok a=${stream.getAudioTracks().length} v=${stream.getVideoTracks().length}`,
+            'ok'
+          );
+          return stream;
+        } catch (e) {
+          lastErr = e;
+          log(
+            `getUserMedia failed (${e.name}: ${e.message}) constraints=${JSON.stringify(constraints)}`,
+            'warn'
+          );
+        }
+      }
+
+      const name = lastErr?.name || '';
+      if (name === 'NotAllowedError') {
+        throw new Error(
+          'Mic/camera denied. Site settings → Allow Microphone + Camera, then reload.'
+        );
+      }
+      if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+        throw new Error(
+          'Browser allowed the site, but found no usable camera/mic. ' +
+            'On Windows: Settings → Privacy & security → Camera / Microphone → ' +
+            'turn on access for desktop apps AND your browser. Then unplug/replug the webcam, ' +
+            'or test on a phone (has built-in cam/mic).'
+        );
+      }
+      throw lastErr || new Error('getUserMedia failed');
+    }
+
+    function attachRemoteTrack(socketId, track, kind) {
+      const id = `remote-${socketId || track.id}`;
+      let el = document.getElementById(id);
+      if (!el) {
+        el = document.createElement('video');
+        el.id = id;
+        el.autoplay = true;
+        el.playsInline = true;
+        el.setAttribute('playsinline', '');
+        el.setAttribute('webkit-playsinline', '');
+        // Keep unmuted so remote audio plays after the Join gesture.
+        el.srcObject = new MediaStream();
+        document.getElementById('remoteVideos').appendChild(el);
+      }
+      const prev = el.srcObject;
+      const tracks = prev ? [...prev.getTracks()] : [];
+      if (!tracks.some((t) => t.id === track.id)) tracks.push(track);
+      // Re-assign MediaStream — required on many mobile browsers after addTrack.
+      el.srcObject = new MediaStream(tracks);
+      el.play().catch(() => {});
+      log(`Remote ${kind} attached → ${id} (tracks=${tracks.length})`, 'ok');
+    }
+
     async function join() {
       document.getElementById('btnJoin').disabled = true;
       try {
-        let roomId = document.getElementById('roomId').value.trim();
-        const userName = document.getElementById('userName').value.trim() || 'WebTester';
-        const wantVideo = document.getElementById('wantVideo').checked;
-
+        if (!Device) throw new Error('mediasoup Device export missing from CDN bundle');
         if (!window.isSecureContext) {
           throw new Error(
-            'Permission will fail: page is not secure. Open via https:// or http://localhost (not file://).'
+            'Not a secure context. Serve over https:// or http://localhost — not file://.'
           );
         }
         if (!navigator.mediaDevices?.getUserMedia) {
-          throw new Error('getUserMedia not available in this browser');
+          throw new Error('getUserMedia unavailable in this browser');
         }
 
-        if (!roomId) {
-          roomId = makeRoomId();
-          document.getElementById('roomId').value = roomId;
-          log(`Using room ${roomId} (created on joinRoom)`, 'ok');
-        } else {
-          log(`Using room ${roomId}`, 'ok');
-        }
+        let roomId = document.getElementById('roomId').value.trim();
+        const userName = document.getElementById('userName').value.trim() || 'WebTester';
+        const wantVideo = document.getElementById('wantVideo').checked;
+        const wantAudio = document.getElementById('wantAudio').checked;
 
-        // Mic/cam FIRST — clearer permission prompt before long signaling.
+        roomId = await ensureRoomId(roomId);
+        document.getElementById('roomId').value = roomId;
+        currentRoomId = roomId;
+
         log('Requesting mic/cam… tap Allow', 'ok');
-        try {
-          localStream = await navigator.mediaDevices.getUserMedia({
-            audio: true,
-            video: wantVideo,
-          });
-        } catch (mediaErr) {
-          const name = mediaErr?.name || '';
-          const msg = mediaErr?.message || String(mediaErr);
-          if (name === 'NotAllowedError' || /permission/i.test(msg)) {
-            throw new Error(
-              'Mic/camera permission denied. In Chrome: site settings → allow Microphone' +
-                (wantVideo ? ' + Camera' : '') +
-                '. Also avoid file:// — use https or a local http server.'
-            );
-          }
-          if (wantVideo) {
-            log(`Camera failed (${msg}) — trying audio only`, 'err');
-            localStream = await navigator.mediaDevices.getUserMedia({
-              audio: true,
-              video: false,
-            });
-          } else {
-            throw mediaErr;
-          }
+        localStream = await getLocalMedia(wantAudio, wantVideo);
+        const localEl = document.getElementById('localVideo');
+        localEl.srcObject = localStream;
+        await localEl.play().catch(() => {});
+        log(
+          `Local media a=${localStream.getAudioTracks().length} v=${localStream.getVideoTracks().length}`,
+          'ok'
+        );
+        if (wantVideo && !localStream.getVideoTracks().length) {
+          log('Joined without camera track — audio-only this session', 'warn');
         }
-        document.getElementById('localVideo').srcObject = localStream;
-        log(`Got local media a=${localStream.getAudioTracks().length} v=${localStream.getVideoTracks().length}`, 'ok');
 
-        // 1. Socket + config (Kalyan SFU should include Coturn TURN here)
         let iceServers = [];
         const configReady = new Promise((resolve, reject) => {
-          const t = setTimeout(() => reject(new Error('config timeout')), 15000);
-          socket = io(SOCKET_URL, { transports: ['websocket'] });
+          const t = setTimeout(() => reject(new Error('config timeout (15s)')), 15000);
+          socket = io(SOCKET_URL, {
+            transports: ['websocket', 'polling'],
+            forceNew: true,
+          });
           socket.on('connect', () => log(`Socket connected ${socket.id}`, 'ok'));
           socket.on('config', (data) => {
             clearTimeout(t);
             iceServers = normalizeIceServers(data);
-            log(`Got ICE (${iceServers.length}) — ${summarizeIce(iceServers)}`, 'ok');
-            if (!summarizeIce(iceServers).includes('turn=')) {
-              log('WARNING: no turn:/turns: in config — Coturn may not be in SFU iceServers', 'err');
+            const summary = summarizeIce(iceServers);
+            log(`Got ICE (${iceServers.length}) — ${summary}`, 'ok');
+            if (!/turn=\d*[1-9]|turns=\d*[1-9]/.test(summary)) {
+              log('WARNING: no TURN in config — mobile data often fails without relay', 'err');
             } else {
-              log('TURN present — phone networks should use relay when needed', 'ok');
+              log('TURN present — relay available for phones', 'ok');
             }
             resolve();
           });
@@ -216,17 +386,19 @@
         });
         await configReady;
 
-        // 2. joinRoom
         const joinResult = await emitAck('joinRoom', { roomId, userName });
-        if (joinResult.success === false) throw joinResult.error || 'joinRoom failed';
+        if (joinResult.success === false) {
+          throw new Error(joinResult.error || 'joinRoom failed');
+        }
         log(`joinRoom ok — peers=${joinResult.participantCount}`, 'ok');
 
-        // 3. Device
-        device = new mediasoupClient.Device();
+        device = new Device();
         await device.load({ routerRtpCapabilities: joinResult.routerRtpCapabilities });
-        log('Device loaded', 'ok');
+        log(
+          `Device loaded canProduce(video)=${device.canProduce('video')} canProduce(audio)=${device.canProduce('audio')}`,
+          'ok'
+        );
 
-        // 4. Send transport (iceServers includes Coturn TURN from SFU config)
         {
           const res = await emitAck('createWebRTCTransport', { roomId, direction: 'send' });
           const p = res.params;
@@ -239,21 +411,33 @@
           });
           sendTransport.on('connect', ({ dtlsParameters }, callback, errback) => {
             emitAck('connectTransport', {
-              roomId, transportId: sendTransport.id, dtlsParameters, direction: 'send',
-            }).then(() => callback()).catch(errback);
+              roomId,
+              transportId: sendTransport.id,
+              dtlsParameters,
+              direction: 'send',
+            })
+              .then(() => callback())
+              .catch(errback);
           });
           sendTransport.on('produce', ({ kind, rtpParameters }, callback, errback) => {
             emitAck('produce', {
-              roomId, transportId: sendTransport.id, kind, rtpParameters,
-            }).then((r) => callback({ id: r.id })).catch(errback);
+              roomId,
+              transportId: sendTransport.id,
+              kind,
+              rtpParameters,
+            })
+              .then((r) => callback({ id: r.id }))
+              .catch(errback);
           });
           sendTransport.on('connectionstatechange', (state) => {
-            log(`Send ICE ${state}`, state === 'failed' || state === 'disconnected' ? 'err' : 'ok');
+            log(
+              `Send ICE ${state}`,
+              state === 'failed' || state === 'disconnected' ? 'err' : 'ok'
+            );
           });
           log('Send transport ready', 'ok');
         }
 
-        // 5. Recv transport
         {
           const res = await emitAck('createWebRTCTransport', { roomId, direction: 'recv' });
           const p = res.params;
@@ -266,72 +450,86 @@
           });
           recvTransport.on('connect', ({ dtlsParameters }, callback, errback) => {
             emitAck('connectTransport', {
-              roomId, transportId: recvTransport.id, dtlsParameters, direction: 'recv',
-            }).then(() => callback()).catch(errback);
+              roomId,
+              transportId: recvTransport.id,
+              dtlsParameters,
+              direction: 'recv',
+            })
+              .then(() => callback())
+              .catch(errback);
           });
           recvTransport.on('connectionstatechange', (state) => {
-            log(`Recv ICE ${state}`, state === 'failed' || state === 'disconnected' ? 'err' : 'ok');
+            log(
+              `Recv ICE ${state}`,
+              state === 'failed' || state === 'disconnected' ? 'err' : 'ok'
+            );
           });
           log('Recv transport ready', 'ok');
         }
 
-        // 6. Produce local tracks (getUserMedia already done at start)
         for (const track of localStream.getAudioTracks()) {
+          if (!device.canProduce('audio')) {
+            log('Router cannot consume Opus from this client — skip audio produce', 'err');
+            break;
+          }
           producers.push(await sendTransport.produce({ track }));
           log('Produced audio', 'ok');
         }
         for (const track of localStream.getVideoTracks()) {
-          producers.push(await sendTransport.produce({ track }));
+          if (!device.canProduce('video')) {
+            log('Router cannot produce video for this device — check codecs', 'err');
+            break;
+          }
+          producers.push(
+            await sendTransport.produce({
+              track,
+              encodings: [{ maxBitrate: 600000 }],
+            })
+          );
           log('Produced video', 'ok');
         }
 
-        // 7. Consume helpers
-        async function consumeOne(producerId, socketId) {
+        async function consumeOne(producerId, socketId, kind) {
           if (!producerId || consumed.has(producerId)) return;
           if (socketId && socketId === socket.id) return;
           consumed.add(producerId);
-          const data = await emitAck('consume', {
-            roomId,
-            producerId,
-            rtpCapabilities: device.rtpCapabilities,
-          });
-          const consumer = await recvTransport.consume({
-            id: data.id,
-            producerId: data.producerId,
-            kind: data.kind,
-            rtpParameters: data.rtpParameters,
-          });
-          await emitAck('resumeConsumer', { consumerId: consumer.id });
-
-          let el = document.getElementById(`remote-${socketId || 'x'}`);
-          if (!el) {
-            el = document.createElement('video');
-            el.id = `remote-${socketId || consumer.id}`;
-            el.autoplay = true;
-            el.playsInline = true;
-            el.srcObject = new MediaStream();
-            document.getElementById('remoteVideos').appendChild(el);
+          try {
+            const data = await emitAck('consume', {
+              roomId,
+              producerId,
+              rtpCapabilities: device.rtpCapabilities,
+            });
+            const consumer = await recvTransport.consume({
+              id: data.id,
+              producerId: data.producerId,
+              kind: data.kind,
+              rtpParameters: data.rtpParameters,
+            });
+            await emitAck('resumeConsumer', { consumerId: consumer.id });
+            attachRemoteTrack(socketId || consumer.id, consumer.track, data.kind || kind || '?');
+          } catch (e) {
+            consumed.delete(producerId);
+            throw e;
           }
-          el.srcObject.addTrack(consumer.track);
-          try { await el.play(); } catch (_) {}
-          log(`Consumed ${data.kind} from ${socketId || '?'}`, 'ok');
         }
 
         for (const p of joinResult.existingProducers || []) {
-          await consumeOne(p.producerId, p.socketId);
+          await consumeOne(p.producerId, p.socketId, p.kind);
         }
         socket.on('newProducer', (d) => {
-          consumeOne(d.producerId, d.socketId).catch((e) => log(String(e), 'err'));
+          consumeOne(d.producerId, d.socketId, d.kind).catch((e) =>
+            log(`consume failed: ${e.message || e}`, 'err')
+          );
         });
         socket.on('userJoined', (d) => log(`userJoined ${d.userName} (${d.socketId})`));
         socket.on('userLeft', (d) => {
           log(`userLeft ${d.socketId}`);
-          const el = document.getElementById(`remote-${d.socketId}`);
-          if (el) el.remove();
+          document.getElementById(`remote-${d.socketId}`)?.remove();
         });
 
         document.getElementById('btnLeave').disabled = false;
-        log('READY — open another tab with same room id to test', 'ok');
+        log('READY — second device: paste same room id (or open Copy join link)', 'ok');
+        updateShareUrl();
       } catch (e) {
         log(`FAIL: ${e?.message || e}`, 'err');
         document.getElementById('btnJoin').disabled = false;
@@ -339,12 +537,45 @@
       }
     }
 
+    function updateShareUrl() {
+      const room = document.getElementById('roomId').value.trim();
+      if (!room || location.protocol === 'file:') return;
+      const u = new URL(location.href);
+      u.searchParams.set('room', room);
+      u.searchParams.set('video', document.getElementById('wantVideo').checked ? '1' : '0');
+      history.replaceState(null, '', u.toString());
+    }
+
+    async function copyJoinLink() {
+      const room =
+        document.getElementById('roomId').value.trim() ||
+        currentRoomId ||
+        (await ensureRoomId(''));
+      document.getElementById('roomId').value = room;
+      if (location.protocol === 'file:') {
+        await navigator.clipboard.writeText(room);
+        log(`Copied room id ${room}. Serve over https, then share ?room=${room}&video=1`, 'warn');
+        return;
+      }
+      const u = new URL(location.href);
+      u.searchParams.set('room', room);
+      u.searchParams.set('video', '1');
+      await navigator.clipboard.writeText(u.toString());
+      log(`Copied join link for room ${room}`, 'ok');
+    }
+
     function leave(silent) {
-      try { producers.forEach((p) => p.close()); } catch (_) {}
+      try {
+        producers.forEach((p) => p.close());
+      } catch (_) {}
       producers.length = 0;
       consumed.clear();
-      try { sendTransport?.close(); } catch (_) {}
-      try { recvTransport?.close(); } catch (_) {}
+      try {
+        sendTransport?.close();
+      } catch (_) {}
+      try {
+        recvTransport?.close();
+      } catch (_) {}
       sendTransport = recvTransport = device = null;
       if (localStream) {
         localStream.getTracks().forEach((t) => t.stop());
@@ -352,7 +583,9 @@
       }
       document.getElementById('localVideo').srcObject = null;
       document.getElementById('remoteVideos').innerHTML = '';
-      try { socket?.disconnect(); } catch (_) {}
+      try {
+        socket?.disconnect();
+      } catch (_) {}
       socket = null;
       document.getElementById('btnJoin').disabled = false;
       document.getElementById('btnLeave').disabled = true;
@@ -361,7 +594,12 @@
 
     document.getElementById('btnJoin').onclick = join;
     document.getElementById('btnLeave').onclick = () => leave(false);
-    log('Libraries loaded (ESM)', 'ok');
+    document.getElementById('btnShare').onclick = () =>
+      copyJoinLink().catch((e) => log(String(e), 'err'));
+    log(
+      `Libraries loaded · secure=${window.isSecureContext} · Device=${!!Device}`,
+      window.isSecureContext ? 'ok' : 'err'
+    );
   </script>
 </body>
 </html>

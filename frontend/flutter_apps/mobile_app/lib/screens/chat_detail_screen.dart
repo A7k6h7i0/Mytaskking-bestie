@@ -865,10 +865,16 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                 onTap: () => Navigator.pop(ctx, 'camera')),
             _ChooserTile(
                 icon: Icons.image_rounded,
-                label: 'Photo / video',
+                label: 'Photos (multi)',
                 colors: c,
                 accent: c.accent,
                 onTap: () => Navigator.pop(ctx, 'gallery')),
+            _ChooserTile(
+                icon: Icons.perm_media_rounded,
+                label: 'Photo or video',
+                colors: c,
+                accent: c.accent,
+                onTap: () => Navigator.pop(ctx, 'gallery_single')),
             _ChooserTile(
                 icon: Icons.videocam_rounded,
                 label: 'Record video',
@@ -892,12 +898,23 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
   Future<void> _pickAndUpload(String kind) async {
     setState(() => _attaching = true);
     try {
-      List<int>? bytes;
-      String? filename;
-      String? mimeType;
+      final picker = ImagePicker();
+      final files = <({List<int> bytes, String filename, String mimeType})>[];
 
-      if (kind == 'camera' || kind == 'gallery' || kind == 'video') {
-        final picker = ImagePicker();
+      if (kind == 'gallery') {
+        final picked = await picker.pickMultiImage(imageQuality: 85);
+        if (picked.isEmpty) return;
+        for (final x in picked.take(10)) {
+          final bytes = await x.readAsBytes();
+          final mime = x.mimeType ??
+              _mimeFromExt(
+                  x.name.contains('.') ? x.name.split('.').last : null) ??
+              'image/jpeg';
+          files.add((bytes: bytes, filename: x.name, mimeType: mime));
+        }
+      } else if (kind == 'camera' ||
+          kind == 'gallery_single' ||
+          kind == 'video') {
         XFile? x;
         if (kind == 'camera') {
           x = await picker.pickImage(
@@ -905,41 +922,54 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
         } else if (kind == 'video') {
           x = await picker.pickVideo(source: ImageSource.camera);
         } else {
-          // Gallery: let the user pick a photo OR a video.
           x = await picker.pickMedia(imageQuality: 85);
         }
         if (x == null) return;
-        bytes = await x.readAsBytes();
-        filename = x.name;
-        // Trust the plugin's mime when present; otherwise infer from the
-        // file extension (covers videos picked from the gallery/camera).
-        mimeType = x.mimeType ??
+        final bytes = await x.readAsBytes();
+        final mime = x.mimeType ??
             _mimeFromExt(
                 x.name.contains('.') ? x.name.split('.').last : null) ??
             'application/octet-stream';
+        files.add((bytes: bytes, filename: x.name, mimeType: mime));
       } else {
-        final res = await FilePicker.platform.pickFiles(withData: true);
+        final res = await FilePicker.platform.pickFiles(
+          withData: true,
+          allowMultiple: true,
+        );
         if (res == null || res.files.isEmpty) return;
-        final f = res.files.first;
-        bytes = f.bytes;
-        filename = f.name;
-        mimeType = _mimeFromExt(f.extension);
-        if (bytes == null) throw 'Could not read the picked file';
+        for (final f in res.files.take(10)) {
+          final bytes = f.bytes;
+          if (bytes == null) continue;
+          files.add((
+            bytes: bytes,
+            filename: f.name,
+            mimeType: _mimeFromExt(f.extension) ?? 'application/octet-stream',
+          ));
+        }
+        if (files.isEmpty) throw 'Could not read the picked file(s)';
       }
 
-      final asset = await ref.read(apiProvider).uploadFile(
-            bytes: bytes,
-            filename: filename,
-            mimeType: mimeType,
-            onProgress: (sent, total) {
-              if (mounted && total > 0)
-                setState(() => _uploadProgress = sent / total);
-            },
-          );
-      final assetId = asset['id']?.toString();
-      if (assetId == null)
-        throw 'Upload succeeded but no asset id was returned';
-      await _send(attachmentIds: [assetId]);
+      final assetIds = <String>[];
+      for (var i = 0; i < files.length; i++) {
+        final file = files[i];
+        final asset = await ref.read(apiProvider).uploadFile(
+              bytes: file.bytes,
+              filename: file.filename,
+              mimeType: file.mimeType,
+              onProgress: (sent, total) {
+                if (!mounted || total <= 0) return;
+                final base = i / files.length;
+                final frac = sent / total / files.length;
+                setState(() => _uploadProgress = base + frac);
+              },
+            );
+        final assetId = asset['id']?.toString();
+        if (assetId == null) {
+          throw 'Upload succeeded but no asset id was returned';
+        }
+        assetIds.add(assetId);
+      }
+      await _send(attachmentIds: assetIds);
     } catch (e) {
       if (mounted)
         bestieToast(context, 'Attachment failed',

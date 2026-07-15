@@ -119,6 +119,7 @@ class MediasoupCallSession {
     required String roomId,
     required String userName,
     bool video = false,
+    String? joinToken,
   }) async {
     if (_connecting) {
       throw StateError('connect() already in progress');
@@ -136,7 +137,7 @@ class MediasoupCallSession {
     try {
       await _configurePlatformAudioForCall(video: video);
       await _openSocket(connectUrl);
-      final joinResult = await _joinRoom(roomId, userName);
+      final joinResult = await _joinRoom(roomId, userName, joinToken: joinToken);
       await _loadDevice(joinResult);
       await _createTransports(roomId);
       await _produceLocalMedia(video: video);
@@ -562,11 +563,19 @@ class MediasoupCallSession {
     }
   }
 
-  Future<Map<String, dynamic>> _joinRoom(String roomId, String userName) async {
-    final result = await _emitAck('joinRoom', {
+  Future<Map<String, dynamic>> _joinRoom(
+    String roomId,
+    String userName, {
+    String? joinToken,
+  }) async {
+    final payload = <String, dynamic>{
       'roomId': roomId,
       'userName': userName,
-    });
+    };
+    if (joinToken != null && joinToken.isNotEmpty) {
+      payload['joinToken'] = joinToken;
+    }
+    final result = await _emitAck('joinRoom', payload);
     if (result['success'] != true) {
       throw result['error'] ?? 'joinRoom failed';
     }
@@ -933,6 +942,10 @@ class MediasoupCallSession {
   }
 
   /// One MediaStream per remote peer (same as the HTML test's video element).
+  ///
+  /// Important (HTML parity): after `addTrack`, mobile WebRTC often keeps a
+  /// blank video until a **new** MediaStream is built and rebound. The HTML
+  /// page does `el.srcObject = new MediaStream(tracks)` — we do the same.
   Future<void> _attachRemoteTrack(
     String socketId,
     MediaStreamTrack track,
@@ -940,16 +953,26 @@ class MediasoupCallSession {
   ) async {
     track.enabled = true;
 
-    var peerStream = remoteStreams[socketId];
-    if (peerStream == null) {
-      peerStream = await createLocalMediaStream('remote-$socketId');
-      remoteStreams[socketId] = peerStream;
+    final previous = remoteStreams[socketId];
+    final tracks = <MediaStreamTrack>[];
+    if (previous != null) {
+      for (final t in previous.getTracks()) {
+        if (t.id != track.id) tracks.add(t);
+      }
     }
+    tracks.add(track);
 
-    final already = peerStream.getTracks().any((t) => t.id == track.id);
-    if (!already) {
-      await peerStream.addTrack(track);
+    // Fresh stream id forces MediasoupVideoView / RTCVideoRenderer remount.
+    final peerStream = await createLocalMediaStream(
+      'remote-$socketId-${kind}-${tracks.length}-${DateTime.now().microsecondsSinceEpoch}',
+    );
+    for (final t in tracks) {
+      t.enabled = true;
+      await peerStream.addTrack(t);
     }
+    remoteStreams[socketId] = peerStream;
+    // Do not dispose [previous]: flutter_webrtc may tear down consumer tracks
+    // that were just moved onto [peerStream] (blank remote video).
 
     onRemoteStream?.call(socketId, peerStream, kind);
     // Second video track from the same peer = screen share (camera + screen).

@@ -202,11 +202,15 @@ class _BestieCalendarViewState extends ConsumerState<BestieCalendarView> {
     final hourHeight =
         compact ? _hourHeightCompact : _hourHeightDesktop;
     final outerPad = compact ? 12.0 : 24.0;
+    // Shell uses extendBody + floating nav — keep content clear of the bar.
+    final bottomClearance = compact
+        ? 70.0 + MediaQuery.paddingOf(context).bottom + 12
+        : outerPad;
 
     return ColoredBox(
       color: c.surface,
       child: Padding(
-        padding: EdgeInsets.all(outerPad),
+        padding: EdgeInsets.fromLTRB(outerPad, outerPad, outerPad, bottomClearance),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -276,32 +280,42 @@ class _BestieCalendarViewState extends ConsumerState<BestieCalendarView> {
 
                   if (_view == _CalendarView.month) {
                     if (compact) {
-                      return Column(
-                        children: [
-                          Expanded(
-                            flex: 3,
-                            child: _MonthGridView(
-                              month: _sidebarMonth,
-                              entries: entries,
-                              onPrev: () => setState(() {
-                                _sidebarMonth = DateTime(
-                                  _sidebarMonth.year,
-                                  _sidebarMonth.month - 1,
-                                  1,
-                                );
-                              }),
-                              onNext: () => setState(() {
-                                _sidebarMonth = DateTime(
-                                  _sidebarMonth.year,
-                                  _sidebarMonth.month + 1,
-                                  1,
-                                );
-                              }),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          SizedBox(height: 280, child: sidebar()),
-                        ],
+                      return LayoutBuilder(
+                        builder: (context, constraints) {
+                          final short = constraints.maxHeight < 520;
+                          final sideH = short
+                              ? (constraints.maxHeight * 0.38).clamp(160.0, 220.0)
+                              : (constraints.maxHeight * 0.42).clamp(180.0, 260.0);
+                          return Column(
+                            children: [
+                              Expanded(
+                                child: _MonthGridView(
+                                  month: _sidebarMonth,
+                                  entries: entries,
+                                  onPrev: () => setState(() {
+                                    _sidebarMonth = DateTime(
+                                      _sidebarMonth.year,
+                                      _sidebarMonth.month - 1,
+                                      1,
+                                    );
+                                  }),
+                                  onNext: () => setState(() {
+                                    _sidebarMonth = DateTime(
+                                      _sidebarMonth.year,
+                                      _sidebarMonth.month + 1,
+                                      1,
+                                    );
+                                  }),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              SizedBox(
+                                height: sideH,
+                                child: SingleChildScrollView(child: sidebar()),
+                              ),
+                            ],
+                          );
+                        },
                       );
                     }
                     return Row(

@@ -33,6 +33,9 @@ type MeetingToken = {
   expiresAt: number | null;
   appId?: string;
   disabled?: boolean;
+  mediaEngine?: string;
+  connectUrl?: string;
+  joinToken?: string;
   room: MeetingRoom;
   guestName?: string;
 };
@@ -98,7 +101,32 @@ export default function MeetingJoinPage() {
     if (me) {
       return (await api.post(`/meetings/${slug}/token`)).data as MeetingToken;
     }
-    return (await axios.post(`${apiUrl}/api/v1/meetings/public/${slug}/token`, { guestName: displayName })).data as MeetingToken;
+    // Guests must knock — host approves before a media session is minted.
+    const knock = await axios.post(
+      `${apiUrl}/api/v1/meetings/public/${slug}/request-access`,
+      { guestName: displayName },
+    );
+    const requestId = knock.data?.requestId as string;
+    if (!requestId) throw new Error('Could not request access');
+    toast.info('Waiting for host approval…');
+    for (let i = 0; i < 60; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const status = await axios.get(
+        `${apiUrl}/api/v1/meetings/public/${slug}/request-access/${requestId}`,
+      );
+      if (status.data?.status === 'APPROVED') {
+        return (
+          await axios.post(`${apiUrl}/api/v1/meetings/public/${slug}/token`, {
+            guestName: displayName,
+            requestId,
+          })
+        ).data as MeetingToken;
+      }
+      if (status.data?.status === 'REJECTED') {
+        throw new Error('Host declined your join request');
+      }
+    }
+    throw new Error('Timed out waiting for host approval');
   }
 
   async function startMicrophone({ quiet = false } = {}) {
@@ -128,6 +156,13 @@ export default function MeetingJoinPage() {
     setJoining(true);
     try {
       const token = await getMeetingToken();
+      if (token.mediaEngine === 'mediasoup') {
+        toast.error(
+          'Join from the MyTaskKing mobile app',
+          'Meetings now use WebRTC (mediasoup). Open the meeting link in the app.',
+        );
+        return;
+      }
       if (token.disabled || !token.appId) {
         toast.error('Meeting video is not configured', 'Set AGORA_APP_ID and AGORA_APP_CERTIFICATE in backend .env.');
         return;
