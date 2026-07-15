@@ -13,8 +13,53 @@ const audit = require('../../services/audit');
 const eventBus = require('../../services/eventBus');
 const { NotFound, Forbidden, BadRequest } = require('../../utils/errors');
 const config = require('../../config');
+const { clientAppFromUserAgent, APP_MYTASKKING } = require('../../utils/clientApp');
 
 const router = Router();
+
+/** Socket + FCM ring for meeting invites (same UX as incoming call). */
+function notifyMeetingInvited(io, { room, host, userIds, clientApp }) {
+  const ids = Array.from(new Set((userIds || []).filter(Boolean)));
+  if (!ids.length) return;
+  const app = clientApp || APP_MYTASKKING;
+  const payload = {
+    meeting: {
+      id: room.id,
+      slug: room.slug,
+      name: room.name,
+      mode: room.mode,
+      host: {
+        id: host.id,
+        name: host.name,
+        avatarUrl: host.avatarUrl,
+      },
+    },
+    clientApp: app,
+  };
+  for (const uid of ids) {
+    io?.to(`user:${uid}`).emit('meeting.invited', payload);
+  }
+  prisma.deviceToken
+    .findMany({ where: { userId: { in: ids } } })
+    .then((devices) => {
+      if (!devices.length) return null;
+      return require('../../services/fcm').sendToTokens(
+        devices.map((d) => d.token),
+        {
+          title: `${host.name || 'Someone'} invited you to a meeting`,
+          body: room.name,
+          data: {
+            type: 'meeting.invited',
+            meetingSlug: room.slug,
+            mode: room.mode || 'VIDEO',
+            fromName: host.name || 'Someone',
+            clientApp: app,
+          },
+        }
+      );
+    })
+    .catch(() => {});
+}
 
 const Mode = Joi.string().valid('VOICE', 'VIDEO', 'WEBINAR', 'LIVESTREAM');
 const PUBLIC_BASE_URL = process.env.MEETING_PUBLIC_URL || config.cors.webOrigin?.[0] || 'http://localhost:5173';
@@ -112,9 +157,11 @@ function serializeMeetingRoster(participants = []) {
   return participants
     .filter((p) => p && p.userId)
     .filter((p) => {
-      // Only people who actually entered (token/guest), not invite-only rows.
+      // Only people who actually entered via token/guest join.
+      // INVITED rows have lastSeenAt defaulting to now() — never treat that
+      // as "in meeting" or clients show ghost guests when alone.
       const via = String(p.joinedVia || '');
-      return via === 'INTERNAL' || via === 'GUEST' || Boolean(p.lastSeenAt);
+      return via === 'INTERNAL' || via === 'GUEST';
     })
     .map((p) => ({
       id: p.id,
@@ -431,56 +478,56 @@ router.post(
 
     const existing = await prisma.meetingRoomParticipant.findMany({
       where: { roomId: room.id, userId: { in: requestedIds } },
-      select: { userId: true },
+      select: { userId: true, joinedVia: true },
     });
-    const existingIds = new Set(existing.map((p) => p.userId));
-    const inviteeIds = requestedIds.filter((uid) => !existingIds.has(uid));
-    const users = inviteeIds.length
+    const existingByUser = new Map(existing.map((p) => [p.userId, p]));
+
+    // New invitees + re-ring people still only INVITED (they often missed the
+    // first push). Skip people who already joined (INTERNAL / GUEST).
+    const toCreateIds = [];
+    const toNotifyIds = [];
+    for (const uid of requestedIds) {
+      const row = existingByUser.get(uid);
+      if (!row) {
+        toCreateIds.push(uid);
+        toNotifyIds.push(uid);
+      } else if (String(row.joinedVia || '') === 'INVITED') {
+        toNotifyIds.push(uid);
+      }
+    }
+
+    // Resolve by id only (same as meeting create). A strict tenantId filter
+    // previously dropped invitees when room.tenantId was null/mismatched.
+    const users = toNotifyIds.length
       ? await prisma.user.findMany({
-          where: { id: { in: inviteeIds }, tenantId: room.tenantId || undefined },
+          where: { id: { in: toNotifyIds } },
           select: { id: true, name: true },
         })
       : [];
+    const userById = new Map(users.map((u) => [u.id, u]));
 
-    if (users.length) {
+    const createUsers = toCreateIds.map((id) => userById.get(id)).filter(Boolean);
+    if (createUsers.length) {
       await prisma.meetingRoomParticipant.createMany({
-        data: users.map((u) => ({
+        data: createUsers.map((u) => ({
           roomId: room.id,
           userId: u.id,
           displayName: u.name || 'Invited',
           joinedVia: 'INVITED',
         })),
+        skipDuplicates: true,
       });
+    }
 
-      const payload = {
-        meeting: {
-          id: room.id,
-          slug: room.slug,
-          name: room.name,
-          mode: room.mode,
-          host: { id: req.user.id, name: req.user.name, avatarUrl: req.user.avatarUrl },
-        },
-      };
-      const io = req.app.get('io');
-      for (const u of users) {
-        io?.to(`user:${u.id}`).emit('meeting.invited', payload);
-      }
-      prisma.deviceToken
-        .findMany({ where: { userId: { in: users.map((u) => u.id) } } })
-        .then((devices) => {
-          if (!devices.length) return null;
-          return require('../../services/fcm').sendToTokens(devices.map((d) => d.token), {
-            title: `${req.user.name} invited you to a meeting`,
-            body: room.name,
-            data: {
-              type: 'meeting.invited',
-              meetingSlug: room.slug,
-              mode: room.mode,
-              fromName: req.user.name,
-            },
-          });
-        })
-        .catch(() => {});
+    const notifyIds = users.map((u) => u.id);
+    if (notifyIds.length) {
+      notifyMeetingInvited(req.app.get('io'), {
+        room,
+        host: req.user,
+        userIds: notifyIds,
+        clientApp:
+          clientAppFromUserAgent(req.headers['user-agent']) || APP_MYTASKKING,
+      });
     }
 
     const refreshed = await prisma.meetingRoom.findUnique({
@@ -490,7 +537,7 @@ router.post(
     res.json({
       room: serializeRoom(refreshed),
       invited: users.map((u) => ({ id: u.id, name: u.name })),
-      skipped: requestedIds.length - users.length,
+      skipped: requestedIds.length - notifyIds.length,
     });
   })
 );
@@ -553,46 +600,24 @@ router.post(
         where: { id: { in: inviteeIds } },
         select: { id: true, name: true },
       });
-      await prisma.meetingRoomParticipant.createMany({
-        data: lookup.map((u) => ({
-          roomId: room.id,
-          userId: u.id,
-          displayName: u.name || 'Invited',
-          joinedVia: 'INVITED',
-        })),
-      });
-    }
-    if (inviteeIds.length) {
-      const io = req.app.get('io');
-      const payload = {
-        meeting: {
-          id: room.id,
-          slug: room.slug,
-          name: room.name,
-          mode: room.mode,
-          host: { id: req.user.id, name: req.user.name, avatarUrl: req.user.avatarUrl },
-        },
-      };
-      for (const uid of inviteeIds) {
-        io?.to(`user:${uid}`).emit('meeting.invited', payload);
+      if (lookup.length) {
+        await prisma.meetingRoomParticipant.createMany({
+          data: lookup.map((u) => ({
+            roomId: room.id,
+            userId: u.id,
+            displayName: u.name || 'Invited',
+            joinedVia: 'INVITED',
+          })),
+          skipDuplicates: true,
+        });
+        notifyMeetingInvited(req.app.get('io'), {
+          room,
+          host: req.user,
+          userIds: lookup.map((u) => u.id),
+          clientApp:
+            clientAppFromUserAgent(req.headers['user-agent']) || APP_MYTASKKING,
+        });
       }
-      // FCM push so it rings even when the app is closed.
-      prisma.deviceToken
-        .findMany({ where: { userId: { in: inviteeIds } } })
-        .then((devices) => {
-          if (!devices.length) return null;
-          return require('../../services/fcm').sendToTokens(devices.map((d) => d.token), {
-            title: `${req.user.name} invited you to a meeting`,
-            body: room.name,
-            data: {
-              type: 'meeting.invited',
-              meetingSlug: room.slug,
-              mode: room.mode,
-              fromName: req.user.name,
-            },
-          });
-        })
-        .catch(() => {});
     }
     res.status(201).json(serializeRoom(room));
   })

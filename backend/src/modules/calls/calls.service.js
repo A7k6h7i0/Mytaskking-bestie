@@ -848,20 +848,128 @@ async function setMuted({ callId, user, muted }) {
 }
 
 async function history({ user, page = 1, pageSize = 25 }) {
-  const where = {
+  const callWhere = {
     OR: [{ initiatorId: user.id }, { participants: { some: { userId: user.id } } }],
   };
-  const [total, items] = await prisma.$transaction([
-    prisma.call.count({ where }),
+  const meetingWhere = {
+    endedAt: { not: null },
+    OR: [
+      { hostId: user.id },
+      {
+        participants: {
+          some: {
+            userId: user.id,
+            joinedVia: { in: ['INTERNAL', 'GUEST'] },
+          },
+        },
+      },
+    ],
+  };
+
+  const window = page * pageSize;
+  const [callTotal, meetingTotal, calls, meetings] = await Promise.all([
+    prisma.call.count({ where: callWhere }),
+    prisma.meetingRoom.count({ where: meetingWhere }),
     prisma.call.findMany({
-      where,
+      where: callWhere,
       orderBy: { createdAt: 'desc' },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
+      take: window,
       include: callInclude,
     }),
+    prisma.meetingRoom.findMany({
+      where: meetingWhere,
+      orderBy: { endedAt: 'desc' },
+      take: window,
+      include: {
+        participants: {
+          where: {
+            userId: { not: null },
+            joinedVia: { in: ['INTERNAL', 'GUEST'] },
+          },
+          orderBy: { joinedAt: 'asc' },
+          take: 50,
+        },
+        _count: { select: { participants: true } },
+      },
+    }),
   ]);
-  return { total, page, pageSize, items };
+
+  const hostIds = [...new Set(meetings.map((m) => m.hostId).filter(Boolean))];
+  const hosts = hostIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: hostIds } },
+        select: {
+          id: true,
+          name: true,
+          avatarUrl: true,
+          role: true,
+          isClient: true,
+        },
+      })
+    : [];
+  const hostMap = Object.fromEntries(hosts.map((h) => [h.id, h]));
+
+  const callItems = calls.map((c) => ({
+    ...c,
+    historyType: 'CALL',
+    sortAt: c.endedAt || c.createdAt,
+  }));
+
+  const meetingItems = meetings.map((m) => {
+    const host = hostMap[m.hostId] || {
+      id: m.hostId,
+      name: 'Host',
+      avatarUrl: null,
+      role: null,
+      isClient: false,
+    };
+    const liveParts = m.participants || [];
+    return {
+      historyType: 'MEETING',
+      id: m.id,
+      slug: m.slug,
+      name: m.name,
+      title: m.name,
+      mode: String(m.mode || 'VOICE').toUpperCase() === 'VIDEO' ? 'VIDEO' : 'VOICE',
+      kind: 'MEETING',
+      status: 'COMPLETED',
+      createdAt: m.createdAt,
+      endedAt: m.endedAt,
+      scheduledAt: m.scheduledAt,
+      recordingUrl: m.recordingUrl,
+      participantCount: liveParts.length || m._count?.participants || 0,
+      initiator: host,
+      initiatorId: m.hostId,
+      participants: liveParts.map((p) => ({
+        userId: p.userId,
+        displayName: p.displayName,
+        joinedVia: p.joinedVia,
+        joinedAt: p.joinedAt,
+        user: {
+          id: p.userId,
+          name: p.displayName,
+          avatarUrl: null,
+        },
+      })),
+      sortAt: m.endedAt || m.createdAt,
+    };
+  });
+
+  const merged = [...callItems, ...meetingItems].sort(
+    (a, b) => new Date(b.sortAt).getTime() - new Date(a.sortAt).getTime()
+  );
+  const skip = (page - 1) * pageSize;
+  const items = merged.slice(skip, skip + pageSize).map((row) => {
+    const { sortAt, ...rest } = row;
+    return rest;
+  });
+
+  return {
+    total: callTotal + meetingTotal,
+    page,
+    pageSize,
+    items,
+  };
 }
 
 async function screenShareToken({ callId, user }) {

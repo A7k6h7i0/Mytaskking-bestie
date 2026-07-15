@@ -8,22 +8,51 @@ import '../state.dart';
 String? _assigneeRecordUserId(Map<String, dynamic> assignee) {
   final nested = (assignee['user'] as Map?)?['id']?.toString();
   if (nested != null && nested.isNotEmpty) return nested;
-  return assignee['userId']?.toString();
+  final userId = assignee['userId']?.toString();
+  if (userId != null && userId.isNotEmpty) return userId;
+  // Some clients send a flat assignee user object.
+  final id = assignee['id']?.toString();
+  if (assignee['name'] != null && id != null && id.isNotEmpty) return id;
+  return null;
+}
+
+List<Map<String, dynamic>> _assigneeMaps(Map<String, dynamic> task) {
+  final raw = task['assignees'];
+  if (raw is! List) return const [];
+  final out = <Map<String, dynamic>>[];
+  for (final a in raw) {
+    if (a is Map) {
+      out.add(Map<String, dynamic>.from(a));
+    } else if (a is String && a.isNotEmpty) {
+      out.add({'userId': a});
+    }
+  }
+  return out;
 }
 
 bool _isAssignedToMe(Map<String, dynamic> task, String? meId) {
   if (meId == null) return false;
-  final assignees =
-      (task['assignees'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
-  return assignees.any((a) => _assigneeRecordUserId(a) == meId);
+  if (_assigneeMaps(task).any((a) => _assigneeRecordUserId(a) == meId)) {
+    return true;
+  }
+  // Fallback fields used by older / partial payloads.
+  final single = task['assigneeId']?.toString();
+  if (single != null && single == meId) return true;
+  final assignee = task['assignee'];
+  if (assignee is Map) {
+    final id = (assignee['id'] ?? assignee['userId'])?.toString();
+    if (id == meId) return true;
+  }
+  return false;
 }
 
 Map<String, dynamic>? _myAssignment(Map<String, dynamic> task, String? meId) {
   if (meId == null) return null;
-  final assignees =
-      (task['assignees'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
-  for (final a in assignees) {
+  for (final a in _assigneeMaps(task)) {
     if (_assigneeRecordUserId(a) == meId) return a;
+  }
+  if (_isAssignedToMe(task, meId)) {
+    return {'userId': meId, 'state': 'ACCEPTED'};
   }
   return null;
 }
@@ -170,10 +199,12 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
               final status = (t['status'] ?? 'TODO').toString();
               if (status == 'DONE' || status == 'CANCELLED') return false;
               final mine = _myAssignment(t, me?.id);
-              return mine != null && mine['state']?.toString() == 'PENDING';
+              if (mine == null) return false;
+              final state = (mine['state'] ?? 'PENDING').toString();
+              return state == 'PENDING';
             }).toList();
-            // Hide pending-accept block on due/overdue filters so it doesn't
-            // sit above the "no tasks" empty state (user sees both).
+            // Pending-accept block on All / Mine. Keep ACCEPTED tasks in the
+            // main list; only de-dupe PENDING so they aren't listed twice.
             final showAssignedPending = assignedPending.isNotEmpty &&
                 (_filter == _TaskFilter.all || _filter == _TaskFilter.mine);
             final pendingIds = showAssignedPending
@@ -231,7 +262,9 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
                     ),
                   ),
                 ],
-                if (filtered.isEmpty)
+                // Don't flash "No tasks assigned to you" when Mine only has
+                // pending-accept cards (they live in ASSIGNED TO YOU above).
+                if (filtered.isEmpty && !showAssignedPending)
                   SliverFillRemaining(
                     hasScrollBody: false,
                     child: BestieEmptyState(
@@ -255,7 +288,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
                       },
                     ),
                   )
-                else
+                else if (filtered.isNotEmpty)
                   SliverPadding(
                     padding: EdgeInsets.fromLTRB(12, 4, 12, shellNavClearance),
                     sliver: SliverList.separated(
@@ -263,7 +296,13 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
                       separatorBuilder: (_, __) => const SizedBox(height: 8),
                       itemCount: filtered.length,
                     ),
+                  )
+                else ...[
+                  // Mine has only pending-accept cards — keep clearance for tab bar.
+                  SliverToBoxAdapter(
+                    child: SizedBox(height: shellNavClearance),
                   ),
+                ],
               ],
             );
           },
@@ -381,6 +420,9 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
       final dueDay = due == null ? null : DateTime(due.year, due.month, due.day);
       switch (f) {
         case _TaskFilter.mine:
+          // Assigned to me (any acceptance state except declined) and not done.
+          final myState = _myAssignment(t, meId)?['state']?.toString();
+          if (myState == 'DECLINED') return false;
           return mine && !done;
         case _TaskFilter.dueToday:
           return dueDay != null &&

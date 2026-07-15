@@ -22,6 +22,13 @@ function errorHandler(err, req, res, _next) {
     return res.status(409).json({ error: { code: 'duplicate', message: 'Duplicate value', details: err.meta } });
   }
 
+  // Missing FK / related record — not a mysterious 500 for clients.
+  if (err && (err.code === 'P2003' || err.code === 'P2025')) {
+    return res.status(404).json({
+      error: { code: 'not_found', message: 'Related record not found', details: err.meta },
+    });
+  }
+
   logger.error({ err, path: req.path }, 'unhandled.error');
   return res.status(500).json({ error: { code: 'internal_error', message: 'Internal server error' } });
 }

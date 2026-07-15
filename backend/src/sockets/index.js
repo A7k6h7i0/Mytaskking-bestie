@@ -198,6 +198,17 @@ module.exports = function initSockets(server) {
       }).catch(() => {});
     });
 
+    // Mid-call voice → video upgrade so remotes flip UI (not only decode tracks).
+    socket.on('call.videoEnabled', ({ callId, enabled, agoraUid }) => {
+      if (!callId) return;
+      fanoutToCallParticipants(callId, 'call.videoEnabled', {
+        callId,
+        userId,
+        enabled: enabled !== false,
+        agoraUid: Number(agoraUid) > 0 ? Number(agoraUid) : null,
+      }).catch(() => {});
+    });
+
     socket.on('disconnect', () => {
       monitoring.trackSocketDisconnect();
       const set = presence.get(userId);

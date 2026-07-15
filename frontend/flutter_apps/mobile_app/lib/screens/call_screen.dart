@@ -606,6 +606,17 @@ class _CallScreenState extends ConsumerState<CallScreen>
         'agoraUid': data['agoraUid'],
       });
     }));
+    _callUnsubs.add(rt.onAny('call.videoEnabled', ([data]) {
+      if (data is! Map || data['callId'] != callId) return;
+      _handleCallSignalPayload({
+        'callId': callId,
+        'type': 'videoEnabled',
+        'enabled': data['enabled'],
+        'userId': data['userId'],
+        'agoraUid': data['agoraUid'],
+        'fromUserId': data['userId'],
+      });
+    }));
     _callUnsubs.add(rt.onAny('call.participant.muted', ([data]) {
       if (data is! Map || data['callId'] != callId) return;
       final me = ref.read(authStoreProvider).user;
@@ -651,8 +662,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
           _agoraUidToUserId[agoraUid] = userId;
           _remoteNames[agoraUid] = name;
           _seenPeerUids.add(agoraUid);
-          // Agora onUserJoined also adds the uid; keep map ready either way.
-          if (_remoteUids.contains(agoraUid) || _joined) {
+          // Mediasoup uses a different device uid than agoraUid — never
+          // invent a live tile from join notify alone (ghost guests).
+          if (!_CallSession.useMediasoup &&
+              (_remoteUids.contains(agoraUid) || _joined)) {
             _remoteUids.add(agoraUid);
           }
         }
@@ -664,8 +677,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
     }));
   }
 
-  /// Apply meeting token roster (userId + agoraUid + name) so tiles map
-  /// before / without announce sockets.
+  /// Apply meeting token roster. Only people who actually joined SFU/token
+  /// (backend filters INVITED). Still do not promote remotes until live.
   void _syncMeetingRoster(Map<String, dynamic>? tokenOrMeta) {
     if (!_isMeeting || tokenOrMeta == null) return;
     final me = ref.read(authStoreProvider).user;
@@ -678,19 +691,33 @@ class _CallScreenState extends ConsumerState<CallScreen>
       final p = Map<String, dynamic>.from(entry);
       final userId = p['userId']?.toString();
       if (userId == null || userId.isEmpty) continue;
+      final via = (p['joinedVia'] ?? '').toString().toUpperCase();
+      // Defensive: ignore invite-only rows if an older server still sends them.
+      if (via == 'INVITED') continue;
       final name =
           (p['displayName'] ?? p['userName'] ?? 'Participant').toString().trim();
       final resolved = name.isEmpty ? 'Participant' : name;
-      _markParticipantJoined(userId, resolved);
+      if (userId == me?.id) {
+        _markParticipantJoined(userId, resolved);
+        continue;
+      }
+      // Name bookkeeping only — do not treat as live until mediasoup sees them.
       final uidRaw = p['agoraUid'];
       final agoraUid = uidRaw is int ? uidRaw : int.tryParse('$uidRaw');
-      if (agoraUid == null || agoraUid <= 0) continue;
-      _agoraUidToUserId[agoraUid] = userId;
-      if (userId == me?.id) continue;
-      _remoteNames[agoraUid] = resolved;
-      // Promote to live tile if Agora already reported this peer.
-      if (_remoteUids.contains(agoraUid) || _seenPeerUids.contains(agoraUid)) {
-        _remoteUids.add(agoraUid);
+      if (agoraUid != null && agoraUid > 0) {
+        _agoraUidToUserId[agoraUid] = userId;
+        _remoteNames[agoraUid] = resolved;
+      }
+      if (_CallSession.useMediasoup) {
+        final sock = _CallSession.uidToSocketId[agoraUid ?? -1];
+        final live = sock != null &&
+            (_CallSession.mediasoup?.remoteStreams.containsKey(sock) == true ||
+                _CallSession.mediasoup?.remoteNames.containsKey(sock) == true);
+        if (live) _markParticipantJoined(userId, resolved);
+      } else if (_remoteUids.contains(agoraUid) ||
+          _seenPeerUids.contains(agoraUid ?? -1)) {
+        _markParticipantJoined(userId, resolved);
+        if (agoraUid != null) _remoteUids.add(agoraUid);
       }
     }
   }
@@ -1281,6 +1308,24 @@ class _CallScreenState extends ConsumerState<CallScreen>
       });
       return;
     }
+    if (type == 'videoEnabled') {
+      final fromId =
+          payload['fromUserId']?.toString() ?? payload['userId']?.toString();
+      final me = ref.read(authStoreProvider).user;
+      if (fromId != null && fromId == me?.id) return;
+      final enabled = payload['enabled'] != false;
+      if (!enabled) return;
+      final uidRaw = payload['agoraUid'];
+      var uid = uidRaw is int ? uidRaw : int.tryParse('$uidRaw');
+      if ((uid == null || uid <= 0) && fromId != null) {
+        uid = _agoraUidForUserId(fromId);
+      }
+      _upgradeToVideoUi(remoteUid: uid);
+      if (uid != null && uid > 0) {
+        unawaited(_ensureRemoteVideoSubscribed(uid));
+      }
+      return;
+    }
     if (type == 'raiseHand') {
       final userId = payload['fromUserId']?.toString();
       if (userId == null || userId.isEmpty) return;
@@ -1446,9 +1491,14 @@ class _CallScreenState extends ConsumerState<CallScreen>
     return ids.length;
   }
 
-  /// 3+ person voice calls use a plain white stage instead of the purple gradient.
-  bool get _useWhiteMultiParticipantBackdrop =>
-      !_isVideo && _participantCount > 2 && _useWhatsAppParticipantGrid;
+  /// Multi-party voice stage used a forced white WhatsApp backdrop that ignored
+  /// app dark mode. Never force white in dark theme.
+  bool get _useWhiteMultiParticipantBackdrop {
+    if (Theme.of(context).brightness == Brightness.dark) return false;
+    return !_isVideo &&
+        _participantCount > 2 &&
+        _useWhatsAppParticipantGrid;
+  }
 
   bool get _isMultiPartyCallUi =>
       _participantCount > 2 ||
@@ -1608,9 +1658,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
         _setMediaHint('Call media disconnected. Trying to recover…');
         return;
       }
-      final hasRemoteAudio = session.remoteStreams.values.any(
-        (s) => s.getAudioTracks().any((t) => t.enabled),
-      );
+      final hasRemoteAudio = session.remoteAudioStreams.values.any(
+            (s) => s.getAudioTracks().any((t) => t.enabled),
+          ) ||
+          session.remoteStreams.values.any(
+            (s) => s.getAudioTracks().any((t) => t.enabled),
+          );
       if (_remoteUids.isNotEmpty && !hasRemoteAudio) {
         _setMediaHint(
           'Connected but no remote audio yet. Check mic permission and speaker.',
@@ -2145,6 +2198,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
         final on = state == RemoteVideoState.remoteVideoStateDecoding;
         if (!off && !on) return;
         setState(() => _remoteVideoMuted[remoteUid] = off);
+        if (on && !_videoEnabled) {
+          _upgradeToVideoUi(remoteUid: remoteUid);
+        }
       },
       onConnectionLost: (conn) {
         if (!mounted) return;
@@ -2969,12 +3025,16 @@ class _CallScreenState extends ConsumerState<CallScreen>
       unawaited(_reassertAudio());
       final uid = _CallSession.socketIdToUid[socketId];
       if (kind == 'video' && stream.getVideoTracks().isNotEmpty) {
-        // Clear "camera off" so the tile mounts video instead of avatar.
+        // Clear "camera off" and flip voice → video UI on this device.
         final targetUid = uid ?? _CallSession.socketIdToUid[socketId];
         if (targetUid != null) {
           _remoteVideoMuted[targetUid] = false;
         }
-        if (mounted) setState(() {});
+        if (!_videoEnabled) {
+          _upgradeToVideoUi(remoteUid: targetUid);
+        } else if (mounted) {
+          setState(() {});
+        }
       }
       if (_waitingForAnswer && _remoteUids.isNotEmpty) {
         unawaited(_stopRingback());
@@ -3016,56 +3076,34 @@ class _CallScreenState extends ConsumerState<CallScreen>
     };
   }
 
+  String? _mediasoupSocketIdForUid(int? uid) {
+    if (uid == null) return null;
+    final mapped = _CallSession.uidToSocketId[uid];
+    if (mapped != null) return mapped;
+    for (final entry in _CallSession.socketIdToUid.entries) {
+      if (entry.value == uid) return entry.key;
+    }
+    return null;
+  }
+
   MediaStream? _mediasoupStreamForUid(int? uid,
       {required bool local, bool preferScreenTrack = false}) {
     final session = _CallSession.mediasoup;
     if (session == null) return null;
     if (local) return session.localStream;
     if (uid == null) return null;
-    final socketId = _CallSession.uidToSocketId[uid];
-    MediaStream? stream;
-    if (socketId == null) {
-      for (final entry in _CallSession.socketIdToUid.entries) {
-        if (entry.value == uid) {
-          stream = session.remoteStreams[entry.key];
-          break;
-        }
-      }
-    } else {
-      stream = session.remoteStreams[socketId];
+    final socketId = _mediasoupSocketIdForUid(uid);
+    if (socketId == null) return null;
+    if (preferScreenTrack) {
+      final screen = session.remoteScreenStreams[socketId];
+      if (screen != null && screen.getVideoTracks().isNotEmpty) return screen;
     }
-    if (stream == null || !preferScreenTrack) return stream;
-    final videos = stream.getVideoTracks();
-    if (videos.length <= 1) return stream;
-    for (final track in videos) {
-      final label = (track.label ?? '').toLowerCase();
-      if (label.contains('screen') ||
-          label.contains('display') ||
-          label.contains('web-contents') ||
-          label.contains('window')) {
-        // Prefer labeled screen track for display.
-        try {
-          for (final t in videos) {
-            t.enabled = identical(t, track) ||
-                !((t.label ?? '').toLowerCase().contains('camera') ||
-                    (t.label ?? '').toLowerCase().contains('facing'));
-          }
-        } catch (_) {}
-        return stream;
-      }
-    }
-    // No label — use last video track (screen is usually produced after camera).
-    try {
-      for (var i = 0; i < videos.length; i++) {
-        videos[i].enabled = i == videos.length - 1;
-      }
-    } catch (_) {}
-    return stream;
+    return session.remoteVideoStreams[socketId] ??
+        session.remoteStreams[socketId];
   }
 
-  /// Resolve a remote mediasoup stream that has video. UID→socket mapping can
-  /// lag behind [MediasoupCallSession.remoteStreams], so fall back to socket /
-  /// single-remote lookup for 1:1 video.
+  /// Resolve a remote mediasoup camera stream. UID→socket mapping can lag
+  /// behind consumers, so fall back to socket / single-remote lookup for 1:1.
   MediaStream? _mediasoupRemoteVideoStreamForUid(int? uid) {
     final session = _CallSession.mediasoup;
     if (session == null) return null;
@@ -3076,17 +3114,19 @@ class _CallScreenState extends ConsumerState<CallScreen>
       return s;
     }
 
-    if (uid != null) {
-      final byUid = withVideo(_mediasoupStreamForUid(uid, local: false));
-      if (byUid != null) return byUid;
+    MediaStream? videoForSocket(String socketId) {
+      return withVideo(session.remoteVideoStreams[socketId]) ??
+          withVideo(session.remoteStreams[socketId]);
+    }
 
-      final mappedSocket = _CallSession.uidToSocketId[uid];
+    if (uid != null) {
+      final mappedSocket = _mediasoupSocketIdForUid(uid);
       if (mappedSocket != null) {
-        final bySocket = withVideo(session.remoteStreams[mappedSocket]);
-        if (bySocket != null) return bySocket;
+        final hit = videoForSocket(mappedSocket);
+        if (hit != null) return hit;
       }
 
-      for (final entry in session.remoteStreams.entries) {
+      for (final entry in session.remoteVideoStreams.entries) {
         if (entry.key == mySocket) continue;
         if (_CallSession.socketIdToUid[entry.key] == uid) {
           final hit = withVideo(entry.value);
@@ -3100,7 +3140,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
         for (final entry in session.remoteNames.entries) {
           if (entry.key == mySocket) continue;
           if (entry.value.trim() != wantName) continue;
-          final hit = withVideo(session.remoteStreams[entry.key]);
+          final hit = videoForSocket(entry.key);
           if (hit != null) {
             _CallSession.socketIdToUid[entry.key] = uid;
             _CallSession.uidToSocketId[uid] = entry.key;
@@ -3110,8 +3150,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
       }
     }
 
-    // 1:1 / single remote: any remote video stream is fine.
-    final videoPeers = session.remoteStreams.entries
+    // 1:1 / single remote: any remote camera stream is fine.
+    final videoPeers = session.remoteVideoStreams.entries
         .where((e) =>
             e.key != mySocket && e.value.getVideoTracks().isNotEmpty)
         .toList();
@@ -3146,11 +3186,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
       for (final track in stream.getVideoTracks()) {
         track.enabled = true;
       }
+      final videos = stream.getVideoTracks();
+      final trackId = videos.isNotEmpty ? (videos.first.id ?? 'v') : 'v';
       return MediasoupVideoView(
-        key: ValueKey(
-          'ms-video-$uid-${stream.id}-v${stream.getVideoTracks().length}'
-          '-a${stream.getAudioTracks().length}',
-        ),
+        key: ValueKey('ms-video-$uid-${stream.id}-$trackId'),
         stream: stream,
       );
     }
@@ -3176,14 +3215,16 @@ class _CallScreenState extends ConsumerState<CallScreen>
     if (session == null) return const SizedBox.shrink();
     final mySocket = session.mySocketId;
     final sinks = <Widget>[];
-    for (final entry in session.remoteStreams.entries) {
+    // Prefer dedicated audio consumer streams so video tiles never share a
+    // MediaStream with this sink (dual-bind blanks Android remote video).
+    final audioEntries = session.remoteAudioStreams.isNotEmpty
+        ? session.remoteAudioStreams.entries
+        : session.remoteStreams.entries;
+    for (final entry in audioEntries) {
       if (entry.key == mySocket) continue;
       final stream = entry.value;
       if (stream.getAudioTracks().isEmpty) continue;
-      // Never dual-bind the same MediaStream to two RTCVideoRenderers —
-      // Android goes silent / blank remote (HTML uses one <video> per peer).
       if (stream.getVideoTracks().isNotEmpty) continue;
-      if (_mediasoupVideoSurfaceActiveFor(entry.key)) continue;
       sinks.add(
         SizedBox(
           width: 64,
@@ -3224,7 +3265,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
     }
     // 1:1 before uid↔socket map settles — fullscreen remote still mounts.
     if (!_isMeeting && _distinctRemoteUserCount <= 1) {
-      final stream = _CallSession.mediasoup?.remoteStreams[socketId];
+      final session = _CallSession.mediasoup;
+      final stream = session?.remoteVideoStreams[socketId] ??
+          session?.remoteStreams[socketId];
       return stream != null && stream.getVideoTracks().isNotEmpty;
     }
     return false;
@@ -3295,6 +3338,27 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final session = MediasoupCallSession(myMediaPeerId: deviceUid);
     _CallSession.mediasoup = session;
     _wireMediasoupCallbacks(session);
+    session.onNeedsRejoin = () {
+      if (!mounted || _booting) return;
+      setState(() => _status = 'Reconnecting…');
+      unawaited(() async {
+        if (_booting) return;
+        _booting = true;
+        try {
+          await session.disconnect();
+          final tokenResp = await _fetchToken();
+          if (!mounted) return;
+          await _bootstrapMediasoup(tokenResp);
+          if (mounted) setState(() => _status = 'Connected');
+        } catch (e) {
+          if (mounted) {
+            _reportCallFailure(e, status: 'Reconnect failed');
+          }
+        } finally {
+          _booting = false;
+        }
+      }());
+    };
 
     await session.connect(
       connectUrl: connectUrl,
@@ -3449,12 +3513,16 @@ class _CallScreenState extends ConsumerState<CallScreen>
         setState(() {
           _videoEnabled = true;
           _cameraOff = false;
+          _CallSession.videoEnabled = true;
         });
         session.setCameraEnabled(true);
+        _emitVideoUpgrade(enabled: true);
+        unawaited(_stopProximity());
         return;
       }
       setState(() => _cameraOff = !_cameraOff);
       session.setCameraEnabled(!_cameraOff);
+      _emitVideoUpgrade(enabled: !_cameraOff);
       return;
     }
     final engine = _engine;
@@ -3483,7 +3551,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
         setState(() {
           _videoEnabled = true;
           _cameraOff = false;
+          _CallSession.videoEnabled = true;
         });
+        _emitVideoUpgrade(enabled: true);
+        unawaited(_stopProximity());
       } catch (e) {
         if (mounted) {
           bestieToast(
@@ -3502,6 +3573,41 @@ class _CallScreenState extends ConsumerState<CallScreen>
       publishCameraTrack: !_cameraOff,
       autoSubscribeVideo: true,
     ));
+    _emitVideoUpgrade(enabled: !_cameraOff);
+  }
+
+  /// Tell peers to flip from voice UI to video UI (they also see remote tracks).
+  void _emitVideoUpgrade({required bool enabled}) {
+    final meId = ref.read(authStoreProvider).user?.id;
+    final agoraUid = _CallSession.myUid;
+    _broadcastCallSignal({
+      'type': 'videoEnabled',
+      'enabled': enabled,
+      'agoraUid': agoraUid,
+      'fromUserId': meId,
+    });
+    final callId = widget.callId;
+    if (callId != null) {
+      final rt = ref.read(realtimeProvider);
+      rt.emit('call.videoEnabled', {
+        'callId': callId,
+        'enabled': enabled,
+        'agoraUid': agoraUid,
+      });
+    }
+  }
+
+  void _upgradeToVideoUi({int? remoteUid}) {
+    if (!mounted) return;
+    setState(() {
+      _videoEnabled = true;
+      _CallSession.videoEnabled = true;
+      if (remoteUid != null && remoteUid > 0) {
+        _remoteVideoMuted[remoteUid] = false;
+        _remoteUids.add(remoteUid);
+      }
+    });
+    unawaited(_stopProximity());
   }
 
   Future<void> _flipCamera() async {
@@ -5193,8 +5299,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
                     ),
                   ]),
             ),
-            _callThemeToggleButton(),
-            const SizedBox(width: 4),
+            // Theme toggle is app-wide (settings) — hide on multi-party grid.
             _circleHeaderIcon(Icons.person_add_alt_1_rounded, _showInvite,
                 tooltip: 'Add participant'),
           ]),
@@ -6370,21 +6475,29 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   Widget _participantsStrip({bool showTimer = true}) {
-    // Prefer stable joined people (userId → name). Never show raw Agora
-    // "Participant" placeholders from unmapped UIDs.
+    // Prefer SFU-live people only — roster invitees / ghosts stay out.
     final me = ref.read(authStoreProvider).user;
     final names = <String>[];
-    for (final entry in _joinedParticipants.entries) {
-      if (entry.key == me?.id) continue;
-      final n = entry.value.trim();
-      if (n.isNotEmpty) names.add(n);
-    }
-    if (names.isEmpty) {
-      for (final uid in _remoteUids) {
-        final mapped = _agoraUidToUserId[uid];
-        if (mapped != null && mapped == me?.id) continue;
-        final n = _remoteNames[uid]?.trim();
-        if (n != null && n.isNotEmpty && n != 'Participant') names.add(n);
+    final session = _CallSession.mediasoup;
+    if (_CallSession.useMediasoup && session != null) {
+      for (final entry in session.remoteNames.entries) {
+        if (entry.key == session.mySocketId) continue;
+        final n = entry.value.trim();
+        if (n.isNotEmpty && n != 'Participant') names.add(n);
+      }
+    } else {
+      for (final entry in _joinedParticipants.entries) {
+        if (entry.key == me?.id) continue;
+        final n = entry.value.trim();
+        if (n.isNotEmpty) names.add(n);
+      }
+      if (names.isEmpty) {
+        for (final uid in _remoteUids) {
+          final mapped = _agoraUidToUserId[uid];
+          if (mapped != null && mapped == me?.id) continue;
+          final n = _remoteNames[uid]?.trim();
+          if (n != null && n.isNotEmpty && n != 'Participant') names.add(n);
+        }
       }
     }
     final label = names.isEmpty ? 'Waiting for others' : names.join(', ');

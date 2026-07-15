@@ -35,7 +35,16 @@ class MediasoupCallSession {
 
   bool joined = false;
   MediaStream? localStream;
+  /// Peer presence / primary stream (usually camera video, else audio).
+  /// Tracks come from mediasoup [Consumer.stream] — never rebased.
   final Map<String, MediaStream> remoteStreams = {};
+  /// Per-peer audio consumer stream (for voice sink; HTML mixes into one
+  /// `<video>`, Flutter must not addTrack onto a second MediaStream).
+  final Map<String, MediaStream> remoteAudioStreams = {};
+  /// Per-peer camera video consumer stream (bind [RTCVideoRenderer] here).
+  final Map<String, MediaStream> remoteVideoStreams = {};
+  /// Per-peer screen-share video consumer stream (2nd video from same peer).
+  final Map<String, MediaStream> remoteScreenStreams = {};
   final Map<String, String> remoteNames = {};
   String? mySocketId;
   int? myMediaPeerId;
@@ -49,6 +58,7 @@ class MediasoupCallSession {
   void Function(String socketId, MediaStream stream, String kind)? onRemoteStream;
   /// Fired when a peer publishes a 2nd video track (typically screen share).
   void Function(String socketId, MediaStream stream)? onRemoteScreenShare;
+  void Function()? onNeedsRejoin;
   void Function()? onStateChanged;
   void Function(Object error)? onError;
 
@@ -186,13 +196,12 @@ class MediasoupCallSession {
     _pendingConsumers.clear();
     _pendingProducers.clear();
 
-    // Peer streams only aggregate consumer tracks — don't stop tracks here.
-    for (final stream in remoteStreams.values) {
-      try {
-        await stream.dispose();
-      } catch (_) {}
-    }
+    // Consumer.stream is owned by mediasoup — clearing refs is enough;
+    // consumer.close() above stops tracks.
     remoteStreams.clear();
+    remoteAudioStreams.clear();
+    remoteVideoStreams.clear();
+    remoteScreenStreams.clear();
     remoteNames.clear();
 
     if (localStream != null) {
@@ -286,7 +295,13 @@ class MediasoupCallSession {
         consumer.track.enabled = true;
       } catch (_) {}
     }
-    for (final stream in remoteStreams.values) {
+    final all = <MediaStream>{
+      ...remoteStreams.values,
+      ...remoteAudioStreams.values,
+      ...remoteVideoStreams.values,
+      ...remoteScreenStreams.values,
+    };
+    for (final stream in all) {
       for (final track in stream.getAudioTracks()) {
         track.enabled = true;
         try {
@@ -469,7 +484,14 @@ class MediasoupCallSession {
 
     final socket = io.io(
       connectUrl,
-      io.OptionBuilder().setTransports(['websocket']).enableForceNew().build(),
+      io.OptionBuilder()
+          .setTransports(['websocket'])
+          .enableForceNew()
+          .enableReconnection()
+          .setReconnectionAttempts(12)
+          .setReconnectionDelay(800)
+          .setReconnectionDelayMax(5000)
+          .build(),
     );
     _socket = socket;
 
@@ -525,10 +547,27 @@ class MediasoupCallSession {
     });
 
     socket.onDisconnect((_) {
+      // Prefer auto-reconnect over tearing the call down on brief blips
+      // (common on mobile networks). Hard-fail only after reconnect_failed.
+      if (joined) _notifyStateChanged();
+    });
+
+    socket.on('reconnect', (_) {
+      mySocketId = socket.id;
+      if (joined) {
+        onNeedsRejoin?.call();
+      }
+    });
+
+    socket.on('reconnect_failed', (_) {
       if (joined || _connecting) {
         unawaited(disconnect());
-        onError?.call('Socket disconnected — rejoin required');
+        onError?.call('Connection lost — please rejoin the call');
       }
+    });
+
+    socket.on('reconnect_attempt', (_) {
+      if (joined) _notifyStateChanged();
     });
 
     socket.onConnect((_) {
@@ -921,8 +960,9 @@ class MediasoupCallSession {
         remoteNames[socketId] = userName;
       }
       final kind = data['kind']?.toString() ?? consumer.kind ?? 'audio';
-      // HTML does: el.srcObject = new MediaStream(); el.srcObject.addTrack(track)
-      await _attachRemoteTrack(socketId, consumer.track, kind);
+      // Bind Consumer.stream directly (mediasoup already attached the track).
+      // createLocalMediaStream + addTrack blanks remote video on Flutter Android.
+      _attachRemoteConsumer(socketId, consumer, kind);
       await enableRemotePlayback();
       // Android ADM sometimes binds a tick after tracks appear.
       Future<void>.delayed(const Duration(milliseconds: 300), () async {
@@ -941,43 +981,37 @@ class MediasoupCallSession {
     completer?.complete(consumer);
   }
 
-  /// One MediaStream per remote peer (same as the HTML test's video element).
-  ///
-  /// Important (HTML parity): after `addTrack`, mobile WebRTC often keeps a
-  /// blank video until a **new** MediaStream is built and rebound. The HTML
-  /// page does `el.srcObject = new MediaStream(tracks)` — we do the same.
-  Future<void> _attachRemoteTrack(
+  /// Attach a mediasoup consumer the same way the HTML test uses
+  /// `consumer.track` on a MediaStream — but keep the stream mediasoup built
+  /// ([Consumer.stream]). Re-wrapping tracks via [createLocalMediaStream]
+  /// leaves remote video black while local preview still works.
+  void _attachRemoteConsumer(
     String socketId,
-    MediaStreamTrack track,
+    Consumer consumer,
     String kind,
-  ) async {
-    track.enabled = true;
+  ) {
+    consumer.track.enabled = true;
+    final stream = consumer.stream;
 
-    final previous = remoteStreams[socketId];
-    final tracks = <MediaStreamTrack>[];
-    if (previous != null) {
-      for (final t in previous.getTracks()) {
-        if (t.id != track.id) tracks.add(t);
+    if (kind == 'video') {
+      if (remoteVideoStreams.containsKey(socketId)) {
+        // Second video from same peer = screen share.
+        remoteScreenStreams[socketId] = stream;
+        onRemoteScreenShare?.call(socketId, stream);
+      } else {
+        remoteVideoStreams[socketId] = stream;
       }
-    }
-    tracks.add(track);
-
-    // Fresh stream id forces MediasoupVideoView / RTCVideoRenderer remount.
-    final peerStream = await createLocalMediaStream(
-      'remote-$socketId-${kind}-${tracks.length}-${DateTime.now().microsecondsSinceEpoch}',
-    );
-    for (final t in tracks) {
-      t.enabled = true;
-      await peerStream.addTrack(t);
-    }
-    remoteStreams[socketId] = peerStream;
-    // Do not dispose [previous]: flutter_webrtc may tear down consumer tracks
-    // that were just moved onto [peerStream] (blank remote video).
-
-    onRemoteStream?.call(socketId, peerStream, kind);
-    // Second video track from the same peer = screen share (camera + screen).
-    if (kind == 'video' && peerStream.getVideoTracks().length >= 2) {
-      onRemoteScreenShare?.call(socketId, peerStream);
+      // Camera (or sole video) is what tiles look up.
+      remoteStreams[socketId] =
+          remoteVideoStreams[socketId] ?? remoteStreams[socketId] ?? stream;
+      onRemoteStream?.call(socketId, stream, kind);
+    } else {
+      remoteAudioStreams[socketId] = stream;
+      // Keep peer visible for voice-only until camera arrives.
+      if (!remoteVideoStreams.containsKey(socketId)) {
+        remoteStreams[socketId] = stream;
+      }
+      onRemoteStream?.call(socketId, stream, kind);
     }
     _notifyStateChanged();
   }
@@ -999,16 +1033,10 @@ class MediasoupCallSession {
       } catch (_) {}
     }
 
-    final stream = remoteStreams.remove(socketId);
-    if (stream != null) {
-      unawaited(() async {
-        // Tracks belong to consumers — don't stop them here; closing the
-        // consumer tears them down. Just drop our peer aggregator stream.
-        try {
-          await stream.dispose();
-        } catch (_) {}
-      }());
-    }
+    remoteStreams.remove(socketId);
+    remoteAudioStreams.remove(socketId);
+    remoteVideoStreams.remove(socketId);
+    remoteScreenStreams.remove(socketId);
   }
 
   Future<void> _stopScreenShareInternal({required bool notify}) async {

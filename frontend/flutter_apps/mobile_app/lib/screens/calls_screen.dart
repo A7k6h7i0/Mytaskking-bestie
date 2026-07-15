@@ -106,7 +106,8 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
                   ? const BestieEmptyState(
                       icon: Icons.phone_outlined,
                       title: 'No calls yet',
-                      description: 'Voice and video calls will show up here.',
+                      description:
+                          'Voice calls, video calls, and ended meetings show up here.',
                     )
                   : RefreshIndicator(
                       onRefresh: () async {
@@ -117,6 +118,14 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
                       },
                       child: ListView.separated(
                         controller: _scroll,
+                        // Shell already draws the tab bar (extendBody) — clear
+                        // it with list padding only. A nested bottomNavigationBar
+                        // left a huge empty band under the history.
+                        padding: EdgeInsets.only(
+                          bottom: 56.0 +
+                              8.0 +
+                              MediaQuery.of(context).padding.bottom,
+                        ),
                         itemCount: _items.length + 1,
                         separatorBuilder: (_, __) =>
                             Divider(height: 1, indent: 72, color: c.border),
@@ -152,10 +161,6 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
                         },
                       ),
                     ))),
-      bottomNavigationBar: SizedBox(
-        // Clear shell nav without the old oversized spacer.
-        height: 52.0 + MediaQuery.of(context).padding.bottom,
-      ),
     );
   }
 }
@@ -259,6 +264,11 @@ class _CallRow extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final me = ref.read(authStoreProvider).user;
+    if (call['historyType']?.toString() == 'MEETING' ||
+        (call['kind']?.toString() == 'MEETING' && call['slug'] != null)) {
+      return _MeetingHistoryRow(call: call, colors: colors);
+    }
+
     final initiator =
         (call['initiator'] as Map?)?.cast<String, dynamic>() ?? const {};
     final participants =
@@ -313,16 +323,19 @@ class _CallRow extends ConsumerWidget {
             _joinCall(context, ref);
           } else if (showReturn) {
             _returnToCall(context, ref);
-          } else if (canCallBack) {
-            _ringBack(
-              context,
-              ref,
-              header['id'] as String?,
-              name,
-              mode,
-            );
+          } else {
+            _showCallOrMeetingDetails(context, call, colors);
           }
         },
+        onLongPress: canCallBack && !showJoin && !showReturn
+            ? () => _ringBack(
+                  context,
+                  ref,
+                  header['id'] as String?,
+                  name,
+                  mode,
+                )
+            : null,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           child: Row(
@@ -367,7 +380,7 @@ class _CallRow extends ConsumerWidget {
                                 ? 'Active group call · tap to join'
                                 : showReturn
                                     ? 'Ongoing · tap to return'
-                                    : '${outgoing ? "Outgoing" : "Incoming"} · $kind · ${status.toLowerCase()}',
+                                    : '${outgoing ? "Outgoing" : "Incoming"} · $kind · ${status.toLowerCase()} · tap for details',
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(color: statusColor, fontSize: 12),
@@ -597,3 +610,213 @@ class _CallRow extends ConsumerWidget {
     }
   }
 }
+
+class _MeetingHistoryRow extends StatelessWidget {
+  final Map<String, dynamic> call;
+  final BestieColors colors;
+  const _MeetingHistoryRow({required this.call, required this.colors});
+
+  @override
+  Widget build(BuildContext context) {
+    final title =
+        (call['name'] ?? call['title'] ?? 'Meeting').toString().trim();
+    final mode = (call['mode'] ?? 'VOICE').toString();
+    final isVideo = mode.toUpperCase() == 'VIDEO';
+    final participants =
+        (call['participants'] as List?)?.cast<Map<String, dynamic>>() ??
+            const [];
+    final count = (call['participantCount'] as num?)?.toInt() ??
+        participants.length;
+    final names = participants
+        .map((p) =>
+            (p['displayName'] ?? (p['user'] as Map?)?['name'] ?? '')
+                .toString()
+                .trim())
+        .where((n) => n.isNotEmpty)
+        .toList();
+    final who = names.isEmpty
+        ? '$count participant${count == 1 ? '' : 's'}'
+        : names.length <= 2
+            ? names.join(' & ')
+            : '${names.take(2).join(', ')} +${names.length - 2}';
+    final ended = call['endedAt']?.toString();
+    final when = ended != null && ended.length >= 16
+        ? ended.substring(0, 16).replaceFirst('T', ' ')
+        : 'Ended';
+
+    return Material(
+      color: colors.surface,
+      child: InkWell(
+        onTap: () => _showCallOrMeetingDetails(context, call, colors),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 20,
+                backgroundColor: colors.brand.withValues(alpha: 0.15),
+                child: Icon(
+                  isVideo
+                      ? Icons.video_camera_front_outlined
+                      : Icons.groups_outlined,
+                  color: colors.brand,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title.isEmpty ? 'Meeting' : title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontWeight: BestieTokens.fwSemibold,
+                        color: colors.text,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      'Meeting · $who · $when · tap for details',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: colors.textMuted, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: colors.textFaint),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+void _showCallOrMeetingDetails(
+  BuildContext context,
+  Map<String, dynamic> item,
+  BestieColors colors,
+) {
+  final isMeeting = item['historyType']?.toString() == 'MEETING' ||
+      item['kind']?.toString() == 'MEETING';
+  final title = isMeeting
+      ? (item['name'] ?? item['title'] ?? 'Meeting').toString()
+      : 'Call details';
+  final mode = (item['mode'] ?? 'VOICE').toString();
+  final status = (item['status'] ?? 'COMPLETED').toString();
+  final participants =
+      (item['participants'] as List?)?.cast<Map<String, dynamic>>() ??
+          const [];
+  final initiator =
+      (item['initiator'] as Map?)?.cast<String, dynamic>() ?? const {};
+  final hostName = (initiator['name'] ?? '').toString();
+  final created = item['createdAt']?.toString() ?? '';
+  final ended = item['endedAt']?.toString() ?? '';
+
+  showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: colors.surface,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+    ),
+    builder: (ctx) {
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: BestieTokens.fwBold,
+                  color: colors.text,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _detailLine(colors, 'Type', isMeeting ? 'Meeting' : 'Call'),
+              _detailLine(colors, 'Mode', mode),
+              _detailLine(colors, 'Status', status),
+              if (hostName.isNotEmpty)
+                _detailLine(colors, isMeeting ? 'Host' : 'Initiator', hostName),
+              if (created.isNotEmpty)
+                _detailLine(colors, 'Started', created.replaceFirst('T', ' ')),
+              if (ended.isNotEmpty)
+                _detailLine(colors, 'Ended', ended.replaceFirst('T', ' ')),
+              const SizedBox(height: 12),
+              Text(
+                'People (${participants.length})',
+                style: TextStyle(
+                  fontWeight: BestieTokens.fwSemibold,
+                  color: colors.text,
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (participants.isEmpty)
+                Text('No participant list',
+                    style: TextStyle(color: colors.textMuted, fontSize: 13))
+              else
+                ...participants.take(12).map((p) {
+                  final n = (p['displayName'] ??
+                          (p['user'] as Map?)?['name'] ??
+                          'Participant')
+                      .toString();
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      children: [
+                        Icon(Icons.person_outline,
+                            size: 18, color: colors.textMuted),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(n,
+                              style: TextStyle(
+                                  color: colors.text, fontSize: 14)),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Close'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+Widget _detailLine(BestieColors colors, String label, String value) {
+  return Padding(
+    padding: const EdgeInsets.only(bottom: 6),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 88,
+          child: Text(label,
+              style: TextStyle(color: colors.textMuted, fontSize: 13)),
+        ),
+        Expanded(
+          child: Text(value,
+              style: TextStyle(color: colors.text, fontSize: 13)),
+        ),
+      ],
+    ),
+  );
+}
+

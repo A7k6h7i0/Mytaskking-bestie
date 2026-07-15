@@ -51,6 +51,27 @@ class BestieApi {
               } catch (_) {}
             }
           }
+
+          // Transient gateway / overload blips — common on cellular with many
+          // devices polling the same APIs. Retry idempotent GETs once.
+          final status = e.response?.statusCode;
+          final method = e.requestOptions.method.toUpperCase();
+          final retried = e.requestOptions.extra['mtk_retry'] == true;
+          final transient = status == 502 ||
+              status == 503 ||
+              status == 504 ||
+              e.type == DioExceptionType.connectionTimeout ||
+              e.type == DioExceptionType.receiveTimeout;
+          if (!retried && method == 'GET' && transient) {
+            final req = e.requestOptions;
+            req.extra['mtk_retry'] = true;
+            await Future<void>.delayed(const Duration(milliseconds: 500));
+            try {
+              final r = await dio.fetch(req);
+              return handler.resolve(r);
+            } catch (_) {}
+          }
+
           handler.next(e);
         },
       ),

@@ -201,10 +201,11 @@ class _BestieCalendarViewState extends ConsumerState<BestieCalendarView> {
     final compact = widget.compact;
     final hourHeight =
         compact ? _hourHeightCompact : _hourHeightDesktop;
-    final outerPad = compact ? 12.0 : 24.0;
-    // Shell uses extendBody + floating nav — keep content clear of the bar.
+    final outerPad = compact ? 10.0 : 24.0;
+    // Shell NavBar is 56 + system inset (extendBody). Clear that only — no
+    // extra dead space under the mini-calendar.
     final bottomClearance = compact
-        ? 70.0 + MediaQuery.paddingOf(context).bottom + 12
+        ? 56.0 + MediaQuery.paddingOf(context).bottom
         : outerPad;
 
     return ColoredBox(
@@ -356,20 +357,28 @@ class _BestieCalendarViewState extends ConsumerState<BestieCalendarView> {
                   );
 
                   if (compact) {
+                    // Fixed week card + scrollable mini-calendar below — never
+                    // nest Expanded sidebar inside unbounded scroll (collapsed
+                    // week / overlapping dates when changing weeks).
                     return LayoutBuilder(
                       builder: (context, constraints) {
-                        final gridHeight =
-                            (constraints.maxHeight * 0.52).clamp(260.0, 420.0);
-                        return SingleChildScrollView(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              SizedBox(height: gridHeight, child: weekGrid),
-                              const SizedBox(height: 12),
-                              sidebar(),
-                              const SizedBox(height: 8),
-                            ],
-                          ),
+                        final h = constraints.maxHeight;
+                        final short = h < 480;
+                        final gridHeight = short
+                            ? (h * 0.48).clamp(200.0, 280.0)
+                            : (h * 0.50).clamp(240.0, 360.0);
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            SizedBox(height: gridHeight, child: weekGrid),
+                            const SizedBox(height: 8),
+                            Expanded(
+                              child: SingleChildScrollView(
+                                physics: const BouncingScrollPhysics(),
+                                child: sidebar(),
+                              ),
+                            ),
+                          ],
                         );
                       },
                     );
@@ -734,7 +743,12 @@ class _WeekTimeGrid extends StatelessWidget {
             ],
           ),
           Divider(height: 1, color: _CalUi.borderDarker),
-          _AllDayRow(weekStart: weekStart, entries: allDay),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 72),
+            child: SingleChildScrollView(
+              child: _AllDayRow(weekStart: weekStart, entries: allDay),
+            ),
+          ),
           Expanded(
             child: SingleChildScrollView(
               child: SizedBox(
@@ -1188,113 +1202,132 @@ class _Sidebar extends StatelessWidget {
         .take(8)
         .toList();
 
+    final panel = DecoratedBox(
+      decoration: BoxDecoration(
+        color: _CalUi.bgSurface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _CalUi.borderDarker),
+      ),
+      child: Padding(
+        padding: EdgeInsets.all(compact ? 12 : 24),
+        child: Column(
+          mainAxisSize: compact ? MainAxisSize.min : MainAxisSize.max,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _MiniCalendar(
+              month: sidebarMonth,
+              weekStart: weekStart,
+              entries: entries,
+              onPrev: onMonthPrev,
+              onNext: onMonthNext,
+              onSelectDay: onSelectWeek,
+            ),
+            SizedBox(height: compact ? 12 : 24),
+            Text(
+              'Upcoming',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: _CalUi.textPrimary,
+              ),
+            ),
+            SizedBox(height: compact ? 10 : 16),
+            if (compact) ...[
+              if (upcoming.isEmpty)
+                Text(
+                  'No upcoming events this week.',
+                  style: TextStyle(
+                    color: _CalUi.textSecondary,
+                    fontSize: 13,
+                  ),
+                )
+              else
+                for (var i = 0; i < upcoming.length; i++) ...[
+                  if (i > 0) const SizedBox(height: 12),
+                  _UpcomingRow(entry: upcoming[i]),
+                ],
+            ] else
+              Expanded(
+                child: upcoming.isEmpty
+                    ? Text(
+                        'No upcoming events this week.',
+                        style: TextStyle(
+                          color: _CalUi.textSecondary,
+                          fontSize: 13,
+                        ),
+                      )
+                    : ListView.separated(
+                        itemCount: upcoming.length,
+                        separatorBuilder: (_, __) =>
+                            const SizedBox(height: 16),
+                        itemBuilder: (_, i) =>
+                            _UpcomingRow(entry: upcoming[i]),
+                      ),
+              ),
+            if (!compact) ...[
+              Material(
+                color: _CalUi.bgBody,
+                borderRadius: BorderRadius.circular(8),
+                child: InkWell(
+                  onTap: onViewFullSchedule,
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'View full schedule',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: _CalUi.primaryBlue,
+                          ),
+                        ),
+                        Icon(Icons.chevron_right_rounded,
+                            color: _CalUi.primaryBlue, size: 18),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+
+    if (compact) return panel;
+
     return Stack(
       children: [
         Column(
           children: [
-            Expanded(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: _CalUi.bgSurface,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: _CalUi.borderDarker),
-                ),
-                child: Padding(
-                  padding: EdgeInsets.all(compact ? 16 : 24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _MiniCalendar(
-                        month: sidebarMonth,
-                        weekStart: weekStart,
-                        entries: entries,
-                        onPrev: onMonthPrev,
-                        onNext: onMonthNext,
-                        onSelectDay: onSelectWeek,
-                      ),
-                      SizedBox(height: 24),
-                      Text(
-                        'Upcoming',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: _CalUi.textPrimary,
-                        ),
-                      ),
-                      SizedBox(height: 16),
-                      Expanded(
-                        child: upcoming.isEmpty
-                            ? Text(
-                                'No upcoming events this week.',
-                                style: TextStyle(
-                                  color: _CalUi.textSecondary,
-                                  fontSize: 13,
-                                ),
-                              )
-                            : ListView.separated(
-                                itemCount: upcoming.length,
-                                separatorBuilder: (_, __) =>
-                                    SizedBox(height: 16),
-                                itemBuilder: (_, i) =>
-                                    _UpcomingRow(entry: upcoming[i]),
-                              ),
-                      ),
-                      Material(
-                        color: _CalUi.bgBody,
-                        borderRadius: BorderRadius.circular(8),
-                        child: InkWell(
-                          onTap: onViewFullSchedule,
-                          borderRadius: BorderRadius.circular(8),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 12,
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  'View full schedule',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w500,
-                                    color: _CalUi.primaryBlue,
-                                  ),
-                                ),
-                                Icon(Icons.chevron_right_rounded,
-                                    color: _CalUi.primaryBlue, size: 18),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+            Expanded(child: panel),
           ],
         ),
-        if (!compact)
-          Positioned(
-            right: 0,
-            bottom: 0,
-            child: Material(
-              color: _CalUi.primaryBlue,
+        Positioned(
+          right: 0,
+          bottom: 0,
+          child: Material(
+            color: _CalUi.primaryBlue,
+            borderRadius: BorderRadius.circular(12),
+            elevation: 4,
+            shadowColor: _CalUi.primaryBlue.withValues(alpha: 0.3),
+            child: InkWell(
+              onTap: onNewEvent,
               borderRadius: BorderRadius.circular(12),
-              elevation: 4,
-              shadowColor: _CalUi.primaryBlue.withValues(alpha: 0.3),
-              child: InkWell(
-                onTap: onNewEvent,
-                borderRadius: BorderRadius.circular(12),
-                child: const SizedBox(
-                  width: 48,
-                  height: 48,
-                  child: Icon(Icons.add, color: Colors.white),
-                ),
+              child: const SizedBox(
+                width: 48,
+                height: 48,
+                child: Icon(Icons.add, color: Colors.white),
               ),
             ),
           ),
+        ),
       ],
     );
   }
