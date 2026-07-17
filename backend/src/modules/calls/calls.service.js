@@ -338,6 +338,37 @@ function withMediaParticipantIds(call) {
   };
 }
 
+/** Participant row is live in the call (answered and not left). */
+function isLiveCallParticipant(p) {
+  return Boolean(p && p.joinedAt != null && p.leftAt == null);
+}
+
+function liveCallParticipants(call) {
+  return (call?.participants || []).filter(isLiveCallParticipant);
+}
+
+function liveParticipantCount(call) {
+  return liveCallParticipants(call).length;
+}
+
+function serializeLiveCallRoster(call) {
+  return liveCallParticipants(call).map((p) => ({
+    userId: p.userId,
+    userName: p.user?.name || 'Participant',
+    agoraUid: mediasoup.toMediaPeerId(p.userId),
+    mediaPeerId: mediasoup.toMediaPeerId(p.userId),
+    joinedAt: p.joinedAt,
+    leftAt: p.leftAt,
+  }));
+}
+
+/** Authoritative live roster + count for socket payloads and API responses. */
+function callRosterPayload(call) {
+  const participants = serializeLiveCallRoster(call);
+  const count = participants.length;
+  return { participantCount: count, liveCount: count, participants };
+}
+
 async function tokenFor({ callId, user }) {
   const call = await prisma.call.findUnique({ where: { id: callId }, include: callInclude });
   if (!call) throw NotFound('Call not found');
@@ -352,13 +383,15 @@ async function tokenFor({ callId, user }) {
   } catch (err) {
     console.warn('[calls] mediasoup ensureRoom failed:', err.message);
   }
+  const enriched = withMediaParticipantIds(call);
   return {
     ...mediasoup.generateMediaSession({
       channelName: call.channelName,
       userId: user.id,
       userName: user.name,
     }),
-    call: withMediaParticipantIds(call),
+    call: enriched,
+    ...callRosterPayload(enriched),
   };
 }
 
@@ -1136,4 +1169,9 @@ module.exports = {
   RING_NO_ANSWER_MS,
   talkTimeForUser,
   talkTimeOrg,
+  isLiveCallParticipant,
+  liveCallParticipants,
+  liveParticipantCount,
+  serializeLiveCallRoster,
+  callRosterPayload,
 };

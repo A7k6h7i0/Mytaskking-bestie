@@ -196,6 +196,7 @@ router.get(
 
 router.post('/:id/join', asyncHandler(async (req, res) => {
   const call = await service.join({ callId: req.params.id, user: req.user });
+  const roster = service.callRosterPayload(call);
   // The client sends the random per-device uid it actually joined Agora with
   // (wildcard token flow); fall back to the derived uid for old clients.
   const agoraUid = Number(req.body?.agoraUid) > 0
@@ -206,8 +207,9 @@ router.post('/:id/join', asyncHandler(async (req, res) => {
     userId: req.user.id,
     userName: req.user.name,
     agoraUid,
+    ...roster,
   });
-  res.json(call);
+  res.json({ ...call, ...roster });
 }));
 
 // Re-broadcast a participant's real Agora uid + name so every device can label
@@ -249,10 +251,12 @@ router.post('/:id/leave', asyncHandler(async (req, res) => {
     call.id,
     clientAppFromUserAgent(req.headers['user-agent']),
   );
+  const roster = service.callRosterPayload(call);
   emitToCallParticipants(req.app.get('io'), call, 'call.participant.left', {
     callId: call.id,
     userId: req.user.id,
     status: call.status,
+    ...roster,
   }, call.status === 'ENDED' || call.status === 'MISSED' ? undefined : clientApp);
   // Caller hung up while still ringing → MISSED. Mirror /decline + the 60s
   // timeout so the callee stops ringing and FCM clears the push notification.
@@ -337,11 +341,13 @@ router.post('/:id/waiting/accept', validate({
       token: result.tokens[userId],
     });
   }
+  const roster = service.callRosterPayload(result.activeCall);
   emitToCallParticipants(req.app.get('io'), result.activeCall, 'call.participants.updated', {
     callId: result.activeCall.id,
     call: result.activeCall,
+    ...roster,
   });
-  res.json(result);
+  res.json({ ...result, ...roster });
 }));
 
 router.post('/:id/waiting/reject', asyncHandler(async (req, res) => {
@@ -463,7 +469,13 @@ router.post(
         return null;
       })
       .catch(() => {/* push is best-effort */});
-    res.json(result);
+    const roster = service.callRosterPayload(result.call);
+    emitToCallParticipants(req.app.get('io'), result.call, 'call.participants.updated', {
+      callId: result.call.id,
+      call: result.call,
+      ...roster,
+    });
+    res.json({ ...result, ...roster });
   })
 );
 

@@ -360,23 +360,77 @@ class MediasoupCallSession {
     _notifyStateChanged();
   }
 
-  /// Switch front ↔ rear camera with explicit [facingMode] and replace the SFU
-  /// video track. [Helper.switchCamera] alone leaves Android sending a
-  /// mirrored/wrong-orientation rear feed to peers.
+  /// Ensure webcam producer exists before flip or mid-call camera-on.
+  Future<bool> ensureWebcamReady() async {
+    if (!joined) return false;
+    if (_videoProducer != null &&
+        (localStream?.getVideoTracks().isNotEmpty ?? false)) {
+      return true;
+    }
+    await _ensureWebcamProduced();
+    return _videoProducer != null &&
+        (localStream?.getVideoTracks().isNotEmpty ?? false);
+  }
+
+  /// Switch front ↔ rear camera. Prefer [Helper.switchCamera] on the open
+  /// track (Android blocks a second getUserMedia while the cam is busy).
+  /// Fall back to facingMode + [Producer.replaceTrack] when native flip fails.
   Future<bool> switchCamera() async {
     if (!joined) return _useFrontCamera;
     final nextFront = !_useFrontCamera;
+
+    if (_videoProducer == null ||
+        localStream == null ||
+        localStream!.getVideoTracks().isEmpty) {
+      final ready = await ensureWebcamReady();
+      if (!ready) {
+        onError?.call('Camera not ready yet');
+        return _useFrontCamera;
+      }
+    }
+
     final producer = _videoProducer;
     final stream = localStream;
-
     if (producer == null || stream == null) {
-      _useFrontCamera = nextFront;
-      _notifyStateChanged();
+      onError?.call('Camera not ready yet');
       return _useFrontCamera;
     }
 
+    final tracks = stream.getVideoTracks();
+    if (tracks.isEmpty) {
+      onError?.call('Camera not ready yet');
+      return _useFrontCamera;
+    }
+    final track = tracks.first;
+
+    try {
+      final flipped = await Helper.switchCamera(track);
+      if (flipped == true) {
+        _useFrontCamera = nextFront;
+        _cameraEnabled = true;
+        _notifyStateChanged();
+        return _useFrontCamera;
+      }
+    } catch (_) {}
+
     MediaStream cam;
     try {
+      for (final old in stream.getVideoTracks().toList()) {
+        if (old.id == track.id) continue;
+        try {
+          stream.removeTrack(old);
+        } catch (_) {}
+        try {
+          await old.stop();
+        } catch (_) {}
+      }
+      try {
+        await track.stop();
+      } catch (_) {}
+      try {
+        stream.removeTrack(track);
+      } catch (_) {}
+
       cam = await navigator.mediaDevices.getUserMedia({
         'audio': false,
         'video': _portraitVideoConstraints(front: nextFront),
@@ -393,12 +447,12 @@ class MediasoupCallSession {
       }
     }
 
-    final tracks = cam.getVideoTracks();
-    if (tracks.isEmpty) {
+    final newTracks = cam.getVideoTracks();
+    if (newTracks.isEmpty) {
       await cam.dispose();
       return _useFrontCamera;
     }
-    final newTrack = tracks.first;
+    final newTrack = newTracks.first;
     newTrack.enabled = true;
 
     try {
@@ -411,12 +465,6 @@ class MediasoupCallSession {
       return _useFrontCamera;
     }
 
-    for (final old in stream.getVideoTracks().toList()) {
-      if (old.id == newTrack.id) continue;
-      try {
-        stream.removeTrack(old);
-      } catch (_) {}
-    }
     if (!stream.getVideoTracks().any((t) => t.id == newTrack.id)) {
       await stream.addTrack(newTrack);
     }

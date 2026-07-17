@@ -140,11 +140,20 @@ async function meetingNotifyUserIds(room) {
   return targets;
 }
 
-function notifyMeetingJoin(io, room, participant) {
+async function notifyMeetingJoin(io, room, participant) {
+  const rosterRows = await prisma.meetingRoomParticipant.findMany({
+    where: { roomId: room.id, userId: { not: null } },
+    orderBy: { joinedAt: 'desc' },
+    take: 100,
+  });
+  const participants = serializeMeetingRoster(rosterRows);
   const payload = {
     roomId: room.id,
     slug: room.slug,
     name: room.name,
+    participantCount: participants.length,
+    liveCount: participants.length,
+    participants,
     participant: {
       id: participant.id,
       displayName: participant.displayName,
@@ -166,9 +175,18 @@ function notifyMeetingJoin(io, room, participant) {
 }
 
 async function notifyMeetingLeft(io, room, { userId, displayName }) {
+  const rosterRows = await prisma.meetingRoomParticipant.findMany({
+    where: { roomId: room.id, userId: { not: null } },
+    orderBy: { joinedAt: 'desc' },
+    take: 100,
+  });
+  const participants = serializeMeetingRoster(rosterRows);
   const payload = {
     roomId: room.id,
     slug: room.slug,
+    participantCount: participants.length,
+    liveCount: participants.length,
+    participants,
     participant: {
       userId,
       displayName: displayName || 'Participant',
@@ -733,6 +751,8 @@ router.post(
     });
     room._notifyUserIds = rosterRows.map((r) => r.userId).filter(Boolean);
 
+    const participants = serializeMeetingRoster(rosterRows);
+
     // Always fan out — including host join — so invitees already in the room
     // get roster + mediasoup uid mapping without waiting on SFU alone.
     notifyMeetingJoin(req.app.get('io'), room, participant);
@@ -751,7 +771,9 @@ router.post(
         hostId: room.hostId,
       }),
       // Live roster so Flutter can map peer id → name without call.announce.
-      participants: serializeMeetingRoster(rosterRows),
+      participants,
+      participantCount: participants.length,
+      liveCount: participants.length,
     });
   })
 );

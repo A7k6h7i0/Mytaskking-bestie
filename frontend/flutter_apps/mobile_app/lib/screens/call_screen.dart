@@ -118,6 +118,9 @@ class CallSession {
   /// reconnects no longer makes "2" flicker to "1".
   static final Map<String, String> joinedParticipants = {};
 
+  /// Authoritative live count from the backend roster (joinedAt set, not left).
+  static int serverLiveCount = 0;
+
   /// Cached call metadata + remote peer display fields survive CallScreen
   /// dispose so the return bubble and re-opened call UI still show the person
   /// you are talking to (not a placeholder title / "Connecting…").
@@ -229,6 +232,7 @@ class CallSession {
     remoteScreenShareUid = null;
     remoteScreenShareUserId = null;
     joinedParticipants.clear();
+    serverLiveCount = 0;
     callMeta = null;
     remotePeerName = null;
     remotePeerSubtitle = null;
@@ -496,31 +500,27 @@ class _CallScreenState extends ConsumerState<CallScreen>
     // has joined Agora, which duplicated "You" + your own name on the grid.
     void onParticipantJoined([dynamic data]) {
       if (data is! Map || data['callId'] != callId) return;
+      final payload = Map<String, dynamic>.from(data);
+      _applyServerLiveRoster(payload);
       final userId = data['userId']?.toString();
-      final name = data['userName']?.toString();
       final uidRaw = data['agoraUid'];
       final agoraUid = uidRaw is int ? uidRaw : int.tryParse('$uidRaw');
       final me = ref.read(authStoreProvider).user;
       final isSelf = userId != null && userId == me?.id;
-      if (userId != null && userId.isNotEmpty) {
-        final resolved =
-            name ?? _joinedParticipants[userId] ?? 'Participant';
-        _markParticipantJoined(userId, resolved);
-        // Never treat our own server join as a remote stream — that made the
-        // outbound ring UI show the caller's name until the callee answered.
-        if (!isSelf && agoraUid != null && agoraUid > 0) {
+      if (!isSelf && userId != null && userId.isNotEmpty) {
+        if (!_CallSession.useMediasoup &&
+            agoraUid != null &&
+            agoraUid > 0) {
+          final resolved =
+              _joinedParticipants[userId] ?? data['userName']?.toString() ?? 'Participant';
           _agoraUidToUserId[agoraUid] = userId;
           _remoteNames[agoraUid] = resolved;
-          if (_CallSession.useMediasoup) {
-            _relinkMediasoupSocketForUser(userId, agoraUid, resolved);
-          } else {
-            _seenPeerUids.add(agoraUid);
-            if (mounted) {
-              setState(() => _remoteUids.add(agoraUid));
-            }
+          _seenPeerUids.add(agoraUid);
+          if (mounted) {
+            setState(() => _remoteUids.add(agoraUid));
           }
         }
-        if (!isSelf) _onCalleeAnsweredViaServer(userId);
+        _onCalleeAnsweredViaServer(userId);
       }
       if (mounted) setState(() {});
     }
@@ -536,26 +536,25 @@ class _CallScreenState extends ConsumerState<CallScreen>
       if (uid == _CallSession.myUid || userId == me?.id) return;
       final name = data['userName']?.toString();
       if (userId != null && userId.isNotEmpty) {
-        _markParticipantJoined(
-          userId,
-          name ?? _joinedParticipants[userId] ?? 'Participant',
-        );
-        _bindRemoteUidName(uid, userId: userId, name: name);
+        final resolved =
+            name ?? _joinedParticipants[userId] ?? 'Participant';
+        if (_CallSession.useMediasoup) {
+          _registerParticipantIdentity(userId, resolved, agoraUid: uid);
+          _bindRemoteUidName(uid, userId: userId, name: name);
+        } else {
+          _markParticipantJoined(userId, resolved);
+          _bindRemoteUidName(uid, userId: userId, name: name);
+        }
         _onCalleeAnsweredViaServer(userId);
         _agoraUidToUserId[uid] = userId;
         _dedupeRemoteUidsForUser(userId, keepUid: uid);
-        if (_CallSession.useMediasoup) {
-          _relinkMediasoupSocketForUser(
-            userId,
-            uid,
-            name ?? _joinedParticipants[userId] ?? 'Participant',
-          );
-        }
       }
       if (!mounted) return;
       final isNew = _seenPeerUids.add(uid);
       setState(() {
-        if (!_CallSession.useMediasoup || userId != null) {
+        if (!_CallSession.useMediasoup) {
+          _remoteUids.add(uid);
+        } else if (_sfuHasLiveSocket(_CallSession.uidToSocketId[uid])) {
           _remoteUids.add(uid);
         }
         if (name != null && name.isNotEmpty) _remoteNames[uid] = name;
@@ -575,6 +574,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
         unawaited(_endBecauseRemoteClosed(Map<String, dynamic>.from(data)));
         return;
       }
+      _applyServerLiveRoster(Map<String, dynamic>.from(data));
       _scheduleParticipantLeave(data['userId']?.toString());
     }));
     _callUnsubs.add(rt.onAny('call.signal', ([data]) {
@@ -630,7 +630,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       final call = (data['call'] as Map?)?.cast<String, dynamic>();
       if (call == null) return;
       if (_callMeta != null) _callMeta!['call'] = call;
-      _syncParticipantsFromCallMeta();
+      _applyServerLiveRoster(Map<String, dynamic>.from(data), callMeta: call);
       if (mounted) setState(() {});
     }));
   }
@@ -668,6 +668,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
               (_callMeta?['room'] as Map?)?['id']?.toString()) {
         return;
       }
+      _applyServerLiveRoster(Map<String, dynamic>.from(data));
       final part = (data['participant'] as Map?)?.cast<String, dynamic>();
       final userId = part?['userId']?.toString() ?? data['userId']?.toString();
       if (userId == null || userId.isEmpty) return;
@@ -683,27 +684,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
               (_callMeta?['room'] as Map?)?['id']?.toString()) {
         return;
       }
-      final part = (data['participant'] as Map?)?.cast<String, dynamic>();
-      if (part == null) return;
-      final userId = part['userId']?.toString();
-      final name =
-          (part['displayName'] ?? part['userName'] ?? 'Participant').toString();
-      final uidRaw = part['agoraUid'];
-      final agoraUid = uidRaw is int ? uidRaw : int.tryParse('$uidRaw');
-      final me = ref.read(authStoreProvider).user;
-      if (userId != null && userId.isNotEmpty && userId != me?.id) {
-        _markParticipantJoined(userId, name);
-        if (agoraUid != null && agoraUid > 0) {
-          _agoraUidToUserId[agoraUid] = userId;
-          _remoteNames[agoraUid] = name;
-          _seenPeerUids.add(agoraUid);
-          if (_CallSession.useMediasoup) {
-            _relinkMediasoupSocketForUser(userId, agoraUid, name);
-          } else if (_remoteUids.contains(agoraUid) || _joined) {
-            _remoteUids.add(agoraUid);
-          }
-        }
-      }
+      _applyServerLiveRoster(Map<String, dynamic>.from(data));
       if (mounted) {
         if (_connectedAt == null && _joined) _markRemoteConnected();
         setState(() => _status = 'Connected');
@@ -711,52 +692,135 @@ class _CallScreenState extends ConsumerState<CallScreen>
     }));
   }
 
-  /// Apply meeting token roster. Only people who actually joined SFU/token
-  /// (backend filters INVITED). Still do not promote remotes until live.
-  void _syncMeetingRoster(Map<String, dynamic>? tokenOrMeta) {
-    if (!_isMeeting || tokenOrMeta == null) return;
-    final me = ref.read(authStoreProvider).user;
-    if (me != null) _markParticipantJoined(me.id, me.name);
+  /// Apply backend live roster + count (authoritative for header chip).
+  void _applyServerLiveRoster(
+    Map<String, dynamic>? data, {
+    Map<String, dynamic>? callMeta,
+  }) {
+    List<Map<String, dynamic>> roster = const [];
+    if (data != null) {
+      final raw = data['participants'];
+      if (raw is List) {
+        roster = raw
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+      }
+    }
 
-    final raw = tokenOrMeta['participants'];
-    if (raw is! List) return;
-    for (final entry in raw) {
-      if (entry is! Map) continue;
-      final p = Map<String, dynamic>.from(entry);
+    final metaCall = callMeta ??
+        (data?['call'] is Map
+            ? Map<String, dynamic>.from(data!['call'] as Map)
+            : (_callMeta?['call'] as Map?)?.cast<String, dynamic>() ??
+                _callMeta?.cast<String, dynamic>());
+
+    if (roster.isEmpty && metaCall != null) {
+      roster = _liveParticipantsFromCallMeta(metaCall);
+    }
+
+    if (metaCall != null) {
+      final parts =
+          (metaCall['participants'] as List?)?.cast<Map<String, dynamic>>() ??
+              const [];
+      for (final p in parts) {
+        final userId = p['userId']?.toString();
+        if (userId != null &&
+            p['joinedAt'] == null &&
+            p['leftAt'] == null &&
+            !_invitedAtByUserId.containsKey(userId)) {
+          _invitedAtByUserId[userId] = _callCreatedAt() ?? DateTime.now();
+        }
+      }
+    }
+
+    final countRaw = data?['liveCount'] ??
+        data?['participantCount'] ??
+        _callMeta?['liveCount'] ??
+        _callMeta?['participantCount'] ??
+        (roster.isNotEmpty ? roster.length : null);
+    final parsedCount = countRaw is num
+        ? countRaw.toInt()
+        : int.tryParse('${countRaw ?? ''}');
+
+    final me = ref.read(authStoreProvider).user;
+    if (me != null) {
+      _markParticipantJoined(me.id, me.name);
+    }
+
+    if (roster.isEmpty) {
+      if (parsedCount != null && parsedCount > 0) {
+        _CallSession.serverLiveCount = parsedCount;
+      }
+      _maybeMarkCalleeConnectedFromMeta();
+      return;
+    }
+
+    final liveIds = <String>{if (me != null) me.id};
+    for (final p in roster) {
       final userId = p['userId']?.toString();
       if (userId == null || userId.isEmpty) continue;
       final via = (p['joinedVia'] ?? '').toString().toUpperCase();
-      // Defensive: ignore invite-only rows if an older server still sends them.
       if (via == 'INVITED') continue;
-      final name =
-          (p['displayName'] ?? p['userName'] ?? 'Participant').toString().trim();
+      liveIds.add(userId);
+      final user = (p['user'] as Map?)?.cast<String, dynamic>();
+      final name = (p['userName'] ??
+              p['displayName'] ??
+              user?['name'] ??
+              'Participant')
+          .toString()
+          .trim();
       final resolved = name.isEmpty ? 'Participant' : name;
-      if (userId == me?.id) {
-        _markParticipantJoined(userId, resolved);
-        continue;
-      }
-      // Name bookkeeping only — do not treat as live until mediasoup sees them.
-      final uidRaw = p['agoraUid'];
+      final uidRaw = p['agoraUid'] ?? p['mediaPeerId'];
       final agoraUid = uidRaw is int ? uidRaw : int.tryParse('$uidRaw');
-      if (agoraUid != null && agoraUid > 0) {
+
+      if (_CallSession.useMediasoup) {
+        _registerParticipantIdentity(userId, resolved, agoraUid: agoraUid);
+      }
+      _markParticipantJoined(userId, resolved);
+      if (!_CallSession.useMediasoup &&
+          agoraUid != null &&
+          agoraUid > 0) {
         _agoraUidToUserId[agoraUid] = userId;
         _remoteNames[agoraUid] = resolved;
       }
-      if (_CallSession.useMediasoup) {
-        if (agoraUid != null && agoraUid > 0) {
-          _relinkMediasoupSocketForUser(userId, agoraUid, resolved);
-        }
-        final sock = _CallSession.uidToSocketId[agoraUid ?? -1];
-        final live = sock != null &&
-            (_CallSession.mediasoup?.remoteStreams.containsKey(sock) == true ||
-                _CallSession.mediasoup?.remoteNames.containsKey(sock) == true);
-        if (live) _markParticipantJoined(userId, resolved);
-      } else if (_remoteUids.contains(agoraUid) ||
-          _seenPeerUids.contains(agoraUid ?? -1)) {
-        _markParticipantJoined(userId, resolved);
-        if (agoraUid != null) _remoteUids.add(agoraUid);
+    }
+
+    for (final id in _joinedParticipants.keys.toList()) {
+      if (!liveIds.contains(id)) {
+        _joinedParticipants.remove(id);
       }
     }
+
+    _CallSession.serverLiveCount =
+        parsedCount != null && parsedCount > 0 ? parsedCount : liveIds.length;
+    _maybeMarkCalleeConnectedFromMeta();
+  }
+
+  List<Map<String, dynamic>> _liveParticipantsFromCallMeta(
+    Map<String, dynamic>? call,
+  ) {
+    if (call == null) return const [];
+    final parts =
+        (call['participants'] as List?)?.cast<Map<String, dynamic>>() ??
+            const [];
+    final live = <Map<String, dynamic>>[];
+    for (final p in parts) {
+      if (p['joinedAt'] == null || p['leftAt'] != null) continue;
+      final userId = p['userId']?.toString();
+      if (userId == null || userId.isEmpty) continue;
+      final user = (p['user'] as Map?)?.cast<String, dynamic>();
+      live.add({
+        ...p,
+        'userId': userId,
+        'userName': user?['name'] ?? 'Participant',
+      });
+    }
+    return live;
+  }
+
+  void _syncMeetingRoster(Map<String, dynamic>? tokenOrMeta) {
+    if (!_isMeeting || tokenOrMeta == null) return;
+    _applyServerLiveRoster(tokenOrMeta);
   }
 
   /// Tell the other call participants this device's real Agora uid + name so
@@ -855,7 +919,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
           ? name.trim()
           : _displayNameForUserId(userId);
       _remoteNames[uid] = resolved;
-      _markParticipantJoined(userId, resolved);
+      if (!_CallSession.useMediasoup ||
+          _sfuHasLiveSocket(_CallSession.uidToSocketId[uid])) {
+        _markParticipantJoined(userId, resolved);
+      }
       return;
     }
     final resolved = _displayNameForAgoraUid(uid);
@@ -923,6 +990,36 @@ class _CallScreenState extends ConsumerState<CallScreen>
     if (me != null && userId != me.id && name.trim().isNotEmpty) {
       _CallSession.remotePeerName = name.trim();
     }
+  }
+
+  /// Name / uid bookkeeping only — does not add a live tile until SFU confirms.
+  void _registerParticipantIdentity(
+    String userId,
+    String name, {
+    int? agoraUid,
+  }) {
+    if (userId.isEmpty) return;
+    final resolved = name.trim().isEmpty ? 'Participant' : name.trim();
+    _invitedAtByUserId.remove(userId);
+    _participantLeaveTimers[userId]?.cancel();
+    _participantLeaveTimers.remove(userId);
+    if (agoraUid != null && agoraUid > 0) {
+      _agoraUidToUserId[agoraUid] = userId;
+      _remoteNames[agoraUid] = resolved;
+      if (_CallSession.useMediasoup) {
+        _relinkMediasoupSocketForUser(userId, agoraUid, resolved);
+      }
+    }
+  }
+
+  bool _sfuHasLiveSocket(String? socketId) {
+    if (socketId == null || socketId.isEmpty) return false;
+    final session = _CallSession.mediasoup;
+    if (session == null) return false;
+    return session.remoteNames.containsKey(socketId) ||
+        session.remoteStreams.containsKey(socketId) ||
+        session.remoteVideoStreams.containsKey(socketId) ||
+        session.remoteAudioStreams.containsKey(socketId);
   }
 
   void _scheduleParticipantLeave(String? userId) {
@@ -1480,35 +1577,18 @@ class _CallScreenState extends ConsumerState<CallScreen>
   void _syncParticipantsFromCallMeta() {
     final call = (_callMeta?['call'] as Map?)?.cast<String, dynamic>() ??
         _callMeta?.cast<String, dynamic>();
-    final parts =
-        (call?['participants'] as List?)?.cast<Map<String, dynamic>>() ??
-            const [];
-    for (final p in parts) {
-      final userId = p['userId']?.toString();
-      if (userId != null &&
-          p['joinedAt'] == null &&
-          p['leftAt'] == null &&
-          !_invitedAtByUserId.containsKey(userId)) {
-        _invitedAtByUserId[userId] = _callCreatedAt() ?? DateTime.now();
-      }
-      if (p['leftAt'] != null) continue;
-      if (userId == null) continue;
-      final me = ref.read(authStoreProvider).user;
-      // Invited-but-not-joined yet shouldn't inflate the live count while ringing.
-      if (p['joinedAt'] == null && userId != me?.id) continue;
-      final user = (p['user'] as Map?)?.cast<String, dynamic>();
-      final name = (user?['name'] ?? 'Participant').toString();
-      _markParticipantJoined(userId, name);
-      final uidRaw = p['agoraUid'];
-      final agoraUid = uidRaw is int ? uidRaw : int.tryParse('$uidRaw');
-      if (agoraUid != null && agoraUid > 0) {
-        _agoraUidToUserId[agoraUid] = userId;
-        _remoteNames[agoraUid] = name;
-      }
+    final envelope = <String, dynamic>{};
+    final topCount = _callMeta?['liveCount'] ??
+        _callMeta?['participantCount'] ??
+        call?['liveCount'] ??
+        call?['participantCount'];
+    if (topCount != null) {
+      envelope['liveCount'] = topCount;
+      envelope['participantCount'] = topCount;
     }
-    final me = ref.read(authStoreProvider).user;
-    if (me != null) _markParticipantJoined(me.id, me.name);
-    _maybeMarkCalleeConnectedFromMeta();
+    final roster = _callMeta?['participants'] ?? call?['participants'];
+    if (roster != null) envelope['participants'] = roster;
+    _applyServerLiveRoster(envelope, callMeta: call);
   }
 
   /// If the server already marked the callee as joined but the socket event
@@ -1559,17 +1639,18 @@ class _CallScreenState extends ConsumerState<CallScreen>
     _waitingAnswerPollTimer = null;
   }
 
-  /// Stable participant count for the header chip — prefers backend join state
-  /// over raw Agora uid count so reconnect blips don't flicker 1 ↔ 2.
+  /// Stable participant count for the header chip — server roster is
+  /// authoritative; SFU/client maps are fallback for older backends.
   int get _participantCount {
+    final server = _CallSession.serverLiveCount;
+    if (server > 0) return server;
+
     final me = ref.read(authStoreProvider).user?.id;
     if (_CallSession.useMediasoup && _CallSession.mediasoup != null) {
-      // Prefer SFU socket cardinality (1 peer = 1 socket) so uid/hash blips
-      // don't inflate 1:1 calls into “3 people”.
       final sfuRemotes = _mediasoupLiveRemotePeerCount;
       if (sfuRemotes > 0) return 1 + sfuRemotes;
 
-      var n = 1; // self
+      var n = 1;
       final seenUser = <String>{};
       for (final e in _joinedParticipants.entries) {
         if (e.key == me || seenUser.contains(e.key)) continue;
@@ -2797,7 +2878,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
         step = 'server-join';
         try {
           final joined = await ref.read(apiProvider).joinCall(widget.callId!);
-          _callMeta = {'call': joined};
+          _callMeta = {'call': joined, ...?joined is Map<String, dynamic> ? {
+            if (joined['liveCount'] != null) 'liveCount': joined['liveCount'],
+            if (joined['participantCount'] != null)
+              'participantCount': joined['participantCount'],
+            if (joined['participants'] != null)
+              'participants': joined['participants'],
+          } : null};
           _CallSession.callMeta = _callMeta;
           _syncParticipantsFromCallMeta();
         } catch (e) {
@@ -3179,23 +3266,30 @@ class _CallScreenState extends ConsumerState<CallScreen>
     _agoraUidToUserId[uid] = userId;
     _remoteNames[uid] = name;
     _seenPeerUids.add(uid);
-    _remoteUids.add(uid);
-    _dedupeRemoteUidsForUser(userId, keepUid: uid);
+    if (_sfuHasLiveSocket(socketId)) {
+      _remoteUids.add(uid);
+      _markParticipantJoined(userId, name);
+      _dedupeRemoteUidsForUser(userId, keepUid: uid);
+    }
     if (mounted) setState(() {});
   }
 
   void _ensureMediasoupRemoteTracked(String socketId, String userName) {
     if (socketId == _CallSession.mediasoup?.mySocketId) return;
+    if (!_sfuHasLiveSocket(socketId)) return;
     final uid = _resolveRemoteUid(socketId, userName);
     if (uid == _CallSession.myUid) return;
     final me = ref.read(authStoreProvider).user?.id;
     if (me != null && _agoraUidToUserId[uid] == me) return;
 
-    _remoteNames[uid] = userName.isNotEmpty ? userName : (_remoteNames[uid] ?? 'Participant');
+    final resolved =
+        userName.isNotEmpty ? userName : (_remoteNames[uid] ?? 'Participant');
+    _remoteNames[uid] = resolved;
     _seenPeerUids.add(uid);
     _remoteUids.add(uid);
     final mappedUserId = _agoraUidToUserId[uid];
     if (mappedUserId != null && mappedUserId.isNotEmpty) {
+      _markParticipantJoined(mappedUserId, resolved);
       _dedupeRemoteUidsForUser(mappedUserId, keepUid: uid);
     } else if (userName.isNotEmpty && userName != 'Participant') {
       // Dedup by name against hash-uids before announce maps userId.
@@ -3885,9 +3979,29 @@ class _CallScreenState extends ConsumerState<CallScreen>
       final session = _CallSession.mediasoup;
       if (session == null) return;
       try {
+        final ready = await session.ensureWebcamReady();
+        if (!ready) {
+          if (mounted) {
+            bestieToast(
+              context,
+              'Camera not ready yet',
+              kind: BestieToastKind.info,
+            );
+          }
+          return;
+        }
         _frontCamera = await session.switchCamera();
         if (mounted) setState(() {});
-      } catch (_) {}
+      } catch (e) {
+        if (mounted) {
+          bestieToast(
+            context,
+            'Could not switch camera',
+            body: formatApiError(e),
+            kind: BestieToastKind.error,
+          );
+        }
+      }
       return;
     }
     final engine = _engine;
@@ -6867,8 +6981,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final liveRemoteCount = session.remoteNames.keys
         .where((id) => id != session.mySocketId)
         .length;
-    // Still ringing / waiting — keep invited people on the stage.
-    if (liveRemoteCount == 0 && _waitingForAnswer) {
+    // 1:1 outbound ring only — meetings must not keep invite-only ghosts.
+    if (!_isMeeting && liveRemoteCount == 0 && _waitingForAnswer) {
       return true;
     }
     return false;
@@ -6960,6 +7074,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
       final mappedUserId = _agoraUidToUserId[uid];
       if (mappedUserId == null || mappedUserId.isEmpty) {
         if (_CallSession.useMediasoup) {
+          final sock = _CallSession.uidToSocketId[uid];
+          if (!_sfuHasLiveSocket(sock)) continue;
           if (tiles.any((t) => !t.isLocal && t.agoraUid == uid)) {
             continue;
           }
