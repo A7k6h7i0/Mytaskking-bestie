@@ -373,7 +373,7 @@ class _DesktopProfileScreenState extends ConsumerState<DesktopProfileScreen> {
                 title: const Text('Auto logout'),
                 subtitle: Text(
                   autoLogout.enabled
-                      ? 'Automatically signs out and closes the desktop app at ${autoLogout.label}.'
+                      ? 'Signs out and closes the desktop app at ${autoLogout.label} (no prompt).'
                       : 'Disabled. The desktop app stays signed in until you log out manually.',
                   style: const TextStyle(
                     color: BestieTokens.cTextMuted,

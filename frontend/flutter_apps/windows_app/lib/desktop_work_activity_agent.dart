@@ -15,50 +15,72 @@ class DesktopWorkActivityAgent {
   static const _defaultActivityInterval = Duration(minutes: 5);
   static const _minActivityInterval = Duration(minutes: 2);
   static const _maxActivityInterval = Duration(hours: 1);
+  static const _allowedTrackIntervals = <int>{120, 300, 900, 1800, 3600};
 
   Timer? _timer;
   Duration _activityInterval = _defaultActivityInterval;
   bool _running = false;
   bool _disposed = false;
+  BestieApi? _api;
+  BuildContext? _context;
 
   void start(BuildContext context, WidgetRef ref) {
     if (!Platform.isWindows && !Platform.isLinux) return;
     _disposed = false;
+    _context = context;
+    _api = ref.read(apiProvider);
     _timer?.cancel();
-    _scheduleNext(context, ref, _activityInterval);
+    unawaited(_bootstrapSchedule());
+  }
+
+  Future<void> _bootstrapSchedule() async {
+    await _refreshIntervalFromAdminSettings();
+    if (_disposed) return;
+    _scheduleNext(_activityInterval);
   }
 
   void dispose() {
     _disposed = true;
     _timer?.cancel();
     _timer = null;
+    _api = null;
+    _context = null;
   }
 
-  void _scheduleNext(BuildContext context, WidgetRef ref, Duration delay) {
+  void _scheduleNext(Duration delay) {
     if (_disposed) return;
     _timer?.cancel();
     _log('timer.scheduled', {'seconds': delay.inSeconds});
-    _timer = Timer(delay, () => _tick(context, ref));
+    _timer = Timer(delay, _tick);
   }
 
-  Future<void> _tick(BuildContext context, WidgetRef ref) async {
+  Future<void> _tick() async {
     if (_disposed) return;
+    final api = _api;
+    if (api == null) return;
     if (_running) {
-      _scheduleNext(context, ref, _activityInterval);
+      _scheduleNext(_activityInterval);
       return;
     }
     _running = true;
     try {
       await _log('timer.fired');
-      final api = ref.read(apiProvider);
-      final state = await api.workActivityState();
+      final apiClient = _api!;
+      final results = await Future.wait([
+        apiClient.workActivityState(),
+        _loadAdminTrackIntervalSeconds(apiClient),
+      ]);
+      final state = results[0] as Map<String, dynamic>;
+      final adminIntervalSeconds = results[1] as int?;
       _activityInterval = _normalizedInterval(
-        (state['intervalSeconds'] as num?)?.toInt(),
+        adminIntervalSeconds ??
+            (state['intervalSeconds'] as num?)?.toInt(),
       );
       await _log('state.loaded', {
         'shouldTrack': state['shouldTrack'] == true,
         'availability': state['availability'],
         'intervalSeconds': _activityInterval.inSeconds,
+        'adminIntervalSeconds': adminIntervalSeconds,
       });
       if (state['shouldTrack'] != true) {
         await _log('state.skip_not_trackable');
@@ -120,7 +142,8 @@ class DesktopWorkActivityAgent {
         }
       }
 
-      if (!context.mounted) return;
+      final hostContext = _context;
+      if (hostContext != null && !hostContext.mounted) return;
       final promptShownAt = DateTime.now();
       String? note;
       final nativePrompt = Platform.isWindows;
@@ -131,8 +154,8 @@ class DesktopWorkActivityAgent {
             seconds: promptSeconds,
           );
         } else {
-          if (!context.mounted) return;
-          note = await _showActivityPrompt(context, promptSeconds);
+          if (hostContext == null || !hostContext.mounted) return;
+          note = await _showActivityPrompt(hostContext, promptSeconds);
         }
       } finally {
         if (!nativePrompt) {
@@ -165,8 +188,8 @@ class DesktopWorkActivityAgent {
       // Best effort: activity tracking must never block the employee's work.
     } finally {
       _running = false;
-      if (!_disposed && context.mounted) {
-        _scheduleNext(context, ref, _activityInterval);
+      if (!_disposed && _api != null) {
+        _scheduleNext(_activityInterval);
       }
     }
   }
@@ -177,6 +200,31 @@ class DesktopWorkActivityAgent {
     if (duration < _minActivityInterval) return _minActivityInterval;
     if (duration > _maxActivityInterval) return _maxActivityInterval;
     return duration;
+  }
+
+  Future<void> _refreshIntervalFromAdminSettings() async {
+    final api = _api;
+    if (api == null || _disposed) return;
+    final seconds = await _loadAdminTrackIntervalSeconds(api);
+    if (seconds == null || _disposed) return;
+    _activityInterval = _normalizedInterval(seconds);
+    await _log('settings.interval_loaded', {'seconds': seconds});
+  }
+
+  /// Same source as Settings → “Track activity every” (tenant-scoped GET /settings).
+  Future<int?> _loadAdminTrackIntervalSeconds(BestieApi api) async {
+    try {
+      final data = await api.settingsScope(scope: 'workActivity');
+      final workActivity =
+          (data['workActivity'] as Map?)?.cast<String, dynamic>();
+      final configured = (workActivity?['intervalSeconds'] as num?)?.toInt();
+      if (configured != null && _allowedTrackIntervals.contains(configured)) {
+        return configured;
+      }
+    } catch (e) {
+      await _log('settings.interval_failed', {'error': e.toString()});
+    }
+    return null;
   }
 
   Future<void> _bringPromptToFront() async {

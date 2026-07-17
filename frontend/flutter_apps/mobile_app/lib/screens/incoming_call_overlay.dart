@@ -14,6 +14,7 @@ import '../active_call_state.dart';
 import '../app_sounds.dart';
 import '../router.dart';
 import '../state.dart';
+import '../windows_workspace.dart';
 import 'call_screen.dart';
 
 final _incomingCallPushEvents =
@@ -431,6 +432,10 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
 
   void _onIncoming(dynamic data) {
     if (data is! Map) return;
+    if (kWindowsWorkspaceNoCalls) {
+      unawaited(_ignoreIncomingOnWindows(Map<String, dynamic>.from(data)));
+      return;
+    }
     if (!isCallEventForThisApp(Map<String, dynamic>.from(data))) return;
     final me = ref.read(authStoreProvider).user;
     final call = (data['call'] as Map?)?.cast<String, dynamic>();
@@ -520,6 +525,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
 
   void _onWaiting(dynamic data) {
     if (data is! Map || !mounted) return;
+    if (kWindowsWorkspaceNoCalls) return;
     final call = (data['call'] as Map?)?.cast<String, dynamic>();
     final callId = data['callId']?.toString() ?? call?['id']?.toString();
     if (callId == null || callId.isEmpty) return;
@@ -726,6 +732,16 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
 
   String? _pendingCallId() =>
       _pending?['call']?['id']?.toString() ?? _pending?['callId']?.toString();
+
+  Future<void> _ignoreIncomingOnWindows(Map<String, dynamic> data) async {
+    final call = (data['call'] as Map?)?.cast<String, dynamic>();
+    final callId =
+        data['callId']?.toString() ?? call?['id']?.toString();
+    if (callId == null || callId.isEmpty) return;
+    try {
+      await ref.read(apiProvider).post('/calls/$callId/decline');
+    } catch (_) {}
+  }
 
   Future<void> _decline() async {
     final id = _pendingCallId();

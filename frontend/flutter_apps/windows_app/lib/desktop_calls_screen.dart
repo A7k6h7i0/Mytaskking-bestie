@@ -215,7 +215,7 @@ class _DesktopCallsScreenState extends ConsumerState<DesktopCallsScreen> {
             child: Row(
               children: [
                 const Text(
-                  'Calls',
+                  'Call history',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w600,
@@ -223,25 +223,6 @@ class _DesktopCallsScreenState extends ConsumerState<DesktopCallsScreen> {
                   ),
                 ),
                 const Spacer(),
-                FilledButton.icon(
-                  onPressed: _showNewCallPicker,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: _CallsUi.primaryBlue,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 10,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text(
-                    'New call',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-                  ),
-                ),
               ],
             ),
           ),
@@ -662,28 +643,6 @@ class _CallHistoryCard extends ConsumerWidget {
             ),
           ),
           const SizedBox(width: 24),
-          if (showJoin || showReturn)
-            _RoundActionButton(
-              icon: showJoin ? Icons.login_rounded : Icons.phone_in_talk_rounded,
-              color: _CallsUi.statusGreen,
-              onTap: () => showJoin
-                  ? _joinCall(context, ref)
-                  : _returnToCall(context),
-            )
-          else if (canCallBack) ...[
-            _RoundActionButton(
-              icon: Icons.videocam_outlined,
-              color: _CallsUi.primaryBlue,
-              onTap: () => _ringBack(context, ref, header['id']?.toString(), 'VIDEO'),
-            ),
-            const SizedBox(width: 12),
-            _RoundActionButton(
-              icon: Icons.call_rounded,
-              color: _CallsUi.statusGreen,
-              onTap: () => _ringBack(context, ref, header['id']?.toString(), 'VOICE'),
-            ),
-          ],
-          const SizedBox(width: 12),
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert_rounded, color: _CallsUi.textLight),
             onSelected: (value) {

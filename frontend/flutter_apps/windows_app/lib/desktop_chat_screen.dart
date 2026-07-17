@@ -7,6 +7,7 @@ import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:mytaskking_mobile/chat_clear.dart';
 import 'package:mytaskking_mobile/screens.dart'
     show ChatDetailScreen, CallSession;
+import 'package:mytaskking_mobile/windows_workspace.dart';
 import 'package:mytaskking_core/mytaskking_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -604,10 +605,12 @@ class _ConversationHeader extends ConsumerWidget {
               ],
             ),
           ),
-          _HeaderButton(icon: Icons.call_rounded, onTap: onVoice),
-          const SizedBox(width: 10),
-          _HeaderButton(icon: Icons.videocam_rounded, onTap: onVideo),
-          const SizedBox(width: 10),
+          if (!kWindowsWorkspaceNoCalls) ...[
+            _HeaderButton(icon: Icons.call_rounded, onTap: onVoice),
+            const SizedBox(width: 10),
+            _HeaderButton(icon: Icons.videocam_rounded, onTap: onVideo),
+            const SizedBox(width: 10),
+          ],
           _HeaderButton(icon: Icons.more_vert_rounded, onTap: onMore),
         ],
       ),

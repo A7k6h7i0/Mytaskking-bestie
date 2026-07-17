@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io' show File;
+import 'dart:io' show File, Platform;
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
@@ -23,6 +23,7 @@ import '../chat_clear.dart';
 import '../chat_mute.dart';
 import '../chat_media_saver.dart';
 import '../state.dart';
+import '../windows_workspace.dart';
 import 'call_screen.dart';
 import '../widgets/profile_avatar_viewer.dart';
 import 'chat_contact_screen.dart';
@@ -1440,6 +1441,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
   }
 
   bool get _canStartCalls {
+    if (kWindowsWorkspaceNoCalls) return false;
     if (_channel?['kind'] == 'DM' &&
         _dmOtherUser()?['role']?.toString() == 'SUPER_ADMIN') {
       return false;

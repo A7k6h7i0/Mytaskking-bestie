@@ -3963,85 +3963,6 @@ class _CallScreenState extends ConsumerState<CallScreen>
     unawaited(_stopProximity());
   }
 
-  Future<void> _flipCamera() async {
-    if (_CallSession.useMediasoup) {
-      if (!_isVideo) return;
-      if (_cameraOff) {
-        if (mounted) {
-          bestieToast(
-            context,
-            'Turn on camera first',
-            kind: BestieToastKind.info,
-          );
-        }
-        return;
-      }
-      final session = _CallSession.mediasoup;
-      if (session == null) return;
-      try {
-        final ready = await session.ensureWebcamReady();
-        if (!ready) {
-          if (mounted) {
-            bestieToast(
-              context,
-              'Camera not ready yet',
-              kind: BestieToastKind.info,
-            );
-          }
-          return;
-        }
-        _frontCamera = await session.switchCamera();
-        if (mounted) setState(() {});
-      } catch (e) {
-        if (mounted) {
-          bestieToast(
-            context,
-            'Could not switch camera',
-            body: formatApiError(e),
-            kind: BestieToastKind.error,
-          );
-        }
-      }
-      return;
-    }
-    final engine = _engine;
-    if (!_isVideo || engine == null) return;
-    if (_cameraOff) {
-      if (mounted) {
-        bestieToast(
-          context,
-          'Turn on camera first',
-          kind: BestieToastKind.info,
-        );
-      }
-      return;
-    }
-    try {
-      await engine.switchCamera();
-      _frontCamera = !_frontCamera;
-    } catch (_) {
-      try {
-        _frontCamera = !_frontCamera;
-        await engine.setCameraCapturerConfiguration(
-          CameraCapturerConfiguration(
-            cameraDirection: _frontCamera
-                ? CameraDirection.cameraFront
-                : CameraDirection.cameraRear,
-          ),
-        );
-      } catch (e) {
-        if (mounted) {
-          bestieToast(
-            context,
-            'Could not switch camera',
-            body: formatApiError(e),
-            kind: BestieToastKind.error,
-          );
-        }
-      }
-    }
-  }
-
   /// Cycle earpiece → speaker → bluetooth → earpiece.
   Future<void> _cycleAudioRoute() async {
     final next = switch (_route) {
@@ -4784,9 +4705,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
                     top: topInset + 64,
                     width: 104,
                     height: 150,
-                    child: GestureDetector(
-                      onTap: _cameraOff ? null : _flipCamera,
-                      child: Container(
+                    child: Container(
                         clipBehavior: Clip.antiAlias,
                         decoration: BoxDecoration(
                           color: _kParticipantTileBg,
@@ -4831,7 +4750,6 @@ class _CallScreenState extends ConsumerState<CallScreen>
                             : (_buildLocalVideoWidget() ??
                                 const SizedBox.shrink()),
                       ),
-                    ),
                   ),
 
                 Positioned(
@@ -8319,13 +8237,6 @@ class _CallScreenState extends ConsumerState<CallScreen>
             size: buttonSize,
             iconSize: iconSize,
           ),
-          if (_isVideo && !_cameraOff)
-            _ctrlCircle(
-              icon: Icons.cameraswitch_rounded,
-              onTap: _flipCamera,
-              size: buttonSize,
-              iconSize: iconSize,
-            ),
           _ctrlCircle(
             icon: Icons.volume_up_rounded,
             onTap: _toggleSpeakerRoute,
@@ -8425,7 +8336,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   /// WhatsApp call controls — one translucent rounded pill with 5 circles:
-  /// more · camera · speaker · mic · end. Share / Record / Flip live in the
+  /// more · camera · speaker · mic · end. Share / Record live in the
   /// `_showMore` sheet to keep the bar uncluttered.
   Widget _callControls({bool compact = false}) {
     return Padding(
@@ -8460,13 +8371,6 @@ class _CallScreenState extends ConsumerState<CallScreen>
             size: compact ? 42 : 52,
             iconSize: compact ? 18 : 22,
           ),
-          if (_isVideo && !_cameraOff)
-            _ctrlCircle(
-              icon: Icons.cameraswitch_rounded,
-              onTap: _flipCamera,
-              size: compact ? 42 : 52,
-              iconSize: compact ? 18 : 22,
-            ),
           _ctrlCircle(
             icon: _audioRouteIcon(_route),
             onTap: _cycleAudioRoute,
@@ -8525,13 +8429,6 @@ class _CallScreenState extends ConsumerState<CallScreen>
             size: compact ? 42 : 52,
             iconSize: compact ? 18 : 22,
           ),
-          if (_isVideo && !_cameraOff)
-            _ctrlCircle(
-              icon: Icons.cameraswitch_rounded,
-              onTap: _flipCamera,
-              size: compact ? 42 : 52,
-              iconSize: compact ? 18 : 22,
-            ),
           if (_kScreenShareUiEnabled)
             _ctrlCircle(
               icon: _sharing
@@ -8570,8 +8467,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   /// Overflow menu reached from the call/meeting controls' "more" button.
-  /// Holds the secondary actions (screen share, record, flip camera,
-  /// participants) so the main controls stay clean and WhatsApp-like.
+  /// Holds the secondary actions (screen share, record, participants) so the
+  /// main controls stay clean and WhatsApp-like.
   void _showMore() {
     showModalBottomSheet(
       context: context,
@@ -8630,8 +8527,6 @@ class _CallScreenState extends ConsumerState<CallScreen>
                   _toggleRecord,
                   color: _recording ? c.danger : null,
                 ),
-              if (_isVideo)
-                tile(Icons.cameraswitch_outlined, 'Flip camera', _flipCamera),
               tile(Icons.people_alt_rounded, 'Participants', _showParticipants),
               const SizedBox(height: 4),
             ]),

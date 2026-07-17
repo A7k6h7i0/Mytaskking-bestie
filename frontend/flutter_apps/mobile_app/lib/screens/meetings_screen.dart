@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../state.dart';
+import '../windows_workspace.dart';
 
 class MeetingsScreen extends ConsumerWidget {
   const MeetingsScreen({super.key});
@@ -13,6 +14,8 @@ class MeetingsScreen extends ConsumerWidget {
     final colors = BestieColors.of(context);
     final meetings = ref.watch(meetingsProvider);
     // Clear shell nav without an empty Scaffold bottom bar (white strip).
+    final readOnly = kWindowsWorkspaceNoCalls;
+
     final shellNavClearance =
         70.0 + 24 + MediaQuery.of(context).padding.bottom;
 
@@ -22,13 +25,14 @@ class MeetingsScreen extends ConsumerWidget {
         elevation: 0,
         backgroundColor: colors.surface,
         foregroundColor: colors.text,
-        title: const Text('Meetings'),
+        title: Text(readOnly ? 'Meeting history' : 'Meetings'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.input_rounded),
-            tooltip: 'Join by meeting ID',
-            onPressed: () => _joinById(context, ref),
-          ),
+          if (!readOnly)
+            IconButton(
+              icon: const Icon(Icons.input_rounded),
+              tooltip: 'Join by meeting ID',
+              onPressed: () => _joinById(context, ref),
+            ),
         ],
       ),
       bottomNavigationBar: null,
@@ -56,23 +60,27 @@ class MeetingsScreen extends ConsumerWidget {
                       Icon(Icons.videocam_outlined,
                           size: 64, color: colors.textFaint),
                       const SizedBox(height: 16),
-                      Text('No meetings yet',
+                      Text(readOnly ? 'No meeting history yet' : 'No meetings yet',
                           style: TextStyle(
                               color: colors.text,
                               fontSize: 18,
                               fontWeight: BestieTokens.fwBold)),
                       const SizedBox(height: 6),
                       Text(
-                          'Live rooms and recent ended meetings show here. Create one or join by ID.',
+                          readOnly
+                              ? 'Past and live meetings appear here for reference. Join meetings from your phone.'
+                              : 'Live rooms and recent ended meetings show here. Create one or join by ID.',
                           textAlign: TextAlign.center,
                           style:
                               TextStyle(color: colors.textMuted, fontSize: 13)),
-                      const SizedBox(height: 16),
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.input_rounded, size: 16),
-                        label: const Text('Join by meeting ID'),
-                        onPressed: () => _joinById(context, ref),
-                      ),
+                      if (!readOnly) ...[
+                        const SizedBox(height: 16),
+                        OutlinedButton.icon(
+                          icon: const Icon(Icons.input_rounded, size: 16),
+                          label: const Text('Join by meeting ID'),
+                          onPressed: () => _joinById(context, ref),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -165,7 +173,7 @@ class MeetingsScreen extends ConsumerWidget {
                         ),
                     ]),
                     trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                      if (!ended)
+                      if (!readOnly && !ended)
                         IconButton(
                           icon: const Icon(Icons.arrow_forward_ios_rounded,
                               size: 18),
@@ -176,10 +184,11 @@ class MeetingsScreen extends ConsumerWidget {
                         IconButton(
                           icon: Icon(Icons.info_outline,
                               color: colors.textMuted),
-                          onPressed: () => _showEndedDetails(context, m, colors),
-                          tooltip: 'Meeting history',
+                          onPressed: () =>
+                              _showMeetingDetails(context, m, colors),
+                          tooltip: 'Meeting details',
                         ),
-                      if (canEnd)
+                      if (!readOnly && canEnd)
                         IconButton(
                           icon: const Icon(Icons.stop_circle_outlined),
                           onPressed: () =>
@@ -194,7 +203,9 @@ class MeetingsScreen extends ConsumerWidget {
           },
         ),
       ),
-      floatingActionButton: Padding(
+      floatingActionButton: readOnly
+          ? null
+          : Padding(
         padding: EdgeInsets.only(bottom: shellNavClearance - 24),
         child: FloatingActionButton.extended(
           onPressed: () => _create(context, ref),
@@ -206,6 +217,7 @@ class MeetingsScreen extends ConsumerWidget {
   }
 
   Future<void> _create(BuildContext context, WidgetRef ref) async {
+    if (kWindowsWorkspaceNoCalls) return;
     final name = TextEditingController();
     final search = TextEditingController();
     String mode = 'VIDEO';
@@ -495,6 +507,7 @@ class MeetingsScreen extends ConsumerWidget {
   }
 
   Future<void> _joinById(BuildContext context, WidgetRef ref) async {
+    if (kWindowsWorkspaceNoCalls) return;
     final slugCtl = TextEditingController();
     await showModalBottomSheet<void>(
       context: context,
@@ -578,6 +591,7 @@ class MeetingsScreen extends ConsumerWidget {
 
   Future<void> _join(
       BuildContext context, WidgetRef ref, Map<String, dynamic> m) async {
+    if (kWindowsWorkspaceNoCalls) return;
     final slug = m['slug']?.toString();
     if (slug == null) return;
     if (m['endedAt'] != null) {
@@ -620,13 +634,14 @@ class MeetingsScreen extends ConsumerWidget {
     return int.tryParse('$n') ?? 0;
   }
 
-  static void _showEndedDetails(
+  static void _showMeetingDetails(
     BuildContext context,
     Map<String, dynamic> m,
     BestieColors colors,
   ) {
     final ended = m['endedAt']?.toString() ?? '';
     final created = m['createdAt']?.toString() ?? '';
+    final isLive = m['endedAt'] == null;
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: colors.surface,
@@ -649,10 +664,13 @@ class MeetingsScreen extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: 10),
-              Text('Status: Ended',
+              Text('Status: ${isLive ? 'Live' : 'Ended'}',
                   style: TextStyle(color: colors.textMuted, fontSize: 13)),
               Text('Mode: ${m['mode'] ?? 'VIDEO'}',
                   style: TextStyle(color: colors.textMuted, fontSize: 13)),
+              if ((m['slug'] ?? '').toString().isNotEmpty)
+                Text('ID: ${m['slug']}',
+                    style: TextStyle(color: colors.textMuted, fontSize: 13)),
               if (created.isNotEmpty)
                 Text('Started: ${created.replaceFirst('T', ' ')}',
                     style: TextStyle(color: colors.textMuted, fontSize: 13)),

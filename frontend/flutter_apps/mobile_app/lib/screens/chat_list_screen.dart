@@ -12,6 +12,7 @@ import '../call_event_text.dart';
 import '../chat_clear.dart';
 import '../chat_mute.dart';
 import '../state.dart';
+import '../windows_workspace.dart';
 import 'call_screen.dart';
 import '../widgets/profile_avatar_viewer.dart';
 
@@ -564,7 +565,9 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
         );
         return asset['url']?.toString();
       },
-      onStartCall: (user, mode) async {
+      onStartCall: kWindowsWorkspaceNoCalls
+          ? null
+          : (user, mode) async {
         if (_isPlatformSuperAdmin(user)) {
           if (context.mounted) {
             bestieToast(

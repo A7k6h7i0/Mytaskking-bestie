@@ -13,11 +13,15 @@ import 'package:mytaskking_mobile/screens.dart'
 import 'package:mytaskking_mobile/screens/connectivity_banner.dart';
 import 'package:mytaskking_mobile/screens/incoming_call_overlay.dart';
 import 'package:mytaskking_mobile/screens/ongoing_call_bar.dart';
+import 'package:mytaskking_mobile/windows_workspace.dart';
+import 'package:mytaskking_mobile/branding.dart';
+import 'package:mytaskking_mobile/mobile_appearance_providers.dart';
+import 'package:mytaskking_mobile/mobile_local_settings.dart';
+import 'package:mytaskking_mobile/mobile_theme_palettes.dart';
 import 'package:mytaskking_mobile/screens/organizations_screen.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
-import 'desktop_auto_logout_prompt.dart';
 import 'desktop_local_settings.dart';
 import 'desktop_profile_screen.dart';
 import 'desktop_runtime.dart';
@@ -33,6 +37,7 @@ void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   await windowManager.ensureInitialized();
   await DesktopLocalSettings.load();
+  await MobileLocalSettings.load();
   final shouldContinue = await DesktopRuntime.initialize(args);
   if (!shouldContinue) {
     await DesktopRuntime.release();
@@ -66,8 +71,22 @@ void main(List<String> args) async {
   ));
 }
 
-class BestieWindowsApp extends ConsumerWidget {
+class BestieWindowsApp extends ConsumerStatefulWidget {
   const BestieWindowsApp({super.key});
+
+  @override
+  ConsumerState<BestieWindowsApp> createState() => _BestieWindowsAppState();
+}
+
+class _BestieWindowsAppState extends ConsumerState<BestieWindowsApp> {
+  @override
+  void initState() {
+    super.initState();
+    ref.read(themeModeProvider.notifier).state =
+        MobileLocalSettings.themeMode.value;
+    ref.read(mobileColorThemeProvider.notifier).state =
+        MobileLocalSettings.colorTheme.value;
+  }
 
   GoRouter _router(BestieAuthStore auth) {
     final logged = auth.accessToken != null;
@@ -97,6 +116,8 @@ class BestieWindowsApp extends ConsumerWidget {
         ),
         GoRoute(
           path: '/call/:id',
+          redirect: (_, __) =>
+              kWindowsWorkspaceNoCalls ? '/calls' : null,
           builder: (_, s) => CallScreen(
             callId: s.pathParameters['id'],
             mode: s.uri.queryParameters['mode'] ?? 'video',
@@ -104,6 +125,8 @@ class BestieWindowsApp extends ConsumerWidget {
         ),
         GoRoute(
           path: '/meeting/:slug',
+          redirect: (_, __) =>
+              kWindowsWorkspaceNoCalls ? '/meetings' : null,
           builder: (_, s) => CallScreen(
             meetingSlug: s.pathParameters['slug'],
             mode: s.uri.queryParameters['mode'] ?? 'video',
@@ -188,39 +211,118 @@ class BestieWindowsApp extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     ref.watch(currentUserProvider);
     final auth = ref.watch(authStoreProvider);
-    final mode = ref.watch(themeModeProvider);
+    ref.watch(themeModeProvider);
+    ref.watch(mobileColorThemeProvider);
     final fontScale = ref.watch(fontScaleProvider);
     final router = _router(auth);
-    return MaterialApp.router(
-      title: 'MyTaskKing · Windows',
-      debugShowCheckedModeBanner: false,
-      theme: _desktopTheme(BestieTheme.light()),
-      darkTheme: _desktopTheme(BestieTheme.dark()),
-      themeMode: switch (mode) {
-        core.ThemeMode.light => ThemeMode.light,
-        core.ThemeMode.dark => ThemeMode.dark,
-        core.ThemeMode.system => ThemeMode.system,
+    return ValueListenableBuilder<int>(
+      valueListenable: MobileLocalSettings.themeEpoch,
+      builder: (context, themeEpoch, _) {
+        return ValueListenableBuilder<MobileThemeId>(
+          valueListenable: MobileLocalSettings.colorTheme,
+          builder: (context, paletteId, __) {
+            return ValueListenableBuilder<
+                Map<MobileThemeId, Map<String, int>>>(
+              valueListenable: MobileLocalSettings.themeColorOverrides,
+              builder: (context, overridesMap, ___) {
+                return ValueListenableBuilder<int?>(
+                  valueListenable: MobileLocalSettings.adminPrimaryColor,
+                  builder: (context, adminPrimary, ____) {
+                    return ValueListenableBuilder<core.ThemeMode>(
+                      valueListenable: MobileLocalSettings.themeMode,
+                      builder: (context, mode, _____) {
+                        final overrides = <String, int>{
+                          ...?overridesMap[paletteId],
+                        };
+                        if (adminPrimary != null &&
+                            paletteId == MobileThemeId.mytaskkingBlue) {
+                          overrides['brand'] = adminPrimary;
+                          overrides['brandStrong'] = adminPrimary;
+                          overrides['accent'] = adminPrimary;
+                          overrides['logoGradientStart'] = adminPrimary;
+                          overrides['logoGradientEnd'] = adminPrimary;
+                          overrides['sidebarActiveStart'] = adminPrimary;
+                          overrides['sidebarActiveEnd'] = adminPrimary;
+                          overrides['backdropDot'] = adminPrimary;
+                        }
+                        final palette = MobileThemePalettes.paletteFor(
+                          paletteId,
+                          overrides:
+                              overrides.isEmpty ? null : overrides,
+                        );
+                        final light = _desktopTheme(
+                          MobileThemePalettes.applyTo(
+                            BestieTheme.light(),
+                            palette,
+                          ),
+                        );
+                        final dark = _desktopTheme(
+                          MobileThemePalettes.applyTo(
+                            BestieTheme.dark(),
+                            palette,
+                          ),
+                        );
+                        ref.watch(orgBrandingProvider);
+                        return MaterialApp.router(
+                          key: ValueKey(
+                            'theme-$themeEpoch-${mode.name}-${paletteId.storageKey}-$adminPrimary',
+                          ),
+                          title: 'MyTaskKing · Windows',
+                          debugShowCheckedModeBanner: false,
+                          theme: light,
+                          darkTheme: dark,
+                          themeMode: switch (mode) {
+                            core.ThemeMode.light => ThemeMode.light,
+                            core.ThemeMode.dark => ThemeMode.dark,
+                            core.ThemeMode.system => ThemeMode.system,
+                          },
+                          routerConfig: router,
+                          builder: (ctx, child) {
+                            return MediaQuery(
+                              data: MediaQuery.of(ctx).copyWith(
+                                textScaler: TextScaler.linear(fontScale),
+                              ),
+                              child: DesktopLifecycleHost(
+                                child: KeyedSubtree(
+                                  key: ValueKey(
+                                    '$themeEpoch-${paletteId.storageKey}-${mode.name}-$adminPrimary',
+                                  ),
+                                  child: ProviderScope(
+                                    overrides: [
+                                      mobile_router.routerProvider
+                                          .overrideWithValue(router),
+                                    ],
+                                    child: kWindowsWorkspaceNoCalls
+                                        ? ConnectivityBanner(
+                                            child: child ??
+                                                const SizedBox.shrink(),
+                                          )
+                                        : IncomingCallOverlay(
+                                            child: OngoingCallBar(
+                                              child: ConnectivityBanner(
+                                                child: child ??
+                                                    const SizedBox.shrink(),
+                                              ),
+                                            ),
+                                          ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    );
+                  },
+                );
+              },
+            );
+          },
+        );
       },
-      routerConfig: router,
-      builder: (ctx, child) => MediaQuery(
-        data: MediaQuery.of(ctx).copyWith(
-          textScaler: TextScaler.linear(fontScale),
-        ),
-        child: DesktopLifecycleHost(
-          child: ProviderScope(
-            overrides: [mobile_router.routerProvider.overrideWithValue(router)],
-            child: IncomingCallOverlay(
-              child: OngoingCallBar(
-                child:
-                    ConnectivityBanner(child: child ?? const SizedBox.shrink()),
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 }
@@ -255,8 +357,6 @@ class _DesktopLifecycleHostState extends ConsumerState<DesktopLifecycleHost>
   final _activityAgent = DesktopWorkActivityAgent();
   StreamSubscription? _authSub;
   Timer? _autoLogoutTimer;
-  DateTime? _autoLogoutSnoozeUntil;
-  bool _autoLogoutPromptOpen = false;
   bool _trayReady = false;
   bool _quitting = false;
 
@@ -350,7 +450,6 @@ class _DesktopLifecycleHostState extends ConsumerState<DesktopLifecycleHost>
       _activityAgent.dispose();
       _autoLogoutTimer?.cancel();
       _autoLogoutTimer = null;
-      _autoLogoutSnoozeUntil = null;
       await _disposeTray();
     }
   }
@@ -387,7 +486,6 @@ class _DesktopLifecycleHostState extends ConsumerState<DesktopLifecycleHost>
     if (_isAutoLogoutExempt()) return;
     final settings = DesktopLocalSettings.autoLogout.value;
     if (!settings.enabled) return;
-    if (_autoLogoutPromptOpen) return;
     final now = DateTime.now();
     final cutoff = DateTime(
       now.year,
@@ -397,28 +495,9 @@ class _DesktopLifecycleHostState extends ConsumerState<DesktopLifecycleHost>
       settings.minute,
     );
     if (now.isBefore(cutoff)) return;
-    if (_autoLogoutSnoozeUntil != null && now.isBefore(_autoLogoutSnoozeUntil!)) {
-      return;
-    }
-    await _promptAutoLogout();
-  }
-
-  Future<void> _promptAutoLogout() async {
-    if (!mounted || _quitting || _autoLogoutPromptOpen) return;
-    _autoLogoutPromptOpen = true;
-    try {
-      await DesktopRuntime.revealAgentWindow();
-      if (!mounted || _quitting) return;
-      final stillWorking = await showDesktopAutoLogoutPrompt(context);
-      if (!mounted || _quitting) return;
-      if (stillWorking == true) {
-        _autoLogoutSnoozeUntil = DateTime.now().add(const Duration(hours: 1));
-        return;
-      }
-      await _signOutFromDesktop(exitAfter: true);
-    } finally {
-      _autoLogoutPromptOpen = false;
-    }
+    await DesktopRuntime.revealAgentWindow();
+    if (!mounted || _quitting) return;
+    await _signOutFromDesktop(exitAfter: true);
   }
 
   Future<void> _ensureTray() async {

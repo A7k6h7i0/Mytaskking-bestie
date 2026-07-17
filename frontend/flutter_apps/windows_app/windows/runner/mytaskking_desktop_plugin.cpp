@@ -206,6 +206,13 @@ std::optional<std::string> ShowWorkActivityPrompt(int seconds) {
     registered = true;
   }
 
+  HWND main_window = FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", nullptr);
+  const bool main_was_visible =
+      main_window != nullptr && IsWindowVisible(main_window);
+  if (main_was_visible) {
+    ShowWindow(main_window, SW_HIDE);
+  }
+
   PromptState state;
   state.remaining = seconds <= 0 ? 30 : seconds;
 
@@ -219,7 +226,12 @@ std::optional<std::string> ShowWorkActivityPrompt(int seconds) {
       L"MyTaskKing Work Check", WS_POPUP | WS_CAPTION | WS_SYSMENU, x, y,
       kPromptWidth, kPromptHeight, nullptr, nullptr, GetModuleHandle(nullptr),
       &state);
-  if (!hwnd) return std::nullopt;
+  if (!hwnd) {
+    if (main_was_visible && main_window != nullptr) {
+      ShowWindow(main_window, SW_SHOWNA);
+    }
+    return std::nullopt;
+  }
 
   HFONT font = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
   state.title = CreateWindowW(L"STATIC", L"Are you working?",
@@ -261,12 +273,17 @@ std::optional<std::string> ShowWorkActivityPrompt(int seconds) {
   SetForegroundWindow(hwnd);
 
   MSG msg;
-  while (!state.done && GetMessage(&msg, nullptr, 0, 0) > 0) {
+  while (!state.done && GetMessage(&msg, hwnd, 0, 0) > 0) {
     if (!IsDialogMessage(hwnd, &msg)) {
       TranslateMessage(&msg);
       DispatchMessage(&msg);
     }
   }
+
+  if (main_was_visible && main_window != nullptr) {
+    ShowWindow(main_window, SW_SHOWNA);
+  }
+
   return Utf8FromUtf16(state.result.empty() ? L"working" : state.result);
 }
 
