@@ -73,6 +73,7 @@ class MediasoupCallSession {
   bool _videoEnabled = false;
   bool _muted = false;
   bool _cameraEnabled = true;
+  bool _useFrontCamera = true;
   bool _connecting = false;
   bool _screenSharing = false;
 
@@ -226,6 +227,8 @@ class MediasoupCallSession {
     _iceServers = [];
     _iceServerMaps = [];
 
+    _useFrontCamera = true;
+
     if (Platform.isAndroid) {
       try {
         await Helper.clearAndroidCommunicationDevice();
@@ -322,6 +325,7 @@ class MediasoupCallSession {
   bool get isCameraEnabled => _cameraEnabled;
   bool get isVideoCall => _videoEnabled;
   bool get isScreenSharing => _screenSharing;
+  bool get frontCamera => _useFrontCamera;
   MediaStream? get screenStream => _screenStream;
 
   void setMuted(bool muted) {
@@ -356,6 +360,73 @@ class MediasoupCallSession {
     _notifyStateChanged();
   }
 
+  /// Switch front ↔ rear camera with explicit [facingMode] and replace the SFU
+  /// video track. [Helper.switchCamera] alone leaves Android sending a
+  /// mirrored/wrong-orientation rear feed to peers.
+  Future<bool> switchCamera() async {
+    if (!joined) return _useFrontCamera;
+    final nextFront = !_useFrontCamera;
+    final producer = _videoProducer;
+    final stream = localStream;
+
+    if (producer == null || stream == null) {
+      _useFrontCamera = nextFront;
+      _notifyStateChanged();
+      return _useFrontCamera;
+    }
+
+    MediaStream cam;
+    try {
+      cam = await navigator.mediaDevices.getUserMedia({
+        'audio': false,
+        'video': _portraitVideoConstraints(front: nextFront),
+      });
+    } catch (_) {
+      try {
+        cam = await navigator.mediaDevices.getUserMedia({
+          'audio': false,
+          'video': {'facingMode': nextFront ? 'user' : 'environment'},
+        });
+      } catch (e) {
+        onError?.call('Could not switch camera: $e');
+        return _useFrontCamera;
+      }
+    }
+
+    final tracks = cam.getVideoTracks();
+    if (tracks.isEmpty) {
+      await cam.dispose();
+      return _useFrontCamera;
+    }
+    final newTrack = tracks.first;
+    newTrack.enabled = true;
+
+    try {
+      await producer.replaceTrack(newTrack);
+    } catch (e) {
+      try {
+        await newTrack.stop();
+      } catch (_) {}
+      onError?.call('Could not switch camera: $e');
+      return _useFrontCamera;
+    }
+
+    for (final old in stream.getVideoTracks().toList()) {
+      if (old.id == newTrack.id) continue;
+      try {
+        stream.removeTrack(old);
+      } catch (_) {}
+    }
+    if (!stream.getVideoTracks().any((t) => t.id == newTrack.id)) {
+      await stream.addTrack(newTrack);
+    }
+
+    _useFrontCamera = nextFront;
+    _cameraEnabled = true;
+    _notifyStateChanged();
+    return _useFrontCamera;
+  }
+
   /// Lazily add a webcam producer when the user turns camera on mid-call.
   Future<void> _ensureWebcamProduced() async {
     if (_videoProducer != null &&
@@ -372,12 +443,7 @@ class MediasoupCallSession {
         // sideways video on Android phones.
         cam = await navigator.mediaDevices.getUserMedia({
           'audio': false,
-          'video': {
-            'facingMode': 'user',
-            'width': {'ideal': 720},
-            'height': {'ideal': 1280},
-            'aspectRatio': {'ideal': 0.5625},
-          },
+          'video': _portraitVideoConstraints(front: _useFrontCamera),
         });
       } catch (_) {
         cam = await navigator.mediaDevices.getUserMedia({
@@ -774,17 +840,20 @@ class MediasoupCallSession {
   // Produce / consume
   // ---------------------------------------------------------------------------
 
+  Map<String, dynamic> _portraitVideoConstraints({required bool front}) {
+    return {
+      'facingMode': front ? 'user' : 'environment',
+      'width': {'ideal': 720},
+      'height': {'ideal': 1280},
+      'aspectRatio': {'ideal': 0.5625},
+    };
+  }
+
   Future<void> _produceLocalMedia({required bool video}) async {
     // Explicit AEC/NS like proven flutter_webrtc call setups; fall back if
     // the device rejects constraint maps. Prefer facingMode for mobile cams.
-    final videoConstraints = video
-        ? <String, dynamic>{
-            'facingMode': 'user',
-            'width': {'ideal': 720},
-            'height': {'ideal': 1280},
-            'aspectRatio': {'ideal': 0.5625},
-          }
-        : false;
+    final videoConstraints =
+        video ? _portraitVideoConstraints(front: _useFrontCamera) : false;
     try {
       localStream = await navigator.mediaDevices.getUserMedia({
         'audio': {

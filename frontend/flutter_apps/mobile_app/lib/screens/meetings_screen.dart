@@ -27,7 +27,7 @@ class MeetingsScreen extends ConsumerWidget {
           IconButton(
             icon: const Icon(Icons.input_rounded),
             tooltip: 'Join by meeting ID',
-            onPressed: () => _joinById(context),
+            onPressed: () => _joinById(context, ref),
           ),
         ],
       ),
@@ -71,7 +71,7 @@ class MeetingsScreen extends ConsumerWidget {
                       OutlinedButton.icon(
                         icon: const Icon(Icons.input_rounded, size: 16),
                         label: const Text('Join by meeting ID'),
-                        onPressed: () => _joinById(context),
+                        onPressed: () => _joinById(context, ref),
                       ),
                     ],
                   ),
@@ -494,7 +494,7 @@ class MeetingsScreen extends ConsumerWidget {
     return '${dt.day} ${months[dt.month - 1]} · $clock';
   }
 
-  Future<void> _joinById(BuildContext context) async {
+  Future<void> _joinById(BuildContext context, WidgetRef ref) async {
     final slugCtl = TextEditingController();
     await showModalBottomSheet<void>(
       context: context,
@@ -534,18 +534,39 @@ class MeetingsScreen extends ConsumerWidget {
               BestiePrimaryButton(
                 label: 'Join',
                 icon: Icons.login_rounded,
-                onPressed: () {
+                onPressed: () async {
                   final raw = slugCtl.text.trim();
                   if (raw.isEmpty) return;
-                  // Pull the slug out of a full URL if the user pasted one
-                  // (mytaskking.com/meetings/join/<slug> or similar).
                   String slug = raw;
                   if (slug.contains('/')) {
-                    slug = slug.split('?').first; // drop query string
+                    slug = slug.split('?').first;
                     slug = slug.split('/').where((s) => s.isNotEmpty).last;
                   }
-                  Navigator.pop(ctx);
-                  context.go('/meeting/$slug?mode=video');
+                  try {
+                    final room =
+                        await ref.read(apiProvider).get('/meetings/$slug');
+                    if (!context.mounted) return;
+                    if (room['endedAt'] != null) {
+                      bestieToast(context, 'Meeting already ended',
+                          kind: BestieToastKind.info);
+                      return;
+                    }
+                    final mode =
+                        (room['mode'] ?? 'VIDEO').toString().toLowerCase() ==
+                                'voice'
+                            ? 'voice'
+                            : 'video';
+                    Navigator.pop(ctx);
+                    context.go('/meeting/$slug?mode=$mode');
+                  } catch (e) {
+                    if (!context.mounted) return;
+                    bestieToast(
+                      context,
+                      'Couldn\'t join',
+                      body: formatApiError(e),
+                      kind: BestieToastKind.error,
+                    );
+                  }
                 },
               ),
             ],

@@ -122,6 +122,24 @@ async function recordParticipant({ room, userId = null, displayName, joinedVia }
   });
 }
 
+async function meetingNotifyUserIds(room) {
+  const targets = new Set([room.hostId].filter(Boolean));
+  if (Array.isArray(room._notifyUserIds)) {
+    for (const uid of room._notifyUserIds) {
+      if (uid) targets.add(uid);
+    }
+  } else {
+    const rows = await prisma.meetingRoomParticipant.findMany({
+      where: { roomId: room.id, userId: { not: null } },
+      select: { userId: true },
+    });
+    for (const row of rows) {
+      if (row.userId) targets.add(row.userId);
+    }
+  }
+  return targets;
+}
+
 function notifyMeetingJoin(io, room, participant) {
   const payload = {
     roomId: room.id,
@@ -138,18 +156,41 @@ function notifyMeetingJoin(io, room, participant) {
         : null,
     },
   };
-  // Host always gets the event.
-  const targets = new Set([room.hostId].filter(Boolean));
-  // Also notify other authenticated participants already in the roster so
-  // everyone mid-meeting updates their tiles (not only the host).
-  if (Array.isArray(room._notifyUserIds)) {
-    for (const uid of room._notifyUserIds) {
-      if (uid) targets.add(uid);
+  // Prefer precomputed notify set from token handler; otherwise fire-and-forget.
+  Promise.resolve(meetingNotifyUserIds(room)).then((targets) => {
+    for (const uid of targets) {
+      if (uid === participant.userId) continue;
+      io?.to(`user:${uid}`).emit('meeting.participant.joined', payload);
     }
-  }
+  }).catch(() => {});
+}
+
+async function notifyMeetingLeft(io, room, { userId, displayName }) {
+  const payload = {
+    roomId: room.id,
+    slug: room.slug,
+    participant: {
+      userId,
+      displayName: displayName || 'Participant',
+      agoraUid: userId ? agora.toAgoraUid(userId) : null,
+    },
+  };
+  const targets = await meetingNotifyUserIds(room);
   for (const uid of targets) {
-    if (uid === participant.userId) continue;
-    io?.to(`user:${uid}`).emit('meeting.participant.joined', payload);
+    if (uid === userId) continue;
+    io?.to(`user:${uid}`).emit('meeting.participant.left', payload);
+  }
+}
+
+async function notifyMeetingEnded(io, room, extra = {}) {
+  const payload = {
+    slug: room.slug,
+    meetingId: room.id,
+    ...extra,
+  };
+  const targets = await meetingNotifyUserIds(room);
+  for (const uid of targets) {
+    io?.to(`user:${uid}`).emit('meeting.ended', payload);
   }
 }
 
@@ -251,7 +292,7 @@ router.post(
         guestUid,
       },
     });
-    req.app.get('io')?.emit('meeting.guest_request.created', {
+    req.app.get('io')?.to(`user:${room.hostId}`).emit('meeting.guest_request.created', {
       roomId: room.id,
       slug: room.slug,
       requestId: request.id,
@@ -382,7 +423,13 @@ router.get(
       where,
       orderBy: [{ endedAt: 'asc' }, { createdAt: 'desc' }],
       include: {
-        _count: { select: { participants: true } },
+        participants: {
+          where: {
+            userId: { not: null },
+            joinedVia: { in: ['INTERNAL', 'GUEST'] },
+          },
+          select: { id: true },
+        },
         guestRequests: {
           where: { status: 'PENDING' },
           select: { id: true },
@@ -393,7 +440,8 @@ router.get(
       items: items.map((room) => ({
         ...serializeRoom(room),
         pendingGuestCount: room.guestRequests.length,
-        participantCount: room._count.participants,
+        // Live people only — not INVITED / LEFT rows.
+        participantCount: room.participants.length,
       })),
     });
   })
@@ -431,7 +479,7 @@ router.post(
         rejectedAt: null,
       },
     });
-    req.app.get('io')?.emit('meeting.guest_request.approved', {
+    req.app.get('io')?.to(`user:${room.hostId}`).emit('meeting.guest_request.approved', {
       roomId: room.id,
       requestId: request.id,
       guestName: request.guestName,
@@ -456,7 +504,7 @@ router.post(
         approvedAt: null,
       },
     });
-    req.app.get('io')?.emit('meeting.guest_request.rejected', {
+    req.app.get('io')?.to(`user:${room.hostId}`).emit('meeting.guest_request.rejected', {
       roomId: room.id,
       requestId: request.id,
       guestName: request.guestName,
@@ -601,13 +649,14 @@ router.post(
     audit.record({ kind: 'meeting.created', entity: 'meeting', entityId: room.id, payload: { mode: room.mode }, req });
     await eventBus.publish('meeting.created', { meetingId: room.id, mode: room.mode }, { tenantId: room.tenantId });
 
-    // Host row so join auth + roster stay consistent.
+    // Host as INVITED until first real token join — otherwise auto-end never
+    // fires (ghost INTERNAL host keeps active count >= 1 forever).
     await prisma.meetingRoomParticipant.create({
       data: {
         roomId: room.id,
         userId: req.user.id,
         displayName: req.user.name || 'Host',
-        joinedVia: 'INTERNAL',
+        joinedVia: 'INVITED',
       },
     }).catch(() => {});
 
@@ -684,9 +733,9 @@ router.post(
     });
     room._notifyUserIds = rosterRows.map((r) => r.userId).filter(Boolean);
 
-    if (req.user.id !== room.hostId) {
-      notifyMeetingJoin(req.app.get('io'), room, participant);
-    }
+    // Always fan out — including host join — so invitees already in the room
+    // get roster + mediasoup uid mapping without waiting on SFU alone.
+    notifyMeetingJoin(req.app.get('io'), room, participant);
 
     res.json({
       ...media,
@@ -716,7 +765,7 @@ router.post(
     const updated = await prisma.meetingRoom.update({ where: { id: room.id }, data: { endedAt: new Date() } });
     audit.record({ kind: 'meeting.ended', entity: 'meeting', entityId: room.id, req });
     await eventBus.publish('meeting.ended', { meetingId: room.id }, { tenantId: room.tenantId });
-    req.app.get('io')?.emit('meeting.ended', { slug: room.slug, meetingId: room.id });
+    await notifyMeetingEnded(req.app.get('io'), room);
     res.json(updated);
   })
 );
@@ -739,15 +788,31 @@ router.post(
       throw Forbidden('Not a participant');
     }
 
-    if (membership && ['INTERNAL', 'GUEST'].includes(String(membership.joinedVia || ''))) {
+    const wasLive =
+      membership &&
+      ['INTERNAL', 'GUEST'].includes(String(membership.joinedVia || ''));
+
+    if (wasLive) {
       await prisma.meetingRoomParticipant.update({
         where: { id: membership.id },
         data: { joinedVia: 'LEFT', lastSeenAt: new Date() },
       });
-    } else if (room.hostId === req.user.id && !membership) {
-      // Host was INTERNAL at create; if row missing, still count empties below.
     } else if (membership && membership.joinedVia === 'INVITED') {
       // Invitee never entered media — no live presence to clear.
+    }
+
+    // Snapshot notify targets before we treat this user as gone.
+    const rosterRows = await prisma.meetingRoomParticipant.findMany({
+      where: { roomId: room.id, userId: { not: null } },
+      select: { userId: true },
+    });
+    room._notifyUserIds = rosterRows.map((r) => r.userId).filter(Boolean);
+
+    if (wasLive) {
+      await notifyMeetingLeft(req.app.get('io'), room, {
+        userId: req.user.id,
+        displayName: membership.displayName || req.user.name,
+      });
     }
 
     const active = await prisma.meetingRoomParticipant.count({
@@ -777,11 +842,7 @@ router.post(
         { meetingId: room.id, reason: 'empty_room' },
         { tenantId: room.tenantId }
       );
-      req.app.get('io')?.emit('meeting.ended', {
-        slug: room.slug,
-        meetingId: room.id,
-        reason: 'empty_room',
-      });
+      await notifyMeetingEnded(req.app.get('io'), room, { reason: 'empty_room' });
     }
 
     res.json({ ok: true, ended, activeParticipants: active });

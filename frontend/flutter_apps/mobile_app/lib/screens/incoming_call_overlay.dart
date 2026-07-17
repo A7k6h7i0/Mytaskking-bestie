@@ -465,7 +465,10 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     final isSameMeeting =
         nextSlug != null && nextSlug.isNotEmpty && nextSlug == currentSlug;
     if (isSameCall || isSameMeeting) return;
-    if (CallSession.isActive && nextCallId != null && nextCallId.isNotEmpty) {
+    // Queue waiting UX for both calls and meetings when already in a session.
+    if (CallSession.isActive &&
+        ((nextCallId != null && nextCallId.isNotEmpty) ||
+            (nextSlug != null && nextSlug.isNotEmpty))) {
       _onWaiting({...Map<String, dynamic>.from(data), 'waiting': true});
       return;
     }

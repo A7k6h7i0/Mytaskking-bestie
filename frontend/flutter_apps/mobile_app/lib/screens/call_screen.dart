@@ -635,13 +635,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
     }));
   }
 
-  /// Meetings don't use call.* lifecycle events. Wire meeting join + peer
-  /// signals (raise hand, etc.) so invitees stay in sync.
+  /// Meetings don't use call.* lifecycle events. Wire meeting join/leave/end
+  /// plus peer signals (raise hand, mute, camera) so invitees stay in sync.
   void _subscribeMeetingLifecycle() {
     final slug = widget.meetingSlug;
     if (slug == null || slug.isEmpty) return;
     final rt = ref.read(realtimeProvider);
-    // Peers still deliver raise-hand / in-meeting UX over call.signal with
+    // Peers still deliver raise-hand / mute / camera over call.signal with
     // meetingSlug in the payload (same relay as 1:1 calls).
     _callUnsubs.add(rt.onAny('call.signal', ([data]) {
       if (data is! Map) return;
@@ -652,6 +652,29 @@ class _CallScreenState extends ConsumerState<CallScreen>
         enriched['fromUserId'] = data['from'];
       }
       _handleCallSignalPayload(enriched);
+    }));
+    _callUnsubs.add(rt.onAny('meeting.ended', ([data]) {
+      if (data is! Map) return;
+      if (data['slug']?.toString() != slug) return;
+      unawaited(_endBecauseRemoteClosed({
+        'status': 'ENDED',
+        'meetingSlug': slug,
+      }));
+    }));
+    _callUnsubs.add(rt.onAny('meeting.participant.left', ([data]) {
+      if (data is! Map) return;
+      if (data['slug']?.toString() != slug &&
+          data['roomId']?.toString() !=
+              (_callMeta?['room'] as Map?)?['id']?.toString()) {
+        return;
+      }
+      final part = (data['participant'] as Map?)?.cast<String, dynamic>();
+      final userId = part?['userId']?.toString() ?? data['userId']?.toString();
+      if (userId == null || userId.isEmpty) return;
+      final me = ref.read(authStoreProvider).user;
+      if (userId == me?.id) return;
+      _raisedHands.remove(userId);
+      _scheduleParticipantLeave(userId);
     }));
     _callUnsubs.add(rt.onAny('meeting.participant.joined', ([data]) {
       if (data is! Map) return;
@@ -674,10 +697,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
           _agoraUidToUserId[agoraUid] = userId;
           _remoteNames[agoraUid] = name;
           _seenPeerUids.add(agoraUid);
-          // Mediasoup uses a different device uid than agoraUid — never
-          // invent a live tile from join notify alone (ghost guests).
-          if (!_CallSession.useMediasoup &&
-              (_remoteUids.contains(agoraUid) || _joined)) {
+          if (_CallSession.useMediasoup) {
+            _relinkMediasoupSocketForUser(userId, agoraUid, name);
+          } else if (_remoteUids.contains(agoraUid) || _joined) {
             _remoteUids.add(agoraUid);
           }
         }
@@ -721,6 +743,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
         _remoteNames[agoraUid] = resolved;
       }
       if (_CallSession.useMediasoup) {
+        if (agoraUid != null && agoraUid > 0) {
+          _relinkMediasoupSocketForUser(userId, agoraUid, resolved);
+        }
         final sock = _CallSession.uidToSocketId[agoraUid ?? -1];
         final live = sock != null &&
             (_CallSession.mediasoup?.remoteStreams.containsKey(sock) == true ||
@@ -1193,6 +1218,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     }
     _participantLeaveTimers.remove(userId)?.cancel();
     _joinedParticipants.remove(userId);
+    _raisedHands.remove(userId);
     _pruneGhostMediasoupRemotes();
   }
 
@@ -1259,21 +1285,28 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   void _emitScreenShareState({required bool active}) {
     final callId = widget.callId;
-    if (callId == null) return;
+    final meetingSlug = widget.meetingSlug;
+    if (callId == null && (meetingSlug == null || meetingSlug.isEmpty)) {
+      return;
+    }
     final meId = ref.read(authStoreProvider).user?.id;
     final agoraUid = active ? _CallSession.myUid : null;
     final rt = ref.read(realtimeProvider);
 
-    // Primary path: backend fans out to every call participant in the DB.
-    rt.emit('call.screenShare', {
-      'callId': callId,
-      'active': active,
-      'agoraUid': agoraUid,
-    });
+    // Primary path for 1:1/group calls: backend fans out to DB participants.
+    if (callId != null) {
+      rt.emit('call.screenShare', {
+        'callId': callId,
+        'active': active,
+        'agoraUid': agoraUid,
+      });
+    }
 
-    // Fallback for older clients / direct delivery when DB join lags Agora.
+    // Meetings (and call fallback) deliver via direct call.signal.
     final envelope = {
-      'callId': callId,
+      if (callId != null) 'callId': callId,
+      if (meetingSlug != null && meetingSlug.isNotEmpty)
+        'meetingSlug': meetingSlug,
       'type': 'screenShare',
       'active': active,
       'agoraUid': agoraUid,
@@ -1402,6 +1435,23 @@ class _CallScreenState extends ConsumerState<CallScreen>
           _raisedHands[userId] = name;
         } else {
           _raisedHands.remove(userId);
+        }
+      });
+      return;
+    }
+    if (type == 'mute') {
+      final fromId = payload['fromUserId']?.toString();
+      final muted = payload['muted'] == true;
+      final uidRaw = payload['agoraUid'];
+      final uid = uidRaw is int ? uidRaw : int.tryParse('$uidRaw');
+      if (!mounted) return;
+      setState(() {
+        if (uid != null && uid > 0) {
+          _remoteMuted[uid] = muted;
+        } else if (fromId != null && fromId.isNotEmpty) {
+          for (final e in _agoraUidToUserId.entries) {
+            if (e.value == fromId) _remoteMuted[e.key] = muted;
+          }
         }
       });
       return;
@@ -1750,16 +1800,23 @@ class _CallScreenState extends ConsumerState<CallScreen>
     await _teardown(notifyServer: false);
     if (!mounted) return;
     final status = data?['status']?.toString();
-    final body = status == 'MISSED'
-        ? 'No answer — the call was not picked up.'
-        : status == 'DECLINED'
-            ? 'The other person declined the call.'
-            : 'The other person left the call.';
-    context.go('/chat');
+    final isMeetingEnd = _isMeeting || data?['meetingSlug'] != null;
+    final body = isMeetingEnd
+        ? 'This meeting has ended.'
+        : status == 'MISSED'
+            ? 'No answer — the call was not picked up.'
+            : status == 'DECLINED'
+                ? 'The other person declined the call.'
+                : 'The other person left the call.';
+    context.go(isMeetingEnd ? '/meetings' : '/chat');
     if (mounted) {
       bestieToast(
         context,
-        status == 'MISSED' ? 'No answer' : 'Call ended',
+        isMeetingEnd
+            ? 'Meeting ended'
+            : status == 'MISSED'
+                ? 'No answer'
+                : 'Call ended',
         body: body,
         kind: BestieToastKind.info,
       );
@@ -2105,6 +2162,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
   /// When returning to an already-live call, restore timer + connected status
   /// from the static session instead of "Connecting…".
   void _restoreLiveCallUi() {
+    if (_CallSession.useMediasoup) {
+      _frontCamera = _CallSession.mediasoup?.frontCamera ?? _frontCamera;
+    }
     if (_CallSession.connectedAt != null &&
         (_CallSession.engine != null ||
             (_CallSession.useMediasoup && _CallSession.joined))) {
@@ -3498,13 +3558,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
       throw 'Server returned an invalid media peer id.';
     }
 
-    // 1:1 calls use the stable server media peer id so announce/join meta
-    // matches mediasoup socket mapping. Group/meeting keeps random per-device
-    // uids so one account on two phones still gets separate tiles.
+    // 1:1 and meetings use the stable server media peer id so roster
+    // agoraUid / signal targeting matches mediasoup sockets. Group calls keep
+    // random per-device uids so one account on two phones still gets separate tiles.
     final call = (tokenResp['call'] as Map?)?.cast<String, dynamic>();
     final isOneToOne = widget.meetingSlug == null &&
         call?['kind']?.toString() != 'GROUP';
-    final deviceUid = isOneToOne
+    final deviceUid = (isOneToOne || _isMeeting)
         ? mediaPeerId
         : (1 + Random().nextInt(2147483646));
 
@@ -3675,6 +3735,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
       await _engine?.muteLocalAudioStream(_muted);
     }
     _CallSession._ping();
+    final meId = ref.read(authStoreProvider).user?.id;
+    _broadcastCallSignal({
+      'type': 'mute',
+      'muted': _muted,
+      'fromUserId': meId,
+      'agoraUid': _CallSession.myUid,
+    });
     if (widget.callId != null) {
       try {
         await ref
@@ -3815,11 +3882,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
         }
         return;
       }
-      final tracks = _CallSession.mediasoup?.localStream?.getVideoTracks() ?? [];
-      if (tracks.isEmpty) return;
+      final session = _CallSession.mediasoup;
+      if (session == null) return;
       try {
-        await Helper.switchCamera(tracks.first);
-        _frontCamera = !_frontCamera;
+        _frontCamera = await session.switchCamera();
         if (mounted) setState(() {});
       } catch (_) {}
       return;
