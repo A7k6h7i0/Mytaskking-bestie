@@ -157,7 +157,30 @@ export default function SettingsPage() {
         <div className="st__grid">
           <Input label="Workspace name" value={branding.name} onChange={(e) => setBranding({ ...branding, name: e.target.value })} />
           <Input label="Tagline" value={branding.tagline} onChange={(e) => setBranding({ ...branding, tagline: e.target.value })} />
-          <Input label="Primary color (hex)" value={branding.primaryColor} onChange={(e) => setBranding({ ...branding, primaryColor: e.target.value })} />
+          <div className="st__color-field">
+            <label className="st__color-label">Primary color (hex)</label>
+            <div className="st__color-row">
+              <input
+                type="color"
+                className="st__color-swatch"
+                value={
+                  /^#[0-9A-Fa-f]{6}$/.test(branding.primaryColor)
+                    ? branding.primaryColor
+                    : '#5b8cff'
+                }
+                onChange={(e) => setBranding({ ...branding, primaryColor: e.target.value.toUpperCase() })}
+                disabled={!isAdmin}
+                aria-label="Pick primary color"
+              />
+              <Input
+                label=""
+                value={branding.primaryColor}
+                onChange={(e) => setBranding({ ...branding, primaryColor: e.target.value })}
+                placeholder="#5B8CFF"
+              />
+            </div>
+            <p className="st__subtle">Tap the swatch or type a hex code (#RRGGBB).</p>
+          </div>
           <Input label="Logo URL" value={branding.logoUrl} onChange={(e) => setBranding({ ...branding, logoUrl: e.target.value })} />
         </div>
         {isAdmin && (

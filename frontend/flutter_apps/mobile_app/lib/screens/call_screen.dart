@@ -307,6 +307,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   Timer? _tokenRefreshTimer;
   Timer? _ringTimeoutTimer;
   Timer? _waitingAnswerPollTimer;
+  Timer? _meetingHeartbeatTimer;
   bool _frontCamera = true;
   Duration _elapsed = Duration.zero;
   final _ringtone = FlutterRingtonePlayer();
@@ -415,6 +416,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     _speakerEmitTimer?.cancel();
     _cancelOutgoingRingTimeout();
     _stopWaitingForAnswerPoll();
+    _stopMeetingHeartbeat();
     _ringtone.stop();
     _tonePlayer.dispose();
     _tts.stop();
@@ -575,6 +577,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
         return;
       }
       _applyServerLiveRoster(Map<String, dynamic>.from(data));
+      _maybeAutoLeaveWhenAloneInCall(Map<String, dynamic>.from(data));
       _scheduleParticipantLeave(data['userId']?.toString());
     }));
     _callUnsubs.add(rt.onAny('call.signal', ([data]) {
@@ -896,8 +899,52 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   String _participantProfileName(Map<String, dynamic> p) {
     final user = (p['user'] as Map?)?.cast<String, dynamic>();
-    final name = (user?['name'] ?? 'Participant').toString().trim();
-    return name.isEmpty ? 'Participant' : name;
+    final fromUser = (user?['name'] ?? '').toString().trim();
+    if (fromUser.isNotEmpty) return fromUser;
+    final fromFlat = (p['userName'] ?? '').toString().trim();
+    if (fromFlat.isNotEmpty) return fromFlat;
+    return 'Participant';
+  }
+
+  /// Join API returns a live roster at the top level that replaces
+  /// `call.participants` — keep invitees who have not answered yet.
+  void _mergeJoinResponseIntoCallMeta(Map<String, dynamic> joined) {
+    final prevCall = (_callMeta?['call'] as Map?)?.cast<String, dynamic>();
+    final prevParticipants =
+        (prevCall?['participants'] as List?)?.cast<Map<String, dynamic>>() ??
+            const [];
+
+    final joinedCall = Map<String, dynamic>.from(joined);
+    final liveRoster =
+        (joinedCall['participants'] as List?)?.cast<Map<String, dynamic>>() ??
+            const [];
+
+    final byUserId = <String, Map<String, dynamic>>{};
+    for (final row in prevParticipants) {
+      final id = row['userId']?.toString();
+      if (id == null || id.isEmpty) continue;
+      byUserId[id] = Map<String, dynamic>.from(row);
+    }
+    for (final row in liveRoster) {
+      final id = row['userId']?.toString();
+      if (id == null || id.isEmpty) continue;
+      final prev = byUserId[id];
+      byUserId[id] =
+          prev != null ? {...prev, ...row} : Map<String, dynamic>.from(row);
+    }
+    joinedCall['participants'] = byUserId.values.toList(growable: false);
+
+    _callMeta = {
+      ...?_callMeta,
+      ...joined,
+      'call': joinedCall,
+      'liveCount': joined['liveCount'] ?? _callMeta?['liveCount'],
+      'participantCount':
+          joined['participantCount'] ?? _callMeta?['participantCount'],
+      'participants': liveRoster,
+    };
+    _CallSession.callMeta = _callMeta;
+    _syncParticipantsFromCallMeta();
   }
 
   bool _isSelfDisplayName(String? name) {
@@ -1713,6 +1760,69 @@ class _CallScreenState extends ConsumerState<CallScreen>
     _waitingAnswerPollTimer = null;
   }
 
+  /// Group call: when everyone else left, exit cleanly (server may already END).
+  void _maybeAutoLeaveWhenAloneInCall(Map<String, dynamic> data) {
+    if (_isMeeting || _hangingUp || _remoteClosed || widget.callId == null) {
+      return;
+    }
+    final status = data['status']?.toString();
+    if (status == 'ENDED' || status == 'MISSED') return;
+
+    final liveRaw = data['liveCount'] ?? data['participantCount'];
+    final liveCount = liveRaw is num
+        ? liveRaw.toInt()
+        : int.tryParse('${liveRaw ?? ''}');
+
+    if (liveCount != null && liveCount <= 0) {
+      unawaited(_endBecauseRemoteClosed({
+        ...data,
+        'callId': widget.callId,
+        'status': status ?? 'ENDED',
+      }));
+      return;
+    }
+
+    if (_distinctRemoteUserCount > 0) return;
+
+    if (liveCount == null || liveCount <= 1) {
+      unawaited(_hangup());
+    }
+  }
+
+  void _startMeetingHeartbeat() {
+    _meetingHeartbeatTimer?.cancel();
+    if (!_isMeeting || widget.meetingSlug == null) return;
+    final slug = widget.meetingSlug!;
+    _meetingHeartbeatTimer =
+        Timer.periodic(const Duration(seconds: 45), (_) {
+      if (!_isMeeting || !mounted) return;
+      ref.read(apiProvider).post('/meetings/$slug/heartbeat').catchError((_) {});
+    });
+  }
+
+  void _stopMeetingHeartbeat() {
+    _meetingHeartbeatTimer?.cancel();
+    _meetingHeartbeatTimer = null;
+  }
+
+  String _meetingDisplayTitle() {
+    final room = (_callMeta?['room'] as Map?)?.cast<String, dynamic>();
+    final fromRoom = room?['name']?.toString().trim();
+    if (fromRoom != null && fromRoom.isNotEmpty) return fromRoom;
+    final call = (_callMeta?['call'] as Map?)?.cast<String, dynamic>();
+    final fromCall = call?['name']?.toString().trim();
+    if (fromCall != null && fromCall.isNotEmpty) return fromCall;
+    return 'Meeting';
+  }
+
+  String _callConnectionLabel({required bool ending}) {
+    if (ending) return 'Ending call…';
+    if (_connectedAt != null) return 'Active call';
+    if (_waitingForAnswer) return 'Ringing…';
+    if (_isCallInitiator && !_isMeeting) return 'Calling…';
+    return 'Connecting…';
+  }
+
   /// Stable participant count for the header chip — server roster is
   /// authoritative; SFU/client maps are fallback for older backends.
   int get _participantCount {
@@ -2281,7 +2391,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     if (_waitingForAnswer && !_isMeeting) {
       final pinned = _outboundCalleeNameFromMeta();
       if (pinned != null && pinned.isNotEmpty) return pinned;
-      return 'Ringing…';
+      // Status text ("Ringing…") belongs in _status — keep looking for a name.
     }
     final cached = _CallSession.remotePeerName;
     if (cached != null &&
@@ -2413,6 +2523,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   Future<void> _teardown({bool notifyServer = true}) async {
+    _stopMeetingHeartbeat();
     // Flush an in-progress recording before the engine is released — whether
     // the call ends by hang up OR the remote party leaving. Otherwise the
     // local file is never finalized/uploaded and is silently lost.
@@ -2916,6 +3027,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
           if (!_isVideo) unawaited(_startProximityIfVoice());
           _startAudioHealthCheck();
           unawaited(_primeMediasoupPlayback());
+          if (_isMeeting) _startMeetingHeartbeat();
         } else {
           _registerHandlers(_CallSession.engine!);
           unawaited(_enableSpeakerHighlight());
@@ -2936,6 +3048,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
           _showOngoingCallNotification();
           _CallSession.startAudioRouteKeepAlive();
           if (!_isVideo) unawaited(_startProximityIfVoice());
+          if (_isMeeting) _startMeetingHeartbeat();
         }
       } catch (e) {
         if (!mounted) return;
@@ -3177,8 +3290,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
           final joined = await ref
               .read(apiProvider)
               .post('/calls/${widget.callId}/join', body: {'agoraUid': uid});
-          _callMeta = {...?_callMeta, 'call': joined};
-          _syncParticipantsFromCallMeta();
+          _mergeJoinResponseIntoCallMeta(
+              Map<String, dynamic>.from(joined as Map));
           _purgeSelfFromRemoteTracking();
         } catch (_) {}
         // Announce again over the socket once we're in — covers participants
@@ -3186,6 +3299,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
         _announceSelf();
       } else if (_isMeeting) {
         _syncMeetingRoster(_callMeta);
+        _startMeetingHeartbeat();
         // Token fetch already recorded us; refresh roster so late names map.
         unawaited(() async {
           try {
@@ -3422,9 +3536,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
     _syncRemotePeerSnapshot();
 
     if (_waitingForAnswer) {
-      unawaited(_stopRingback());
-      // Don't treat SFU join of callee as connected until they actually join
-      // the call (remote tracks / answer meta). Remote track callback marks it.
+      // Ringback stops only when callee is confirmed on the server — not on
+      // ghost SFU socket presence during outbound ring.
     }
   }
 
@@ -3880,9 +3993,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
               '/calls/${widget.callId}/join',
               body: {'agoraUid': deviceUid},
             );
-        _callMeta = {...?_callMeta, 'call': joined};
-        _CallSession.callMeta = _callMeta;
-        _syncParticipantsFromCallMeta();
+        _mergeJoinResponseIntoCallMeta(
+            Map<String, dynamic>.from(joined as Map));
         _purgeSelfFromRemoteTracking();
       } catch (_) {}
       _announceSelf();
@@ -3902,6 +4014,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       });
     }
 
+    _syncRemotePeerSnapshot();
     _publishActiveCallState();
     _showOngoingCallNotification();
     _CallSession.startAudioRouteKeepAlive();
@@ -3917,6 +4030,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     }
 
     if (!_isVideo) unawaited(_startProximityIfVoice());
+    if (_isMeeting) _startMeetingHeartbeat();
   }
 
   bool _isCallEndedError(Object e) {
@@ -5146,8 +5260,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
                           child: Column(
                             children: [
                               if (!ending)
-                                const Text(
-                                  'Active call',
+                                Text(
+                                  _callConnectionLabel(ending: ending),
                                   style: _activeCallLabelStyle,
                                 ),
                               if (!ending) const SizedBox(height: 3),
@@ -5680,9 +5794,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
     for (final p in parts) {
       if (p is! Map) continue;
       if (p['userId']?.toString() == me?.id) continue;
-      final u = (p['user'] as Map?)?.cast<String, dynamic>();
-      final n = (u?['name'] ?? '').toString().trim();
-      if (n.isNotEmpty && !names.contains(n)) names.add(n);
+      final n = _participantProfileName(Map<String, dynamic>.from(p));
+      if (n.isNotEmpty &&
+          n != 'Participant' &&
+          !names.contains(n)) {
+        names.add(n);
+      }
     }
     // Fall back to the live remote-stream names (announce map).
     if (names.isEmpty) {
@@ -5831,7 +5948,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   /// Google Meet–style: meeting name + e2e/time on the left, participants chip
   /// on the right (taps to open the participants sheet).
   Widget _meetingHeader() {
-    final title = _channelName ?? 'Meeting';
+    final title = _meetingDisplayTitle();
     final count = _participantCount;
     return Padding(
       padding: const EdgeInsets.fromLTRB(10, 4, 10, 0),
@@ -7622,7 +7739,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
                   ),
                 ),
                 const SizedBox(height: 8),
-                const Text('Active call', style: _activeCallLabelStyle),
+                Text(
+                  _callConnectionLabel(ending: _showEndingUi),
+                  style: _activeCallLabelStyle,
+                ),
                 const SizedBox(height: 4),
                 Text(
                   remoteName,

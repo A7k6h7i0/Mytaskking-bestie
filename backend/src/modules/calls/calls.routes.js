@@ -159,6 +159,7 @@ router.post(
                   clientApp: callerApp,
                   fromName: req.user.name,
                   callerId: req.user.id,
+                  callerAvatarUrl: req.user.avatarUrl || '',
                   initiatorId: req.user.id,
                   apiBaseUrl: notificationActions.publicApiBaseUrl(),
                   actionToken: notificationActions.signAction(
@@ -457,6 +458,8 @@ router.post(
                 mode,
                 clientApp: callerApp,
                 fromName: req.user.name,
+                callerId: req.user.id,
+                callerAvatarUrl: req.user.avatarUrl || '',
                 apiBaseUrl: notificationActions.publicApiBaseUrl(),
                 actionToken: notificationActions.signAction(
                   { action: 'call.decline', userId, callId: result.call.id },
@@ -509,6 +512,8 @@ router.post(
             mode,
             clientApp: callerApp,
             fromName: req.user.name,
+            callerId: req.user.id,
+            callerAvatarUrl: req.user.avatarUrl || '',
             apiBaseUrl: notificationActions.publicApiBaseUrl(),
             actionToken: notificationActions.signAction(
               { action: 'call.decline', userId: result.targetUserId, callId: result.call.id },

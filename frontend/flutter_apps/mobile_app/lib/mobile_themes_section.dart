@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mytaskking_core/mytaskking_core.dart' as core;
 import 'package:mytaskking_design/mytaskking_design.dart';
@@ -208,6 +209,36 @@ class MobileThemesSection extends ConsumerWidget {
   }
 }
 
+String _colorToHex(Color color) =>
+    '#${color.toARGB32().toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}';
+
+Color? _parseHexColor(String raw) {
+  var text = raw.trim().toUpperCase();
+  if (text.startsWith('#')) text = text.substring(1);
+  if (text.length == 6) {
+    final v = int.tryParse('FF$text', radix: 16);
+    if (v != null) return Color(v);
+  }
+  if (text.length == 8) {
+    final v = int.tryParse(text, radix: 16);
+    if (v != null) return Color(v);
+  }
+  return null;
+}
+
+const _orgBrandPresets = <Color>[
+  Color(0xFF5B8CFF),
+  Color(0xFF2563EB),
+  Color(0xFF7C3AED),
+  Color(0xFF059669),
+  Color(0xFFDC2626),
+  Color(0xFFEA580C),
+  Color(0xFF0891B2),
+  Color(0xFFDB2777),
+  Color(0xFF111827),
+  Color(0xFF64748B),
+];
+
 class _AdminPrimaryColorTile extends ConsumerStatefulWidget {
   const _AdminPrimaryColorTile({required this.colors});
   final BestieColors colors;
@@ -226,52 +257,145 @@ class _AdminPrimaryColorTileState
     final current = MobileLocalSettings.adminPrimaryColor.value != null
         ? Color(MobileLocalSettings.adminPrimaryColor.value!)
         : c.brand;
-    final hexCtrl = TextEditingController(
-      text:
-          '#${current.toARGB32().toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}',
-    );
+    final hexCtrl = TextEditingController(text: _colorToHex(current));
     Color draft = current;
+
+    void syncHex(Color next, void Function(void Function()) setLocal) {
+      setLocal(() => draft = next);
+      hexCtrl.text = _colorToHex(next);
+    }
 
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setLocal) {
+            final hsv = HSVColor.fromColor(draft);
             return AlertDialog(
               title: const Text('Org brand color'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'Sets the workspace primary color for all devices (branding.primaryColor).',
-                    style: TextStyle(fontSize: 13, color: c.textMuted),
-                  ),
-                  const SizedBox(height: 12),
-                  Container(
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: draft,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: c.border),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Pick a custom color for all devices (branding.primaryColor).',
+                      style: TextStyle(fontSize: 13, color: c.textMuted),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: hexCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Hex (#RRGGBB)',
-                      isDense: true,
+                    const SizedBox(height: 12),
+                    Container(
+                      height: 56,
+                      decoration: BoxDecoration(
+                        color: draft,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: c.border),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        _colorToHex(draft),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: draft.computeLuminance() > 0.55
+                              ? Colors.black87
+                              : Colors.white,
+                        ),
+                      ),
                     ),
-                    onChanged: (raw) {
-                      var text = raw.trim();
-                      if (text.startsWith('#')) text = text.substring(1);
-                      if (text.length == 6) {
-                        final v = int.tryParse('FF$text', radix: 16);
-                        if (v != null) setLocal(() => draft = Color(v));
-                      }
-                    },
-                  ),
-                ],
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: hexCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Hex color (#RRGGBB)',
+                        hintText: '#5B8CFF',
+                        isDense: true,
+                        prefixIcon: Icon(Icons.tag_rounded, size: 18),
+                      ),
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(
+                          RegExp(r'[#0-9A-Fa-f]'),
+                        ),
+                      ],
+                      onChanged: (raw) {
+                        final parsed = _parseHexColor(raw);
+                        if (parsed != null) setLocal(() => draft = parsed);
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Quick picks',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: c.textMuted,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final preset in _orgBrandPresets)
+                          InkWell(
+                            onTap: () => syncHex(preset, setLocal),
+                            borderRadius: BorderRadius.circular(8),
+                            child: Container(
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                color: preset,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: draft.toARGB32() == preset.toARGB32()
+                                      ? c.text
+                                      : c.border,
+                                  width: draft.toARGB32() == preset.toARGB32()
+                                      ? 2
+                                      : 1,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Custom',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: c.textMuted,
+                      ),
+                    ),
+                    Slider(
+                      value: hsv.hue,
+                      min: 0,
+                      max: 360,
+                      activeColor: draft,
+                      onChanged: (v) => syncHex(
+                        hsv.withHue(v).withSaturation(
+                              hsv.saturation.clamp(0.35, 1.0),
+                            ).toColor(),
+                        setLocal,
+                      ),
+                    ),
+                    Slider(
+                      value: hsv.saturation,
+                      min: 0,
+                      max: 1,
+                      activeColor: draft,
+                      onChanged: (v) =>
+                          syncHex(hsv.withSaturation(v).toColor(), setLocal),
+                    ),
+                    Slider(
+                      value: hsv.value,
+                      min: 0.15,
+                      max: 1,
+                      activeColor: draft,
+                      onChanged: (v) =>
+                          syncHex(hsv.withValue(v).toColor(), setLocal),
+                    ),
+                  ],
+                ),
               ),
               actions: [
                 TextButton(
@@ -304,11 +428,12 @@ class _AdminPrimaryColorTileState
       },
     );
 
+    hexCtrl.dispose();
+
     if (ok != true || !mounted) return;
     setState(() => _saving = true);
     try {
-      final hex =
-          '#${draft.toARGB32().toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}';
+      final hex = _colorToHex(draft);
       await ref.read(apiProvider).setSetting(
             scope: 'branding',
             key: 'primaryColor',
@@ -318,7 +443,7 @@ class _AdminPrimaryColorTileState
       ref.invalidate(orgBrandingProvider);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Org brand color saved')),
+          SnackBar(content: Text('Org brand color saved ($hex)')),
         );
       }
     } catch (e) {
@@ -339,6 +464,7 @@ class _AdminPrimaryColorTileState
       valueListenable: MobileLocalSettings.adminPrimaryColor,
       builder: (context, argb, _) {
         final color = argb != null ? Color(argb) : c.brand;
+        final hex = _colorToHex(color);
         return ListTile(
           contentPadding: EdgeInsets.zero,
           leading: Container(
@@ -358,7 +484,7 @@ class _AdminPrimaryColorTileState
             ),
           ),
           subtitle: Text(
-            'Applies brand tint across the app for everyone',
+            '$hex · Applies brand tint for everyone',
             style: TextStyle(fontSize: 12, color: c.textMuted),
           ),
           trailing: _saving

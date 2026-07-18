@@ -53,6 +53,9 @@ function notifyMeetingInvited(io, { room, host, userIds, clientApp }) {
             meetingSlug: room.slug,
             mode: room.mode || 'VIDEO',
             fromName: host.name || 'Someone',
+            initiatorId: host.id || '',
+            hostAvatarUrl: host.avatarUrl || '',
+            callerAvatarUrl: host.avatarUrl || '',
             clientApp: app,
           },
         }
@@ -233,8 +236,8 @@ function serializeMeetingRoster(participants = []) {
     }));
 }
 
-/** Crashed/killed apps that never POST /leave — keeps auto-end from stuck LIVE. */
-const MEETING_STALE_MS = 3 * 60 * 1000;
+/** Crashed/killed apps that never POST /leave — only sweep on explicit leave. */
+const MEETING_STALE_MS = 30 * 60 * 1000;
 
 async function markStaleMeetingParticipantsLeft(roomId) {
   const cutoff = new Date(Date.now() - MEETING_STALE_MS);
@@ -248,12 +251,23 @@ async function markStaleMeetingParticipantsLeft(roomId) {
   });
 }
 
+/** Live in media — includes guest rows (userId may be null). */
 async function countLiveMeetingParticipants(roomId) {
   return prisma.meetingRoomParticipant.count({
     where: {
       roomId,
-      userId: { not: null },
       joinedVia: { in: ['INTERNAL', 'GUEST'] },
+    },
+  });
+}
+
+/** True once an internal user (host/employee) entered media or left after joining. */
+async function meetingEverHadInternalLive(roomId) {
+  return prisma.meetingRoomParticipant.count({
+    where: {
+      roomId,
+      userId: { not: null },
+      joinedVia: { in: ['INTERNAL', 'LEFT'] },
     },
   });
 }
@@ -263,6 +277,10 @@ async function autoEndMeetingIfEmpty(io, room, req, extra = {}) {
   const active = await countLiveMeetingParticipants(room.id);
   if (active !== 0) return { ended: false, activeParticipants: active };
   if (room.endedAt) return { ended: true, activeParticipants: 0 };
+  // Invite-only rooms (host/employees never opened media) must stay joinable.
+  // Guest-only visits do not count — host can still join after a guest leaves.
+  const everInternal = await meetingEverHadInternalLive(room.id);
+  if (everInternal === 0) return { ended: false, activeParticipants: 0 };
   await prisma.meetingRoom.update({
     where: { id: room.id },
     data: { endedAt: new Date() },
@@ -493,7 +511,6 @@ router.get(
       include: {
         participants: {
           where: {
-            userId: { not: null },
             joinedVia: { in: ['INTERNAL', 'GUEST'] },
           },
           select: { id: true },
@@ -504,26 +521,17 @@ router.get(
         },
       },
     });
-    const io = req.app.get('io');
     for (const room of items) {
       if (room.endedAt) continue;
-      await markStaleMeetingParticipantsLeft(room.id);
-      const ended = await autoEndMeetingIfEmpty(io, room, req, {
-        reason: 'stale_empty',
+      // Do not auto-end or stale-sweep on list fetch — that killed long meetings
+      // when someone opened the meetings tab. Leave/heartbeat handle cleanup.
+      room.participants = await prisma.meetingRoomParticipant.findMany({
+        where: {
+          roomId: room.id,
+          joinedVia: { in: ['INTERNAL', 'GUEST'] },
+        },
+        select: { id: true },
       });
-      if (ended.ended) {
-        room.endedAt = new Date();
-        room.participants = [];
-      } else {
-        room.participants = await prisma.meetingRoomParticipant.findMany({
-          where: {
-            roomId: room.id,
-            userId: { not: null },
-            joinedVia: { in: ['INTERNAL', 'GUEST'] },
-          },
-          select: { id: true },
-        });
-      }
     }
     res.json({
       items: items.map((room) => ({
@@ -802,15 +810,6 @@ router.post(
     if (room.endedAt) throw BadRequest('Meeting has ended');
     await assertCanJoinMeeting(room, req.user);
     await markStaleMeetingParticipantsLeft(room.id);
-    await autoEndMeetingIfEmpty(req.app.get('io'), room, req, {
-      reason: 'stale_empty',
-    });
-    const freshRoom = await prisma.meetingRoom.findUnique({
-      where: { slug: req.params.slug },
-    });
-    if (!freshRoom || freshRoom.endedAt) {
-      throw BadRequest('Meeting has ended');
-    }
 
     // Meetings use the same mediasoup SFU as 1:1 calls (connect.mytaskking.com).
     const media = await mediasoup.prepareCallRoom(
@@ -856,6 +855,44 @@ router.post(
       participantCount: participants.length,
       liveCount: participants.length,
     });
+  })
+);
+
+router.post(
+  '/:slug/decline',
+  asyncHandler(async (req, res) => {
+    const room = await prisma.meetingRoom.findUnique({ where: { slug: req.params.slug } });
+    if (!room) throw NotFound('Meeting not found');
+    if (room.endedAt) return res.json({ ok: true, ended: true });
+    const row = await prisma.meetingRoomParticipant.findFirst({
+      where: { roomId: room.id, userId: req.user.id },
+    });
+    if (row && row.joinedVia !== 'LEFT') {
+      await prisma.meetingRoomParticipant.update({
+        where: { id: row.id },
+        data: { joinedVia: 'LEFT', lastSeenAt: new Date() },
+      });
+    }
+    res.json({ ok: true });
+  })
+);
+
+/** Keep lastSeenAt fresh while in a meeting so stale sweep does not drop live users. */
+router.post(
+  '/:slug/heartbeat',
+  asyncHandler(async (req, res) => {
+    const room = await prisma.meetingRoom.findUnique({ where: { slug: req.params.slug } });
+    if (!room) throw NotFound('Meeting not found');
+    if (room.endedAt) return res.json({ ok: true, ended: true });
+    await prisma.meetingRoomParticipant.updateMany({
+      where: {
+        roomId: room.id,
+        userId: req.user.id,
+        joinedVia: { in: ['INTERNAL', 'GUEST'] },
+      },
+      data: { lastSeenAt: new Date() },
+    });
+    res.json({ ok: true, ended: false });
   })
 );
 

@@ -1149,6 +1149,20 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
         return;
       }
       if (callId == null || !mounted) return;
+      if (call != null) {
+        CallSession.callMeta = {'call': call};
+      }
+      if (ch == 'ONE_TO_ONE') {
+        final peerName = _headerTitle().trim();
+        if (peerName.isNotEmpty) {
+          CallSession.remotePeerName = peerName;
+        }
+        final other = _dmOtherUser();
+        final avatar = other?['avatarUrl']?.toString();
+        if (avatar != null && avatar.isNotEmpty) {
+          CallSession.remotePeerAvatarUrl = avatar;
+        }
+      }
       if (mounted) context.go('/call/$callId?mode=$kind');
     } catch (e) {
       if (mounted)

@@ -368,6 +368,8 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
         (data['fromName'] ?? data['title'] ?? 'Someone').toString();
     final callerId =
         data['callerId']?.toString() ?? data['initiatorId']?.toString();
+    final avatarUrl =
+        data['callerAvatarUrl']?.toString() ?? data['avatarUrl']?.toString();
     final me = ref.read(authStoreProvider).user;
     if (callerId != null && callerId.isNotEmpty && callerId == me?.id) return;
 
@@ -379,6 +381,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
         mode: mode,
         fromName: fromName,
         callerId: callerId,
+        callerAvatarUrl: avatarUrl,
       ));
       return;
     }
@@ -386,19 +389,31 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     if (type == 'meeting.invited') {
       final slug = data['meetingSlug']?.toString();
       if (slug == null || slug.isEmpty) return;
-      final meetingName = (data['body'] ?? '').toString();
+      final meetingName = (data['body'] ?? data['meetingName'] ?? '').toString();
+      final hostAvatar = data['hostAvatarUrl']?.toString() ??
+          data['callerAvatarUrl']?.toString() ??
+          data['avatarUrl']?.toString();
+      final hostId = data['initiatorId']?.toString();
       _onIncoming({
         'call': {
           'id': null,
           'kind': 'MEETING',
           'mode': mode,
-          'initiator': {'name': fromName},
+          'initiator': {
+            'name': fromName,
+            if (hostId != null) 'id': hostId,
+            if (hostAvatar != null && hostAvatar.isNotEmpty)
+              'avatarUrl': hostAvatar,
+          },
           'name': meetingName,
         },
         'mode': mode,
         'meetingSlug': slug,
         'meetingName': meetingName,
+        if (hostAvatar != null && hostAvatar.isNotEmpty)
+          'callerAvatarUrl': hostAvatar,
       });
+      return;
     }
   }
 
@@ -407,26 +422,45 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     required String mode,
     required String fromName,
     String? callerId,
+    String? callerAvatarUrl,
   }) async {
+    Map<String, dynamic>? tokenInitiator;
     try {
-      await ref.read(apiProvider).get('/calls/$callId/token');
+      final tokenResp =
+          await ref.read(apiProvider).get('/calls/$callId/token');
+      if (tokenResp['call'] is Map) {
+        final call = Map<String, dynamic>.from(tokenResp['call'] as Map);
+        tokenInitiator =
+            (call['initiator'] as Map?)?.cast<String, dynamic>();
+      }
     } catch (e) {
       await _cancelNativeIncomingNotification(callId: callId);
       return;
     }
     if (!mounted) return;
+    final resolvedId =
+        callerId ?? tokenInitiator?['id']?.toString();
+    final resolvedName =
+        (tokenInitiator?['name']?.toString().trim().isNotEmpty == true)
+            ? tokenInitiator!['name'].toString()
+            : fromName;
+    final resolvedAvatar = (tokenInitiator?['avatarUrl']?.toString().trim().isNotEmpty == true)
+        ? tokenInitiator!['avatarUrl'].toString()
+        : (callerAvatarUrl?.trim().isNotEmpty == true ? callerAvatarUrl : null);
     _onIncoming({
       'call': {
         'id': callId,
         'kind': 'ONE_TO_ONE',
         'mode': mode,
         'initiator': {
-          'id': callerId,
-          'name': fromName,
+          if (resolvedId != null) 'id': resolvedId,
+          'name': resolvedName,
+          if (resolvedAvatar != null) 'avatarUrl': resolvedAvatar,
         },
       },
       'mode': mode,
-      'callerId': callerId,
+      'callerId': resolvedId,
+      if (resolvedAvatar != null) 'callerAvatarUrl': resolvedAvatar,
     });
   }
 
@@ -489,7 +523,18 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     if (callerId != null && callerId.isNotEmpty && callerId == me?.id) return;
     if (call['initiator']?['id'] == me?.id) return;
     if ((call['host'] as Map?)?['id'] == me?.id) return;
-    setState(() => _pending = Map<String, dynamic>.from(data));
+    final enriched = Map<String, dynamic>.from(data);
+    final callMap = Map<String, dynamic>.from(call);
+    final initiator =
+        Map<String, dynamic>.from((callMap['initiator'] as Map?) ?? {});
+    final avatarFallback = enriched['callerAvatarUrl']?.toString() ??
+        initiator['avatarUrl']?.toString();
+    if (avatarFallback != null && avatarFallback.trim().isNotEmpty) {
+      initiator['avatarUrl'] = avatarFallback.trim();
+      callMap['initiator'] = initiator;
+      enriched['call'] = callMap;
+    }
+    setState(() => _pending = enriched);
     // Let the server's 60s RINGING timeout mark the call missed — don't
     // auto-decline from the client (that raced the server and could end calls
     // the callee never saw).
@@ -749,6 +794,12 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     final waiting = _pending?['waiting'] == true;
     _cancelNativeIncomingNotification(callId: id, meetingSlug: meetingSlug);
     _dismiss();
+    if (meetingSlug != null && meetingSlug.isNotEmpty) {
+      try {
+        await ref.read(apiProvider).post('/meetings/$meetingSlug/decline');
+      } catch (_) {}
+      return;
+    }
     if (id == null) return;
     try {
       await ref
@@ -808,7 +859,19 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     );
     if (callId != null && meetingSlug == null) {
       try {
-        await ref.read(apiProvider).get('/calls/$callId/token');
+        final tokenResp =
+            await ref.read(apiProvider).get('/calls/$callId/token');
+        final call = (tokenResp['call'] as Map?)?.cast<String, dynamic>();
+        final initiator =
+            (call?['initiator'] as Map?)?.cast<String, dynamic>();
+        final name = initiator?['name']?.toString();
+        final avatar = initiator?['avatarUrl']?.toString();
+        if (name != null && name.isNotEmpty) {
+          CallSession.remotePeerName = name;
+        }
+        if (avatar != null && avatar.isNotEmpty) {
+          CallSession.remotePeerAvatarUrl = avatar;
+        }
       } catch (e) {
         final msg = formatApiError(e).toLowerCase();
         if (msg.contains('ended') || msg.contains('not found')) {
