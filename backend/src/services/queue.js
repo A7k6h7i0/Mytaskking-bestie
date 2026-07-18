@@ -3,22 +3,6 @@
 const logger = require('../utils/logger');
 const cache = require('./cache');
 
-/**
- * Background job queue.
- *
- * • If Redis is configured AND `QUEUE_DRIVER=bullmq`, this is a thin wrapper
- *   around BullMQ — handles retry/backoff, dead-letter queues, worker scaling,
- *   metrics.
- * • Otherwise (dev, single-instance prod), an in-process driver runs jobs in
- *   a setImmediate loop with the same API. No durability across restarts.
- *
- *   queue.enqueue('media.compress', { fileId }, { attempts: 5 });
- *   queue.process('media.compress', async (job) => { … });
- *
- * Callers shouldn't care which driver they're talking to — both honor the
- * same contract.
- */
-
 const DRIVER = (process.env.QUEUE_DRIVER || (cache.redis() ? 'bullmq' : 'memory')).toLowerCase();
 
 let bullmq = null;
@@ -90,15 +74,13 @@ async function drainMem(q) {
   }
 }
 
-// NOTE: do not rename this function back to `process` — a hoisted function
-// declaration named `process` shadows the global Node.js `process` object
-// module-wide, which breaks every `process.env.*` read earlier in this file
-// (including line 22 where DRIVER is resolved).
 function register(name, handler) {
   const q = getOrCreateQueue(name);
   if (q.driver === 'bullmq') {
     const lib = loadBullmq();
-    new lib.Worker(name, handler, { connection: cache.redis(), concurrency: 4 });
+    const redisClient = cache.redis();
+    const connection = redisClient && redisClient.duplicate ? redisClient.duplicate({ maxRetriesPerRequest: null }) : redisClient;
+    new lib.Worker(name, handler, { connection, concurrency: 4 });
     logger.info({ name }, 'queue.bullmq.worker_started');
   } else {
     q.handler = handler;
@@ -107,5 +89,5 @@ function register(name, handler) {
   }
 }
 
-// Export under both names so existing `queue.process(...)` callers keep working.
+// Export under both names so existing queue.process(...) callers keep working.
 module.exports = { driver: DRIVER, enqueue, register, process: register };

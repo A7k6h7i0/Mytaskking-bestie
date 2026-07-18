@@ -4310,9 +4310,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
     }
 
     if (_CallSession.useMediasoup) {
-      final speaker = r == CallAudioRoute.speaker;
       try {
-        await _CallSession.mediasoup?.setSpeakerphone(speaker);
+        if (r == CallAudioRoute.bluetooth) {
+          await _CallSession.mediasoup?.setSpeakerphone(true);
+        } else {
+          await _CallSession.mediasoup
+              ?.setSpeakerphone(r == CallAudioRoute.speaker);
+        }
         await _CallSession.mediasoup?.enableRemotePlayback();
       } catch (_) {}
       return;
@@ -8642,8 +8646,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
     );
   }
 
-  /// Google Meet meeting controls — six circles in a row: mic · camera ·
-  /// share · raise hand · more · leave.
+  /// Google Meet meeting controls — mic · camera · speaker · share ·
+  /// raise hand · more · leave (speaker matches 1:1 / group video calls).
   Widget _meetingControls({bool compact = false}) {
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: compact ? 6 : 8),
@@ -8671,6 +8675,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
                 : Icons.videocam_rounded,
             onTap: _toggleCamera,
             active: !_videoEnabled || _cameraOff,
+            size: compact ? 42 : 52,
+            iconSize: compact ? 18 : 22,
+          ),
+          _ctrlCircle(
+            icon: _audioRouteIcon(_route),
+            onTap: _cycleAudioRoute,
+            active: _route != CallAudioRoute.earpiece,
             size: compact ? 42 : 52,
             iconSize: compact ? 18 : 22,
           ),
@@ -8773,6 +8784,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
                   color: _recording ? c.danger : null,
                 ),
               tile(Icons.people_alt_rounded, 'Participants', _showParticipants),
+              tile(
+                _audioRouteIcon(_route),
+                'Audio: ${_audioRouteLabel(_route)}',
+                _cycleAudioRoute,
+              ),
               const SizedBox(height: 4),
             ]),
           ),
