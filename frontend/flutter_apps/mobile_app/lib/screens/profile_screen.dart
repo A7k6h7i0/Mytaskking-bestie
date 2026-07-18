@@ -319,29 +319,49 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         _section(context, 'Appearance', [
           // Font scale + reduce-motion give people with low vision or
           // vestibular sensitivities a more comfortable experience.
-          ListTile(
-            leading: const Icon(Icons.text_fields_rounded),
-            title: const Text('Text size'),
-            subtitle: Text(
-              switch (ref.watch(fontScaleProvider)) {
-                <= 0.9 => 'Compact',
-                >= 1.3 => 'Largest',
-                >= 1.15 => 'Larger',
-                _ => 'Default',
-              },
-              style:
-                  const TextStyle(color: BestieTokens.cTextMuted, fontSize: 12),
-            ),
-            trailing: SizedBox(
-              width: 220,
-              child: Slider(
-                min: 0.85,
-                max: 1.4,
-                divisions: 11,
-                value: ref.watch(fontScaleProvider),
-                onChanged: (v) =>
-                    ref.read(fontScaleProvider.notifier).state = v,
-              ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 12, 4),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Icon(Icons.text_fields_rounded,
+                    color: BestieColors.of(context).textMuted),
+                const SizedBox(width: 16),
+                Expanded(
+                  flex: 2,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('Text size',
+                          style: TextStyle(fontWeight: FontWeight.w500)),
+                      Text(
+                        switch (ref.watch(fontScaleProvider)) {
+                          <= 0.9 => 'Compact',
+                          >= 1.3 => 'Largest',
+                          >= 1.15 => 'Larger',
+                          _ => 'Default',
+                        },
+                        style: TextStyle(
+                          color: BestieColors.of(context).textMuted,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  flex: 3,
+                  child: Slider(
+                    min: 0.85,
+                    max: 1.4,
+                    divisions: 11,
+                    value: ref.watch(fontScaleProvider),
+                    onChanged: (v) =>
+                        ref.read(fontScaleProvider.notifier).state = v,
+                  ),
+                ),
+              ],
             ),
           ),
           SwitchListTile(

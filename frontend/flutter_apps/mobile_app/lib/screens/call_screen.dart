@@ -669,6 +669,17 @@ class _CallScreenState extends ConsumerState<CallScreen>
         return;
       }
       _applyServerLiveRoster(Map<String, dynamic>.from(data));
+      final liveRaw = data['liveCount'] ?? data['participantCount'];
+      final liveCount = liveRaw is num
+          ? liveRaw.toInt()
+          : int.tryParse('${liveRaw ?? ''}');
+      if (liveCount != null && liveCount <= 0 && !_hangingUp && !_remoteClosed) {
+        unawaited(_endBecauseRemoteClosed({
+          'status': 'ENDED',
+          'meetingSlug': slug,
+        }));
+        return;
+      }
       final part = (data['participant'] as Map?)?.cast<String, dynamic>();
       final userId = part?['userId']?.toString() ?? data['userId']?.toString();
       if (userId == null || userId.isEmpty) return;
@@ -794,6 +805,16 @@ class _CallScreenState extends ConsumerState<CallScreen>
     _CallSession.serverLiveCount =
         parsedCount != null && parsedCount > 0 ? parsedCount : liveIds.length;
     _maybeMarkCalleeConnectedFromMeta();
+    if (_isMeeting &&
+        parsedCount != null &&
+        parsedCount <= 0 &&
+        !_hangingUp &&
+        !_remoteClosed) {
+      unawaited(_endBecauseRemoteClosed({
+        'status': 'ENDED',
+        'meetingSlug': widget.meetingSlug,
+      }));
+    }
   }
 
   List<Map<String, dynamic>> _liveParticipantsFromCallMeta(
@@ -877,6 +898,59 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final user = (p['user'] as Map?)?.cast<String, dynamic>();
     final name = (user?['name'] ?? 'Participant').toString().trim();
     return name.isEmpty ? 'Participant' : name;
+  }
+
+  bool _isSelfDisplayName(String? name) {
+    if (name == null) return false;
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return false;
+    final meName = ref.read(authStoreProvider).user?.name?.trim();
+    return meName != null && meName.isNotEmpty && trimmed == meName;
+  }
+
+  /// True when [uid] is a remote peer tile — not this device / our user id.
+  bool _isRemoteAgoraUid(int uid) {
+    final me = ref.read(authStoreProvider).user;
+    if (uid == _CallSession.myUid) return false;
+    if (_agoraUidToUserId[uid] == me?.id) return false;
+    final name = _remoteNames[uid]?.trim();
+    if (name != null &&
+        name.isNotEmpty &&
+        _isSelfDisplayName(name) &&
+        !_agoraUidToUserId.containsKey(uid)) {
+      return false;
+    }
+    return true;
+  }
+
+  /// Callee label from call metadata — stable during outbound ring (no SFU noise).
+  String? _outboundCalleeNameFromMeta() {
+    if (_isMeeting) return null;
+    final me = ref.read(authStoreProvider).user?.id;
+    final names = <String>[];
+    for (final p in _participantsFromMeta()) {
+      final userId = p['userId']?.toString();
+      if (userId == null || userId.isEmpty || userId == me) continue;
+      final n = _participantProfileName(p);
+      if (n.isNotEmpty && n != 'Participant' && !_isSelfDisplayName(n)) {
+        if (!names.contains(n)) names.add(n);
+      }
+    }
+    if (names.isEmpty) return null;
+    if (names.length == 1) return names.first;
+    if (names.length == 2) return '${names[0]}, ${names[1]}';
+    return '${names[0]}, ${names[1]} +${names.length - 2}';
+  }
+
+  /// Server marked the callee as joined (POST /join) — not a ghost self uid.
+  bool _hasRemoteCalleeJoinedOnServer() {
+    final me = ref.read(authStoreProvider).user?.id;
+    for (final p in _participantsFromMeta()) {
+      final userId = p['userId']?.toString();
+      if (userId == null || userId.isEmpty || userId == me) continue;
+      if (p['joinedAt'] != null && p['leftAt'] == null) return true;
+    }
+    return false;
   }
 
   String? _nameFromCallMeta(String userId) {
@@ -1879,6 +1953,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     await _stopRingback();
     unawaited(_playCallEndedSound());
     await _teardown(notifyServer: false);
+    ref.invalidate(meetingsProvider);
     if (!mounted) return;
     final status = data?['status']?.toString();
     final isMeetingEnd = _isMeeting || data?['meetingSlug'] != null;
@@ -2100,6 +2175,35 @@ class _CallScreenState extends ConsumerState<CallScreen>
     String? name;
     String? userId;
 
+    if (_waitingForAnswer && !_isMeeting) {
+      final pinned = _outboundCalleeNameFromMeta();
+      if (pinned != null && pinned.isNotEmpty) {
+        name = pinned;
+        for (final p in _participantsFromMeta()) {
+          if (p['userId']?.toString() == me?.id) continue;
+          final n = _participantProfileName(p);
+          if (n == pinned) {
+            userId = p['userId']?.toString();
+            break;
+          }
+        }
+        if (name != null && name.isNotEmpty) {
+          _CallSession.remotePeerName = name;
+        }
+        _CallSession.remotePeerSubtitle = _callDisplaySubtitle();
+        _CallSession.remotePeerAvatarUrl =
+            userId != null ? _avatarUrlForUserId(userId) : _callDisplayAvatarUrl();
+        if (_callMeta != null) {
+          _CallSession.callMeta = Map<String, dynamic>.from(_callMeta!);
+        }
+        _CallSession._ping();
+        return;
+      }
+      // Callee meta not ready — skip SFU maps so we don't flash our own name.
+      _CallSession._ping();
+      return;
+    }
+
     if (_waitingForAnswer) {
       final fromMeta = _callDisplayTitle();
       if (fromMeta != 'Connecting…' && fromMeta != 'In call') {
@@ -2119,7 +2223,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       for (final entry in _joinedParticipants.entries) {
         if (entry.key == me?.id) continue;
         final n = entry.value.trim();
-        if (n.isNotEmpty) {
+        if (n.isNotEmpty && !_isSelfDisplayName(n)) {
           userId = entry.key;
           name = n;
           break;
@@ -2129,10 +2233,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
     if (userId == null && _remoteUids.isNotEmpty) {
       for (final uid in _remoteUids) {
+        if (!_isRemoteAgoraUid(uid)) continue;
         final mapped = _agoraUidToUserId[uid];
-        if (mapped == null || mapped == me?.id) continue;
         final n = _remoteNames[uid]?.trim();
-        if (n != null && n.isNotEmpty) {
+        if (n != null && n.isNotEmpty && !_isSelfDisplayName(n)) {
           userId = mapped;
           name = n;
           break;
@@ -2174,18 +2278,18 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   String _primaryRemoteDisplayName() {
-    if (_waitingForAnswer) {
-      final invited = _callDisplayTitle();
-      if (invited != 'Connecting…' && invited != 'In call') {
-        return invited;
-      }
+    if (_waitingForAnswer && !_isMeeting) {
+      final pinned = _outboundCalleeNameFromMeta();
+      if (pinned != null && pinned.isNotEmpty) return pinned;
+      return 'Ringing…';
     }
     final cached = _CallSession.remotePeerName;
     if (cached != null &&
         cached.isNotEmpty &&
         cached != 'Call' &&
         cached != 'Connecting…' &&
-        cached != 'In call') {
+        cached != 'In call' &&
+        !_isSelfDisplayName(cached)) {
       return cached;
     }
     final activeTitle = ActiveCallState.current.value?.title;
@@ -2193,24 +2297,31 @@ class _CallScreenState extends ConsumerState<CallScreen>
         activeTitle.isNotEmpty &&
         activeTitle != 'Call' &&
         activeTitle != 'Connecting…' &&
-        activeTitle != 'In call') {
+        activeTitle != 'In call' &&
+        !_isSelfDisplayName(activeTitle)) {
       return activeTitle;
     }
     final me = ref.read(authStoreProvider).user;
     if (_remoteUids.isNotEmpty) {
       for (final uid in _remoteUids) {
-        if (_agoraUidToUserId[uid] == me?.id) continue;
+        if (!_isRemoteAgoraUid(uid)) continue;
         final n = _remoteNames[uid]?.trim();
-        if (n != null && n.isNotEmpty) return n;
+        if (n != null && n.isNotEmpty && !_isSelfDisplayName(n)) return n;
       }
     }
     for (final entry in _joinedParticipants.entries) {
-      if (entry.key != me?.id && entry.value.trim().isNotEmpty) {
+      if (entry.key != me?.id &&
+          entry.value.trim().isNotEmpty &&
+          !_isSelfDisplayName(entry.value)) {
         return entry.value.trim();
       }
     }
     final fromMeta = _callDisplayTitle();
-    if (fromMeta != 'Connecting…' && fromMeta != 'In call') return fromMeta;
+    if (fromMeta != 'Connecting…' &&
+        fromMeta != 'In call' &&
+        !_isSelfDisplayName(fromMeta)) {
+      return fromMeta;
+    }
     return cached ?? 'Participant';
   }
 
@@ -2321,6 +2432,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     if (notifyServer && widget.meetingSlug != null) {
       try {
         await ref.read(apiProvider).leaveMeeting(widget.meetingSlug!);
+        ref.invalidate(meetingsProvider);
       } catch (_) {}
     }
     await _CallSession.teardown();
@@ -2373,6 +2485,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
       },
       onUserJoined: (conn, remoteUid, elapsed) {
         if (!mounted) return;
+        final me = ref.read(authStoreProvider).user;
+        if (remoteUid == _CallSession.myUid ||
+            _agoraUidToUserId[remoteUid] == me?.id) {
+          _purgeSelfFromRemoteTracking();
+          return;
+        }
         _remoteHangupFallbackTimer?.cancel();
         _bindRemoteUidName(remoteUid);
         if (_isMeeting) {
@@ -3361,7 +3479,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
           setState(() {});
         }
       }
-      if (_waitingForAnswer && _remoteUids.isNotEmpty) {
+      if (_waitingForAnswer && _hasRemoteCalleeJoinedOnServer()) {
         unawaited(_stopRingback());
         _markRemoteConnected();
       }
@@ -4591,7 +4709,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
     _hangingUp = true;
     if (mounted) setState(() {});
     unawaited(_playCallEndedSound());
-    if (mounted) context.go('/chat');
+    final dest = _isMeeting ? '/meetings' : '/chat';
+    if (mounted) context.go(dest);
     await _teardown();
   }
 
@@ -5567,8 +5686,14 @@ class _CallScreenState extends ConsumerState<CallScreen>
     }
     // Fall back to the live remote-stream names (announce map).
     if (names.isEmpty) {
-      for (final n in _remoteNames.values) {
-        if (n.isNotEmpty && !names.contains(n)) names.add(n);
+      for (final entry in _remoteNames.entries) {
+        if (!_isRemoteAgoraUid(entry.key)) continue;
+        final n = entry.value.trim();
+        if (n.isNotEmpty &&
+            !_isSelfDisplayName(n) &&
+            !names.contains(n)) {
+          names.add(n);
+        }
       }
     }
     if (names.isEmpty) return _joined ? 'In call' : 'Connecting…';

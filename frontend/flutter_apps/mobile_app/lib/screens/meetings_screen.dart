@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../state.dart';
+import '../widgets/bestie_picker_theme.dart';
 import '../windows_workspace.dart';
 
 class MeetingsScreen extends ConsumerWidget {
@@ -241,6 +242,7 @@ class MeetingsScreen extends ConsumerWidget {
         if (employees.isEmpty) {
           WidgetsBinding.instance.addPostFrameCallback((_) => loadPeople(set));
         }
+        final sheetColors = BestieColors.of(ctx);
         // Two-zone layout: the form scrolls in the top zone, the Create
         // button is pinned in the bottom zone. Earlier the button sat at
         // the end of a long ListView and a long invitee list pushed it
@@ -262,11 +264,11 @@ class MeetingsScreen extends ConsumerWidget {
                     BestieTextField(
                         label: 'Name', controller: name, hint: 'Design review'),
                     const SizedBox(height: BestieTokens.s3),
-                    const Text('Mode',
+                    Text('Mode',
                         style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
-                            color: BestieTokens.cTextSoft)),
+                            color: sheetColors.textSoft)),
                     const SizedBox(height: 6),
                     BestieSegmentedControl<String>(
                       value: mode,
@@ -279,11 +281,11 @@ class MeetingsScreen extends ConsumerWidget {
                       ],
                     ),
                     const SizedBox(height: BestieTokens.s3),
-                    const Text('Schedule (optional)',
+                    Text('Schedule (optional)',
                         style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
-                            color: BestieTokens.cTextSoft)),
+                            color: sheetColors.textSoft)),
                     const SizedBox(height: 6),
                     OutlinedButton.icon(
                       icon: Icon(
@@ -301,25 +303,14 @@ class MeetingsScreen extends ConsumerWidget {
                         final initial = scheduledAt ??
                             DateTime.now().add(const Duration(hours: 1));
                         final now = DateTime.now();
-                        final date = await showDatePicker(
-                          context: ctx,
-                          initialDate:
-                              initial.isBefore(now) ? now : initial,
+                        final pickedResult = await bestiePickScheduledDateTime(
+                          ctx,
+                          initial: initial.isBefore(now) ? now : initial,
                           firstDate: DateTime(now.year, now.month, now.day),
-                          lastDate:
-                              now.add(const Duration(days: 365 * 2)),
+                          lastDate: now.add(const Duration(days: 365 * 2)),
                         );
-                        if (date == null) return;
-                        if (!ctx.mounted) return;
-                        final time = await showTimePicker(
-                          context: ctx,
-                          initialTime: TimeOfDay(
-                              hour: initial.hour, minute: initial.minute),
-                        );
-                        if (time == null) return;
-                        final picked = DateTime(date.year, date.month,
-                            date.day, time.hour, time.minute);
-                        if (picked.isBefore(DateTime.now())) {
+                        if (pickedResult.cancelled) return;
+                        if (pickedResult.value == null) {
                           if (ctx.mounted) {
                             bestieToast(
                               ctx,
@@ -329,7 +320,7 @@ class MeetingsScreen extends ConsumerWidget {
                           }
                           return;
                         }
-                        set(() => scheduledAt = picked);
+                        set(() => scheduledAt = pickedResult.value);
                       },
                     ),
                     if (scheduledAt != null)

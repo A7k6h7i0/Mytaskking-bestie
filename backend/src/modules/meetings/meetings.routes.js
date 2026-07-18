@@ -233,6 +233,56 @@ function serializeMeetingRoster(participants = []) {
     }));
 }
 
+/** Crashed/killed apps that never POST /leave — keeps auto-end from stuck LIVE. */
+const MEETING_STALE_MS = 3 * 60 * 1000;
+
+async function markStaleMeetingParticipantsLeft(roomId) {
+  const cutoff = new Date(Date.now() - MEETING_STALE_MS);
+  await prisma.meetingRoomParticipant.updateMany({
+    where: {
+      roomId,
+      joinedVia: { in: ['INTERNAL', 'GUEST'] },
+      lastSeenAt: { lt: cutoff },
+    },
+    data: { joinedVia: 'LEFT', lastSeenAt: new Date() },
+  });
+}
+
+async function countLiveMeetingParticipants(roomId) {
+  return prisma.meetingRoomParticipant.count({
+    where: {
+      roomId,
+      userId: { not: null },
+      joinedVia: { in: ['INTERNAL', 'GUEST'] },
+    },
+  });
+}
+
+/** End the room when nobody is live; notify clients and audit. */
+async function autoEndMeetingIfEmpty(io, room, req, extra = {}) {
+  const active = await countLiveMeetingParticipants(room.id);
+  if (active !== 0) return { ended: false, activeParticipants: active };
+  if (room.endedAt) return { ended: true, activeParticipants: 0 };
+  await prisma.meetingRoom.update({
+    where: { id: room.id },
+    data: { endedAt: new Date() },
+  });
+  audit.record({
+    kind: 'meeting.ended',
+    entity: 'meeting',
+    entityId: room.id,
+    payload: { reason: extra.reason || 'empty_room' },
+    req,
+  });
+  await eventBus.publish(
+    'meeting.ended',
+    { meetingId: room.id, reason: extra.reason || 'empty_room' },
+    { tenantId: room.tenantId },
+  );
+  await notifyMeetingEnded(io, room, { reason: extra.reason || 'empty_room' });
+  return { ended: true, activeParticipants: 0 };
+}
+
 router.get(
   '/public/:slug',
   asyncHandler(async (req, res) => {
@@ -454,6 +504,27 @@ router.get(
         },
       },
     });
+    const io = req.app.get('io');
+    for (const room of items) {
+      if (room.endedAt) continue;
+      await markStaleMeetingParticipantsLeft(room.id);
+      const ended = await autoEndMeetingIfEmpty(io, room, req, {
+        reason: 'stale_empty',
+      });
+      if (ended.ended) {
+        room.endedAt = new Date();
+        room.participants = [];
+      } else {
+        room.participants = await prisma.meetingRoomParticipant.findMany({
+          where: {
+            roomId: room.id,
+            userId: { not: null },
+            joinedVia: { in: ['INTERNAL', 'GUEST'] },
+          },
+          select: { id: true },
+        });
+      }
+    }
     res.json({
       items: items.map((room) => ({
         ...serializeRoom(room),
@@ -730,6 +801,16 @@ router.post(
     if (!room) throw NotFound('Meeting not found');
     if (room.endedAt) throw BadRequest('Meeting has ended');
     await assertCanJoinMeeting(room, req.user);
+    await markStaleMeetingParticipantsLeft(room.id);
+    await autoEndMeetingIfEmpty(req.app.get('io'), room, req, {
+      reason: 'stale_empty',
+    });
+    const freshRoom = await prisma.meetingRoom.findUnique({
+      where: { slug: req.params.slug },
+    });
+    if (!freshRoom || freshRoom.endedAt) {
+      throw BadRequest('Meeting has ended');
+    }
 
     // Meetings use the same mediasoup SFU as 1:1 calls (connect.mytaskking.com).
     const media = await mediasoup.prepareCallRoom(
@@ -837,35 +918,13 @@ router.post(
       });
     }
 
-    const active = await prisma.meetingRoomParticipant.count({
-      where: {
-        roomId: room.id,
-        userId: { not: null },
-        joinedVia: { in: ['INTERNAL', 'GUEST'] },
-      },
-    });
-
-    let ended = false;
-    if (active === 0) {
-      await prisma.meetingRoom.update({
-        where: { id: room.id },
-        data: { endedAt: new Date() },
-      });
-      ended = true;
-      audit.record({
-        kind: 'meeting.ended',
-        entity: 'meeting',
-        entityId: room.id,
-        payload: { reason: 'empty_room' },
-        req,
-      });
-      await eventBus.publish(
-        'meeting.ended',
-        { meetingId: room.id, reason: 'empty_room' },
-        { tenantId: room.tenantId }
-      );
-      await notifyMeetingEnded(req.app.get('io'), room, { reason: 'empty_room' });
-    }
+    await markStaleMeetingParticipantsLeft(room.id);
+    const { ended, activeParticipants: active } = await autoEndMeetingIfEmpty(
+      req.app.get('io'),
+      room,
+      req,
+      { reason: 'empty_room' },
+    );
 
     res.json({ ok: true, ended, activeParticipants: active });
   })
