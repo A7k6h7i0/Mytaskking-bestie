@@ -275,12 +275,14 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
     final c = BestieColors.of(context);
     final user = ref.watch(authStoreProvider).user;
     final canManageLeads = user?.role == 'ADMIN' || user?.role == 'SUPER_ADMIN';
+    final canCallLeads = user?.role == 'TELECALLER';
 
     if (_isDesktopClient) {
       return _DesktopTelecallerLayout(
         embeddedInShell: widget.embeddedInShell,
         colors: c,
         canManageLeads: canManageLeads,
+        canCallLeads: canCallLeads,
         search: _search,
         statuses: _statuses,
         statusFilter: _status,
@@ -448,15 +450,19 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
                                           child: Text(st),
                                         ),
                                       ),
-                                      const SizedBox(width: 4),
-                                      IconButton(
-                                        icon: Icon(Icons.call_rounded,
-                                            color: c.success),
-                                        tooltip: 'Call',
-                                        onPressed: () => _call(l),
-                                      ),
+                                      if (canCallLeads) ...[
+                                        const SizedBox(width: 4),
+                                        IconButton(
+                                          icon: Icon(Icons.call_rounded,
+                                              color: c.success),
+                                          tooltip: 'Call',
+                                          onPressed: () => _call(l),
+                                        ),
+                                      ],
                                     ]),
-                                onTap: () => _call(l),
+                                onTap: canCallLeads
+                                    ? () => _call(l)
+                                    : () => _showStatusSheet(l),
                                 onLongPress: () => _showStatusSheet(l),
                               );
                             },
@@ -542,6 +548,7 @@ class _DesktopTelecallerLayout extends StatefulWidget {
     this.embeddedInShell = false,
     required this.colors,
     required this.canManageLeads,
+    required this.canCallLeads,
     required this.search,
     required this.statuses,
     required this.statusFilter,
@@ -560,6 +567,7 @@ class _DesktopTelecallerLayout extends StatefulWidget {
   final bool embeddedInShell;
   final BestieColors colors;
   final bool canManageLeads;
+  final bool canCallLeads;
   final TextEditingController search;
   final List<String> statuses;
   final String? statusFilter;
@@ -894,12 +902,14 @@ class _DesktopTelecallerLayoutState extends State<_DesktopTelecallerLayout> {
                           ],
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      FilledButton.icon(
-                        onPressed: _promptUseMobileApp,
-                        icon: const Icon(Icons.phone_rounded, size: 18),
-                        label: const Text('Click to call'),
-                      ),
+                      if (widget.canCallLeads) ...[
+                        const SizedBox(width: 12),
+                        FilledButton.icon(
+                          onPressed: _promptUseMobileApp,
+                          icon: const Icon(Icons.phone_rounded, size: 18),
+                          label: const Text('Click to call'),
+                        ),
+                      ],
                     ],
                   ),
                   const SizedBox(height: 20),

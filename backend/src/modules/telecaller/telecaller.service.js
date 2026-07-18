@@ -415,7 +415,14 @@ async function updateLead(id, input, user) {
   return prisma.lead.update({ where: { id }, data });
 }
 
+function assertTelecallerAgent(agent) {
+  if (agent.role !== 'TELECALLER') {
+    throw Forbidden('Only telecallers can place calls to leads');
+  }
+}
+
 async function clickToCall({ leadId, agent }) {
+  assertTelecallerAgent(agent);
   const lead = await getLead(leadId, agent);
   if (!lead.phone) throw BadRequest('Lead has no phone number');
   if (!agent.phone) throw BadRequest('Add your calling phone number in Profile before making telecaller calls');
@@ -454,6 +461,7 @@ async function clickToCall({ leadId, agent }) {
 }
 
 async function logPhoneDial({ leadId, agent }) {
+  assertTelecallerAgent(agent);
   const lead = await getLead(leadId, agent);
   if (!lead.phone) throw BadRequest('Lead has no phone number');
   if (!agent.phone) throw BadRequest('Add your calling phone number in Profile before making telecaller calls');

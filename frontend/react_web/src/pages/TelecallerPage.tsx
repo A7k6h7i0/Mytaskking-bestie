@@ -33,6 +33,7 @@ export default function TelecallerPage() {
   const user = useAuthStore((s) => s.user);
   const canDownloadReports = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
   const canManageLeads = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
+  const canCallLeads = user?.role === 'TELECALLER';
   const downloadsAllReports =
     user?.role === 'SUPER_ADMIN' &&
     (!user.tenant?.slug || user.tenant.slug === 'default' || user.tenantId === 'default');
@@ -279,9 +280,11 @@ export default function TelecallerPage() {
                 <h2>{selected.name}</h2>
                 <p>{selected.company} · {selected.phone}</p>
               </div>
-              <Button onClick={() => callMut.mutate(selected.id)} loading={callMut.isPending}>
-                <Phone size={16}/> Click to call
-              </Button>
+              {canCallLeads && (
+                <Button onClick={() => callMut.mutate(selected.id)} loading={callMut.isPending}>
+                  <Phone size={16}/> Click to call
+                </Button>
+              )}
             </header>
 
             <div className="tc__details">
