@@ -329,6 +329,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
   final Map<String, DateTime> _invitedAtByUserId = {};
   static const _kInviteRingWindow = Duration(seconds: 60);
 
+  /// Resolved avatar URLs keyed by user id (roster + employee directory).
+  final Map<String, String> _avatarUrlByUserId = {};
+  bool _avatarDirectoryLoaded = false;
+
   /// Agora uid of the loudest current speaker (0 = local) — WhatsApp-style tile border.
   int? _activeSpeakerUid;
   static const _kSpeakingBorderColor = BestieTokens.cBrand300;
@@ -758,7 +762,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
     final me = ref.read(authStoreProvider).user;
     if (me != null) {
-      _markParticipantJoined(me.id, me.name);
+      _markParticipantJoined(me.id, me.name, avatarUrl: me.avatarUrl);
     }
 
     if (roster.isEmpty) {
@@ -790,7 +794,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
       if (_CallSession.useMediasoup) {
         _registerParticipantIdentity(userId, resolved, agoraUid: agoraUid);
       }
-      _markParticipantJoined(userId, resolved);
+      _markParticipantJoined(
+        userId,
+        resolved,
+        avatarUrl: _avatarUrlFromParticipantMap(p),
+      );
       if (!_CallSession.useMediasoup &&
           agoraUid != null &&
           agoraUid > 0) {
@@ -870,8 +878,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   List<Map<String, dynamic>> _participantsFromMeta() {
+    if (_isMeeting) return _meetingParticipantsForUi();
     final call = (_callMeta?['call'] as Map?)?.cast<String, dynamic>();
-    return (call?['participants'] as List?)?.cast<Map<String, dynamic>>() ??
+    final fromCall =
+        (call?['participants'] as List?)?.cast<Map<String, dynamic>>();
+    if (fromCall != null && fromCall.isNotEmpty) return fromCall;
+    return (_callMeta?['participants'] as List?)
+            ?.cast<Map<String, dynamic>>() ??
         const [];
   }
 
@@ -901,8 +914,15 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final user = (p['user'] as Map?)?.cast<String, dynamic>();
     final fromUser = (user?['name'] ?? '').toString().trim();
     if (fromUser.isNotEmpty) return fromUser;
+    final display = (p['displayName'] ?? '').toString().trim();
+    if (display.isNotEmpty) return display;
     final fromFlat = (p['userName'] ?? '').toString().trim();
     if (fromFlat.isNotEmpty) return fromFlat;
+    final userId = p['userId']?.toString();
+    if (userId != null) {
+      final joined = _joinedParticipants[userId]?.trim();
+      if (joined != null && joined.isNotEmpty) return joined;
+    }
     return 'Participant';
   }
 
@@ -945,6 +965,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     };
     _CallSession.callMeta = _callMeta;
     _syncParticipantsFromCallMeta();
+    _cacheAvatarsFromCallMeta();
   }
 
   bool _isSelfDisplayName(String? name) {
@@ -1055,6 +1076,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
       return _CallMemberConnection.connected;
     }
     final userId = p['userId']?.toString() ?? '';
+    if (_isMeeting &&
+        userId.isNotEmpty &&
+        _joinedParticipants.containsKey(userId) &&
+        p['leftAt'] == null) {
+      return _CallMemberConnection.connected;
+    }
     if (p['joinedAt'] == null && p['leftAt'] == null) {
       final invitedAt =
           _invitedAtByUserId[userId] ?? _callCreatedAt() ?? DateTime.now();
@@ -1070,12 +1097,16 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   Future<void> _refreshCallMeta() async {
-    if (widget.callId == null) return;
     try {
       final fresh = await _fetchToken();
       _callMeta = fresh;
       _CallSession.callMeta = fresh;
-      _syncParticipantsFromCallMeta();
+      if (_isMeeting) {
+        _applyServerLiveRoster(fresh);
+      } else {
+        _syncParticipantsFromCallMeta();
+      }
+      _cacheAvatarsFromCallMeta();
     } catch (_) {}
   }
 
@@ -1102,11 +1133,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
     }
   }
 
-  void _markParticipantJoined(String userId, String name) {
+  void _markParticipantJoined(String userId, String name, {String? avatarUrl}) {
     _invitedAtByUserId.remove(userId);
     _participantLeaveTimers[userId]?.cancel();
     _participantLeaveTimers.remove(userId);
     _joinedParticipants[userId] = name;
+    _cacheAvatarForUserId(userId, avatarUrl);
     final me = ref.read(authStoreProvider).user;
     if (me != null && userId != me.id && name.trim().isNotEmpty) {
       _CallSession.remotePeerName = name.trim();
@@ -1180,6 +1212,135 @@ class _CallScreenState extends ConsumerState<CallScreen>
     if (_isMeeting) return false;
     final call = (_callMeta?['call'] as Map?)?.cast<String, dynamic>();
     return call?['kind']?.toString() != 'GROUP';
+  }
+
+  bool get _oneToOneLightUi =>
+      _isOneToOneCall() && Theme.of(context).brightness == Brightness.light;
+
+  OneToOneCallPalette get _oneToOnePalette =>
+      OneToOneCallPalette.forBrightness(Theme.of(context).brightness);
+
+  BoxDecoration _oneToOneBackgroundDecoration() {
+    final p = _oneToOnePalette;
+    return BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [p.backgroundTop, p.backgroundMid, p.backgroundBottom],
+        stops: const [0.0, 0.45, 1.0],
+      ),
+    );
+  }
+
+  void _cacheAvatarForUserId(String? userId, String? url) {
+    if (userId == null || userId.isEmpty || url == null || url.isEmpty) return;
+    _avatarUrlByUserId[userId] = url;
+  }
+
+  String? _avatarUrlFromParticipantMap(Map<String, dynamic> p) {
+    final user = (p['user'] as Map?)?.cast<String, dynamic>();
+    final nested = user?['avatarUrl']?.toString();
+    if (nested != null && nested.isNotEmpty) return nested;
+    for (final key in [
+      'avatarUrl',
+      'userAvatarUrl',
+      'hostAvatarUrl',
+      'callerAvatarUrl',
+    ]) {
+      final flat = p[key]?.toString();
+      if (flat != null && flat.isNotEmpty) return flat;
+    }
+    return null;
+  }
+
+  void _cacheAvatarsFromParticipants(Iterable<Map<String, dynamic>> parts) {
+    for (final p in parts) {
+      final userId = p['userId']?.toString();
+      if (userId == null || userId.isEmpty) continue;
+      _cacheAvatarForUserId(userId, _avatarUrlFromParticipantMap(p));
+    }
+  }
+
+  void _cacheAvatarsFromCallMeta() {
+    _cacheAvatarsFromParticipants(_participantsFromMeta());
+    final call = (_callMeta?['call'] as Map?)?.cast<String, dynamic>();
+    final initiator = (call?['initiator'] as Map?)?.cast<String, dynamic>();
+    _cacheAvatarForUserId(
+      initiator?['id']?.toString(),
+      initiator?['avatarUrl']?.toString(),
+    );
+    final me = ref.read(authStoreProvider).user;
+    _cacheAvatarForUserId(me?.id, me?.avatarUrl);
+    if (_CallSession.remotePeerAvatarUrl != null) {
+      for (final p in _participantsFromMeta()) {
+        final userId = p['userId']?.toString();
+        if (userId == null || userId == me?.id) continue;
+        if (_avatarUrlFromParticipantMap(p) == null &&
+            _CallSession.remotePeerAvatarUrl!.isNotEmpty) {
+          _cacheAvatarForUserId(userId, _CallSession.remotePeerAvatarUrl);
+          break;
+        }
+      }
+    }
+  }
+
+  Future<void> _hydrateAvatarDirectory() async {
+    if (_avatarDirectoryLoaded) return;
+    try {
+      final items = await ref.read(apiProvider).listEmployees();
+      for (final u in items) {
+        _cacheAvatarForUserId(
+          u['id']?.toString(),
+          u['avatarUrl']?.toString(),
+        );
+      }
+      _avatarDirectoryLoaded = true;
+    } catch (_) {}
+  }
+
+  String? _participantAvatarUrl(Map<String, dynamic> p) {
+    final userId = p['userId']?.toString();
+    final fromMap = _avatarUrlFromParticipantMap(p);
+    if (fromMap != null) {
+      if (userId != null) _cacheAvatarForUserId(userId, fromMap);
+      return fromMap;
+    }
+    if (userId != null) {
+      final cached = _avatarUrlByUserId[userId];
+      if (cached != null && cached.isNotEmpty) return cached;
+    }
+    return null;
+  }
+
+  List<Map<String, dynamic>> _meetingParticipantsForUi() {
+    final merged = <String, Map<String, dynamic>>{};
+    void absorb(Map<String, dynamic> raw) {
+      final id = raw['userId']?.toString();
+      if (id == null || id.isEmpty) return;
+      final prev = merged[id];
+      merged[id] =
+          prev != null ? {...prev, ...raw} : Map<String, dynamic>.from(raw);
+    }
+
+    for (final p in (_callMeta?['participants'] as List?) ?? const []) {
+      if (p is Map) absorb(Map<String, dynamic>.from(p));
+    }
+    for (final p
+        in (_callMeta?['room']?['participants'] as List?) ?? const []) {
+      if (p is Map) absorb(Map<String, dynamic>.from(p));
+    }
+    for (final entry in _joinedParticipants.entries) {
+      if (entry.key.isEmpty) continue;
+      final prev = merged[entry.key];
+      merged[entry.key] = {
+        if (prev != null) ...prev,
+        'userId': entry.key,
+        'displayName': prev?['displayName'] ?? entry.value,
+        'userName': prev?['userName'] ?? entry.value,
+        'joinedAt': prev?['joinedAt'] ?? DateTime.now().toIso8601String(),
+      };
+    }
+    return merged.values.toList(growable: false);
   }
 
   void _scheduleRemoteHangupFallback() {
@@ -1710,6 +1871,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final roster = _callMeta?['participants'] ?? call?['participants'];
     if (roster != null) envelope['participants'] = roster;
     _applyServerLiveRoster(envelope, callMeta: call);
+    _cacheAvatarsFromCallMeta();
   }
 
   /// If the server already marked the callee as joined but the socket event
@@ -2455,8 +2617,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
         skippedPrimary = true;
         continue;
       }
-      final user = (p['user'] as Map?)?.cast<String, dynamic>();
-      profiles.add((name: name, imageUrl: user?['avatarUrl']?.toString()));
+      profiles.add((
+        name: name,
+        imageUrl: _participantAvatarUrl(p),
+      ));
     }
     return profiles.take(5).toList(growable: false);
   }
@@ -3135,6 +3299,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
       }
       _videoEnabled = _routeWantsVideo;
       _syncParticipantsFromCallMeta();
+      _cacheAvatarsFromCallMeta();
+      unawaited(_hydrateAvatarDirectory());
       try {
         final settings =
             await ref.read(apiProvider).settingsScope(scope: 'calls');
@@ -4601,6 +4767,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   Future<void> _showMembersSheet() async {
     await _refreshCallMeta();
+    await _hydrateAvatarDirectory();
     if (!mounted) return;
 
     await showModalBottomSheet<void>(
@@ -4724,8 +4891,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
                               c: c,
                               name: _participantProfileName(p),
                               avatarName: _participantProfileName(p),
-                              imageUrl:
-                                  (p['user'] as Map?)?['avatarUrl']?.toString(),
+                              imageUrl: _participantAvatarUrl(p),
                               trailing: Icon(Icons.mic_rounded,
                                   size: 18, color: c.textMuted),
                             ),
@@ -4747,8 +4913,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
                                 c: c,
                                 name: _participantProfileName(p),
                                 avatarName: _participantProfileName(p),
-                                imageUrl: (p['user'] as Map?)?['avatarUrl']
-                                    ?.toString(),
+                                imageUrl: _participantAvatarUrl(p),
                                 trailing: const _ConnectingDots(),
                               ),
                             for (final p in notConnected)
@@ -4756,8 +4921,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
                                 c: c,
                                 name: _participantProfileName(p),
                                 avatarName: _participantProfileName(p),
-                                imageUrl: (p['user'] as Map?)?['avatarUrl']
-                                    ?.toString(),
+                                imageUrl: _participantAvatarUrl(p),
                                 trailing: IconButton(
                                   icon: Icon(
                                       Icons.notifications_active_outlined,
@@ -4858,17 +5022,21 @@ class _CallScreenState extends ConsumerState<CallScreen>
         !showingVideo &&
         (desktopVoiceStage ||
             (!_useWhatsAppParticipantGrid && _distinctRemoteUserCount <= 1));
+    final oneToOneThemed = _isOneToOneCall();
+    final isLightOneToOne = _oneToOneLightUi;
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _minimize();
       },
       child: Scaffold(
-        backgroundColor: Theme.of(context).brightness == Brightness.light
-            ? (_useWhiteMultiParticipantBackdrop
-                ? Colors.white
-                : BestieColors.of(context).bg)
-            : const Color(0xFF0A1628),
+        backgroundColor: oneToOneThemed
+            ? (isLightOneToOne ? Colors.white : const Color(0xFF050A18))
+            : (Theme.of(context).brightness == Brightness.light
+                ? (_useWhiteMultiParticipantBackdrop
+                    ? Colors.white
+                    : BestieColors.of(context).bg)
+                : const Color(0xFF0A1628)),
         body: Stack(
           fit: StackFit.expand,
           children: [
@@ -4883,9 +5051,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
                 // video fills the screen.
                 if (!showingVideo)
                   Positioned.fill(
-                    child: _useWhiteMultiParticipantBackdrop
-                        ? const ColoredBox(color: Colors.white)
-                        : const _FuturisticCallBackdrop(),
+                    child: oneToOneThemed
+                        ? _OneToOneCallBackdrop(light: isLightOneToOne)
+                        : (_useWhiteMultiParticipantBackdrop
+                            ? const ColoredBox(color: Colors.white)
+                            : const _FuturisticCallBackdrop()),
                   ),
                 Positioned.fill(child: _remoteSurface()),
 
@@ -5165,6 +5335,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   Widget _exactPrototypeVoiceBody() {
+    final palette = _oneToOnePalette;
     final remoteName = _primaryRemoteDisplayName();
     final subtitle = _primaryRemoteSubtitle();
     final desktopLayout = Platform.isWindows || Platform.isLinux;
@@ -5173,12 +5344,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
         ? 'Ending call…'
         : (_connectedAt != null ? _formatElapsed(_elapsed) : _status);
     final timerColor = ending
-        ? CallScreenUiColors.textMuted
+        ? palette.textMuted
         : (_connectedAt != null
-            ? CallScreenUiColors.neonGreen
+            ? palette.accentGreen
             : _status.toLowerCase().contains('ring')
                 ? const Color(0xFFFFB020)
-                : CallScreenUiColors.textPrimary);
+                : palette.textPrimary);
     final showReconnect =
         _reconnecting && _error == null && _isLiveCallActive;
 
@@ -5196,18 +5367,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
         return Container(
           width: constraints.maxWidth,
           height: constraints.maxHeight,
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                CallScreenUiColors.backgroundTop,
-                CallScreenUiColors.backgroundMid,
-                CallScreenUiColors.backgroundBottom,
-              ],
-              stops: [0.0, 0.45, 1.0],
-            ),
-          ),
+          decoration: _oneToOneBackgroundDecoration(),
           child: SafeArea(
             child: Column(
               children: [
@@ -5266,7 +5426,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
                               if (!ending)
                                 Text(
                                   _callConnectionLabel(ending: ending),
-                                  style: _activeCallLabelStyle,
+                                  style: TextStyle(
+                                    color: palette.accentGreen,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: 1.5,
+                                  ),
                                 ),
                               if (!ending) const SizedBox(height: 3),
                               Text(
@@ -5275,7 +5440,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
                                 overflow: TextOverflow.ellipsis,
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
-                                  color: CallScreenUiColors.textPrimary,
+                                  color: palette.textPrimary,
                                   fontSize: nameSize,
                                   fontWeight: FontWeight.w700,
                                 ),
@@ -5288,7 +5453,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
                                   overflow: TextOverflow.ellipsis,
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
-                                    color: CallScreenUiColors.textSecondary,
+                                    color: palette.textSecondary,
                                     fontSize: subtitleSize,
                                     fontWeight: FontWeight.w400,
                                   ),
@@ -5300,8 +5465,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  color: CallScreenUiColors.textMuted,
+                                style: TextStyle(
+                                  color: palette.textMuted,
                                   fontSize: 12,
                                   fontWeight: FontWeight.w400,
                                 ),
@@ -5338,6 +5503,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final desktopLayout = Platform.isWindows || Platform.isLinux;
     if (desktopLayout) return _desktopVoiceScreenShareBody();
 
+    final palette = _oneToOnePalette;
     final isLocal = _sharing;
     final remoteUid = _remoteScreenShareUid;
     final shareLabel = isLocal
@@ -5348,12 +5514,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
         ? 'Ending call…'
         : (_connectedAt != null ? _formatElapsed(_elapsed) : _status);
     final timerColor = ending
-        ? CallScreenUiColors.textMuted
+        ? palette.textMuted
         : (_connectedAt != null
-            ? CallScreenUiColors.neonGreen
+            ? palette.accentGreen
             : _status.toLowerCase().contains('ring')
                 ? const Color(0xFFFFB020)
-                : CallScreenUiColors.textPrimary);
+                : palette.textPrimary);
     final showReconnect =
         _reconnecting && _error == null && _isLiveCallActive;
 
@@ -5362,18 +5528,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
         return Container(
           width: constraints.maxWidth,
           height: constraints.maxHeight,
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                CallScreenUiColors.backgroundTop,
-                CallScreenUiColors.backgroundMid,
-                CallScreenUiColors.backgroundBottom,
-              ],
-              stops: [0.0, 0.45, 1.0],
-            ),
-          ),
+          decoration: _oneToOneBackgroundDecoration(),
           child: SafeArea(
             child: Column(
               children: [
@@ -5385,15 +5540,24 @@ class _CallScreenState extends ConsumerState<CallScreen>
                     padding:
                         const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                     decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.42),
+                      color: palette.lightControls
+                          ? const Color(0xFFF0F2F5)
+                          : Colors.black.withValues(alpha: 0.42),
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.white24),
+                      border: Border.all(
+                        color: palette.lightControls
+                            ? const Color(0xFFD1D7DB)
+                            : Colors.white24,
+                      ),
                     ),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(Icons.screen_share_rounded,
-                            color: Colors.white70, size: 16),
+                        Icon(Icons.screen_share_rounded,
+                            color: palette.lightControls
+                                ? palette.textSecondary
+                                : Colors.white70,
+                            size: 16),
                         const SizedBox(width: 8),
                         Flexible(
                           child: Text(
@@ -5401,8 +5565,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Colors.white,
+                            style: TextStyle(
+                              color: palette.textPrimary,
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
                             ),
@@ -5484,18 +5648,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
         return Container(
           width: constraints.maxWidth,
           height: constraints.maxHeight,
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                CallScreenUiColors.backgroundTop,
-                CallScreenUiColors.backgroundMid,
-                CallScreenUiColors.backgroundBottom,
-              ],
-              stops: [0.0, 0.45, 1.0],
-            ),
-          ),
+          decoration: _oneToOneBackgroundDecoration(),
           child: SafeArea(
             child: Column(
               children: [
@@ -5692,7 +5845,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     required VoidCallback onTap,
     String? tooltip,
   }) {
-    final onWhite = _useWhiteMultiParticipantBackdrop;
+    final onWhite = _useWhiteMultiParticipantBackdrop || _oneToOneLightUi;
     return Tooltip(
       message: tooltip ?? '',
       child: Material(
@@ -5744,34 +5897,62 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   Widget _callHeaderParticipantsButton() {
     final count = _participantCount;
+    final light = _oneToOneLightUi;
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: _showParticipants,
         borderRadius: BorderRadius.circular(12),
-        child: CallUiGlassContainer(
-          borderRadius: 12,
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.group_outlined,
-                color: CallScreenUiColors.textPrimary,
-                size: 18,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                '$count',
-                style: const TextStyle(
-                  color: CallScreenUiColors.textPrimary,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
+        child: light
+            ? Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF0F2F5),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFD1D7DB)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.group_outlined,
+                        color: _oneToOnePalette.textPrimary, size: 18),
+                    const SizedBox(width: 6),
+                    Text(
+                      '$count',
+                      style: TextStyle(
+                        color: _oneToOnePalette.textPrimary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : CallUiGlassContainer(
+                borderRadius: 12,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.group_outlined,
+                      color: CallScreenUiColors.textPrimary,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      '$count',
+                      style: const TextStyle(
+                        color: CallScreenUiColors.textPrimary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -5880,20 +6061,20 @@ class _CallScreenState extends ConsumerState<CallScreen>
                 crossAxisAlignment: CrossAxisAlignment.center,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Row(mainAxisSize: MainAxisSize.min, children: [
-                    CallUiBrandLogo(size: 34),
-                    SizedBox(width: 6),
+                  Row(mainAxisSize: MainAxisSize.min, children: [
+                    const CallUiBrandLogo(size: 34),
+                    const SizedBox(width: 6),
                     Text('MyTaskKing',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: CallScreenUiColors.textPrimary,
+                          color: _oneToOnePalette.textPrimary,
                           fontSize: 14,
                           fontWeight: FontWeight.w700,
                           letterSpacing: -0.2,
                         )),
-                    SizedBox(width: 5),
-                    Icon(Icons.verified_rounded,
+                    const SizedBox(width: 5),
+                    const Icon(Icons.verified_rounded,
                         color: CallScreenUiColors.verifiedBlue, size: 16),
                   ]),
                 ]),
@@ -7103,14 +7284,15 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   String? _avatarUrlForUserId(String? userId) {
     if (userId == null) return null;
-    final parts = (_callMeta?['call']?['participants'] as List?) ??
-        (_callMeta?['participants'] as List?) ??
-        const [];
-    for (final p in parts) {
-      if (p is! Map || p['userId'] != userId) continue;
-      final user = (p['user'] as Map?)?.cast<String, dynamic>();
-      final url = user?['avatarUrl']?.toString();
-      if (url != null && url.isNotEmpty) return url;
+    final cached = _avatarUrlByUserId[userId];
+    if (cached != null && cached.isNotEmpty) return cached;
+    for (final p in _participantsFromMeta()) {
+      if (p['userId']?.toString() != userId) continue;
+      final url = _avatarUrlFromParticipantMap(p);
+      if (url != null) {
+        _cacheAvatarForUserId(userId, url);
+        return url;
+      }
     }
     return null;
   }
@@ -7680,13 +7862,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
       final url = initiator?['avatarUrl']?.toString();
       if (url != null && url.isNotEmpty) return url;
     }
-    final parts = (_callMeta?['call']?['participants'] as List?) ??
-        (_callMeta?['participants'] as List?) ??
-        const [];
-    for (final p in parts) {
-      if (p is! Map || p['userId']?.toString() == me?.id) continue;
-      final user = (p['user'] as Map?)?.cast<String, dynamic>();
-      final url = user?['avatarUrl']?.toString();
+    for (final p in _participantsFromMeta()) {
+      if (p['userId']?.toString() == me?.id) continue;
+      final url = _participantAvatarUrl(p);
       if (url != null && url.isNotEmpty) return url;
     }
     return null;
@@ -7695,14 +7873,15 @@ class _CallScreenState extends ConsumerState<CallScreen>
   /// Centered premium stage: waveform-ringed avatar with a live status badge,
   /// the caller's name + designation, and the ACTIVE CALL label + timer.
   Widget _voiceCallStage(String remoteName) {
+    final palette = _oneToOnePalette;
     final subtitle = _primaryRemoteSubtitle();
     final connected = _connectedAt != null;
     final statusText = connected ? _formatElapsed(_elapsed) : _status;
     final statusColor = connected
-        ? CallScreenUiColors.neonGreen
+        ? palette.accentGreen
         : _status.toLowerCase().contains('ring')
             ? const Color(0xFFFFB020)
-            : CallScreenUiColors.textPrimary;
+            : palette.textPrimary;
     return LayoutBuilder(
       builder: (context, constraints) {
         final compact =
@@ -7745,7 +7924,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
                 const SizedBox(height: 8),
                 Text(
                   _callConnectionLabel(ending: _showEndingUi),
-                  style: _activeCallLabelStyle,
+                  style: TextStyle(
+                    color: palette.accentGreen,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1.5,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -7753,8 +7937,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: CallScreenUiColors.textPrimary,
+                  style: TextStyle(
+                    color: palette.textPrimary,
                     fontSize: 26,
                     fontWeight: FontWeight.w700,
                     letterSpacing: -0.3,
@@ -7767,8 +7951,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: CallScreenUiColors.textSecondary,
+                    style: TextStyle(
+                      color: palette.textSecondary,
                       fontSize: 14,
                       fontWeight: FontWeight.w400,
                     ),
@@ -7780,8 +7964,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: CallScreenUiColors.textMuted,
+                  style: TextStyle(
+                    color: palette.textMuted,
                     fontSize: 12,
                     fontWeight: FontWeight.w400,
                   ),
@@ -8232,7 +8416,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   Widget _premiumCallControlsCore({bool compact = false}) {
-    final lightControls = ref.watch(callScreenLightControlsProvider);
+    final lightControls = _isOneToOneCall()
+        ? _oneToOnePalette.lightControls
+        : ref.watch(callScreenLightControlsProvider);
     final rowGap = compact ? 6.0 : _kPremiumControlColumnGap;
     final actionBarHeight = compact ? 62.0 : 72.0;
     final actionSize = compact ? 42.0 : 48.0;
@@ -8813,6 +8999,34 @@ class _Participant {
       required this.role,
       required this.muted,
       required this.video});
+}
+
+/// Theme-aware backdrop for 1:1 voice/video calls before remote video fills the screen.
+class _OneToOneCallBackdrop extends StatelessWidget {
+  const _OneToOneCallBackdrop({required this.light});
+
+  final bool light;
+
+  @override
+  Widget build(BuildContext context) {
+    if (light) {
+      return const DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color(0xFFFFFFFF),
+              Color(0xFFF8FAFC),
+              Color(0xFFEEF2F7),
+            ],
+            stops: [0.0, 0.45, 1.0],
+          ),
+        ),
+      );
+    }
+    return const _FuturisticCallBackdrop();
+  }
 }
 
 /// Dark blue voice-call backdrop, matching the manual premium design.

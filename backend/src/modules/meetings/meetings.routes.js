@@ -144,12 +144,10 @@ async function meetingNotifyUserIds(room) {
 }
 
 async function notifyMeetingJoin(io, room, participant) {
-  const rosterRows = await prisma.meetingRoomParticipant.findMany({
-    where: { roomId: room.id, userId: { not: null } },
-    orderBy: { joinedAt: 'desc' },
-    take: 100,
-  });
-  const participants = serializeMeetingRoster(rosterRows);
+  const participants = await buildLiveMeetingRoster(room.id);
+  const joinUser = participant.userId
+    ? (await usersByIdForMeetingRoster([participant]))[participant.userId]
+    : null;
   const payload = {
     roomId: room.id,
     slug: room.slug,
@@ -159,13 +157,23 @@ async function notifyMeetingJoin(io, room, participant) {
     participants,
     participant: {
       id: participant.id,
-      displayName: participant.displayName,
+      displayName: participant.displayName || joinUser?.name || 'Participant',
       joinedVia: participant.joinedVia,
       joinedAt: participant.joinedAt,
       userId: participant.userId,
+      avatarUrl: joinUser?.avatarUrl || null,
       agoraUid: participant.userId
         ? agora.toAgoraUid(participant.userId)
         : null,
+      ...(joinUser
+        ? {
+            user: {
+              id: joinUser.id,
+              name: joinUser.name,
+              avatarUrl: joinUser.avatarUrl,
+            },
+          }
+        : {}),
     },
   };
   // Prefer precomputed notify set from token handler; otherwise fire-and-forget.
@@ -178,12 +186,10 @@ async function notifyMeetingJoin(io, room, participant) {
 }
 
 async function notifyMeetingLeft(io, room, { userId, displayName }) {
-  const rosterRows = await prisma.meetingRoomParticipant.findMany({
-    where: { roomId: room.id, userId: { not: null } },
-    orderBy: { joinedAt: 'desc' },
-    take: 100,
-  });
-  const participants = serializeMeetingRoster(rosterRows);
+  const participants = await buildLiveMeetingRoster(room.id);
+  const leftUser = userId
+    ? (await usersByIdForMeetingRoster([{ userId }]))[userId]
+    : null;
   const payload = {
     roomId: room.id,
     slug: room.slug,
@@ -192,8 +198,18 @@ async function notifyMeetingLeft(io, room, { userId, displayName }) {
     participants,
     participant: {
       userId,
-      displayName: displayName || 'Participant',
+      displayName: displayName || leftUser?.name || 'Participant',
+      avatarUrl: leftUser?.avatarUrl || null,
       agoraUid: userId ? agora.toAgoraUid(userId) : null,
+      ...(leftUser
+        ? {
+            user: {
+              id: leftUser.id,
+              name: leftUser.name,
+              avatarUrl: leftUser.avatarUrl,
+            },
+          }
+        : {}),
     },
   };
   const targets = await meetingNotifyUserIds(room);
@@ -215,7 +231,7 @@ async function notifyMeetingEnded(io, room, extra = {}) {
   }
 }
 
-function serializeMeetingRoster(participants = []) {
+function serializeMeetingRoster(participants = [], userById = {}) {
   return participants
     .filter((p) => p && p.userId)
     .filter((p) => {
@@ -225,15 +241,56 @@ function serializeMeetingRoster(participants = []) {
       const via = String(p.joinedVia || '');
       return via === 'INTERNAL' || via === 'GUEST';
     })
-    .map((p) => ({
-      id: p.id,
-      userId: p.userId,
-      displayName: p.displayName || 'Participant',
-      joinedVia: p.joinedVia,
-      joinedAt: p.joinedAt,
-      lastSeenAt: p.lastSeenAt || null,
-      agoraUid: agora.toAgoraUid(p.userId),
-    }));
+    .map((p) => {
+      const user = userById[p.userId] || null;
+      const displayName = p.displayName || user?.name || 'Participant';
+      const avatarUrl = user?.avatarUrl || null;
+      return {
+        id: p.id,
+        userId: p.userId,
+        displayName,
+        avatarUrl,
+        joinedVia: p.joinedVia,
+        joinedAt: p.joinedAt,
+        lastSeenAt: p.lastSeenAt || null,
+        agoraUid: agora.toAgoraUid(p.userId),
+        ...(user
+          ? {
+              user: {
+                id: user.id,
+                name: user.name,
+                avatarUrl: user.avatarUrl,
+              },
+            }
+          : {}),
+      };
+    });
+}
+
+async function usersByIdForMeetingRoster(participants = []) {
+  const userIds = [
+    ...new Set(
+      participants
+        .map((p) => p?.userId)
+        .filter(Boolean),
+    ),
+  ];
+  if (!userIds.length) return {};
+  const users = await prisma.user.findMany({
+    where: { id: { in: userIds } },
+    select: { id: true, name: true, avatarUrl: true },
+  });
+  return Object.fromEntries(users.map((u) => [u.id, u]));
+}
+
+async function buildLiveMeetingRoster(roomId) {
+  const rosterRows = await prisma.meetingRoomParticipant.findMany({
+    where: { roomId, userId: { not: null } },
+    orderBy: { joinedAt: 'desc' },
+    take: 100,
+  });
+  const userById = await usersByIdForMeetingRoster(rosterRows);
+  return serializeMeetingRoster(rosterRows, userById);
 }
 
 /** Crashed/killed apps that never POST /leave — only sweep on explicit leave. */
@@ -831,7 +888,8 @@ router.post(
     });
     room._notifyUserIds = rosterRows.map((r) => r.userId).filter(Boolean);
 
-    const participants = serializeMeetingRoster(rosterRows);
+    const userById = await usersByIdForMeetingRoster(rosterRows);
+    const participants = serializeMeetingRoster(rosterRows, userById);
 
     // Always fan out — including host join — so invitees already in the room
     // get roster + mediasoup uid mapping without waiting on SFU alone.
