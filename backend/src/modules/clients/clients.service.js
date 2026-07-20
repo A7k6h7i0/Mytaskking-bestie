@@ -99,10 +99,45 @@ async function disable(req, id) {
 
 async function remove(req, id) {
   await getById(req, id);
+  const actorId = req.user?.id;
   try {
-    await prisma.user.delete({ where: { id } });
+    await prisma.$transaction(async (tx) => {
+      await tx.activityLog.updateMany({ where: { actorId: id }, data: { actorId: null } });
+      await tx.callParticipant.deleteMany({ where: { userId: id } });
+      const callIds = (
+        await tx.call.findMany({ where: { initiatorId: id }, select: { id: true } })
+      ).map((c) => c.id);
+      if (callIds.length) {
+        await tx.call.deleteMany({ where: { id: { in: callIds } } });
+      }
+      await tx.savedItem.deleteMany({ where: { userId: id } });
+      await tx.refreshToken.deleteMany({ where: { userId: id } });
+      await tx.deviceToken.deleteMany({ where: { userId: id } });
+      await tx.notification.deleteMany({ where: { userId: id } });
+      await tx.messageReaction.deleteMany({ where: { userId: id } });
+      await tx.messageReceipt.deleteMany({ where: { userId: id } });
+      await tx.message.deleteMany({ where: { authorId: id } });
+      await tx.channelMember.deleteMany({ where: { userId: id } });
+      await tx.userPresence.deleteMany({ where: { userId: id } });
+      if (actorId) {
+        await tx.channel.updateMany({
+          where: { createdById: id },
+          data: { createdById: actorId },
+        });
+        await tx.user.updateMany({
+          where: { createdById: id },
+          data: { createdById: actorId },
+        });
+      }
+      await tx.user.delete({ where: { id } });
+    });
   } catch (e) {
     if (e.code === 'P2025') throw NotFound('Client not found');
+    if (e.code === 'P2003') {
+      throw BadRequest(
+        'Cannot delete this client yet — they still have linked records. Try suspending instead.',
+      );
+    }
     throw e;
   }
 }

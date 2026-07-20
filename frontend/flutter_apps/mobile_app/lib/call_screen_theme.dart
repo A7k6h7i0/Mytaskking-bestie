@@ -18,6 +18,8 @@ class OneToOneCallPalette {
     required this.textMuted,
     required this.accentGreen,
     required this.lightControls,
+    required this.chipBackground,
+    required this.chipBorder,
   });
 
   final Color backgroundTop;
@@ -28,6 +30,8 @@ class OneToOneCallPalette {
   final Color textMuted;
   final Color accentGreen;
   final bool lightControls;
+  final Color chipBackground;
+  final Color chipBorder;
 
   factory OneToOneCallPalette.forBrightness(Brightness brightness) {
     if (brightness == Brightness.light) {
@@ -40,6 +44,8 @@ class OneToOneCallPalette {
         textMuted: Color(0xFF64748B),
         accentGreen: Color(0xFF16A34A),
         lightControls: true,
+        chipBackground: Color(0xFFF0F2F5),
+        chipBorder: Color(0xFFD1D7DB),
       );
     }
     return const OneToOneCallPalette(
@@ -51,6 +57,8 @@ class OneToOneCallPalette {
       textMuted: CallScreenUiColors.textMuted,
       accentGreen: CallScreenUiColors.neonGreen,
       lightControls: false,
+      chipBackground: CallScreenUiColors.glassFill,
+      chipBorder: CallScreenUiColors.glassBorder,
     );
   }
 }

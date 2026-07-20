@@ -52,17 +52,65 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
   }
 
   Future<void> _openChannel(Map<String, dynamic> client) async {
+    final clientId = client['id']?.toString();
+    if (clientId == null) return;
     try {
+      final cached = ref.read(channelsProvider).asData?.value ?? const [];
+      for (final c in cached) {
+        final kind = (c['kind'] ?? '').toString();
+        if (kind != 'CLIENT' && c['isClientChannel'] != true) continue;
+        final members =
+            (c['members'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+        final hasClient = members.any((m) {
+          final uid = m['userId']?.toString() ?? m['user']?['id']?.toString();
+          return uid == clientId;
+        });
+        if (hasClient) {
+          if (mounted) context.push('/chat/${c['id']}');
+          return;
+        }
+      }
+
       final ch = await ref.read(apiProvider).createChannel(
         kind: 'CLIENT',
-        name: client['name']?.toString() ?? client['clientCompany']?.toString() ?? 'Client',
-        memberIds: [client['id'] as String],
+        name: client['name']?.toString() ??
+            client['clientCompany']?.toString() ??
+            'Client',
+        memberIds: [clientId],
       );
       ref.invalidate(channelsProvider);
       if (mounted) context.push('/chat/${ch['id']}');
     } catch (e) {
       if (mounted) {
         bestieToast(context, 'Could not open channel',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    }
+  }
+
+  Future<void> _deleteClient(Map<String, dynamic> client) async {
+    final id = client['id']?.toString();
+    final name = (client['name'] ?? 'Client').toString();
+    if (id == null) return;
+    final ok = await bestieConfirm(
+      context,
+      title: 'Delete client?',
+      description:
+          'Remove $name and their access. Their chat history may remain in channels.',
+      confirmLabel: 'Delete',
+      dangerous: true,
+    );
+    if (!ok) return;
+    try {
+      await ref.read(apiProvider).deleteClient(id);
+      ref.invalidate(channelsProvider);
+      await _fetch(_search.text);
+      if (mounted) {
+        bestieToast(context, 'Client deleted', kind: BestieToastKind.success);
+      }
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not delete client',
             body: formatApiError(e), kind: BestieToastKind.error);
       }
     }
@@ -148,10 +196,23 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
                                     style: const TextStyle(fontWeight: BestieTokens.fwSemibold)),
                                 subtitle: Text(company.isEmpty ? 'Client' : company,
                                     style: TextStyle(color: c.textMuted, fontSize: 12)),
-                                trailing: IconButton(
-                                  icon: Icon(Icons.business_center_outlined, color: c.client),
-                                  tooltip: 'Open client channel',
-                                  onPressed: () => _openChannel(u),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: Icon(Icons.business_center_outlined,
+                                          color: c.client),
+                                      tooltip: 'Open client channel',
+                                      onPressed: () => _openChannel(u),
+                                    ),
+                                    if (canCreate)
+                                      IconButton(
+                                        icon: Icon(Icons.delete_outline_rounded,
+                                            color: c.danger),
+                                        tooltip: 'Delete client',
+                                        onPressed: () => _deleteClient(u),
+                                      ),
+                                  ],
                                 ),
                                 onTap: () => _openChannel(u),
                               );

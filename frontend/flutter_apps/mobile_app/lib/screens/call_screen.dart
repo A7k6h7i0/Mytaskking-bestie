@@ -7772,7 +7772,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     double size = 52,
     double iconSize = 22,
   }) {
-    final onLight = _useWhiteMultiParticipantBackdrop;
+    final onLight = _useWhiteMultiParticipantBackdrop || _oneToOneLightUi;
     final Color bg = background ??
         (onLight
             ? (active
@@ -8014,16 +8014,21 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   /// Top status chips: HD Voice / Network / Secure calling.
   Widget _topChips() {
+    final palette = _isOneToOneCall() ? _oneToOnePalette : null;
+    final light = palette?.lightControls ?? false;
     final net = _reconnecting ? 'Reconnecting' : 'Excellent';
-    final netColor =
-        _reconnecting ? const Color(0xFFFBBF24) : CallScreenUiColors.neonGreen;
+    final netColor = _reconnecting
+        ? const Color(0xFFFBBF24)
+        : (palette?.accentGreen ?? CallScreenUiColors.neonGreen);
     return Row(children: [
       Expanded(
         child: _statChip(
           Icons.graphic_eq_rounded,
           'HD Voice',
           'Crystal Clear',
-          CallScreenUiColors.neonBlue,
+          light ? const Color(0xFF0284C7) : CallScreenUiColors.neonBlue,
+          palette: palette,
+          lightSurface: light,
         ),
       ),
       const SizedBox(width: 10),
@@ -8033,6 +8038,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
           'Network',
           net,
           netColor,
+          palette: palette,
+          lightSurface: light,
         ),
       ),
       const SizedBox(width: 10),
@@ -8041,15 +8048,31 @@ class _CallScreenState extends ConsumerState<CallScreen>
           Icons.shield_outlined,
           'Secure calling',
           'Connected',
-          CallScreenUiColors.textPrimary,
+          light
+              ? (palette?.textSecondary ?? CallScreenUiColors.textSecondary)
+              : CallScreenUiColors.verifiedBlue,
+          palette: palette,
+          lightSurface: light,
         ),
       ),
     ]);
   }
 
-  Widget _statChip(IconData icon, String title, String sub, Color accent) {
+  Widget _statChip(
+    IconData icon,
+    String title,
+    String sub,
+    Color accent, {
+    OneToOneCallPalette? palette,
+    bool lightSurface = false,
+  }) {
+    final titleColor =
+        palette?.textPrimary ?? CallScreenUiColors.textPrimary;
+    final subColor = palette?.textMuted ?? CallScreenUiColors.textMuted;
     return CallUiGlassContainer(
       borderRadius: 14,
+      lightSurface: lightSurface,
+      borderColor: palette?.chipBorder,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         Icon(icon, size: 22, color: accent),
@@ -8062,16 +8085,16 @@ class _CallScreenState extends ConsumerState<CallScreen>
               Text(title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: CallScreenUiColors.textPrimary,
+                  style: TextStyle(
+                    color: titleColor,
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
                   )),
               Text(sub,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: CallScreenUiColors.textMuted,
+                  style: TextStyle(
+                    color: subColor,
                     fontSize: 9,
                     fontWeight: FontWeight.w400,
                   )),
@@ -8528,6 +8551,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
                       size: actionSize,
                       onTap: _openCallChat,
                       compact: compact,
+                      lightControls: lightControls,
                     ),
                   ),
                 ),
@@ -8546,6 +8570,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
                         size: actionSize,
                         onTap: _toggleCamera,
                         compact: compact,
+                        lightControls: lightControls,
                       ),
                     ),
                   ),
@@ -8635,7 +8660,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
     if (_useWhatsAppParticipantGrid) {
       return _groupCallBottomControls(compact: compact);
     }
-    // Premium grid for 1:1 voice; compact pill for video calls.
+    // 1:1 voice + video: premium labeled grid (theme-aware in light/dark).
+    if (_isOneToOneCall()) {
+      return _premiumCallControls(compact: compact);
+    }
     final showingVideo = _isVideo && _remoteUids.isNotEmpty;
     return showingVideo
         ? _callControls(compact: compact)
@@ -8774,6 +8802,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   /// more · camera · speaker · mic · end. Share / Record live in the
   /// `_showMore` sheet to keep the bar uncluttered.
   Widget _callControls({bool compact = false}) {
+    final onLight = _oneToOneLightUi;
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 14),
       child: Container(
@@ -8782,9 +8811,15 @@ class _CallScreenState extends ConsumerState<CallScreen>
           vertical: compact ? 8 : 10,
         ),
         decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.55),
+          color: onLight
+              ? Colors.white.withValues(alpha: 0.94)
+              : Colors.black.withOpacity(0.55),
           borderRadius: BorderRadius.circular(40),
-          border: Border.all(color: Colors.white.withOpacity(0.08)),
+          border: Border.all(
+            color: onLight
+                ? const Color(0xFFD1D7DB)
+                : Colors.white.withOpacity(0.08),
+          ),
         ),
         child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
           if (_kScreenShareUiEnabled)

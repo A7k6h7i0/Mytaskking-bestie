@@ -202,6 +202,21 @@ async function create(input, creator) {
       throw BadRequest('Client channel requires at least one client');
     }
 
+    const clientIds = selectedUsers.filter((user) => user.isClient).map((user) => user.id);
+    if (clientIds.length === 1) {
+      const existingClientChannel = await prisma.channel.findFirst({
+        where: {
+          archived: false,
+          tenantId: creator.tenantId,
+          OR: [{ kind: 'CLIENT' }, { isClientChannel: true }],
+          members: { some: { userId: clientIds[0] } },
+        },
+        include: { members: true },
+        orderBy: { updatedAt: 'desc' },
+      });
+      if (existingClientChannel) return existingClientChannel;
+    }
+
     const internalUsers = await prisma.user.findMany({
       where: {
         isClient: false,

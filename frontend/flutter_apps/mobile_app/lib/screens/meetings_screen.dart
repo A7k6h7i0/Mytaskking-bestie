@@ -51,7 +51,8 @@ class MeetingsScreen extends ConsumerWidget {
             ),
           ),
           data: (items) {
-            if (items.isEmpty) {
+            final sorted = _sortedMeetings(items);
+            if (sorted.isEmpty) {
               return Center(
                 child: Padding(
                   padding: EdgeInsets.fromLTRB(24, 24, 24, shellNavClearance),
@@ -95,10 +96,10 @@ class MeetingsScreen extends ConsumerWidget {
                 BestieTokens.s3,
                 shellNavClearance,
               ),
-              itemCount: items.length,
+              itemCount: sorted.length,
               separatorBuilder: (_, __) => const SizedBox(height: 8),
               itemBuilder: (_, i) {
-                final m = items[i];
+                final m = sorted[i];
                 final mode = (m['mode'] as String? ?? 'VIDEO').toLowerCase();
                 final ended = m['endedAt'] != null;
                 final isHost = m['hostId']?.toString() == me?.id ||
@@ -611,6 +612,25 @@ class MeetingsScreen extends ConsumerWidget {
         bestieToast(context, 'Couldn\'t end',
             body: formatApiError(e), kind: BestieToastKind.error);
     }
+  }
+
+  /// Live rooms first, then newest `createdAt` at the top (API order varies).
+  static List<Map<String, dynamic>> _sortedMeetings(
+      List<Map<String, dynamic>> items) {
+    final copy = List<Map<String, dynamic>>.from(items);
+    copy.sort((a, b) {
+      final aLive = a['endedAt'] == null;
+      final bLive = b['endedAt'] == null;
+      if (aLive != bLive) return aLive ? -1 : 1;
+
+      DateTime when(Map<String, dynamic> m) =>
+          DateTime.tryParse(m['createdAt']?.toString() ?? '') ??
+          DateTime.tryParse(m['scheduledAt']?.toString() ?? '') ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+
+      return when(b).compareTo(when(a));
+    });
+    return copy;
   }
 
   static int _participantCount(Map<String, dynamic> m) {

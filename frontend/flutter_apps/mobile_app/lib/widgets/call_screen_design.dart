@@ -83,6 +83,7 @@ class CallUiGlassContainer extends StatelessWidget {
     this.borderRadius = 16,
     this.borderColor,
     this.borderWidth = 1,
+    this.lightSurface = false,
   });
 
   final Widget child;
@@ -90,9 +91,25 @@ class CallUiGlassContainer extends StatelessWidget {
   final double borderRadius;
   final Color? borderColor;
   final double borderWidth;
+  final bool lightSurface;
 
   @override
   Widget build(BuildContext context) {
+    if (lightSurface) {
+      return Container(
+        padding: padding,
+        decoration: BoxDecoration(
+          color: const Color(0xFFF0F2F5),
+          borderRadius: BorderRadius.circular(borderRadius),
+          border: Border.all(
+            color: borderColor ?? const Color(0xFFD1D7DB),
+            width: borderWidth,
+          ),
+        ),
+        child: child,
+      );
+    }
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(borderRadius),
       child: BackdropFilter(
@@ -165,24 +182,48 @@ class CallUiGlassControlButton extends StatelessWidget {
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
     colors: [
-      Color(0xFFFFFFFF),
-      Color(0x99FFFFFF),
-      Color(0x99FFFFFF),
-      Color(0xFFFFFFFF),
+      Color(0xFFCBD5E1),
+      Color(0xFFE2E8F0),
+      Color(0xFFE2E8F0),
+      Color(0xFFCBD5E1),
     ],
     stops: [0.0, 0.28, 0.72, 1.0],
   );
 
   static const _lightGlowShadows = [
     BoxShadow(
-      color: Color(0x80FFFFFF),
-      blurRadius: 18,
+      color: Color(0x26000000),
+      blurRadius: 10,
     ),
     BoxShadow(
-      color: Color(0x44FFFFFF),
-      blurRadius: 28,
+      color: Color(0x14000000),
+      blurRadius: 16,
       spreadRadius: 1,
     ),
+  ];
+
+  static const _lightIdleFaceGradient = RadialGradient(
+    center: Alignment(-0.1, -0.15),
+    radius: 1.0,
+    colors: [
+      Color(0xFFF8FAFC),
+      Color(0xFFEEF2F7),
+    ],
+  );
+
+  static const _lightSelectedFaceGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [
+      Color(0xFFDBEAFE),
+      Color(0xFFBFDBFE),
+    ],
+  );
+
+  static const _lightLabelColor = Color(0xFF111827);
+  static const _lightFallbackIconColors = [
+    Color(0xFF334155),
+    Color(0xFF64748B),
   ];
 
   static const _idleFaceGradient = RadialGradient(
@@ -204,8 +245,15 @@ class CallUiGlassControlButton extends StatelessWidget {
   );
 
   BoxDecoration get _innerDecoration => BoxDecoration(
-        gradient: isSelected ? _selectedFaceGradient : _idleFaceGradient,
+        gradient: lightControls
+            ? (isSelected
+                ? _lightSelectedFaceGradient
+                : _lightIdleFaceGradient)
+            : (isSelected ? _selectedFaceGradient : _idleFaceGradient),
       );
+
+  Color get _labelColor =>
+      lightControls ? _lightLabelColor : CallScreenUiColors.textPrimary;
 
   Widget _buildIcon() {
     if (iconGradient != null) {
@@ -282,10 +330,12 @@ class CallUiGlassControlButton extends StatelessWidget {
                                 size: iconSize,
                                 begin: iconBegin,
                                 end: iconEnd,
-                                colors: const [
-                                  CallScreenUiColors.textPrimary,
-                                  CallScreenUiColors.textSecondary,
-                                ],
+                                colors: lightControls
+                                    ? _lightFallbackIconColors
+                                    : const [
+                                        CallScreenUiColors.textPrimary,
+                                        CallScreenUiColors.textSecondary,
+                                      ],
                               ),
                             SizedBox(height: compact ? 4 : 6),
                             FittedBox(
@@ -295,7 +345,7 @@ class CallUiGlassControlButton extends StatelessWidget {
                                 textAlign: TextAlign.center,
                                 maxLines: 2,
                                 style: TextStyle(
-                                  color: CallScreenUiColors.textPrimary,
+                                  color: _labelColor,
                                   fontSize: labelSize,
                                   fontWeight: FontWeight.w600,
                                   height: 1.05,
@@ -364,8 +414,16 @@ class CallUiSpeakerButton extends StatelessWidget {
   );
 
   BoxDecoration get _innerDecoration => BoxDecoration(
-        gradient: isSelected ? _selectedFaceGradient : _idleFaceGradient,
+        gradient: lightControls
+            ? (isSelected
+                ? CallUiGlassControlButton._lightSelectedFaceGradient
+                : CallUiGlassControlButton._lightIdleFaceGradient)
+            : (isSelected ? _selectedFaceGradient : _idleFaceGradient),
       );
+
+  Color get _labelColor => lightControls
+      ? CallUiGlassControlButton._lightLabelColor
+      : CallScreenUiColors.textPrimary;
 
   @override
   Widget build(BuildContext context) {
@@ -431,18 +489,21 @@ class CallUiSpeakerButton extends StatelessWidget {
                               size: iconSize,
                               begin: Alignment.topRight,
                               end: Alignment.bottomLeft,
-                              colors: const [
-                                CallScreenUiColors.textPrimary,
-                                CallScreenUiColors.speakerIconShadow,
-                                CallScreenUiColors.textPrimary,
-                              ],
+                              colors: lightControls
+                                  ? CallUiGlassControlButton
+                                      ._lightFallbackIconColors
+                                  : const [
+                                      CallScreenUiColors.textPrimary,
+                                      CallScreenUiColors.speakerIconShadow,
+                                      CallScreenUiColors.textPrimary,
+                                    ],
                             ),
                             SizedBox(height: compact ? 5 : 8),
                             Text(
                               'Speaker',
                               textAlign: TextAlign.center,
                               style: TextStyle(
-                                color: CallScreenUiColors.textPrimary,
+                                color: _labelColor,
                                 fontSize: labelSize,
                                 fontWeight: FontWeight.w600,
                                 height: 1.0,
@@ -644,12 +705,14 @@ class CallUiBottomActionButton extends StatelessWidget {
     required this.size,
     required this.onTap,
     this.compact = false,
+    this.lightControls = false,
   });
 
   final IconData icon;
   final double size;
   final VoidCallback? onTap;
   final bool compact;
+  final bool lightControls;
 
   static const _borderGradient = LinearGradient(
     begin: Alignment.topCenter,
@@ -676,6 +739,15 @@ class CallUiBottomActionButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final enabled = onTap != null;
     final borderPadding = compact ? 1.2 : 1.6;
+    final borderGradient = lightControls
+        ? CallUiGlassControlButton._lightBorderGradient
+        : _borderGradient;
+    final faceGradient = lightControls
+        ? CallUiGlassControlButton._lightIdleFaceGradient
+        : _faceGradient;
+    final iconColor = lightControls
+        ? CallUiGlassControlButton._lightLabelColor
+        : CallScreenUiColors.textPrimary;
     return Opacity(
       opacity: enabled ? 1 : 0.45,
       child: GestureDetector(
@@ -683,37 +755,39 @@ class CallUiBottomActionButton extends StatelessWidget {
         child: Container(
           width: size,
           height: size,
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: CallScreenUiColors.speakerGlowStrong,
-                blurRadius: 18,
-              ),
-              BoxShadow(
-                color: CallScreenUiColors.speakerGlowSoft,
-                blurRadius: 28,
-                spreadRadius: 1,
-              ),
-            ],
+            boxShadow: lightControls
+                ? CallUiGlassControlButton._lightGlowShadows
+                : const [
+                    BoxShadow(
+                      color: CallScreenUiColors.speakerGlowStrong,
+                      blurRadius: 18,
+                    ),
+                    BoxShadow(
+                      color: CallScreenUiColors.speakerGlowSoft,
+                      blurRadius: 28,
+                      spreadRadius: 1,
+                    ),
+                  ],
           ),
           child: ClipOval(
             child: Container(
               padding: EdgeInsets.all(borderPadding),
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                gradient: _borderGradient,
+                gradient: borderGradient,
               ),
               child: ClipOval(
                 child: Container(
-                  decoration: const BoxDecoration(
+                  decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    gradient: _faceGradient,
+                    gradient: faceGradient,
                   ),
                   child: Center(
                     child: Icon(
                       icon,
-                      color: CallScreenUiColors.textPrimary,
+                      color: iconColor,
                       size: size * 0.42,
                     ),
                   ),

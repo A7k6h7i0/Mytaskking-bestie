@@ -581,6 +581,7 @@ extension BestieApiExt on BestieApi {
   ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
   Future<Map<String, dynamic>> createClient(Map<String, dynamic> data) =>
       post('/clients', body: data);
+  Future<void> deleteClient(String id) => dio.delete('/clients/$id');
 
   // ---- chat message lifecycle ----
   /// Edit an existing text message in place. Backend uses PATCH so we hit
