@@ -15,7 +15,7 @@ class EmployeesScreen extends ConsumerStatefulWidget {
 }
 
 class _EmployeesScreenState extends ConsumerState<EmployeesScreen> {
-  static const _roles = [
+  static const _baseRoles = [
     'ADMIN',
     'MANAGER',
     'PROJECT_COORDINATOR_MANAGER',
@@ -23,9 +23,17 @@ class _EmployeesScreenState extends ConsumerState<EmployeesScreen> {
     'TELECALLER',
   ];
 
+  static List<String> _rolesFor(BestieUser? user) {
+    if (user?.isPlatformSuperAdmin == true) {
+      return [..._baseRoles, 'SALES_HEAD'];
+    }
+    return _baseRoles;
+  }
+
   static String _roleLabel(String role) => switch (role) {
         'PROJECT_COORDINATOR_MANAGER' => 'Project coordinator',
         'TELECALLER' => 'Telecaller',
+        'SALES_HEAD' => 'Sales head',
         _ => role[0] + role.substring(1).toLowerCase().replaceAll('_', ' '),
       };
   final _search = TextEditingController();
@@ -475,7 +483,7 @@ class _EmployeeFormDialogState extends ConsumerState<_EmployeeFormDialog> {
               initialValue: _role,
               isExpanded: true,
               decoration: _decoration('Role'),
-              items: _EmployeesScreenState._roles
+              items: _EmployeesScreenState._rolesFor(ref.read(authStoreProvider).user)
                   .map((value) => DropdownMenuItem(
                         value: value,
                         child: Text(

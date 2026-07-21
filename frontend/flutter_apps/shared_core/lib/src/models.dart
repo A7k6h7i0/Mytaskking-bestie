@@ -30,6 +30,10 @@ class BestieUser {
       role == 'SUPER_ADMIN' &&
       (tenantSlug == null || tenantSlug == 'default' || tenantSlug!.isEmpty);
 
+  bool get isSalesHead =>
+      role == 'SALES_HEAD' &&
+      (tenantSlug == null || tenantSlug == 'default' || tenantSlug!.isEmpty);
+
   factory BestieUser.fromJson(Map<String, dynamic> j) => BestieUser(
         id: j['id'] as String,
         userId: j['userId'] as String,

@@ -158,4 +158,36 @@ router.post(
   })
 );
 
+router.post(
+  '/otp/send',
+  authLimiter,
+  validate({
+    body: Joi.object({
+      email: Joi.string().trim().email().required(),
+      phone: Joi.string().trim().min(10).max(20).required(),
+      purpose: Joi.string().valid('org_register').default('org_register'),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    const otpService = require('../../services/otp.service');
+    res.json(await otpService.sendOtp(req.body));
+  })
+);
+
+router.post(
+  '/otp/verify',
+  authLimiter,
+  validate({
+    body: Joi.object({
+      email: Joi.string().trim().email().required(),
+      code: Joi.string().trim().length(6).required(),
+      purpose: Joi.string().valid('org_register').default('org_register'),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    const otpService = require('../../services/otp.service');
+    res.json(await otpService.verifyOtp(req.body));
+  })
+);
+
 module.exports = router;

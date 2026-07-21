@@ -18,6 +18,16 @@ function isPlatformSuperAdmin(user) {
   return (user.tenantId || DEFAULT_TENANT_ID) === DEFAULT_TENANT_ID;
 }
 
+function isSalesHead(user) {
+  if (!user || user.role !== 'SALES_HEAD') return false;
+  if (!MULTI_TENANT) return true;
+  return (user.tenantId || DEFAULT_TENANT_ID) === DEFAULT_TENANT_ID;
+}
+
+function isPlatformStaff(user) {
+  return isPlatformSuperAdmin(user) || isSalesHead(user);
+}
+
 /** Resolved tenant for any authenticated user. */
 function userTenantId(user) {
   if (!MULTI_TENANT) return null;
@@ -309,6 +319,8 @@ module.exports = {
   MULTI_TENANT,
   DEFAULT_TENANT_ID,
   isPlatformSuperAdmin,
+  isSalesHead,
+  isPlatformStaff,
   userTenantId,
   isOrgAdmin,
   canAdministerTenant,

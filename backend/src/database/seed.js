@@ -34,21 +34,47 @@ async function main() {
   });
   if (existing) {
     logger.info({ userId }, 'seed.super_admin.exists');
+  } else {
+    const passwordHash = await bcrypt.hash(config.seed.superAdminPassword, 12);
+    const user = await prisma.user.create({
+      data: {
+        userId,
+        passwordHash,
+        role: 'SUPER_ADMIN',
+        name: config.seed.superAdminName,
+        isClient: false,
+        status: 'ACTIVE',
+        tenantId: tenantService.DEFAULT_TENANT_ID,
+      },
+    });
+    logger.info({ id: user.id, userId: user.userId }, 'seed.super_admin.created');
+  }
+
+  const salesHeadUserId = process.env.SALES_HEAD_USER_ID || 'saleshead';
+  const salesHeadExisting = await prisma.user.findUnique({
+    where: {
+      tenantId_userId: { tenantId: tenantService.DEFAULT_TENANT_ID, userId: salesHeadUserId },
+    },
+  });
+  if (salesHeadExisting) {
+    logger.info({ userId: salesHeadUserId }, 'seed.sales_head.exists');
     return;
   }
-  const passwordHash = await bcrypt.hash(config.seed.superAdminPassword, 12);
-  const user = await prisma.user.create({
+  const salesHeadPassword = process.env.SALES_HEAD_PASSWORD || 'SalesHead@123';
+  const salesHeadHash = await bcrypt.hash(salesHeadPassword, 12);
+  const salesHead = await prisma.user.create({
     data: {
-      userId,
-      passwordHash,
-      role: 'SUPER_ADMIN',
-      name: config.seed.superAdminName,
+      userId: salesHeadUserId,
+      passwordHash: salesHeadHash,
+      role: 'SALES_HEAD',
+      name: process.env.SALES_HEAD_NAME || 'Sales Head',
+      email: process.env.SALES_HEAD_EMAIL || null,
       isClient: false,
       status: 'ACTIVE',
       tenantId: tenantService.DEFAULT_TENANT_ID,
     },
   });
-  logger.info({ id: user.id, userId: user.userId }, 'seed.super_admin.created');
+  logger.info({ id: salesHead.id, userId: salesHead.userId }, 'seed.sales_head.created');
 }
 
 main()

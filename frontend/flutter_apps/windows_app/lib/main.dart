@@ -45,6 +45,9 @@ void main(List<String> args) async {
   }
   final auth = BestieAuthStore();
   await auth.load();
+  if (auth.accessToken != null && (auth.user?.isClient ?? false)) {
+    await auth.clear();
+  }
   final readyForWindow = await DesktopRuntime.configureWindowForSession(
     hasAuthSession: auth.accessToken != null,
   );

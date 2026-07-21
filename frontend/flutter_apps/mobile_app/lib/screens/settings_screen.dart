@@ -271,6 +271,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           children: [
             const MobileThemesSection(),
             if (user != null) _Identity(user: user, colors: c),
+            if (user?.isPlatformSuperAdmin == true) ...[
+              _SectionLabel('Platform', colors: c),
+              _SettingTile(
+                colors: c,
+                icon: Icons.apartment_rounded,
+                label: 'Organisations',
+                onTap: () => _openRoute(context, '/organizations'),
+              ),
+              _SettingTile(
+                colors: c,
+                icon: Icons.sticky_note_2_outlined,
+                label: 'Admin notes (review)',
+                onTap: () => _openRoute(context, '/admin-notes'),
+              ),
+            ],
+            if (!(user?.isSalesHead ?? false)) ...[
             _SectionLabel('Workspace', colors: c),
             if (!(user?.isClient ?? false))
               _SettingTile(
@@ -285,12 +301,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               label: 'Announcements',
               onTap: () => _openRoute(context, '/announcements'),
             ),
-            _SettingTile(
-              colors: c,
-              icon: Icons.bookmark_outline_rounded,
-              label: 'Saved items',
-              onTap: () => _openRoute(context, '/saved'),
-            ),
+            if (!(user?.isClient ?? false))
+              _SettingTile(
+                colors: c,
+                icon: Icons.bookmark_outline_rounded,
+                label: 'Saved items',
+                onTap: () => _openRoute(context, '/saved'),
+              ),
             _SettingTile(
               colors: c,
               icon: Icons.event_outlined,
@@ -396,6 +413,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 label: 'Telecaller leads',
                 onTap: () => _openRoute(context, '/telecaller'),
               ),
+            ],
             _SectionLabel('Security', colors: c),
             _SettingTile(
               colors: c,

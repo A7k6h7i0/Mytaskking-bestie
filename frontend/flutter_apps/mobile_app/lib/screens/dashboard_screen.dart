@@ -76,7 +76,7 @@ class DashboardScreen extends ConsumerWidget {
                 _liveMeetingsCard(context, liveMeetings),
               if (!isClient)
                 _weeklyStatsCard(context, counts, isAdmin: isAdmin),
-              const LeaderboardCard(topN: 5),
+              if (!isClient) const LeaderboardCard(topN: 5),
               if (isAdmin)
                 _activityCard(
                     context, data['recentActivity'] as List? ?? const []),

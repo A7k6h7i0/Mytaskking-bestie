@@ -195,6 +195,8 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
     final colors = BestieColors.of(context);
     final channels = ref.watch(channelsProvider);
     final me = ref.watch(authStoreProvider).user;
+    final isClient = me?.isClient ?? false;
+    final isTelecaller = me?.role == 'TELECALLER';
     // Clear the shell's bottom nav without a nested Scaffold bottom bar — an
     // empty SizedBox there renders as a white strip above the real footer.
     final shellNavClearance =
@@ -202,17 +204,19 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
 
     return Scaffold(
       backgroundColor: colors.surface,
-      floatingActionButton: Padding(
-        padding: EdgeInsets.only(bottom: shellNavClearance),
-        child: FloatingActionButton(
-          backgroundColor: colors.brand,
-          foregroundColor: Colors.white,
-          elevation: 4,
-          tooltip: 'New chat',
-          onPressed: () => _newChat(context, ref),
-          child: const Icon(Icons.edit_outlined),
-        ),
-      ),
+      floatingActionButton: isClient
+          ? null
+          : Padding(
+              padding: EdgeInsets.only(bottom: shellNavClearance),
+              child: FloatingActionButton(
+                backgroundColor: colors.brand,
+                foregroundColor: Colors.white,
+                elevation: 4,
+                tooltip: 'New chat',
+                onPressed: () => _newChat(context, ref),
+                child: const Icon(Icons.edit_outlined),
+              ),
+            ),
       body: SafeArea(
         bottom: false,
         child: Column(
@@ -221,6 +225,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
             _ChatsHeader(
               colors: colors,
               user: me,
+              showNewChatActions: !isClient,
               onMenuSelected: (value) => _onHeaderMenu(context, ref, value),
               onEditOrg:
                   _isOrgAdmin(me) ? () => _editOrgName(context, ref) : null,
@@ -289,7 +294,9 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                   data: (items) {
                     if (items.isEmpty) {
                       return _EmptyState(
-                          onNewChat: () => _newChat(context, ref));
+                        onNewChat:
+                            isClient ? null : () => _newChat(context, ref),
+                      );
                     }
 
                     final dms = <Map<String, dynamic>>[];
@@ -354,6 +361,21 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                       );
                     }
 
+                    if (isClient) {
+                      return ListView(
+                        padding:
+                            EdgeInsets.only(bottom: shellNavClearance + 16),
+                        children: [
+                          for (final c in filteredClients)
+                            _ChatTile(
+                              channel: c,
+                              kind: 'CLIENT',
+                              currentUserId: me?.id,
+                            ),
+                        ],
+                      );
+                    }
+
                     return ListView(
                       padding: EdgeInsets.only(bottom: shellNavClearance + 16),
                       children: [
@@ -387,21 +409,22 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                               ),
                           ],
                         ),
-                        _Section(
-                          title: 'Client channels',
-                          icon: Icons.business_center_outlined,
-                          count: filteredClients.length,
-                          emptyHint:
-                              'External client threads will appear here.',
-                          children: [
-                            for (final c in filteredClients)
-                              _ChatTile(
-                                channel: c,
-                                kind: 'CLIENT',
-                                currentUserId: me?.id,
-                              ),
-                          ],
-                        ),
+                        if (!isTelecaller)
+                          _Section(
+                            title: 'Client channels',
+                            icon: Icons.business_center_outlined,
+                            count: filteredClients.length,
+                            emptyHint:
+                                'External client threads will appear here.',
+                            children: [
+                              for (final c in filteredClients)
+                                _ChatTile(
+                                  channel: c,
+                                  kind: 'CLIENT',
+                                  currentUserId: me?.id,
+                                ),
+                            ],
+                          ),
                       ],
                     );
                   },
@@ -656,12 +679,14 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
 class _ChatsHeader extends ConsumerWidget {
   final BestieColors colors;
   final BestieUser? user;
+  final bool showNewChatActions;
   final ValueChanged<String> onMenuSelected;
   final VoidCallback? onEditOrg;
 
   const _ChatsHeader({
     required this.colors,
     required this.user,
+    this.showNewChatActions = true,
     required this.onMenuSelected,
     this.onEditOrg,
   });
@@ -716,27 +741,29 @@ class _ChatsHeader extends ConsumerWidget {
                   ],
                 ),
               ),
-              PopupMenuItem(
-                value: 'new_chat',
-                child: Row(
-                  children: [
-                    Icon(Icons.edit_square, color: colors.text, size: 22),
-                    const SizedBox(width: 12),
-                    const Text('New chat'),
-                  ],
+              if (showNewChatActions) ...[
+                PopupMenuItem(
+                  value: 'new_chat',
+                  child: Row(
+                    children: [
+                      Icon(Icons.edit_square, color: colors.text, size: 22),
+                      const SizedBox(width: 12),
+                      const Text('New chat'),
+                    ],
+                  ),
                 ),
-              ),
-              PopupMenuItem(
-                value: 'new_group',
-                child: Row(
-                  children: [
-                    Icon(Icons.group_add_outlined,
-                        color: colors.text, size: 22),
-                    const SizedBox(width: 12),
-                    const Text('New group'),
-                  ],
+                PopupMenuItem(
+                  value: 'new_group',
+                  child: Row(
+                    children: [
+                      Icon(Icons.group_add_outlined,
+                          color: colors.text, size: 22),
+                      const SizedBox(width: 12),
+                      const Text('New group'),
+                    ],
+                  ),
                 ),
-              ),
+              ],
               if (isAdmin)
                 PopupMenuItem(
                   value: 'edit_org',
@@ -1332,25 +1359,31 @@ class _ChatTile extends ConsumerWidget {
 }
 
 class _EmptyState extends StatelessWidget {
-  final VoidCallback onNewChat;
-  const _EmptyState({required this.onNewChat});
+  final VoidCallback? onNewChat;
+  const _EmptyState({this.onNewChat});
 
   @override
   Widget build(BuildContext context) {
     final colors = BestieColors.of(context);
+    final isClientPortal = onNewChat == null;
     return BestieEmptyState(
       icon: Icons.chat_bubble_outline_rounded,
-      title: 'No chats yet',
-      description: 'Start a direct message with a teammate or create a group.',
-      action: FilledButton.icon(
-        onPressed: onNewChat,
-        style: FilledButton.styleFrom(
-          backgroundColor: colors.brand,
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-        ),
-        icon: const Icon(Icons.edit_outlined, size: 16),
-        label: const Text('Start a chat'),
-      ),
+      title: isClientPortal ? 'No messages yet' : 'No chats yet',
+      description: isClientPortal
+          ? 'When your team starts a conversation, it will appear here.'
+          : 'Start a direct message with a teammate or create a group.',
+      action: onNewChat == null
+          ? null
+          : FilledButton.icon(
+              onPressed: onNewChat,
+              style: FilledButton.styleFrom(
+                backgroundColor: colors.brand,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+              ),
+              icon: const Icon(Icons.edit_outlined, size: 16),
+              label: const Text('Start a chat'),
+            ),
     );
   }
 }

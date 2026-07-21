@@ -41,6 +41,8 @@ const unfurl = require('./unfurl/unfurl.routes');
 const recordings = require('./recordings/recordings.routes');
 const aiReview = require('./ai-review/ai-review.routes');
 const tenants = require('./tenants/tenants.routes');
+const billing = require('./billing/billing.routes');
+const adminNotes = require('./adminNotes/adminNotes.routes');
 const emergency = require('./emergency/emergency.routes');
 const workActivity = require('./workActivity/workActivity.routes');
 
@@ -81,6 +83,8 @@ module.exports = function buildRouter() {
   router.use('/recordings', recordings);
   router.use('/ai-review', aiReview);
   router.use('/tenants', tenants);
+  router.use('/billing', billing);
+  router.use('/admin-notes', adminNotes);
   router.use('/emergency', emergency);
   router.use('/work-activity', workActivity);
 

@@ -50,7 +50,7 @@ router.post(
   validate({
     body: Joi.object({
       userId: Joi.string().allow(null),
-      roleName: Joi.string().valid('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'PROJECT_COORDINATOR_MANAGER', 'EMPLOYEE', 'TELECALLER', 'CLIENT').allow(null),
+      roleName: Joi.string().valid('SUPER_ADMIN', 'SALES_HEAD', 'ADMIN', 'MANAGER', 'PROJECT_COORDINATOR_MANAGER', 'EMPLOYEE', 'TELECALLER', 'CLIENT').allow(null),
       key: Joi.string().required(),
       allow: Joi.boolean().default(true),
       scope: Joi.any(),

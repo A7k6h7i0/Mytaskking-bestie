@@ -33,6 +33,9 @@ export default function EmployeesPage() {
   const [draftTitle, setDraftTitle] = useState('');
   const [form, setForm] = useState({ userId: '', password: '', name: '', role: 'EMPLOYEE', customTitle: '', email: '', supervisorIds: [] as string[] });
   const canCustomizeEmployeeName = user?.role === 'SUPER_ADMIN';
+  const isPlatformSuperAdmin =
+    user?.role === 'SUPER_ADMIN' &&
+    (!user?.tenant?.slug || user.tenant.slug === 'default' || user.tenant.slug === '');
   const canManageEmployees =
     user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN' || user?.role === 'MANAGER';
   const viewerCanCallAdmins = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
@@ -187,6 +190,7 @@ export default function EmployeesPage() {
               <option value="PROJECT_COORDINATOR_MANAGER">Project Coordinating Manager</option>
               <option value="EMPLOYEE">Employee</option>
               <option value="TELECALLER">Telecaller</option>
+              {isPlatformSuperAdmin && <option value="SALES_HEAD">Sales head</option>}
             </select>
           </label>
           <div className="pp__supervisors">

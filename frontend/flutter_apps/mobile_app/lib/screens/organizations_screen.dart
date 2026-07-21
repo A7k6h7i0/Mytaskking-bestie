@@ -88,21 +88,138 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
     );
   }
 
+  Future<void> _approve(String id) async {
+    try {
+      await ref.read(apiProvider).approveTenantRegistration(id);
+      await _load();
+      if (mounted) {
+        bestieToast(context, 'Organisation approved',
+            kind: BestieToastKind.success);
+      }
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not approve',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    }
+  }
+
+  Future<void> _reject(String id) async {
+    final reasonCtrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reject registration'),
+        content: TextField(
+          controller: reasonCtrl,
+          decoration: const InputDecoration(labelText: 'Reason (optional)'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Reject')),
+        ],
+      ),
+    );
+    if (ok != true) {
+      reasonCtrl.dispose();
+      return;
+    }
+    try {
+      await ref.read(apiProvider).rejectTenantRegistration(
+            id,
+            reason: reasonCtrl.text.trim().isEmpty ? null : reasonCtrl.text.trim(),
+          );
+      await _load();
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not reject',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    } finally {
+      reasonCtrl.dispose();
+    }
+  }
+
+  Future<void> _deleteOrg(String id) async {
+    final ok = await bestieConfirm(context,
+        title: 'Delete organisation?',
+        description: 'This permanently removes the organisation and its data.',
+        confirmLabel: 'Delete',
+        dangerous: true);
+    if (!ok) return;
+    try {
+      await ref.read(apiProvider).deleteTenant(id);
+      await _load();
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not delete',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    }
+  }
+
+  void _showDetails(Map<String, dynamic> org) {
+    final reg = (org['registration'] as Map?)?.cast<String, dynamic>();
+    final sub = (org['subscription'] as Map?)?.cast<String, dynamic>();
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(org['name']?.toString() ?? 'Organisation',
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 12),
+                if (reg != null) ...[
+                  Text('Phone: ${reg['adminPhone']}'),
+                  Text('Email: ${reg['adminEmail']}'),
+                  Text('ID 1: ${reg['govtId1Type']} — ${reg['govtId1Number']}'),
+                  Text('ID 2: ${reg['govtId2Type']} — ${reg['govtId2Number']}'),
+                  Text('Review: ${reg['reviewStatus']}'),
+                ],
+                if (sub != null) ...[
+                  const SizedBox(height: 8),
+                  Text('Subscription: ${sub['status']}'),
+                  if (sub['planMonths'] != null)
+                    Text('Plan: ${sub['planMonths']} month(s)'),
+                  if (sub['amountPaise'] != null)
+                    Text('Paid: ₹${(sub['amountPaise'] as num) / 100}'),
+                  if (sub['paymentReference'] != null)
+                    Text('Payment ref: ${sub['paymentReference']}'),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
+    final user = ref.watch(authStoreProvider).user;
+    final isSuper = user?.isPlatformSuperAdmin ?? false;
+    final isSales = user?.isSalesHead ?? false;
     return Scaffold(
       backgroundColor: c.surface,
       appBar: AppBar(
-        title: const Text('Organisations'),
+        title: Text(isSales ? 'Registration requests' : 'Organisations'),
         backgroundColor: c.surface,
         foregroundColor: c.text,
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showCreateSheet,
-        icon: const Icon(Icons.add_business_rounded),
-        label: const Text('Add organisation'),
-      ),
+      floatingActionButton: isSuper
+          ? FloatingActionButton.extended(
+              onPressed: _showCreateSheet,
+              icon: const Icon(Icons.add_business_rounded),
+              label: const Text('Add organisation'),
+            )
+          : null,
       body: RefreshIndicator(
         onRefresh: _load,
         child: _loading
@@ -166,7 +283,13 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
                               : active
                                   ? c.successSoft
                                   : c.warningSoft;
-                          return Container(
+                          final sub =
+                              (org['subscription'] as Map?)?.cast<String, dynamic>();
+                          return InkWell(
+                            onTap: () => _showDetails(org),
+                            borderRadius:
+                                BorderRadius.circular(BestieTokens.rLg),
+                            child: Container(
                             padding: const EdgeInsets.all(14),
                             decoration: BoxDecoration(
                               color: c.surface,
@@ -222,6 +345,12 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
                                   style: TextStyle(
                                       color: c.textMuted, fontSize: 13),
                                 ),
+                                if (sub != null)
+                                  Text(
+                                    'Billing: ${sub['status']}',
+                                    style: TextStyle(
+                                        color: c.textMuted, fontSize: 13),
+                                  ),
                                 const SizedBox(height: 10),
                                 Align(
                                   alignment: Alignment.centerRight,
@@ -230,33 +359,46 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
                                           spacing: 8,
                                           children: [
                                             FilledButton(
-                                              onPressed: () => _setStatus(
+                                              onPressed: () => _approve(
                                                 org['id'].toString(),
-                                                'ACTIVE',
                                               ),
                                               child: const Text('Approve'),
                                             ),
                                             TextButton(
-                                              onPressed: () => _setStatus(
+                                              onPressed: () => _reject(
                                                 org['id'].toString(),
-                                                'SUSPENDED',
                                               ),
                                               child: const Text('Reject'),
                                             ),
                                           ],
                                         )
-                                      : TextButton(
-                                          onPressed: () => _setStatus(
-                                            org['id'].toString(),
-                                            active ? 'SUSPENDED' : 'ACTIVE',
-                                          ),
-                                          child: Text(active
-                                              ? 'Suspend'
-                                              : 'Activate'),
+                                      : Wrap(
+                                          spacing: 8,
+                                          children: [
+                                            TextButton(
+                                              onPressed: () => _setStatus(
+                                                org['id'].toString(),
+                                                active ? 'SUSPENDED' : 'ACTIVE',
+                                              ),
+                                              child: Text(active
+                                                  ? 'Suspend'
+                                                  : 'Activate'),
+                                            ),
+                                            if (isSuper)
+                                              TextButton(
+                                                onPressed: () => _deleteOrg(
+                                                  org['id'].toString(),
+                                                ),
+                                                child: Text('Delete',
+                                                    style: TextStyle(
+                                                        color: c.danger)),
+                                              ),
+                                          ],
                                         ),
                                 ),
                               ],
                             ),
+                          ),
                           );
                         },
                       ),

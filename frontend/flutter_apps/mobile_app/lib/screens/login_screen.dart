@@ -13,6 +13,7 @@ import '../state.dart';
 import '../telecaller_recording_setup.dart';
 import 'front_selfie_capture.dart';
 import 'telecaller_onboarding_screen.dart';
+import 'organization_registration_wizard.dart';
 import 'organization_register_sheet.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -55,16 +56,24 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   Future<void> _openRegister() async {
     final api = ref.read(apiProvider);
-    Future<Map<String, dynamic>> register(Map<String, dynamic> data) =>
-        api.registerOrganization(data);
-    final desktop =
-        _skipSelfieOnDesktop && MediaQuery.sizeOf(context).width >= 900;
     if (!mounted) return;
-    if (desktop) {
-      await showOrganizationRegisterDialog(context, onRegister: register);
-    } else {
-      await showOrganizationRegisterSheet(context, onRegister: register);
-    }
+    await showOrgRegistrationFlow(
+      context,
+      onRegister: (data) => api.registerOrganization(data),
+      api: (
+        sendOtp: ({required email, required phone}) =>
+            api.sendRegistrationOtp(email: email, phone: phone),
+        verifyOtp: ({required email, required code}) =>
+            api.verifyRegistrationOtp(email: email, code: code),
+        uploadFile: ({required bytes, required filename, required mimeType}) =>
+            api.registerUploadDocument(
+              bytes: bytes,
+              filename: filename,
+              mimeType: mimeType,
+            ),
+        requestTrial: (tenantId) => api.requestOrgTrial(tenantId),
+      ),
+    );
   }
 
   Future<void> _submit() async {
@@ -146,6 +155,35 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         longitude: longitude,
         address: address,
       );
+      if (!mounted) return;
+      final user = ref.read(authStoreProvider).user;
+      if (defaultTargetPlatform == TargetPlatform.windows &&
+          (user?.isClient ?? false)) {
+        await api.logout();
+        if (!mounted) return;
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Desktop sign-in not available'),
+            content: const Text(
+              'Client accounts can only sign in on the MyTaskKing mobile app. '
+              'Please use your phone or tablet to access your account.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+        if (!mounted) return;
+        setState(() {
+          _error =
+              'Client accounts cannot sign in on Windows. Use the mobile app instead.';
+        });
+        return;
+      }
       setState(() => _success = true);
       await Future.delayed(const Duration(milliseconds: 700));
       if (mounted) {

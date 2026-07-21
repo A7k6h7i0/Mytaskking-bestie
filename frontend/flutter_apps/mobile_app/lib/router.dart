@@ -31,6 +31,7 @@ import 'screens/login_activity_screen.dart';
 import 'screens/work_activity_screen.dart';
 import 'screens/ai_review_screen.dart';
 import 'screens/organizations_screen.dart';
+import 'screens/admin_notes_screen.dart';
 import 'screens/deleted_chats_screen.dart';
 import 'state.dart' hide ThemeMode;
 import 'telecaller_recording_setup.dart';
@@ -56,6 +57,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           return '/telecaller/setup';
         }
         if (role == 'TELECALLER') return '/telecaller';
+        if (role == 'SALES_HEAD') return '/dashboard';
         return '/chat';
       }
       if (logged &&
@@ -111,7 +113,6 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
           path: '/telecaller/setup',
           builder: (_, __) => const TelecallerOnboardingScreen()),
-      GoRoute(path: '/settings', builder: (_, __) => const SettingsScreen()),
       GoRoute(path: '/reports', builder: (_, __) => const ReportsScreen()),
       GoRoute(
           path: '/recordings', builder: (_, __) => const RecordingsScreen()),
@@ -126,9 +127,6 @@ final routerProvider = Provider<GoRouter>((ref) {
           builder: (_, __) => const AiReviewScreen()),
       GoRoute(
           path: '/deleted-chats', builder: (_, __) => const DeletedChatsScreen()),
-      GoRoute(
-          path: '/organizations',
-          builder: (_, __) => const OrganizationsScreen()),
 
       // Chat detail lives OUTSIDE the shell
       // composer + keyboard space. Back arrow returns to the chat list.
@@ -168,6 +166,14 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
               path: '/calendar', builder: (_, __) => const CalendarScreen()),
           GoRoute(path: '/profile', builder: (_, __) => const ProfileScreen()),
+          GoRoute(
+              path: '/organizations',
+              builder: (_, __) => const OrganizationsScreen()),
+          GoRoute(
+              path: '/admin-notes',
+              builder: (_, __) => const AdminNotesScreen()),
+          GoRoute(
+              path: '/settings', builder: (_, __) => const SettingsScreen()),
         ],
       ),
     ],

@@ -80,7 +80,7 @@ async function login({
   if (!tenant) throw Unauthorized('Organisation not found');
   if (pendingApproval) {
     throw Unauthorized(
-      'Organisation registration is pending approval. You can sign in after a platform administrator approves your organisation.',
+      'Organisation registration is pending approval. You can sign in after the sales team approves your organisation.',
     );
   }
   if (!user) throw Unauthorized('Invalid credentials');

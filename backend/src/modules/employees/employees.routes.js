@@ -10,7 +10,14 @@ const audit = require('../../services/audit');
 
 const router = Router();
 
-const EmployeeRole = Joi.string().valid('ADMIN', 'MANAGER', 'PROJECT_COORDINATOR_MANAGER', 'EMPLOYEE', 'TELECALLER');
+const EmployeeRole = Joi.string().valid(
+  'ADMIN',
+  'MANAGER',
+  'PROJECT_COORDINATOR_MANAGER',
+  'EMPLOYEE',
+  'TELECALLER',
+  'SALES_HEAD'
+);
 
 router.use(requireAuth);
 

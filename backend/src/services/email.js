@@ -43,6 +43,11 @@ async function dispatch(job) {
     case 'resend':
       // Adapter implementations live in services/emailProviders/<name>.js when wired.
       throw new Error(`email provider ${PROVIDER} not implemented — falling back to noop`);
+    case 'smtp':
+    case 'nodemailer': {
+      const nodemailerProvider = require('./emailProviders/nodemailer');
+      return nodemailerProvider.sendMail(data);
+    }
     case 'noop':
     default:
       logger.info(

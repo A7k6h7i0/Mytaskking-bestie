@@ -21,10 +21,11 @@ async function list(req, { q, role, status, page = 1, pageSize = 25, forChat = f
                 'PROJECT_COORDINATOR_MANAGER',
                 'EMPLOYEE',
                 'TELECALLER',
+                'SALES_HEAD',
               ],
             },
           }
-        : { role: { not: 'SUPER_ADMIN' } }),
+        : { role: { notIn: ['SUPER_ADMIN'] } }),
     ...(status ? { status } : forChat ? { status: 'ACTIVE' } : {}),
     ...(q
       ? {
@@ -91,14 +92,29 @@ async function getById(req, id) {
     },
   });
   if (!u || u.isClient || u.role === 'SUPER_ADMIN') throw NotFound('Employee not found');
-  if (tenant.MULTI_TENANT && u.tenantId !== tenant.resolveTenantId(req)) {
+  if (u.role === 'SALES_HEAD' && !tenant.isPlatformSuperAdmin(req.user)) {
     throw NotFound('Employee not found');
+  }
+  if (tenant.MULTI_TENANT && u.tenantId !== tenant.resolveTenantId(req)) {
+    if (!(u.role === 'SALES_HEAD' && tenant.isPlatformSuperAdmin(req.user))) {
+      throw NotFound('Employee not found');
+    }
   }
   return sanitize(u);
 }
 
+function assertSalesHeadManageAllowed(req, role) {
+  if (role === 'SALES_HEAD' && !tenant.isPlatformSuperAdmin(req.user)) {
+    throw Forbidden('Only platform super admin can manage sales head accounts');
+  }
+}
+
 async function create(req, input, createdById) {
-  const tenantId = tenant.resolveTenantId(req);
+  assertSalesHeadManageAllowed(req, input.role);
+  const tenantId =
+    input.role === 'SALES_HEAD'
+      ? tenant.DEFAULT_TENANT_ID
+      : tenant.resolveTenantId(req);
   await tenant.assertDepartmentInOrg(req, input.departmentId || null);
   const existing = await prisma.user.findUnique({
     where: { tenantId_userId: { tenantId, userId: input.userId } },
@@ -161,18 +177,30 @@ async function create(req, input, createdById) {
 }
 
 async function update(req, id, input) {
+  const existing = await prisma.user.findUnique({ where: { id } });
+  if (!existing || existing.isClient || existing.role === 'SUPER_ADMIN') {
+    throw NotFound('Employee not found');
+  }
+  if (existing.role === 'SALES_HEAD' || input.role === 'SALES_HEAD') {
+    assertSalesHeadManageAllowed(req, 'SALES_HEAD');
+  }
   await getById(req, id);
   if (input.departmentId !== undefined) {
     await tenant.assertDepartmentInOrg(req, input.departmentId || null);
   }
+
   const data = { ...input };
+  if (input.role === 'SALES_HEAD') data.tenantId = tenant.DEFAULT_TENANT_ID;
   if (input.password) data.passwordHash = await hashPassword(input.password);
   delete data.password;
   const supervisorIds = data.supervisorIds;
   delete data.supervisorIds;
 
   if (input.userId) {
-    const tenantId = tenant.resolveTenantId(req);
+    const tenantId =
+      existing.role === 'SALES_HEAD' || input.role === 'SALES_HEAD'
+        ? tenant.DEFAULT_TENANT_ID
+        : tenant.resolveTenantId(req);
     const clash = await prisma.user.findUnique({
       where: { tenantId_userId: { tenantId, userId: input.userId } },
     });

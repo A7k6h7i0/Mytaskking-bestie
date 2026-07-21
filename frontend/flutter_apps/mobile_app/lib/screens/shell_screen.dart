@@ -10,7 +10,7 @@ import '../state.dart';
 ///
 /// • EMPLOYEE / MANAGER / ADMIN — Chat · Tasks · Workday · Meet · More
 /// • TELECALLER — Chat · Leads · Home · Calls · More
-/// • CLIENT — Chat · Saved · Home · More
+/// • SALES_HEAD — Home · Organisations · Notes · Settings
 ///
 /// "More" opens a grid drawer (Profile, Settings, Employees, etc.).
 class ShellScreen extends ConsumerStatefulWidget {
@@ -45,11 +45,20 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
     _Tab('/more', Icons.apps_rounded, Icons.apps_rounded, 'More'),
   ];
 
+  static const _salesHeadTabs = [
+    _Tab('/dashboard', Icons.dashboard_outlined, Icons.dashboard_rounded,
+        'Home'),
+    _Tab('/organizations', Icons.apartment_outlined, Icons.apartment_rounded,
+        'Organisations'),
+    _Tab('/admin-notes', Icons.sticky_note_2_outlined,
+        Icons.sticky_note_2_rounded, 'Notes'),
+    _Tab('/settings', Icons.settings_outlined, Icons.settings_rounded,
+        'Settings'),
+  ];
+
   static const _clientTabs = [
     _Tab('/chat', Icons.chat_bubble_outline_rounded, Icons.chat_bubble_rounded,
         'Chat'),
-    _Tab('/saved', Icons.bookmark_outline_rounded, Icons.bookmark_rounded,
-        'Saved'),
     _Tab('/dashboard', Icons.dashboard_outlined, Icons.dashboard_rounded,
         'Home'),
     _Tab('/more', Icons.apps_rounded, Icons.apps_rounded, 'More'),
@@ -61,7 +70,6 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
     if (location.startsWith('/notifications') ||
         location.startsWith('/calendar') ||
         location.startsWith('/profile') ||
-        location.startsWith('/settings') ||
         location.startsWith('/sessions') ||
         location.startsWith('/reports') ||
         location.startsWith('/announcements') ||
@@ -79,6 +87,7 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
   List<_Tab> _tabsFor(BestieUser? user) {
     if (user == null) return _employeeTabs;
     if (user.isClient) return _clientTabs;
+    if (user.isSalesHead) return _salesHeadTabs;
     if (user.role == 'TELECALLER') return _telecallerTabs;
     return _employeeTabs;
   }
@@ -91,7 +100,10 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
         location == '/dashboard' ||
         location == '/telecaller' ||
         location == '/calls' ||
-        location == '/saved';
+        location == '/saved' ||
+        location == '/organizations' ||
+        location == '/admin-notes' ||
+        location == '/settings';
   }
 
   Future<void> _handleShellBack(
@@ -101,7 +113,9 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
       router.pop();
       return;
     }
-    final home = user?.role == 'TELECALLER' || user?.isClient == true
+    final home = user?.isSalesHead == true ||
+            user?.role == 'TELECALLER' ||
+            user?.isClient == true
         ? '/dashboard'
         : '/chat';
     if (_isRootShellTab(location) && location != home) {
@@ -251,8 +265,8 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
           c.brandStrong, isAdmin),
       _MoreEntry(Icons.campaign_outlined, 'Announcements', '/announcements',
           c.accent, true),
-      _MoreEntry(
-          Icons.bookmark_outline_rounded, 'Saved', '/saved', c.brand, true),
+      _MoreEntry(Icons.bookmark_outline_rounded, 'Saved', '/saved', c.brand,
+          !isClient),
       _MoreEntry(Icons.people_outline_rounded, 'Employees', '/employees',
           c.brand, !isClient),
       _MoreEntry(Icons.business_center_outlined, 'Clients', '/clients',

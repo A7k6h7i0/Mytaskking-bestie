@@ -544,6 +544,78 @@ extension BestieApiExt on BestieApi {
   Future<Map<String, dynamic>> registerOrganization(Map<String, dynamic> data) =>
       post('/tenants/register', body: data);
 
+  Future<Map<String, dynamic>> sendRegistrationOtp({
+    required String email,
+    required String phone,
+  }) =>
+      post('/auth/otp/send', body: {
+        'email': email,
+        'phone': phone,
+        'purpose': 'org_register',
+      });
+
+  Future<Map<String, dynamic>> verifyRegistrationOtp({
+    required String email,
+    required String code,
+  }) =>
+      post('/auth/otp/verify', body: {
+        'email': email,
+        'code': code,
+        'purpose': 'org_register',
+      });
+
+  Future<void> requestOrgTrial(String tenantId) =>
+      post('/billing/trial', body: {'tenantId': tenantId});
+
+  Future<List<Map<String, dynamic>>> listTenantRegistrations() => get(
+        '/tenants/registrations',
+      ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
+
+  Future<Map<String, dynamic>> approveTenantRegistration(String id) async {
+    final r = await dio.patch('/tenants/$id/approve');
+    return r.data as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> rejectTenantRegistration(
+    String id, {
+    String? reason,
+  }) async {
+    final r = await dio.patch('/tenants/$id/reject', data: {'reason': reason});
+    return r.data as Map<String, dynamic>;
+  }
+
+  Future<void> deleteTenant(String id) => dio.delete('/tenants/$id');
+
+  Future<Map<String, dynamic>> updateTenantSubscription(
+    String id,
+    Map<String, dynamic> data,
+  ) async {
+    final r = await dio.patch('/tenants/$id/subscription', data: data);
+    return r.data as Map<String, dynamic>;
+  }
+
+  Future<List<Map<String, dynamic>>> listAdminNotes() => get(
+        '/admin-notes',
+      ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
+
+  Future<Map<String, dynamic>> createAdminNote({
+    required String title,
+    required String body,
+  }) =>
+      post('/admin-notes', body: {'title': title, 'body': body});
+
+  Future<Map<String, dynamic>> reviewAdminNote(
+    String id, {
+    required String status,
+    String? reviewNote,
+  }) async {
+    final r = await dio.patch('/admin-notes/$id/review', data: {
+      'status': status,
+      'reviewNote': reviewNote,
+    });
+    return r.data as Map<String, dynamic>;
+  }
+
   Future<Map<String, dynamic>> updateTenant(
     String id,
     Map<String, dynamic> data,
@@ -965,6 +1037,23 @@ extension BestieApiExt on BestieApi {
       data: form,
       onSendProgress: onProgress,
     );
+    return Map<String, dynamic>.from(r.data as Map);
+  }
+
+  /// Public upload during org registration (no auth required).
+  Future<Map<String, dynamic>> registerUploadDocument({
+    required List<int> bytes,
+    required String filename,
+    String? mimeType,
+  }) async {
+    final form = FormData.fromMap({
+      'file': MultipartFile.fromBytes(
+        bytes,
+        filename: filename,
+        contentType: mimeType != null ? DioMediaType.parse(mimeType) : null,
+      ),
+    });
+    final r = await dio.post('/tenants/register/upload', data: form);
     return Map<String, dynamic>.from(r.data as Map);
   }
 }
