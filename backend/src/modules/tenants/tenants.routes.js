@@ -12,12 +12,45 @@ const audit = require('../../services/audit');
 const tenant = require('../../services/tenant');
 const r2 = require('../../services/r2');
 const cloudinary = require('../../services/cloudinary');
+const logger = require('../../utils/logger');
 const { Forbidden, BadRequest } = require('../../utils/errors');
 
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 8 * 1024 * 1024 },
 });
+
+async function uploadOrgRegistrationImage(file) {
+  const uploadToR2 = async () => {
+    const safeName = (file.originalname || 'id.jpg').replace(/[^\w.-]/g, '_');
+    const put = await r2.putBuffer({
+      buffer: file.buffer,
+      key: `org-registration/${Date.now()}-${safeName}`,
+      contentType: file.mimetype,
+    });
+    return put.url;
+  };
+
+  if (cloudinary.isConfigured()) {
+    try {
+      const result = await cloudinary.uploadBuffer(file.buffer, {
+        folder: 'bestie/org-registration',
+      });
+      return result.secure_url;
+    } catch (err) {
+      logger.warn(
+        { err: err.message },
+        'tenant.register_upload.cloudinary_failed_falling_back_to_r2'
+      );
+      if (!r2.isConfigured()) throw err;
+      return uploadToR2();
+    }
+  }
+  if (r2.isConfigured()) {
+    return uploadToR2();
+  }
+  throw BadRequest('File storage is not configured');
+}
 
 function requirePlatformSuperAdmin(req, _res, next) {
   if (!tenant.isPlatformSuperAdmin(req.user)) return next(Forbidden('Platform super admin only'));
@@ -91,22 +124,8 @@ router.post(
     if (!req.file.mimetype.startsWith('image/')) {
       throw BadRequest('Only image uploads are allowed');
     }
-    if (cloudinary.isConfigured()) {
-      const result = await cloudinary.uploadBuffer(req.file.buffer, {
-        folder: 'bestie/org-registration',
-      });
-      return res.status(201).json({ url: result.secure_url });
-    }
-    if (r2.isConfigured()) {
-      const safeName = (req.file.originalname || 'id.jpg').replace(/[^\w.-]/g, '_');
-      const put = await r2.putBuffer({
-        buffer: req.file.buffer,
-        key: `org-registration/${Date.now()}-${safeName}`,
-        contentType: req.file.mimetype,
-      });
-      return res.status(201).json({ url: put.url });
-    }
-    throw BadRequest('File storage is not configured');
+    const url = await uploadOrgRegistrationImage(req.file);
+    return res.status(201).json({ url });
   })
 );
 

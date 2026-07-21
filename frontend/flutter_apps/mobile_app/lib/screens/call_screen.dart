@@ -8562,6 +8562,17 @@ class _CallScreenState extends ConsumerState<CallScreen>
           lightControls: lightControls,
           compact: compact,
         ),
+        CallUiGlassControlButton(
+          label: 'Buzzer',
+          icon: Icons.campaign_rounded,
+          onTap: _sendEmergencyBuzzer,
+          lightControls: lightControls,
+          compact: compact,
+          iconGradient: const [
+            Color(0xFFFBBF24),
+            Color(0xFFFF8A00),
+          ],
+        ),
       ], gap: rowGap),
       SizedBox(height: compact ? 12 : 18),
       SizedBox(
@@ -8937,6 +8948,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
               tile(Icons.notes_rounded, 'Call notes', _showCallNotes),
               tile(Icons.campaign_rounded, 'Buzzer', _sendEmergencyBuzzer),
               tile(Icons.people_alt_rounded, 'Participants', _showParticipants),
+              tile(Icons.attach_file_rounded, 'Send file', _sendCallAttachment),
               const SizedBox(height: 4),
             ]),
           ),

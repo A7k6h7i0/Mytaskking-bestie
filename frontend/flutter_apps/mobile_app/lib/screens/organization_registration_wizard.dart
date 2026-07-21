@@ -49,8 +49,11 @@ class _OrganizationRegistrationWizardState
     extends State<OrganizationRegistrationWizard> {
   int _step = 0;
   bool _busy = false;
+  int? _uploadingIdSlot;
   String? _id1Url;
   String? _id2Url;
+  String? _id1Fingerprint;
+  String? _id2Fingerprint;
 
   final _name = TextEditingController();
   final _slug = TextEditingController();
@@ -90,24 +93,97 @@ class _OrganizationRegistrationWizardState
       .replaceAll(RegExp(r'-+'), '-')
       .replaceAll(RegExp(r'^-|-$'), '');
 
-  Future<String?> _pickIdImage() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.image,
-      allowMultiple: false,
-      withData: true,
-    );
-    if (result == null ||
-        result.files.isEmpty ||
-        result.files.first.bytes == null) {
-      return null;
+  String _mimeForImage(String? extension) {
+    switch ((extension ?? '').toLowerCase()) {
+      case 'png':
+        return 'image/png';
+      case 'webp':
+        return 'image/webp';
+      case 'gif':
+        return 'image/gif';
+      case 'heic':
+        return 'image/heic';
+      case 'jpg':
+      case 'jpeg':
+      default:
+        return 'image/jpeg';
     }
-    final file = result.files.first;
-    final asset = await widget.api.uploadFile(
-      bytes: file.bytes!,
-      filename: file.name,
-      mimeType: 'image/${file.extension ?? 'jpeg'}',
-    );
-    return asset['url']?.toString();
+  }
+
+  /// Detect re-using the exact same picked file for both ID slots.
+  String _fingerprintFile(PlatformFile file) {
+    final bytes = file.bytes!;
+    final sample = bytes.length <= 8192
+        ? bytes
+        : Uint8List.fromList([
+            ...bytes.sublist(0, 4096),
+            ...bytes.sublist(bytes.length - 4096),
+          ]);
+    return '${file.name.toLowerCase()}|${bytes.length}|${Object.hashAll(sample)}';
+  }
+
+  String? _otherFingerprint(int slot) =>
+      slot == 1 ? _id2Fingerprint : _id1Fingerprint;
+
+  Future<void> _pickIdImageForSlot(int slot) async {
+    if (_uploadingIdSlot != null || _busy) return;
+
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
+        withData: true,
+      );
+      if (result == null ||
+          result.files.isEmpty ||
+          result.files.first.bytes == null) {
+        return;
+      }
+      final file = result.files.first;
+      final fingerprint = _fingerprintFile(file);
+      final otherFp = _otherFingerprint(slot);
+      if (otherFp != null && otherFp == fingerprint) {
+        if (!mounted) return;
+        bestieToast(
+          context,
+          'Use a different ID image',
+          body:
+              'Government ID 1 and ID 2 must be photos of two different documents.',
+          kind: BestieToastKind.warning,
+        );
+        return;
+      }
+
+      setState(() => _uploadingIdSlot = slot);
+      final asset = await widget.api.uploadFile(
+        bytes: file.bytes!,
+        filename: file.name,
+        mimeType: _mimeForImage(file.extension),
+      );
+      final url = asset['url']?.toString();
+      if (url == null || url.isEmpty) {
+        throw 'Upload returned no image URL';
+      }
+      if (!mounted) return;
+      setState(() {
+        if (slot == 1) {
+          _id1Url = url;
+          _id1Fingerprint = fingerprint;
+        } else {
+          _id2Url = url;
+          _id2Fingerprint = fingerprint;
+        }
+      });
+      bestieToast(context, 'ID image uploaded',
+          kind: BestieToastKind.success);
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not upload ID image',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    } finally {
+      if (mounted) setState(() => _uploadingIdSlot = null);
+    }
   }
 
   Future<void> _submit() async {
@@ -116,9 +192,26 @@ class _OrganizationRegistrationWizardState
           kind: BestieToastKind.warning);
       return;
     }
+    if (_govtId1Number.text.trim().length < 4 ||
+        _govtId2Number.text.trim().length < 4) {
+      bestieToast(context, 'Enter both government ID numbers',
+          kind: BestieToastKind.warning);
+      return;
+    }
     if (_id1Url == null || _id2Url == null) {
       bestieToast(context, 'Upload both ID images',
           kind: BestieToastKind.warning);
+      return;
+    }
+    if (_id1Fingerprint != null &&
+        _id2Fingerprint != null &&
+        _id1Fingerprint == _id2Fingerprint) {
+      bestieToast(
+        context,
+        'Use two different ID photos',
+        body: 'Each government ID must have its own image.',
+        kind: BestieToastKind.warning,
+      );
       return;
     }
     setState(() => _busy = true);
@@ -197,10 +290,9 @@ class _OrganizationRegistrationWizardState
                 onType: (v) => setState(() => _govtId1Type = v),
                 number: _govtId1Number,
                 imageUrl: _id1Url,
-                onPick: () async {
-                  final url = await _pickIdImage();
-                  if (url != null) setState(() => _id1Url = url);
-                },
+                uploading: _uploadingIdSlot == 1,
+                disabled: _uploadingIdSlot != null || _busy,
+                onPick: () => _pickIdImageForSlot(1),
               ),
               const SizedBox(height: 12),
               _idBlock(
@@ -210,10 +302,9 @@ class _OrganizationRegistrationWizardState
                 onType: (v) => setState(() => _govtId2Type = v),
                 number: _govtId2Number,
                 imageUrl: _id2Url,
-                onPick: () async {
-                  final url = await _pickIdImage();
-                  if (url != null) setState(() => _id2Url = url);
-                },
+                uploading: _uploadingIdSlot == 2,
+                disabled: _uploadingIdSlot != null || _busy,
+                onPick: () => _pickIdImageForSlot(2),
               ),
             ],
             const SizedBox(height: 20),
@@ -226,7 +317,7 @@ class _OrganizationRegistrationWizardState
                   ),
                 const Spacer(),
                 FilledButton(
-                  onPressed: _busy ? null : _onNext,
+                  onPressed: (_busy || _uploadingIdSlot != null) ? null : _onNext,
                   style: FilledButton.styleFrom(backgroundColor: c.brand),
                   child: _busy
                       ? const SizedBox(
@@ -288,6 +379,8 @@ class _OrganizationRegistrationWizardState
     required ValueChanged<String> onType,
     required TextEditingController number,
     required String? imageUrl,
+    required bool uploading,
+    required bool disabled,
     required VoidCallback onPick,
   }) {
     return Column(
@@ -295,20 +388,43 @@ class _OrganizationRegistrationWizardState
       children: [
         Text(label, style: TextStyle(fontWeight: FontWeight.w600, color: c.text)),
         DropdownButtonFormField<String>(
+          key: ValueKey(type),
           initialValue: type,
           items: [
             for (final t in _govtIdTypes)
               DropdownMenuItem(value: t.$1, child: Text(t.$2)),
           ],
-          onChanged: (v) {
-            if (v != null) onType(v);
-          },
+          onChanged: disabled
+              ? null
+              : (v) {
+                  if (v != null) onType(v);
+                },
         ),
         _field(number, 'ID number'),
         OutlinedButton.icon(
-          onPressed: onPick,
-          icon: const Icon(Icons.upload_file_outlined),
-          label: Text(imageUrl == null ? 'Upload ID image' : 'ID image uploaded'),
+          onPressed: disabled ? null : onPick,
+          icon: uploading
+              ? SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: c.brand,
+                  ),
+                )
+              : Icon(
+                  imageUrl == null
+                      ? Icons.upload_file_outlined
+                      : Icons.check_circle_outline,
+                  color: imageUrl == null ? null : c.success,
+                ),
+          label: Text(
+            uploading
+                ? 'Uploading…'
+                : imageUrl == null
+                    ? 'Upload ID image'
+                    : 'ID image uploaded — tap to replace',
+          ),
         ),
       ],
     );

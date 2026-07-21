@@ -242,6 +242,7 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
     final isClient = user?.isClient ?? false;
     final role = user?.role ?? '';
     final isAdmin = role == 'SUPER_ADMIN' || role == 'ADMIN';
+    final isPlatformSuper = user?.isPlatformSuperAdmin ?? false;
     final isTelecaller = role == 'TELECALLER';
 
     return [
@@ -249,6 +250,8 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
           Icons.dashboard_outlined, 'Dashboard', '/dashboard', c.brand, true),
       _MoreEntry(Icons.notifications_outlined, 'Notifications',
           '/notifications', c.warning, true),
+      _MoreEntry(Icons.inbox_outlined, 'Requests', '/admin-notes', c.brand,
+          isPlatformSuper),
       _MoreEntry(
           Icons.event_outlined, 'Calendar', '/calendar', c.info, !isClient),
       _MoreEntry(
