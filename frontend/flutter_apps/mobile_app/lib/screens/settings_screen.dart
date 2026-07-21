@@ -8,6 +8,7 @@ import 'package:mytaskking_core/mytaskking_core.dart' as core;
 
 import '../mobile_themes_section.dart';
 import '../state.dart' hide ThemeMode;
+import '../widgets/profile_avatar_editor.dart';
 
 /// App-level settings and links to the rest of the workspace.
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -270,7 +271,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         body: ListView(
           children: [
             const MobileThemesSection(),
-            if (user != null) _Identity(user: user, colors: c),
+            if (user != null)
+              _Identity(user: user, colors: c, editable: user.isSalesHead),
+            if (user?.isSalesHead ?? false) ...[
+              _SettingTile(
+                colors: c,
+                icon: Icons.add_a_photo_outlined,
+                label: 'Change profile photo',
+                onTap: () => ProfileAvatarEditor.showOptions(
+                  context,
+                  ref,
+                  hasAvatar: user?.avatarUrl?.isNotEmpty == true,
+                ),
+              ),
+            ],
             if (user?.isPlatformSuperAdmin == true) ...[
               _SectionLabel('Platform', colors: c),
               _SettingTile(
@@ -454,7 +468,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 class _Identity extends StatelessWidget {
   final dynamic user;
   final BestieColors colors;
-  const _Identity({required this.user, required this.colors});
+  final bool editable;
+  const _Identity({
+    required this.user,
+    required this.colors,
+    this.editable = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -463,12 +482,19 @@ class _Identity extends StatelessWidget {
       color: colors.surface,
       child: Row(
         children: [
-          BestieAvatar(
-            name: user.name,
-            imageUrl: user.avatarUrl,
-            isClient: user.isClient,
-            size: 56,
-          ),
+          editable
+              ? EditableProfileAvatar(
+                  name: user.name,
+                  imageUrl: user.avatarUrl,
+                  isClient: user.isClient,
+                  size: 56,
+                )
+              : BestieAvatar(
+                  name: user.name,
+                  imageUrl: user.avatarUrl,
+                  isClient: user.isClient,
+                  size: 56,
+                ),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
@@ -487,6 +513,13 @@ class _Identity extends StatelessWidget {
                   user.userId ?? '',
                   style: TextStyle(color: colors.textMuted, fontSize: 12),
                 ),
+                if (editable) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'Tap photo to update',
+                    style: TextStyle(color: colors.textMuted, fontSize: 12),
+                  ),
+                ],
                 const SizedBox(height: 4),
                 BestieBadge(
                   tone: user.isClient ? BestieTone.client : BestieTone.brand,

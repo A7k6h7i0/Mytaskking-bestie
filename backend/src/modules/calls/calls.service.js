@@ -916,8 +916,7 @@ async function history({ user, page = 1, pageSize = 25 }) {
       include: {
         participants: {
           where: {
-            userId: { not: null },
-            joinedVia: { in: ['INTERNAL', 'GUEST'] },
+            joinedVia: { in: ['INTERNAL', 'GUEST', 'LEFT'] },
           },
           orderBy: { joinedAt: 'asc' },
           take: 50,
@@ -956,7 +955,9 @@ async function history({ user, page = 1, pageSize = 25 }) {
       role: null,
       isClient: false,
     };
-    const liveParts = m.participants || [];
+    const joinedParts = (m.participants || []).filter((p) =>
+      ['INTERNAL', 'GUEST', 'LEFT'].includes(String(p.joinedVia || ''))
+    );
     return {
       historyType: 'MEETING',
       id: m.id,
@@ -970,10 +971,10 @@ async function history({ user, page = 1, pageSize = 25 }) {
       endedAt: m.endedAt,
       scheduledAt: m.scheduledAt,
       recordingUrl: m.recordingUrl,
-      participantCount: liveParts.length || m._count?.participants || 0,
+      participantCount: joinedParts.length || m._count?.participants || 0,
       initiator: host,
       initiatorId: m.hostId,
-      participants: liveParts.map((p) => ({
+      participants: joinedParts.map((p) => ({
         userId: p.userId,
         displayName: p.displayName,
         joinedVia: p.joinedVia,

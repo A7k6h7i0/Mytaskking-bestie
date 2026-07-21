@@ -167,9 +167,9 @@ class MeetingsScreen extends ConsumerWidget {
                       Text(m['slug'] ?? '',
                           style: const TextStyle(
                               color: BestieTokens.cTextMuted, fontSize: 11)),
-                      if ((_participantCount(m)) > 0)
+                      if (_participantCount(m) > 0 || m['endedAt'] != null)
                         Text(
-                          '${_participantCount(m)} people',
+                          '${_participantCount(m)} joined',
                           style: TextStyle(
                               color: colors.textMuted, fontSize: 11),
                         ),
@@ -689,7 +689,7 @@ class MeetingsScreen extends ConsumerWidget {
                 Text('Ended: ${ended.replaceFirst('T', ' ')}',
                     style: TextStyle(color: colors.textMuted, fontSize: 13)),
               Text(
-                'People: ${_participantCount(m)}',
+                'People joined: ${_participantCount(m)}',
                 style: TextStyle(color: colors.textMuted, fontSize: 13),
               ),
               const SizedBox(height: 12),

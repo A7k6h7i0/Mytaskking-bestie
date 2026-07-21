@@ -296,6 +296,18 @@ async function buildLiveMeetingRoster(roomId) {
 /** Crashed/killed apps that never POST /leave — only sweep on explicit leave. */
 const MEETING_STALE_MS = 30 * 60 * 1000;
 
+/** Live media presence vs everyone who actually entered (incl. after leave). */
+const LIVE_JOINED_VIA = ['INTERNAL', 'GUEST'];
+const HISTORY_JOINED_VIA = ['INTERNAL', 'GUEST', 'LEFT'];
+
+async function loadMeetingParticipantRows(room) {
+  const joinedVia = room.endedAt ? HISTORY_JOINED_VIA : LIVE_JOINED_VIA;
+  return prisma.meetingRoomParticipant.findMany({
+    where: { roomId: room.id, joinedVia: { in: joinedVia } },
+    select: { id: true },
+  });
+}
+
 async function markStaleMeetingParticipantsLeft(roomId) {
   const cutoff = new Date(Date.now() - MEETING_STALE_MS);
   await prisma.meetingRoomParticipant.updateMany({
@@ -579,16 +591,10 @@ router.get(
       },
     });
     for (const room of items) {
-      if (room.endedAt) continue;
       // Do not auto-end or stale-sweep on list fetch — that killed long meetings
       // when someone opened the meetings tab. Leave/heartbeat handle cleanup.
-      room.participants = await prisma.meetingRoomParticipant.findMany({
-        where: {
-          roomId: room.id,
-          joinedVia: { in: ['INTERNAL', 'GUEST'] },
-        },
-        select: { id: true },
-      });
+      // Ended rooms count LEFT rows too — otherwise history shows 0 after everyone leaves.
+      room.participants = await loadMeetingParticipantRows(room);
     }
     res.json({
       items: items.map((room) => ({

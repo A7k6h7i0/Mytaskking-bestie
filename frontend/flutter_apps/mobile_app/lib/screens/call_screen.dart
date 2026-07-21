@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:dio/dio.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
@@ -301,6 +302,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   bool _remoteClosed = false;
   bool _hangingUp = false;
   bool _handRaised = false;
+  bool _sendingCallFile = false;
   final Map<String, String> _raisedHands = {};
   Timer? _timer;
   Timer? _audioHealthTimer;
@@ -8278,6 +8280,20 @@ class _CallScreenState extends ConsumerState<CallScreen>
         onTap: _toggleSpeakerRoute,
       ),
       (
+        label: 'Bluetooth',
+        icon: Icons.bluetooth_audio_rounded,
+        selected: _route == CallAudioRoute.bluetooth,
+        danger: false,
+        onTap: _toggleBluetoothRoute,
+      ),
+      (
+        label: 'Attach',
+        icon: Icons.attach_file_rounded,
+        selected: _sendingCallFile,
+        danger: false,
+        onTap: _sendingCallFile ? () {} : _sendCallAttachment,
+      ),
+      (
         label: 'Keypad',
         icon: Icons.dialpad_rounded,
         selected: false,
@@ -8467,26 +8483,39 @@ class _CallScreenState extends ConsumerState<CallScreen>
           compact: compact,
         ),
         CallUiGlassControlButton(
+          label: 'Bluetooth',
+          icon: Icons.bluetooth_audio_rounded,
+          isSelected: _route == CallAudioRoute.bluetooth,
+          onTap: _toggleBluetoothRoute,
+          lightControls: lightControls,
+          compact: compact,
+          iconGradient: const [
+            CallScreenUiColors.neonBlue,
+            CallScreenUiColors.verifiedBlue,
+          ],
+        ),
+        CallUiGlassControlButton(
           label: 'Keypad',
           icon: Icons.dialpad,
           onTap: _showDialPad,
           lightControls: lightControls,
           compact: compact,
         ),
-        CallUiGlassControlButton(
-          label: 'Buzzer',
-          icon: Icons.campaign_rounded,
-          onTap: _sendEmergencyBuzzer,
-          lightControls: lightControls,
-          compact: compact,
-          iconGradient: const [
-            Color(0xFFFBBF24),
-            Color(0xFFFF8A00),
-          ],
-        ),
       ], gap: rowGap),
       const SizedBox(height: 8),
       _premiumControlRow([
+        CallUiGlassControlButton(
+          label: _sendingCallFile ? 'Sending…' : 'Attach',
+          icon: Icons.attach_file_rounded,
+          isSelected: _sendingCallFile,
+          onTap: _sendingCallFile ? () {} : _sendCallAttachment,
+          lightControls: lightControls,
+          compact: compact,
+          iconGradient: const [
+            CallScreenUiColors.neonBlue,
+            CallScreenUiColors.neonPurple,
+          ],
+        ),
         if (_kScreenShareUiEnabled)
           CallUiGlassControlButton(
             label: _sharing ? 'Stop share' : 'Share screen',
@@ -8638,12 +8667,113 @@ class _CallScreenState extends ConsumerState<CallScreen>
     );
   }
 
+  String? get _activeCallChannelId {
+    final id =
+        (_callMeta?['call']?['channelId'] ?? _callMeta?['channelId'])?.toString();
+    if (id == null || id.isEmpty) return null;
+    return id;
+  }
+
+  String _mimeForCallAttachment(String? ext) {
+    switch ((ext ?? '').toLowerCase()) {
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'png':
+        return 'image/png';
+      case 'gif':
+        return 'image/gif';
+      case 'webp':
+        return 'image/webp';
+      case 'heic':
+        return 'image/heic';
+      case 'pdf':
+        return 'application/pdf';
+      case 'doc':
+        return 'application/msword';
+      case 'docx':
+        return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      case 'xls':
+      case 'xlsx':
+        return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      case 'mp4':
+      case 'm4v':
+        return 'video/mp4';
+      case 'mov':
+        return 'video/quicktime';
+      case 'mp3':
+        return 'audio/mpeg';
+      case 'm4a':
+        return 'audio/mp4';
+      default:
+        return 'application/octet-stream';
+    }
+  }
+
+  /// Upload a file and post it to the call's linked chat so everyone in the
+  /// call can open it from the conversation.
+  Future<void> _sendCallAttachment() async {
+    final channelId = _activeCallChannelId;
+    if (channelId == null) {
+      bestieToast(context, 'Share files after the call connects',
+          kind: BestieToastKind.info);
+      return;
+    }
+    if (_sendingCallFile) return;
+
+    setState(() => _sendingCallFile = true);
+    try {
+      final picked = await FilePicker.platform.pickFiles(
+        withData: true,
+        allowMultiple: true,
+      );
+      if (picked == null || picked.files.isEmpty) return;
+
+      final api = ref.read(apiProvider);
+      var sent = 0;
+      for (final file in picked.files.take(10)) {
+        final bytes = file.bytes;
+        if (bytes == null || bytes.isEmpty) continue;
+        final asset = await api.uploadFile(
+          bytes: bytes,
+          filename: file.name,
+          mimeType: _mimeForCallAttachment(file.extension),
+        );
+        final assetId = asset['id']?.toString();
+        if (assetId == null) continue;
+        await api.sendMessage(
+          channelId,
+          attachmentIds: [assetId],
+          kind: 'FILE',
+        );
+        sent++;
+      }
+      if (!mounted) return;
+      if (sent > 0) {
+        bestieToast(
+          context,
+          sent == 1 ? 'File sent' : '$sent files sent',
+          body: 'Shared in call chat — everyone on this call can open it.',
+          kind: BestieToastKind.success,
+        );
+      } else {
+        bestieToast(context, 'Could not read file',
+            kind: BestieToastKind.error);
+      }
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not send file',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    } finally {
+      if (mounted) setState(() => _sendingCallFile = false);
+    }
+  }
+
   /// Opens the call's chat channel (message button on the call screen).
   void _openCallChat() {
-    final channelId =
-        (_callMeta?['call']?['channelId'] ?? _callMeta?['channelId'])
-            ?.toString();
-    if (channelId == null || channelId.isEmpty) {
+    final channelId = _activeCallChannelId;
+    if (channelId == null) {
       bestieToast(context, 'Chat opens after the call connects',
           kind: BestieToastKind.info);
       return;
@@ -8708,6 +8838,22 @@ class _CallScreenState extends ConsumerState<CallScreen>
             iconSize: iconSize,
           ),
           _ctrlCircle(
+            icon: Icons.bluetooth_audio_rounded,
+            onTap: _toggleBluetoothRoute,
+            active: _route == CallAudioRoute.bluetooth,
+            size: buttonSize,
+            iconSize: iconSize,
+          ),
+          _ctrlCircle(
+            icon: _sendingCallFile
+                ? Icons.hourglass_top_rounded
+                : Icons.attach_file_rounded,
+            onTap: _sendingCallFile ? () {} : _sendCallAttachment,
+            active: _sendingCallFile,
+            size: buttonSize,
+            iconSize: iconSize,
+          ),
+          _ctrlCircle(
             icon: _muted ? Icons.mic_off_rounded : Icons.mic_rounded,
             onTap: _toggleMute,
             active: _muted,
@@ -8763,6 +8909,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
                 ),
               ),
               tile(Icons.dialpad, 'Keypad', _showDialPad),
+              tile(Icons.attach_file_rounded, 'Send file', _sendCallAttachment),
               tile(Icons.person_add_alt_1_rounded, 'Add participant',
                   _showInvite),
               if (_kScreenShareUiEnabled)

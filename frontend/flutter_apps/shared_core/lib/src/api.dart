@@ -538,6 +538,8 @@ extension BestieApiExt on BestieApi {
     '/tenants',
   ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
 
+  Future<Map<String, dynamic>> getTenant(String id) => get('/tenants/$id');
+
   Future<Map<String, dynamic>> createTenant(Map<String, dynamic> data) =>
       post('/tenants', body: data);
 

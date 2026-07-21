@@ -158,43 +158,62 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
     }
   }
 
-  void _showDetails(Map<String, dynamic> org) {
-    final reg = (org['registration'] as Map?)?.cast<String, dynamic>();
-    final sub = (org['subscription'] as Map?)?.cast<String, dynamic>();
-    showModalBottomSheet<void>(
+  Future<void> _showDetails(Map<String, dynamic> org) async {
+    final id = org['id']?.toString();
+    if (id == null) return;
+
+    final c = BestieColors.of(context);
+    final wide = MediaQuery.sizeOf(context).width >= 720;
+
+    if (!mounted) return;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => const Center(child: CircularProgressIndicator()),
+    );
+
+    Map<String, dynamic> full = org;
+    try {
+      full = await ref.read(apiProvider).getTenant(id);
+    } catch (_) {
+      // Fall back to list row if detail fetch fails.
+    }
+
+    if (!mounted) return;
+    Navigator.of(context, rootNavigator: true).pop();
+
+    final content = _OrganizationDetailsBody(org: full, colors: c);
+
+    if (wide) {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => Dialog(
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560, maxHeight: 720),
+            child: content,
+          ),
+        ),
+      );
+      return;
+    }
+
+    await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(org['name']?.toString() ?? 'Organisation',
-                    style: const TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 12),
-                if (reg != null) ...[
-                  Text('Phone: ${reg['adminPhone']}'),
-                  Text('Email: ${reg['adminEmail']}'),
-                  Text('ID 1: ${reg['govtId1Type']} — ${reg['govtId1Number']}'),
-                  Text('ID 2: ${reg['govtId2Type']} — ${reg['govtId2Number']}'),
-                  Text('Review: ${reg['reviewStatus']}'),
-                ],
-                if (sub != null) ...[
-                  const SizedBox(height: 8),
-                  Text('Subscription: ${sub['status']}'),
-                  if (sub['planMonths'] != null)
-                    Text('Plan: ${sub['planMonths']} month(s)'),
-                  if (sub['amountPaise'] != null)
-                    Text('Paid: ₹${(sub['amountPaise'] as num) / 100}'),
-                  if (sub['paymentReference'] != null)
-                    Text('Payment ref: ${sub['paymentReference']}'),
-                ],
-              ],
-            ),
-          ),
+      useSafeArea: true,
+      backgroundColor: c.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.72,
+        minChildSize: 0.4,
+        maxChildSize: 0.95,
+        builder: (_, scrollCtrl) => SingleChildScrollView(
+          controller: scrollCtrl,
+          child: content,
         ),
       ),
     );
@@ -285,7 +304,11 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
                                   : c.warningSoft;
                           final sub =
                               (org['subscription'] as Map?)?.cast<String, dynamic>();
-                          return InkWell(
+                          return Material(
+                            color: c.surface,
+                            borderRadius:
+                                BorderRadius.circular(BestieTokens.rLg),
+                            child: InkWell(
                             onTap: () => _showDetails(org),
                             borderRadius:
                                 BorderRadius.circular(BestieTokens.rLg),
@@ -331,6 +354,12 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
                                           color: statusColor,
                                         ),
                                       ),
+                                    ),
+                                    IconButton(
+                                      icon: Icon(Icons.info_outline_rounded,
+                                          color: c.textMuted, size: 20),
+                                      tooltip: 'View details',
+                                      onPressed: () => _showDetails(org),
                                     ),
                                   ],
                                 ),
@@ -399,9 +428,190 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
                               ],
                             ),
                           ),
+                            ),
                           );
                         },
                       ),
+      ),
+    );
+  }
+}
+
+class _OrganizationDetailsBody extends StatelessWidget {
+  const _OrganizationDetailsBody({
+    required this.org,
+    required this.colors,
+  });
+
+  final Map<String, dynamic> org;
+  final BestieColors colors;
+
+  String _fmt(dynamic v) {
+    if (v == null) return '—';
+    final s = v.toString().trim();
+    return s.isEmpty ? '—' : s;
+  }
+
+  String _fmtDate(dynamic v) {
+    if (v == null) return '—';
+    return v.toString().replaceFirst('T', ' ').split('.').first;
+  }
+
+  Widget _section(String title, List<Widget> rows) {
+    if (rows.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: colors.textMuted,
+              letterSpacing: 0.4,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ...rows,
+        ],
+      ),
+    );
+  }
+
+  Widget _row(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(label,
+                style: TextStyle(color: colors.textMuted, fontSize: 13)),
+          ),
+          Expanded(
+            child: Text(value,
+                style: TextStyle(
+                    color: colors.text,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _idImage(String? url) {
+    if (url == null || url.trim().isEmpty) {
+      return Text('No image uploaded',
+          style: TextStyle(color: colors.textMuted, fontSize: 12));
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Image.network(
+        url,
+        height: 120,
+        width: double.infinity,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => Text('Could not load image',
+            style: TextStyle(color: colors.danger, fontSize: 12)),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reg = (org['registration'] as Map?)?.cast<String, dynamic>();
+    final sub = (org['subscription'] as Map?)?.cast<String, dynamic>();
+    final status = _fmt(org['status']);
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.business_rounded, color: colors.brand),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    _fmt(org['name']),
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                      color: colors.text,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            _section('Organisation', [
+              _row('Status', status),
+              _row('Login slug', _fmt(org['slug'])),
+              _row('Users', _fmt(org['userCount'])),
+              _row('Created', _fmtDate(org['createdAt'])),
+            ]),
+            if (reg != null)
+              _section('Registration & KYC', [
+                _row('Admin phone', _fmt(reg['adminPhone'])),
+                _row('Admin email', _fmt(reg['adminEmail'])),
+                _row('Review status', _fmt(reg['reviewStatus'])),
+                _row('Submitted', _fmtDate(reg['submittedAt'])),
+                if ((reg['rejectReason'] ?? '').toString().isNotEmpty)
+                  _row('Reject reason', _fmt(reg['rejectReason'])),
+                const SizedBox(height: 6),
+                Text('Government ID 1 (${_fmt(reg['govtId1Type'])})',
+                    style: TextStyle(
+                        color: colors.textMuted,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600)),
+                const SizedBox(height: 4),
+                _row('Number', _fmt(reg['govtId1Number'])),
+                _idImage(reg['govtId1ImageUrl']?.toString()),
+                const SizedBox(height: 10),
+                Text('Government ID 2 (${_fmt(reg['govtId2Type'])})',
+                    style: TextStyle(
+                        color: colors.textMuted,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600)),
+                const SizedBox(height: 4),
+                _row('Number', _fmt(reg['govtId2Number'])),
+                _idImage(reg['govtId2ImageUrl']?.toString()),
+              ]),
+            if (sub != null)
+              _section('Billing', [
+                _row('Status', _fmt(sub['status'])),
+                if (sub['planLabel'] != null)
+                  _row('Plan', _fmt(sub['planLabel']))
+                else if (sub['planMonths'] != null)
+                  _row('Plan', '${sub['planMonths']} month(s)'),
+                if (sub['amountPaise'] != null)
+                  _row('Paid', '₹${(sub['amountPaise'] as num) / 100}'),
+                _row('Trial ends', _fmtDate(sub['trialEndsAt'])),
+                _row('Paid until', _fmtDate(sub['paidUntil'])),
+                _row('Payment ref', _fmt(sub['paymentReference'])),
+                _row('Razorpay order', _fmt(sub['razorpayOrderId'])),
+              ]),
+            if (reg == null && sub == null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Text(
+                  'No registration or billing details on file for this organisation.',
+                  style: TextStyle(color: colors.textMuted, fontSize: 13),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
