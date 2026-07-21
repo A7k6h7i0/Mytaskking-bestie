@@ -44,7 +44,9 @@ function serializeOrg(row) {
   const subscription = row.subscription
     ? {
         status: row.subscription.status,
+        planId: row.subscription.planId,
         planMonths: row.subscription.planMonths,
+        planLabel: row.subscription.billingPlan?.label ?? null,
         trialEndsAt: row.subscription.trialEndsAt,
         paidUntil: row.subscription.paidUntil,
         amountPaise: row.subscription.amountPaise,
@@ -72,7 +74,7 @@ function serializeOrg(row) {
 const orgInclude = {
   _count: { select: { users: true } },
   registration: true,
-  subscription: true,
+  subscription: { include: { billingPlan: true } },
 };
 
 async function list({ reviewStatus } = {}) {

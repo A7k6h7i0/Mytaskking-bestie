@@ -58,6 +58,45 @@
 .pp__link:hover { text-decoration: underline; }
 .pp__empty { padding: var(--s-5); color: var(--c-text-muted); text-align: center; }
 
+.pp__title { margin: 0; font-size: var(--fs-2xl); font-weight: 700; }
+.pp__sub { margin: 4px 0 0; color: var(--c-text-muted); }
+.pp__card {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  padding: var(--s-4);
+}
+.pp__card-title { margin: 0 0 var(--s-3); font-size: var(--fs-lg); font-weight: 700; }
+.pp__form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--s-3); }
+.pp__form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: var(--s-3); }
+.pp__check { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--c-text-soft); }
+.pp__list { display: flex; flex-direction: column; gap: 10px; }
+.pp__list .pp__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  padding: 14px 16px;
+  border-top: 0;
+}
+.pp__row-icon {
+  width: 36px; height: 36px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--r-sm);
+  background: var(--c-brand-soft);
+  color: var(--c-brand);
+  flex-shrink: 0;
+}
+.pp__row-body { flex: 1; min-width: 0; }
+.pp__row-title { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+.pp__row-meta { margin-top: 4px; color: var(--c-text-muted); font-size: var(--fs-sm); }
+.pp__row-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.pp__badge { font-size: var(--fs-xs); font-weight: 700; padding: 2px 8px; border-radius: var(--r-pill); }
+.pp__badge--ok { background: var(--c-success-soft); color: var(--c-success); }
+.pp__badge--muted { background: var(--c-surface-2); color: var(--c-text-muted); }
+
 .pp__actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; flex-wrap: wrap; }
 .pp__inline-input { height: 36px; min-width: 220px; border-radius: var(--r-sm); border: 1px solid var(--c-border); background: var(--c-surface-1); color: var(--c-text); padding: 0 12px; font: inherit; }
 .pp__inline-input:focus { outline: none; border-color: var(--c-brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-brand) 18%, transparent); }

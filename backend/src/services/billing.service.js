@@ -3,27 +3,10 @@
 const crypto = require('crypto');
 const prisma = require('../database/prisma');
 const { BadRequest, NotFound } = require('../utils/errors');
+const billingPlans = require('./billingPlans.service');
 
-const PLANS = {
-  1: { months: 1, amountPaise: Number(process.env.PLAN_1_MONTH_PAISE || 99900), label: '1 month' },
-  6: { months: 6, amountPaise: Number(process.env.PLAN_6_MONTH_PAISE || 499900), label: '6 months' },
-  12: { months: 12, amountPaise: Number(process.env.PLAN_12_MONTH_PAISE || 899900), label: '12 months' },
-};
-
-function listPlans() {
-  return Object.entries(PLANS).map(([months, plan]) => ({
-    planMonths: Number(months),
-    label: plan.label,
-    amountPaise: plan.amountPaise,
-    amountInr: plan.amountPaise / 100,
-    currency: 'INR',
-  }));
-}
-
-function getPlan(planMonths) {
-  const plan = PLANS[Number(planMonths)];
-  if (!plan) throw BadRequest('Invalid subscription plan');
-  return plan;
+async function listPlans() {
+  return billingPlans.listPlans({ activeOnly: true });
 }
 
 async function ensureSubscription(tenantId) {
@@ -40,13 +23,13 @@ async function requestTrial(tenantId) {
   });
 }
 
-async function createRazorpayOrder(tenantId, planMonths) {
+async function createRazorpayOrder(tenantId, { planId, planMonths } = {}) {
   const tenant = await prisma.tenant.findUnique({
     where: { id: tenantId },
     include: { registration: true },
   });
   if (!tenant) throw NotFound('Organisation not found');
-  const plan = getPlan(planMonths);
+  const plan = await billingPlans.resolvePlan({ planId, planMonths });
   const keyId = process.env.RAZORPAY_KEY_ID;
   const keySecret = process.env.RAZORPAY_KEY_SECRET;
   if (!keyId || !keySecret) throw BadRequest('Payment is not configured on server');
@@ -61,9 +44,9 @@ async function createRazorpayOrder(tenantId, planMonths) {
     },
     body: JSON.stringify({
       amount: plan.amountPaise,
-      currency: 'INR',
+      currency: plan.currency || 'INR',
       receipt,
-      notes: { tenantId, planMonths: String(plan.months) },
+      notes: { tenantId, planId: plan.id, planMonths: String(plan.months) },
     }),
   });
   const order = await res.json();
@@ -74,9 +57,10 @@ async function createRazorpayOrder(tenantId, planMonths) {
     where: { tenantId },
     data: {
       status: 'PAYMENT_PENDING',
+      planId: plan.id,
       planMonths: plan.months,
       amountPaise: plan.amountPaise,
-      currency: 'INR',
+      currency: plan.currency || 'INR',
       paymentProvider: 'razorpay',
       razorpayOrderId: order.id,
     },
@@ -85,10 +69,12 @@ async function createRazorpayOrder(tenantId, planMonths) {
   return {
     keyId,
     orderId: order.id,
+    planId: plan.id,
     amountPaise: plan.amountPaise,
     amountInr: plan.amountPaise / 100,
-    currency: 'INR',
+    currency: plan.currency || 'INR',
     planMonths: plan.months,
+    label: plan.label,
     tenant: { id: tenant.id, name: tenant.name, slug: tenant.slug },
   };
 }
@@ -127,12 +113,14 @@ async function verifyRazorpayPayment({
 }
 
 async function getSubscription(tenantId) {
-  return prisma.tenantSubscription.findUnique({ where: { tenantId } });
+  return prisma.tenantSubscription.findUnique({
+    where: { tenantId },
+    include: { billingPlan: true },
+  });
 }
 
 module.exports = {
   listPlans,
-  getPlan,
   requestTrial,
   createRazorpayOrder,
   verifyRazorpayPayment,

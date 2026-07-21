@@ -974,6 +974,8 @@ model TenantSubscription {
   tenantId          String             @unique
   tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   status            SubscriptionStatus @default(NONE)
+  planId            String?
+  billingPlan       BillingPlan?       @relation(fields: [planId], references: [id], onDelete: SetNull)
   planMonths        Int?
   trialEndsAt       DateTime?
   paidUntil         DateTime?
@@ -986,6 +988,21 @@ model TenantSubscription {
   paidAt            DateTime?
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
+}
+
+model BillingPlan {
+  id            String               @id @default(cuid())
+  months        Int
+  label         String
+  amountPaise   Int
+  currency      String               @default("INR")
+  isActive      Boolean              @default(true)
+  sortOrder     Int                  @default(0)
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  subscriptions TenantSubscription[]
+
+  @@index([isActive, sortOrder])
 }
 
 model EmailOtp {

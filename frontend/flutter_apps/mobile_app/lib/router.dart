@@ -32,6 +32,7 @@ import 'screens/work_activity_screen.dart';
 import 'screens/ai_review_screen.dart';
 import 'screens/organizations_screen.dart';
 import 'screens/admin_notes_screen.dart';
+import 'screens/payments_screen.dart';
 import 'screens/deleted_chats_screen.dart';
 import 'state.dart' hide ThemeMode;
 import 'telecaller_recording_setup.dart';
@@ -172,6 +173,9 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
               path: '/admin-notes',
               builder: (_, __) => const AdminNotesScreen()),
+          GoRoute(
+              path: '/payments',
+              builder: (_, __) => const PaymentsScreen()),
           GoRoute(
               path: '/settings', builder: (_, __) => const SettingsScreen()),
         ],

@@ -29,6 +29,7 @@ typedef ApiOps = ({
     required String mimeType,
   }) uploadFile,
   Future<void> Function(String tenantId) requestTrial,
+  Future<List<Map<String, dynamic>>> Function() fetchPlans,
 });
 
 class OrganizationRegistrationWizard extends StatefulWidget {
@@ -433,8 +434,45 @@ Future<void> showOrgRegistrationFlow(
     return;
   }
 
+  List<Map<String, dynamic>> plans;
+  try {
+    plans = await api.fetchPlans();
+  } catch (e) {
+    if (context.mounted) {
+      bestieToast(context, 'Could not load plans',
+          body: formatApiError(e), kind: BestieToastKind.error);
+    }
+    return;
+  }
+  if (plans.isEmpty) {
+    if (context.mounted) {
+      bestieToast(context, 'No plans available',
+          body: 'Ask super admin to add subscription plans.',
+          kind: BestieToastKind.error);
+    }
+    return;
+  }
+
+  final planId = await showDialog<String>(
+    context: context,
+    builder: (ctx) => SimpleDialog(
+      title: const Text('Choose a plan'),
+      children: plans.map((plan) {
+        final id = plan['id']?.toString() ?? '';
+        final label = plan['label']?.toString() ?? 'Plan';
+        final inr = plan['amountInr'] ??
+            (((plan['amountPaise'] as num?) ?? 0) / 100);
+        return SimpleDialogOption(
+          onPressed: () => Navigator.pop(ctx, id),
+          child: Text('$label — ₹$inr'),
+        );
+      }).toList(),
+    ),
+  );
+  if (!context.mounted || planId == null || planId.isEmpty) return;
+
   final uri = Uri.parse(
-    '$_paymentBaseUrl/checkout?tenantId=$tenantId&plan=1',
+    '$_paymentBaseUrl/checkout?tenantId=$tenantId&plan=$planId',
   );
   if (await canLaunchUrl(uri)) {
     await launchUrl(uri, mode: LaunchMode.externalApplication);

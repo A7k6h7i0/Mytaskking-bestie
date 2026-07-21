@@ -58,23 +58,27 @@ async function main() {
   });
   if (salesHeadExisting) {
     logger.info({ userId: salesHeadUserId }, 'seed.sales_head.exists');
-    return;
+  } else {
+    const salesHeadPassword = process.env.SALES_HEAD_PASSWORD || 'SalesHead@123';
+    const salesHeadHash = await bcrypt.hash(salesHeadPassword, 12);
+    const salesHead = await prisma.user.create({
+      data: {
+        userId: salesHeadUserId,
+        passwordHash: salesHeadHash,
+        role: 'SALES_HEAD',
+        name: process.env.SALES_HEAD_NAME || 'Sales Head',
+        email: process.env.SALES_HEAD_EMAIL || null,
+        isClient: false,
+        status: 'ACTIVE',
+        tenantId: tenantService.DEFAULT_TENANT_ID,
+      },
+    });
+    logger.info({ id: salesHead.id, userId: salesHead.userId }, 'seed.sales_head.created');
   }
-  const salesHeadPassword = process.env.SALES_HEAD_PASSWORD || 'SalesHead@123';
-  const salesHeadHash = await bcrypt.hash(salesHeadPassword, 12);
-  const salesHead = await prisma.user.create({
-    data: {
-      userId: salesHeadUserId,
-      passwordHash: salesHeadHash,
-      role: 'SALES_HEAD',
-      name: process.env.SALES_HEAD_NAME || 'Sales Head',
-      email: process.env.SALES_HEAD_EMAIL || null,
-      isClient: false,
-      status: 'ACTIVE',
-      tenantId: tenantService.DEFAULT_TENANT_ID,
-    },
-  });
-  logger.info({ id: salesHead.id, userId: salesHead.userId }, 'seed.sales_head.created');
+
+  const billingPlans = require('../services/billingPlans.service');
+  await billingPlans.seedDefaultPlansIfEmpty();
+  logger.info('seed.billing_plans.ready');
 }
 
 main()

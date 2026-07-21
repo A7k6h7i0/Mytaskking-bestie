@@ -72,6 +72,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               mimeType: mimeType,
             ),
         requestTrial: (tenantId) => api.requestOrgTrial(tenantId),
+        fetchPlans: () => api.listPublicBillingPlans(),
       ),
     );
   }

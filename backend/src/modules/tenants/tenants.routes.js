@@ -225,7 +225,8 @@ router.patch(
         'PAID',
         'EXPIRED'
       ),
-      planMonths: Joi.number().integer().valid(1, 6, 12),
+      planId: Joi.string(),
+      planMonths: Joi.number().integer().min(1),
       trialEndsAt: Joi.date().iso().allow(null),
       paidUntil: Joi.date().iso().allow(null),
     }),

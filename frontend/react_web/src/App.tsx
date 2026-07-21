@@ -28,6 +28,7 @@ import TalkTimePage from '@/pages/TalkTimePage';
 import LoginActivityPage from '@/pages/LoginActivityPage';
 import FlagsPage from '@/pages/FlagsPage';
 import OrganizationsPage from '@/pages/OrganizationsPage';
+import PaymentsPage from '@/pages/PaymentsPage';
 import PermissionsPage from '@/pages/PermissionsPage';
 import DeletedChatsPage from '@/pages/DeletedChatsPage';
 import { ToastHost } from '@/components/Toast';
@@ -118,6 +119,10 @@ export default function App() {
           <Route
             path="/organizations"
             element={<RoleGate allow={['SUPER_ADMIN']}><OrganizationsPage /></RoleGate>}
+          />
+          <Route
+            path="/payments"
+            element={<RoleGate allow={['SUPER_ADMIN']}><PaymentsPage /></RoleGate>}
           />
           <Route
             path="/permissions"

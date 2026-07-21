@@ -2,7 +2,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   LayoutDashboard, MessageSquare, KanbanSquare, Users, UserCog, Phone, Headphones, Settings, LogOut, LogIn, Hash,
-  Activity, Calendar, Bookmark, Search, BarChart3, ShieldCheck, Zap, Video, Flag, KeyRound, Radio, PhoneIncoming, PhoneCall, Minimize2, Menu, FileText, Disc3, Building2, Trash2, BrainCircuit, type LucideIcon,
+  Activity, Calendar, Bookmark, Search, BarChart3, ShieldCheck, Zap, Video, Flag, KeyRound, Radio, PhoneIncoming, PhoneCall, Minimize2, Menu, FileText, Disc3, Building2, Trash2, BrainCircuit, CreditCard, type LucideIcon,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuthStore } from '@/store/auth';
@@ -52,6 +52,7 @@ const NAV: NavItem[] = [
   { to: '/ai-review', label: 'AI Review', icon: BrainCircuit },
   { to: '/deleted-chats', label: 'Deleted chats', icon: Trash2 },
   { to: '/organizations', label: 'Organisations', icon: Building2, platformOnly: true },
+  { to: '/payments', label: 'Payments', icon: CreditCard, platformOnly: true },
   { to: '/telecaller', label: 'Telecaller', icon: Headphones },
   { to: '/saved', label: 'Saved', icon: Bookmark },
   { to: '/employees', label: 'Employees', icon: Users },

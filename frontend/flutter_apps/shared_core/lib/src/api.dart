@@ -567,6 +567,30 @@ extension BestieApiExt on BestieApi {
   Future<void> requestOrgTrial(String tenantId) =>
       post('/billing/trial', body: {'tenantId': tenantId});
 
+  Future<List<Map<String, dynamic>>> listPublicBillingPlans() => get(
+        '/billing/plans',
+      ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
+
+  Future<List<Map<String, dynamic>>> listAdminBillingPlans() => get(
+        '/billing/admin/plans',
+      ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
+
+  Future<Map<String, dynamic>> createBillingPlan(Map<String, dynamic> data) =>
+      post('/billing/admin/plans', body: data);
+
+  Future<Map<String, dynamic>> updateBillingPlan(
+    String id,
+    Map<String, dynamic> data,
+  ) async {
+    final r = await dio.patch('/billing/admin/plans/$id', data: data);
+    return r.data as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> deleteBillingPlan(String id) async {
+    final r = await dio.delete('/billing/admin/plans/$id');
+    return r.data as Map<String, dynamic>;
+  }
+
   Future<List<Map<String, dynamic>>> listTenantRegistrations() => get(
         '/tenants/registrations',
       ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));

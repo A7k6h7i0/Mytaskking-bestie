@@ -1,11 +1,14 @@
 const API = import.meta.env.VITE_API_URL || 'https://mytaskking.com/api/v1';
 
 export type Plan = {
+  id: string;
   planMonths: number;
   label: string;
   amountPaise: number;
   amountInr: number;
   currency: string;
+  isActive?: boolean;
+  sortOrder?: number;
 };
 
 export async function fetchPlans(): Promise<Plan[]> {
@@ -15,11 +18,14 @@ export async function fetchPlans(): Promise<Plan[]> {
   return data.items || [];
 }
 
-export async function createOrder(tenantId: string, planMonths: number) {
+export async function createOrder(
+  tenantId: string,
+  options: { planId?: string; planMonths?: number },
+) {
   const res = await fetch(`${API}/billing/razorpay/order`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tenantId, planMonths }),
+    body: JSON.stringify({ tenantId, ...options }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.message || data.error || 'Order failed');

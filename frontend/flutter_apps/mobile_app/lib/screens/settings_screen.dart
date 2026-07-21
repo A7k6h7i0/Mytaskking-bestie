@@ -285,6 +285,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 label: 'Admin notes (review)',
                 onTap: () => _openRoute(context, '/admin-notes'),
               ),
+              _SettingTile(
+                colors: c,
+                icon: Icons.payments_outlined,
+                label: 'Payments (plans)',
+                onTap: () => _openRoute(context, '/payments'),
+              ),
             ],
             if (!(user?.isSalesHead ?? false)) ...[
             _SectionLabel('Workspace', colors: c),

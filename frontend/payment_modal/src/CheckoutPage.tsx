@@ -8,25 +8,36 @@ import {
   type Plan,
 } from './api';
 
+function resolveInitialPlan(plans: Plan[], param: string | null): string {
+  if (!param || plans.length === 0) return plans[0]?.id ?? '';
+  const byId = plans.find((p) => p.id === param);
+  if (byId) return byId.id;
+  const byMonths = plans.find((p) => p.planMonths === Number(param));
+  return byMonths?.id ?? plans[0]?.id ?? '';
+}
+
 export default function CheckoutPage() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const tenantId = params.get('tenantId') || '';
-  const initialPlan = Number(params.get('plan') || '1');
+  const planParam = params.get('plan');
   const [plans, setPlans] = useState<Plan[]>([]);
-  const [selected, setSelected] = useState(initialPlan);
+  const [selectedId, setSelectedId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchPlans()
-      .then(setPlans)
+      .then((items) => {
+        setPlans(items);
+        setSelectedId((current) => current || resolveInitialPlan(items, planParam));
+      })
       .catch((e) => setError(e.message));
-  }, []);
+  }, [planParam]);
 
   const selectedPlan = useMemo(
-    () => plans.find((p) => p.planMonths === selected),
-    [plans, selected],
+    () => plans.find((p) => p.id === selectedId),
+    [plans, selectedId],
   );
 
   async function payNow() {
@@ -34,10 +45,14 @@ export default function CheckoutPage() {
       setError('Missing tenantId in URL');
       return;
     }
+    if (!selectedPlan) {
+      setError('Choose a plan');
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
-      const order = await createOrder(tenantId, selected);
+      const order = await createOrder(tenantId, { planId: selectedPlan.id });
       const keyId = import.meta.env.VITE_RAZORPAY_KEY_ID || order.keyId;
       openRazorpayCheckout({
         keyId,
@@ -75,10 +90,10 @@ export default function CheckoutPage() {
         <div className="plans">
           {plans.map((plan) => (
             <button
-              key={plan.planMonths}
+              key={plan.id}
               type="button"
-              className={`plan ${selected === plan.planMonths ? 'selected' : ''}`}
-              onClick={() => setSelected(plan.planMonths)}
+              className={`plan ${selectedId === plan.id ? 'selected' : ''}`}
+              onClick={() => setSelectedId(plan.id)}
             >
               <strong>{plan.label}</strong>
               <span>₹{plan.amountInr.toLocaleString('en-IN')}</span>
@@ -92,7 +107,7 @@ export default function CheckoutPage() {
           </p>
         )}
         {error && <p className="error">{error}</p>}
-        <button type="button" className="primary" disabled={loading || !tenantId} onClick={payNow}>
+        <button type="button" className="primary" disabled={loading || !tenantId || !selectedPlan} onClick={payNow}>
           {loading ? 'Opening checkout…' : 'Pay now'}
         </button>
       </div>
