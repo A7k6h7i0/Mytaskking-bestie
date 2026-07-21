@@ -21,8 +21,6 @@ const _govtIdTypes = [
 
 typedef RegisterFn = Future<Map<String, dynamic>> Function(Map<String, dynamic>);
 typedef ApiOps = ({
-  Future<Map<String, dynamic>> Function({required String email, required String phone}) sendOtp,
-  Future<Map<String, dynamic>> Function({required String email, required String code}) verifyOtp,
   Future<Map<String, dynamic>> Function({
     required Uint8List bytes,
     required String filename,
@@ -51,7 +49,6 @@ class _OrganizationRegistrationWizardState
     extends State<OrganizationRegistrationWizard> {
   int _step = 0;
   bool _busy = false;
-  String? _otpToken;
   String? _id1Url;
   String? _id2Url;
 
@@ -62,7 +59,6 @@ class _OrganizationRegistrationWizardState
   final _adminPassword = TextEditingController();
   final _adminEmail = TextEditingController();
   final _adminPhone = TextEditingController();
-  final _otpCode = TextEditingController();
   final _govtId1Number = TextEditingController();
   final _govtId2Number = TextEditingController();
   String _govtId1Type = 'AADHAAR';
@@ -79,7 +75,6 @@ class _OrganizationRegistrationWizardState
       _adminPassword,
       _adminEmail,
       _adminPhone,
-      _otpCode,
       _govtId1Number,
       _govtId2Number,
     ]) {
@@ -94,51 +89,6 @@ class _OrganizationRegistrationWizardState
       .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
       .replaceAll(RegExp(r'-+'), '-')
       .replaceAll(RegExp(r'^-|-$'), '');
-
-  Future<void> _sendOtp() async {
-    final email = _adminEmail.text.trim();
-    final phone = _adminPhone.text.trim();
-    if (!email.contains('@') || phone.length < 10) {
-      bestieToast(context, 'Enter valid email and phone',
-          kind: BestieToastKind.warning);
-      return;
-    }
-    setState(() => _busy = true);
-    try {
-      await widget.api.sendOtp(email: email, phone: phone);
-      if (mounted) {
-        bestieToast(context, 'OTP sent to your email',
-            kind: BestieToastKind.success);
-        setState(() => _step = 2);
-      }
-    } catch (e) {
-      if (mounted) {
-        bestieToast(context, 'Could not send OTP',
-            body: formatApiError(e), kind: BestieToastKind.error);
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  Future<void> _verifyOtp() async {
-    setState(() => _busy = true);
-    try {
-      final res = await widget.api.verifyOtp(
-        email: _adminEmail.text.trim(),
-        code: _otpCode.text.trim(),
-      );
-      _otpToken = res['verificationToken']?.toString();
-      if (mounted) setState(() => _step = 3);
-    } catch (e) {
-      if (mounted) {
-        bestieToast(context, 'Invalid OTP',
-            body: formatApiError(e), kind: BestieToastKind.error);
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
 
   Future<String?> _pickIdImage() async {
     final result = await FilePicker.platform.pickFiles(
@@ -161,7 +111,6 @@ class _OrganizationRegistrationWizardState
   }
 
   Future<void> _submit() async {
-    if (_otpToken == null) return;
     if (_govtId1Type == _govtId2Type) {
       bestieToast(context, 'Select two different ID types',
           kind: BestieToastKind.warning);
@@ -182,7 +131,6 @@ class _OrganizationRegistrationWizardState
         'adminPassword': _adminPassword.text,
         'adminEmail': _adminEmail.text.trim(),
         'adminPhone': _adminPhone.text.trim(),
-        'otpVerificationToken': _otpToken,
         'govtId1Type': _govtId1Type,
         'govtId1Number': _govtId1Number.text.trim(),
         'govtId1ImageUrl': _id1Url,
@@ -223,7 +171,7 @@ class _OrganizationRegistrationWizardState
                     fontWeight: FontWeight.w700,
                     color: c.text)),
             const SizedBox(height: 4),
-            Text('Step ${_step + 1} of 4',
+            Text('Step ${_step + 1} of 2',
                 style: TextStyle(color: c.textMuted)),
             const SizedBox(height: 16),
             if (_step == 0) ...[
@@ -238,18 +186,10 @@ class _OrganizationRegistrationWizardState
               _field(_adminName, 'Admin full name'),
               _field(_adminUserId, 'Admin user ID'),
               _field(_adminPassword, 'Admin password', obscure: true),
+              _field(_adminEmail, 'Admin email'),
+              _field(_adminPhone, 'Phone number', keyboard: TextInputType.phone),
             ],
             if (_step == 1) ...[
-              _field(_adminEmail, 'Admin email'),
-              _field(_adminPhone, 'Phone number'),
-            ],
-            if (_step == 2) ...[
-              Text('Enter the 6-digit OTP sent to ${_adminEmail.text.trim()}',
-                  style: TextStyle(color: c.textMuted)),
-              const SizedBox(height: 8),
-              _field(_otpCode, 'OTP code', keyboard: TextInputType.number),
-            ],
-            if (_step == 3) ...[
               _idBlock(
                 c,
                 label: 'Government ID 1',
@@ -293,7 +233,7 @@ class _OrganizationRegistrationWizardState
                           width: 18,
                           height: 18,
                           child: CircularProgressIndicator(strokeWidth: 2))
-                      : Text(_step == 3 ? 'Submit' : 'Next'),
+                      : Text(_step == 1 ? 'Submit' : 'Next'),
                 ),
               ],
             ),
@@ -305,22 +245,18 @@ class _OrganizationRegistrationWizardState
 
   Future<void> _onNext() async {
     if (_step == 0) {
+      final email = _adminEmail.text.trim();
+      final phone = _adminPhone.text.trim();
       if (_name.text.trim().isEmpty ||
           _slug.text.trim().length < 2 ||
-          _adminPassword.text.length < 8) {
-        bestieToast(context, 'Fill all organisation fields',
+          _adminPassword.text.length < 8 ||
+          !email.contains('@') ||
+          phone.length < 10) {
+        bestieToast(context, 'Fill all fields (valid email & 10-digit phone)',
             kind: BestieToastKind.warning);
         return;
       }
       setState(() => _step = 1);
-      return;
-    }
-    if (_step == 1) {
-      await _sendOtp();
-      return;
-    }
-    if (_step == 2) {
-      await _verifyOtp();
       return;
     }
     await _submit();
@@ -359,7 +295,7 @@ class _OrganizationRegistrationWizardState
       children: [
         Text(label, style: TextStyle(fontWeight: FontWeight.w600, color: c.text)),
         DropdownButtonFormField<String>(
-          value: type,
+          initialValue: type,
           items: [
             for (final t in _govtIdTypes)
               DropdownMenuItem(value: t.$1, child: Text(t.$2)),

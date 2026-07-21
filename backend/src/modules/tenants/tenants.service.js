@@ -3,7 +3,6 @@
 const prisma = require('../../database/prisma');
 const { hashPassword, sanitize } = require('../auth/auth.service');
 const tenant = require('../../services/tenant');
-const otpService = require('../../services/otp.service');
 const email = require('../../services/email');
 const { Conflict, NotFound, Forbidden, BadRequest } = require('../../utils/errors');
 
@@ -201,10 +200,11 @@ async function create(input) {
 }
 
 async function register(input) {
-  const verified = otpService.assertVerificationToken(input.otpVerificationToken, 'org_register');
-  if (verified.email !== String(input.adminEmail || '').trim().toLowerCase()) {
-    throw BadRequest('Email does not match verified OTP');
-  }
+  const adminEmail = String(input.adminEmail || '').trim().toLowerCase();
+  const adminPhone = String(input.adminPhone || '').replace(/\D/g, '');
+  if (!adminEmail.includes('@')) throw BadRequest('Valid admin email is required');
+  if (adminPhone.length < 10) throw BadRequest('Valid phone number is required');
+
   const govtId1Type = String(input.govtId1Type || '').toUpperCase();
   const govtId2Type = String(input.govtId2Type || '').toUpperCase();
   if (govtId1Type === govtId2Type) {
@@ -212,9 +212,9 @@ async function register(input) {
   }
 
   const registrationExtra = {
-    adminPhone: verified.phone || String(input.adminPhone || '').replace(/\D/g, ''),
-    adminEmail: verified.email,
-    emailVerifiedAt: new Date(),
+    adminPhone,
+    adminEmail,
+    emailVerifiedAt: null,
     govtId1Type,
     govtId1Number: validateGovtId(govtId1Type, input.govtId1Number),
     govtId1ImageUrl: input.govtId1ImageUrl || null,
@@ -230,8 +230,8 @@ async function register(input) {
     adminName: input.adminName,
     adminUserId: input.adminUserId,
     adminPassword: input.adminPassword,
-    adminEmail: verified.email,
-    adminPhone: registrationExtra.adminPhone,
+    adminEmail,
+    adminPhone,
     createdById: null,
     status: 'PENDING',
     registrationExtra,

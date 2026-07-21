@@ -61,10 +61,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       context,
       onRegister: (data) => api.registerOrganization(data),
       api: (
-        sendOtp: ({required email, required phone}) =>
-            api.sendRegistrationOtp(email: email, phone: phone),
-        verifyOtp: ({required email, required code}) =>
-            api.verifyRegistrationOtp(email: email, code: code),
         uploadFile: ({required bytes, required filename, required mimeType}) =>
             api.registerUploadDocument(
               bytes: bytes,

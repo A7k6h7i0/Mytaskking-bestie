@@ -39,7 +39,6 @@ const registerBodySchema = Joi.object({
   adminPassword: Joi.string().min(8).max(200).required(),
   adminEmail: Joi.string().trim().email().required(),
   adminPhone: Joi.string().trim().min(10).max(20).required(),
-  otpVerificationToken: Joi.string().required(),
   govtId1Type: govtIdSchema.required(),
   govtId1Number: Joi.string().trim().min(4).max(32).required(),
   govtId1ImageUrl: Joi.string().uri().allow('', null),
