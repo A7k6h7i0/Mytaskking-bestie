@@ -183,6 +183,13 @@ class _OrganizationRegistrationWizardState
     }
   }
 
+  String _firstTypeOtherThan(String exclude) {
+    for (final t in _govtIdTypes) {
+      if (t.$1 != exclude) return t.$1;
+    }
+    return exclude;
+  }
+
   Future<void> _submit() async {
     if (_govtId1Type == _govtId2Type) {
       bestieToast(context, 'Select two different ID types',
@@ -252,6 +259,7 @@ class _OrganizationRegistrationWizardState
       return content;
     }
     return Scaffold(
+      resizeToAvoidBottomInset: true,
       backgroundColor: c.surface,
       appBar: AppBar(
         title: const Text('Register organisation'),
@@ -304,14 +312,17 @@ class _OrganizationRegistrationWizardState
   }
 
   Widget _formView(BestieColors c) {
+    final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
     return Padding(
       padding: EdgeInsets.only(
         left: 20,
         right: 20,
         top: widget.fullScreen ? 8 : 16,
-        bottom: MediaQuery.viewInsetsOf(context).bottom + 20,
+        // Full-screen Scaffold already shrinks for the keyboard — avoid double inset.
+        bottom: widget.fullScreen ? 20 : keyboardInset + 20,
       ),
       child: SingleChildScrollView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
@@ -346,7 +357,13 @@ class _OrganizationRegistrationWizardState
                 c,
                 label: 'Government ID 1',
                 type: _govtId1Type,
-                onType: (v) => setState(() => _govtId1Type = v),
+                excludedType: _govtId2Type,
+                onType: (v) => setState(() {
+                  _govtId1Type = v;
+                  if (_govtId2Type == v) {
+                    _govtId2Type = _firstTypeOtherThan(v);
+                  }
+                }),
                 number: _govtId1Number,
                 imageUrl: _id1Url,
                 uploading: _uploadingIdSlot == 1,
@@ -358,7 +375,13 @@ class _OrganizationRegistrationWizardState
                 c,
                 label: 'Government ID 2',
                 type: _govtId2Type,
-                onType: (v) => setState(() => _govtId2Type = v),
+                excludedType: _govtId1Type,
+                onType: (v) => setState(() {
+                  _govtId2Type = v;
+                  if (_govtId1Type == v) {
+                    _govtId1Type = _firstTypeOtherThan(v);
+                  }
+                }),
                 number: _govtId2Number,
                 imageUrl: _id2Url,
                 uploading: _uploadingIdSlot == 2,
@@ -435,6 +458,7 @@ class _OrganizationRegistrationWizardState
     BestieColors c, {
     required String label,
     required String type,
+    required String excludedType,
     required ValueChanged<String> onType,
     required TextEditingController number,
     required String? imageUrl,
@@ -447,11 +471,11 @@ class _OrganizationRegistrationWizardState
       children: [
         Text(label, style: TextStyle(fontWeight: FontWeight.w600, color: c.text)),
         DropdownButtonFormField<String>(
-          key: ValueKey(type),
-          initialValue: type,
+          value: type,
           items: [
             for (final t in _govtIdTypes)
-              DropdownMenuItem(value: t.$1, child: Text(t.$2)),
+              if (t.$1 != excludedType)
+                DropdownMenuItem(value: t.$1, child: Text(t.$2)),
           ],
           onChanged: disabled
               ? null

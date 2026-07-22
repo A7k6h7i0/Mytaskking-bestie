@@ -293,7 +293,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 label: 'Organisation ID',
                                 controller: _tenantSlug,
                                 icon: Icons.business_outlined,
-                                hint: 'default or digital-links',
                                 textInputAction: TextInputAction.next,
                                 onSubmitted: (_) =>
                                     FocusScope.of(context).nextFocus(),
@@ -555,7 +554,6 @@ class _DesktopLoginShellState extends State<_DesktopLoginShell>
                             label: 'Organisation ID',
                             controller: widget.tenantSlug,
                             icon: Icons.business_outlined,
-                            hint: 'default or digital-links',
                             textInputAction: TextInputAction.next,
                             onSubmitted: (_) => FocusScope.of(context).nextFocus(),
                           ),

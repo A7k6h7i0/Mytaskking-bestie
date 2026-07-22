@@ -231,16 +231,28 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
     final id = org['id']?.toString();
     if (id == null) return;
 
+    final c = BestieColors.of(context);
     final updated = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (ctx) => _EditOrganizationSheet(
-        org: org,
-        onSaveRegistration: (data) =>
-            ref.read(apiProvider).updateTenantRegistration(id, data),
-        onSaveSubscription: (data) =>
-            ref.read(apiProvider).updateTenantSubscription(id, data),
+      backgroundColor: c.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.88,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        builder: (_, scrollCtrl) => _EditOrganizationSheet(
+          scrollController: scrollCtrl,
+          org: org,
+          onSaveRegistration: (data) =>
+              ref.read(apiProvider).updateTenantRegistration(id, data),
+          onSaveSubscription: (data) =>
+              ref.read(apiProvider).updateTenantSubscription(id, data),
+        ),
       ),
     );
     if (updated == null || !mounted) return;
@@ -691,8 +703,10 @@ class _EditOrganizationSheet extends StatefulWidget {
     required this.org,
     required this.onSaveRegistration,
     required this.onSaveSubscription,
+    this.scrollController,
   });
 
+  final ScrollController? scrollController;
   final Map<String, dynamic> org;
   final Future<Map<String, dynamic>> Function(Map<String, dynamic> data)
       onSaveRegistration;
@@ -808,10 +822,23 @@ class _EditOrganizationSheetState extends State<_EditOrganizationSheet> {
         bottom: MediaQuery.viewInsetsOf(context).bottom + 20,
       ),
       child: SingleChildScrollView(
+        controller: widget.scrollController,
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: c.textMuted.withValues(alpha: 0.35),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
             Text('Edit organisation',
                 style: TextStyle(
                     fontSize: 20,
