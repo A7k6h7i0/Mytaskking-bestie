@@ -78,7 +78,8 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
         location.startsWith('/recordings') ||
         location.startsWith('/login-activity') ||
         location.startsWith('/work-activity') ||
-        location.startsWith('/ai-review')) {
+        location.startsWith('/ai-review') ||
+        location.startsWith('/subscription')) {
       return -1;
     }
     return tabs.indexWhere((t) => location.startsWith(t.path));
@@ -244,6 +245,9 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
     final isAdmin = role == 'SUPER_ADMIN' || role == 'ADMIN';
     final isPlatformSuper = user?.isPlatformSuperAdmin ?? false;
     final isTelecaller = role == 'TELECALLER';
+    final isSalesHead = user?.isSalesHead ?? false;
+    final isOrgBillingAdmin =
+        isAdmin && !isPlatformSuper && !isTelecaller && !isSalesHead;
 
     return [
       _MoreEntry(
@@ -266,6 +270,8 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
           '/work-activity', c.brand, isAdmin),
       _MoreEntry(Icons.psychology_outlined, 'AI Review', '/ai-review',
           c.brandStrong, isAdmin),
+      _MoreEntry(Icons.card_membership_outlined, 'Subscription', '/subscription',
+          c.brand, isOrgBillingAdmin),
       _MoreEntry(Icons.campaign_outlined, 'Announcements', '/announcements',
           c.accent, true),
       _MoreEntry(Icons.bookmark_outline_rounded, 'Saved', '/saved', c.brand,

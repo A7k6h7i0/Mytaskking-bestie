@@ -19,6 +19,7 @@ import 'package:mytaskking_mobile/mobile_appearance_providers.dart';
 import 'package:mytaskking_mobile/mobile_local_settings.dart';
 import 'package:mytaskking_mobile/mobile_theme_palettes.dart';
 import 'package:mytaskking_mobile/screens/organizations_screen.dart';
+import 'package:mytaskking_mobile/screens/subscription_screen.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -170,6 +171,10 @@ class _BestieWindowsAppState extends ConsumerState<BestieWindowsApp> {
             GoRoute(
                 path: '/ai-review',
                 builder: (_, __) => const AiReviewScreen(),
+            ),
+            GoRoute(
+                path: '/subscription',
+                builder: (_, __) => const SubscriptionScreen(),
             ),
             GoRoute(
                 path: '/announcements',
@@ -608,6 +613,9 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     final isTelecallerOnly = user?.role == 'TELECALLER';
     final isTelecaller = isTelecallerOnly || isAdmin || user?.role == 'SUPER_ADMIN';
     final isPlatformSuperAdmin = user?.isPlatformSuperAdmin == true;
+    final isSalesHead = user?.isSalesHead == true;
+    final isOrgBillingAdmin =
+        isAdmin && !isPlatformSuperAdmin && !isTelecallerOnly && !isSalesHead;
 
     if (isTelecallerOnly) {
       return const [
@@ -676,6 +684,11 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
             icon: Icons.psychology_outlined,
             label: 'AI Review',
             route: '/ai-review'),
+      if (isOrgBillingAdmin)
+        const BestieSidebarItem(
+            icon: Icons.card_membership_outlined,
+            label: 'Subscription',
+            route: '/subscription'),
       const BestieSidebarItem(
           icon: Icons.history_rounded, label: 'Calls', route: '/calls'),
       const BestieSidebarItem(
@@ -713,6 +726,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     if (path.startsWith('/clients')) return '/clients';
     if (path.startsWith('/telecaller')) return '/telecaller';
     if (path.startsWith('/ai-review')) return '/ai-review';
+    if (path.startsWith('/subscription')) return '/subscription';
     if (path.startsWith('/calls')) return '/calls';
     if (path.startsWith('/calendar')) return '/calendar';
     if (path.startsWith('/reports')) return '/reports';

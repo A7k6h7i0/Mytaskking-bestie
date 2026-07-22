@@ -347,15 +347,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 label: 'Organisations',
                 onTap: () => _openRoute(context, '/organizations'),
               ),
-            if ((user?.role == 'ADMIN' || user?.role == 'SUPER_ADMIN') &&
-                user?.isPlatformSuperAdmin != true &&
-                user?.isSalesHead != true)
-              _SettingTile(
-                colors: c,
-                icon: Icons.card_membership_outlined,
-                label: 'Subscription',
-                onTap: () => _openRoute(context, '/subscription'),
-              ),
             if (user?.role == 'ADMIN' || user?.role == 'SUPER_ADMIN')
               _SettingTile(
                 colors: c,

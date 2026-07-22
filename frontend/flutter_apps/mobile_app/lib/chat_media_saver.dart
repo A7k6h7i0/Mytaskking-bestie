@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:gal/gal.dart';
 import 'package:path/path.dart' as p;
@@ -86,6 +87,44 @@ class ChatMediaSaver {
       name ?? p.basename(Uri.parse(url).path).ifEmpty('download'),
     );
     await _saveToDownloads(bytes, filename);
+  }
+
+  /// Downloads a remote file and saves it to a user-chosen path on desktop,
+  /// or to Downloads on mobile. Returns the saved path, or null if cancelled.
+  static Future<String?> saveUrlWithSaveDialog(
+    String url, {
+    String? suggestedName,
+  }) async {
+    final filename = _safeFilename(
+      suggestedName ??
+          p.basename(Uri.tryParse(url)?.path ?? '').ifEmpty('recording.webm'),
+    );
+    final bytes = await _downloadUrlBytes(url);
+
+    if (!kIsWeb &&
+        (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
+      final savePath = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save recording',
+        fileName: filename,
+      );
+      if (savePath == null || savePath.isEmpty) return null;
+
+      var targetPath = savePath;
+      final ext = p.extension(filename);
+      if (ext.isNotEmpty && !targetPath.toLowerCase().endsWith(ext.toLowerCase())) {
+        targetPath = '$savePath$ext';
+      }
+
+      final file = File(targetPath);
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes(bytes, flush: true);
+      return file.path;
+    }
+
+    await _saveToDownloads(bytes, filename);
+    final dir =
+        await getDownloadsDirectory() ?? await getApplicationDocumentsDirectory();
+    return p.join(dir.path, filename);
   }
 
   static bool looksLikeDownloadableFile(String url) {

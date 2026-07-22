@@ -185,7 +185,12 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen>
               : RefreshIndicator(
                   onRefresh: _load,
                   child: ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+                    padding: EdgeInsets.fromLTRB(
+                      16,
+                      12,
+                      16,
+                      MediaQuery.paddingOf(context).bottom + 48,
+                    ),
                     children: [
                       Container(
                         padding: const EdgeInsets.all(16),
@@ -260,16 +265,39 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen>
                               plan['label']?.toString() ?? 'Plan';
                           final inr = plan['amountInr'] ??
                               (((plan['amountPaise'] as num?) ?? 0) / 100);
+                          final monthCount =
+                              (plan['months'] ?? plan['planMonths']) as num?;
                           return Card(
-                            margin: const EdgeInsets.only(bottom: 10),
-                            child: ListTile(
-                              title: Text(label),
-                              subtitle: Text('₹$inr'),
-                              trailing: FilledButton(
-                                onPressed: id.isEmpty
-                                    ? null
-                                    : () => _payNow(id),
-                                child: const Text('Pay now'),
+                            margin: const EdgeInsets.only(bottom: 12),
+                            child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Text(
+                                    label,
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w700,
+                                      color: c.text,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    monthCount != null
+                                        ? '₹$inr · ${monthCount.toInt()} month${monthCount == 1 ? '' : 's'}'
+                                        : '₹$inr',
+                                    style: TextStyle(color: c.textMuted),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  FilledButton(
+                                    onPressed:
+                                        id.isEmpty ? null : () => _payNow(id),
+                                    style: FilledButton.styleFrom(
+                                        backgroundColor: c.brand),
+                                    child: const Text('Pay now'),
+                                  ),
+                                ],
                               ),
                             ),
                           );

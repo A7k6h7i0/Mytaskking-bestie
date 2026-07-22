@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
-import 'package:url_launcher/url_launcher.dart';
 
+import '../chat_media_saver.dart';
 import '../state.dart';
 
 class RecordingsScreen extends ConsumerStatefulWidget {
@@ -14,6 +14,7 @@ class RecordingsScreen extends ConsumerStatefulWidget {
 
 class _RecordingsScreenState extends ConsumerState<RecordingsScreen> {
   late Future<Map<String, dynamic>> _future;
+  bool _downloading = false;
 
   @override
   void initState() {
@@ -26,20 +27,33 @@ class _RecordingsScreenState extends ConsumerState<RecordingsScreen> {
     await _future;
   }
 
-  Future<void> _download(String url) async {
-    var opened = false;
+  Future<void> _download(String url, {String? name}) async {
+    if (_downloading) return;
+    setState(() => _downloading = true);
     try {
-      final uri = Uri.tryParse(url);
-      opened = uri != null &&
-          await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } catch (_) {
-      opened = false;
-    }
-    if (!opened) {
+      final path = await ChatMediaSaver.saveUrlWithSaveDialog(
+        url,
+        suggestedName: name,
+      );
+      if (!mounted) return;
+      if (path == null) return;
+      bestieToast(
+        context,
+        'Recording saved',
+        body: path,
+        kind: BestieToastKind.success,
+      );
+    } catch (e) {
       if (mounted) {
-        bestieToast(context, 'Could not open recording',
-            kind: BestieToastKind.error);
+        bestieToast(
+          context,
+          'Could not download recording',
+          body: formatApiError(e),
+          kind: BestieToastKind.error,
+        );
       }
+    } finally {
+      if (mounted) setState(() => _downloading = false);
     }
   }
 
@@ -122,7 +136,10 @@ class _RecordingsScreenState extends ConsumerState<RecordingsScreen> {
     final files = _filesOf(item);
     if (files.isEmpty) return;
     if (files.length == 1) {
-      await _download(files.first['url']!.toString());
+      await _download(
+        files.first['url']!.toString(),
+        name: files.first['name']?.toString(),
+      );
       return;
     }
     final c = BestieColors.of(context);
@@ -151,10 +168,15 @@ class _RecordingsScreenState extends ConsumerState<RecordingsScreen> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(color: c.textMuted, fontSize: 12),
                 ),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _download(f['url']!.toString());
-                },
+                onTap: _downloading
+                    ? null
+                    : () {
+                        Navigator.pop(ctx);
+                        _download(
+                          f['url']!.toString(),
+                          name: f['name']?.toString(),
+                        );
+                      },
               ),
             const SizedBox(height: 8),
           ],
@@ -233,10 +255,20 @@ class _RecordingsScreenState extends ConsumerState<RecordingsScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       IconButton(
-                        tooltip: 'Open recording',
-                        onPressed:
-                            files.isEmpty ? null : () => _openFilesSheet(item),
-                        icon: const Icon(Icons.download_rounded),
+                        tooltip: 'Download recording',
+                        onPressed: _downloading || files.isEmpty
+                            ? null
+                            : () => _openFilesSheet(item),
+                        icon: _downloading
+                            ? SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: c.brand,
+                                ),
+                              )
+                            : const Icon(Icons.download_rounded),
                       ),
                       if (canDelete)
                         IconButton(
@@ -247,7 +279,9 @@ class _RecordingsScreenState extends ConsumerState<RecordingsScreen> {
                         ),
                     ],
                   ),
-                  onTap: files.isEmpty ? null : () => _openFilesSheet(item),
+                  onTap: _downloading || files.isEmpty
+                      ? null
+                      : () => _openFilesSheet(item),
                 );
               },
             ),

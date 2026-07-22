@@ -97,11 +97,37 @@ async function disable(req, id) {
   return update(req, id, { status: 'SUSPENDED' });
 }
 
+/** Remove client channels so they disappear from every member's chat list. */
+async function deleteClientChannels(tx, clientId, tenantId) {
+  const channels = await tx.channel.findMany({
+    where: {
+      OR: [{ kind: 'CLIENT' }, { isClientChannel: true }],
+      members: { some: { userId: clientId } },
+      ...(tenantId ? { tenantId } : {}),
+    },
+    select: { id: true },
+  });
+  const channelIds = channels.map((c) => c.id);
+  if (!channelIds.length) return;
+
+  await tx.call.updateMany({
+    where: { channelId: { in: channelIds } },
+    data: { channelId: null },
+  });
+  await tx.announcement.updateMany({
+    where: { channelId: { in: channelIds } },
+    data: { channelId: null },
+  });
+  await tx.channel.deleteMany({ where: { id: { in: channelIds } } });
+}
+
 async function remove(req, id) {
-  await getById(req, id);
+  const client = await getById(req, id);
   const actorId = req.user?.id;
+  const tenantId = client.tenantId || tenant.resolveTenantId(req);
   try {
     await prisma.$transaction(async (tx) => {
+      await deleteClientChannels(tx, id, tenantId);
       await tx.activityLog.updateMany({ where: { actorId: id }, data: { actorId: null } });
       await tx.callParticipant.deleteMany({ where: { userId: id } });
       const callIds = (
