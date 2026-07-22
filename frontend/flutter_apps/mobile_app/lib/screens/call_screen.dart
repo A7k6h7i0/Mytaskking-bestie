@@ -1568,8 +1568,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
       if (sock == null && liveSockets.isEmpty && _waitingForAnswer) continue;
       _removeRemotePeerByUid(uid, userIdHint: _agoraUidToUserId[uid]);
     }
-    // Also drop joined-map ghosts once we know SFU membership.
-    if (!_waitingForAnswer) {
+    // Also drop joined-map ghosts once we know SFU membership (1:1 calls only).
+    if (!_waitingForAnswer && !_isMeeting) {
       final me = ref.read(authStoreProvider).user?.id;
       final drop = <String>[];
       for (final e in _joinedParticipants.entries) {
@@ -1994,6 +1994,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
     if (server > 0) return server;
 
     final me = ref.read(authStoreProvider).user?.id;
+    if (_isMeeting && _joinedParticipants.isNotEmpty) {
+      return _joinedParticipants.length;
+    }
+
     if (_CallSession.useMediasoup && _CallSession.mediasoup != null) {
       final sfuRemotes = _mediasoupLiveRemotePeerCount;
       if (sfuRemotes > 0) return 1 + sfuRemotes;
@@ -4093,6 +4097,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
           await session.disconnect();
           final tokenResp = await _fetchToken();
           if (!mounted) return;
+          if (_isMeeting) {
+            _callMeta = tokenResp;
+            _CallSession.callMeta = tokenResp;
+            _syncMeetingRoster(tokenResp);
+          }
           await _bootstrapMediasoup(tokenResp);
           if (mounted) setState(() => _status = 'Connected');
         } catch (e) {
@@ -7301,10 +7310,18 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   /// True while this person is still present on the mediasoup SFU (or we are
   /// still ringing / connecting and have not yet received any remote SFU peer).
+  /// Meetings: server roster ([`_joinedParticipants`]) is authoritative — SFU
+  /// may lag after leave/rejoin while names and tiles stay server-driven.
   bool _isStillLiveMediasoupParticipant({
     required String userId,
     required String name,
   }) {
+    if (_isMeeting &&
+        userId.isNotEmpty &&
+        _joinedParticipants.containsKey(userId)) {
+      return true;
+    }
+
     final session = _CallSession.mediasoup;
     if (!_CallSession.useMediasoup || session == null) return true;
 
@@ -7394,8 +7411,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final seen = <String>{if (me?.id != null) me!.id};
     for (final entry in _joinedParticipants.entries) {
       if (entry.key == me?.id || seen.contains(entry.key)) continue;
-      // Mediasoup: do not keep a tile after the peer left the SFU room.
+      // 1:1 mediasoup: hide after SFU drop. Meetings: server roster above.
       if (_CallSession.useMediasoup &&
+          !_isMeeting &&
           !_isStillLiveMediasoupParticipant(
             userId: entry.key,
             name: entry.value,
@@ -7422,6 +7440,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
       final mappedUserId = _agoraUidToUserId[uid];
       if (mappedUserId == null || mappedUserId.isEmpty) {
         if (_CallSession.useMediasoup) {
+          // Meetings list everyone from server roster — skip SFU-only ghosts.
+          if (_isMeeting) continue;
           final sock = _CallSession.uidToSocketId[uid];
           if (!_sfuHasLiveSocket(sock)) continue;
           if (tiles.any((t) => !t.isLocal && t.agoraUid == uid)) {

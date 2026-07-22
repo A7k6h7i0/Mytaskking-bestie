@@ -104,12 +104,16 @@ async function recordParticipant({ room, userId = null, displayName, joinedVia }
     if (existing) {
       // Token / guest join upgrades INVITED → INTERNAL so the live roster
       // can tell invitees who actually entered the Agora channel.
+      const upgrading =
+        existing.joinedVia === 'LEFT' || existing.joinedVia === 'INVITED';
+      const nextJoinedVia =
+        joinedVia || (upgrading ? 'INTERNAL' : existing.joinedVia);
       return prisma.meetingRoomParticipant.update({
         where: { id: existing.id },
         data: {
           lastSeenAt: new Date(),
           displayName,
-          joinedVia: joinedVia || existing.joinedVia,
+          joinedVia: nextJoinedVia,
         },
       });
     }
@@ -254,6 +258,7 @@ function serializeMeetingRoster(participants = [], userById = {}) {
         joinedAt: p.joinedAt,
         lastSeenAt: p.lastSeenAt || null,
         agoraUid: agora.toAgoraUid(p.userId),
+        mediaPeerId: agora.toAgoraUid(p.userId),
         ...(user
           ? {
               user: {
