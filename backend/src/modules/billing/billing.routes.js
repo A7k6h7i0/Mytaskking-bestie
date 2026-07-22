@@ -81,6 +81,22 @@ router.get(
   })
 );
 
+router.get(
+  '/my-subscription',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const tenantId = req.user?.tenantId;
+    if (!tenantId || tenantId === tenant.DEFAULT_TENANT_ID) {
+      throw Forbidden('Organisation account only');
+    }
+    if (req.user.role !== 'ADMIN' && req.user.role !== 'SUPER_ADMIN') {
+      throw Forbidden('Organisation admin only');
+    }
+    const sub = await billing.getSubscription(tenantId);
+    res.json({ subscription: sub });
+  })
+);
+
 router.use(requireAuth);
 router.use(requirePlatformSuperAdmin);
 

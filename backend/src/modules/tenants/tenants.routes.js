@@ -62,6 +62,18 @@ function requirePlatformStaff(req, _res, next) {
   next();
 }
 
+function requireOrgAdmin(req, _res, next) {
+  const role = req.user?.role;
+  if (role !== 'ADMIN' && role !== 'SUPER_ADMIN') {
+    return next(Forbidden('Organisation admin only'));
+  }
+  const tenantId = req.user?.tenantId;
+  if (!tenantId || tenantId === tenant.DEFAULT_TENANT_ID) {
+    return next(Forbidden('Organisation account only'));
+  }
+  next();
+}
+
 const govtIdSchema = Joi.string().valid('AADHAAR', 'PAN', 'VOTER_ID', 'DRIVING_LICENSE');
 
 const registerBodySchema = Joi.object({
@@ -126,6 +138,33 @@ router.post(
     }
     const url = await uploadOrgRegistrationImage(req.file);
     return res.status(201).json({ url });
+  })
+);
+
+router.get(
+  '/me/account',
+  requireAuth,
+  requireOrgAdmin,
+  asyncHandler(async (req, res) => {
+    res.json(await service.getMyAccount(req.user));
+  })
+);
+
+router.patch(
+  '/me/account',
+  requireAuth,
+  requireOrgAdmin,
+  validate({
+    body: Joi.object({
+      name: Joi.string().trim().min(2).max(120),
+      adminName: Joi.string().trim().min(1).max(120),
+      adminEmail: Joi.string().trim().email(),
+      adminPhone: Joi.string().trim().min(10).max(20),
+      adminPassword: Joi.string().min(8).max(200),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    res.json(await service.updateMyAccount(req.user, req.body));
   })
 );
 
@@ -231,8 +270,32 @@ router.patch(
 );
 
 router.patch(
+  '/:id/registration',
+  validate({
+    body: Joi.object({
+      name: Joi.string().trim().min(2).max(120),
+      adminName: Joi.string().trim().min(1).max(120),
+      adminEmail: Joi.string().trim().email(),
+      adminPhone: Joi.string().trim().min(10).max(20),
+      adminPassword: Joi.string().min(8).max(200),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    const org = await service.updateRegistration(req.params.id, req.body);
+    audit.record({
+      actorId: req.user.id,
+      kind: 'tenant.registration_updated',
+      entity: 'tenant',
+      entityId: org.id,
+      payload: { fields: Object.keys(req.body) },
+      req,
+    });
+    res.json(org);
+  })
+);
+
+router.patch(
   '/:id/subscription',
-  requirePlatformSuperAdmin,
   validate({
     body: Joi.object({
       status: Joi.string().valid(
@@ -251,6 +314,14 @@ router.patch(
   }),
   asyncHandler(async (req, res) => {
     const org = await service.updateSubscription(req.params.id, req.body);
+    audit.record({
+      actorId: req.user.id,
+      kind: 'tenant.subscription_updated',
+      entity: 'tenant',
+      entityId: org.id,
+      payload: req.body,
+      req,
+    });
     res.json(org);
   })
 );

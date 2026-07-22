@@ -275,15 +275,13 @@ async function approveRegistration(id, reviewerId) {
         rejectReason: null,
       },
     });
-    const sub = row.subscription;
-    if (sub?.status === 'TRIAL_REQUESTED') {
-      const trialEndsAt = new Date();
-      trialEndsAt.setDate(trialEndsAt.getDate() + 7);
-      await tx.tenantSubscription.update({
-        where: { tenantId: id },
-        data: { status: 'TRIAL_ACTIVE', trialEndsAt },
-      });
-    }
+    const trialEndsAt = new Date();
+    trialEndsAt.setDate(trialEndsAt.getDate() + 7);
+    await tx.tenantSubscription.upsert({
+      where: { tenantId: id },
+      create: { tenantId: id, status: 'TRIAL_ACTIVE', trialEndsAt },
+      update: { status: 'TRIAL_ACTIVE', trialEndsAt },
+    });
   });
 
   return getById(id);
@@ -333,11 +331,90 @@ async function update(id, input) {
   return serializeOrg(row);
 }
 
+async function updateRegistration(id, input) {
+  const row = await prisma.tenant.findUnique({
+    where: { id },
+    include: { registration: true },
+  });
+  if (!row) throw NotFound('Organisation not found');
+
+  await prisma.$transaction(async (tx) => {
+    if (input.name) {
+      await tx.tenant.update({ where: { id }, data: { name: input.name.trim() } });
+    }
+    if (row.registration) {
+      const regData = {};
+      if (input.adminEmail) {
+        regData.adminEmail = String(input.adminEmail).trim().toLowerCase();
+      }
+      if (input.adminPhone) {
+        regData.adminPhone = String(input.adminPhone).replace(/\D/g, '');
+      }
+      if (Object.keys(regData).length) {
+        await tx.tenantRegistration.update({ where: { tenantId: id }, data: regData });
+      }
+    }
+    const admin = await tx.user.findFirst({
+      where: { tenantId: id, role: 'ADMIN' },
+    });
+    if (admin) {
+      const userData = {};
+      if (input.adminName) userData.name = input.adminName.trim();
+      if (input.adminEmail) userData.email = String(input.adminEmail).trim().toLowerCase();
+      if (input.adminPhone) userData.phone = String(input.adminPhone).replace(/\D/g, '');
+      if (input.adminPassword) userData.passwordHash = await hashPassword(input.adminPassword);
+      if (Object.keys(userData).length) {
+        await tx.user.update({ where: { id: admin.id }, data: userData });
+      }
+    }
+  });
+
+  return getById(id);
+}
+
+async function getMyAccount(user) {
+  const tenantId = user.tenantId;
+  if (!tenantId || tenantId === tenant.DEFAULT_TENANT_ID) {
+    throw Forbidden('Organisation account only');
+  }
+  if (user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN') {
+    throw Forbidden('Organisation admin only');
+  }
+  const row = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    include: orgInclude,
+  });
+  if (!row) throw NotFound('Organisation not found');
+  const admin = await prisma.user.findFirst({
+    where: { tenantId, role: 'ADMIN' },
+    select: { id: true, userId: true, name: true, email: true, phone: true },
+  });
+  return { ...serializeOrg(row), admin };
+}
+
+async function updateMyAccount(user, input) {
+  const tenantId = user.tenantId;
+  if (!tenantId || tenantId === tenant.DEFAULT_TENANT_ID) {
+    throw Forbidden('Organisation account only');
+  }
+  if (user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN') {
+    throw Forbidden('Organisation admin only');
+  }
+  return updateRegistration(tenantId, {
+    name: input.name,
+    adminName: input.adminName,
+    adminEmail: input.adminEmail,
+    adminPhone: input.adminPhone,
+    adminPassword: input.adminPassword,
+  });
+}
+
 async function updateSubscription(id, input) {
   const existing = await prisma.tenant.findUnique({ where: { id } });
   if (!existing) throw NotFound('Organisation not found');
   const data = {};
   if (input.status) data.status = input.status;
+  if (input.planId) data.planId = input.planId;
   if (input.planMonths !== undefined) data.planMonths = input.planMonths;
   if (input.trialEndsAt !== undefined) {
     data.trialEndsAt = input.trialEndsAt ? new Date(input.trialEndsAt) : null;
@@ -379,6 +456,9 @@ module.exports = {
   create,
   register,
   update,
+  updateRegistration,
+  getMyAccount,
+  updateMyAccount,
   updateSubscription,
   approveRegistration,
   rejectRegistration,

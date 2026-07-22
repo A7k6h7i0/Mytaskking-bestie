@@ -13,8 +13,6 @@ import '../state.dart';
 import '../telecaller_recording_setup.dart';
 import 'front_selfie_capture.dart';
 import 'telecaller_onboarding_screen.dart';
-import 'organization_registration_wizard.dart';
-import 'organization_register_sheet.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -55,22 +53,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _openRegister() async {
-    final api = ref.read(apiProvider);
     if (!mounted) return;
-    await showOrgRegistrationFlow(
-      context,
-      onRegister: (data) => api.registerOrganization(data),
-      api: (
-        uploadFile: ({required bytes, required filename, required mimeType}) =>
-            api.registerUploadDocument(
-              bytes: bytes,
-              filename: filename,
-              mimeType: mimeType,
-            ),
-        requestTrial: (tenantId) => api.requestOrgTrial(tenantId),
-        fetchPlans: () => api.listPublicBillingPlans(),
-      ),
-    );
+    context.push('/register-organization');
   }
 
   Future<void> _submit() async {

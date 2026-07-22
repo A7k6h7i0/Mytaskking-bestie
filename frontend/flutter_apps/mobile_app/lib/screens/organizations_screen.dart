@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../state.dart';
+import '../utils/subscription_status.dart';
+import '../widgets/document_image_viewer.dart';
 
 /// Platform super-admin screen — create and manage customer organisations.
 class OrganizationsScreen extends ConsumerStatefulWidget {
@@ -182,7 +184,13 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
     if (!mounted) return;
     Navigator.of(context, rootNavigator: true).pop();
 
-    final content = _OrganizationDetailsBody(org: full, colors: c);
+    final content = _OrganizationDetailsBody(
+      org: full,
+      colors: c,
+      onEdit: (full['status'] ?? '') == 'ACTIVE'
+          ? () => _showEditOrg(full)
+          : null,
+    );
 
     if (wide) {
       await showDialog<void>(
@@ -217,6 +225,30 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _showEditOrg(Map<String, dynamic> org) async {
+    final id = org['id']?.toString();
+    if (id == null) return;
+
+    final updated = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (ctx) => _EditOrganizationSheet(
+        org: org,
+        onSaveRegistration: (data) =>
+            ref.read(apiProvider).updateTenantRegistration(id, data),
+        onSaveSubscription: (data) =>
+            ref.read(apiProvider).updateTenantSubscription(id, data),
+      ),
+    );
+    if (updated == null || !mounted) return;
+    await _load();
+    if (mounted) {
+      bestieToast(context, 'Organisation updated',
+          kind: BestieToastKind.success);
+    }
   }
 
   @override
@@ -376,7 +408,7 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
                                 ),
                                 if (sub != null)
                                   Text(
-                                    'Billing: ${sub['status']}',
+                                    subscriptionStatusLabel(sub),
                                     style: TextStyle(
                                         color: c.textMuted, fontSize: 13),
                                   ),
@@ -441,10 +473,12 @@ class _OrganizationDetailsBody extends StatelessWidget {
   const _OrganizationDetailsBody({
     required this.org,
     required this.colors,
+    this.onEdit,
   });
 
   final Map<String, dynamic> org;
   final BestieColors colors;
+  final VoidCallback? onEdit;
 
   String _fmt(dynamic v) {
     if (v == null) return '—';
@@ -503,20 +537,38 @@ class _OrganizationDetailsBody extends StatelessWidget {
     );
   }
 
-  Widget _idImage(String? url) {
+  Widget _idImage(BuildContext context, String? url, String title) {
     if (url == null || url.trim().isEmpty) {
       return Text('No image uploaded',
           style: TextStyle(color: colors.textMuted, fontSize: 12));
     }
-    return ClipRRect(
+    return InkWell(
+      onTap: () => DocumentImageViewer.show(
+        context,
+        title: title,
+        imageUrl: url,
+      ),
       borderRadius: BorderRadius.circular(8),
-      child: Image.network(
-        url,
-        height: 120,
-        width: double.infinity,
-        fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => Text('Could not load image',
-            style: TextStyle(color: colors.danger, fontSize: 12)),
+      child: Stack(
+        alignment: Alignment.bottomRight,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Image.network(
+              url,
+              height: 120,
+              width: double.infinity,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => Text('Could not load image',
+                  style: TextStyle(color: colors.danger, fontSize: 12)),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(6),
+            child: Icon(Icons.fullscreen_rounded,
+                color: Colors.white.withValues(alpha: 0.9), size: 20),
+          ),
+        ],
       ),
     );
   }
@@ -552,6 +604,15 @@ class _OrganizationDetailsBody extends StatelessWidget {
                   icon: const Icon(Icons.close_rounded),
                   onPressed: () => Navigator.pop(context),
                 ),
+                if (onEdit != null)
+                  IconButton(
+                    icon: const Icon(Icons.edit_outlined),
+                    tooltip: 'Edit organisation',
+                    onPressed: () {
+                      Navigator.pop(context);
+                      onEdit!();
+                    },
+                  ),
               ],
             ),
             const SizedBox(height: 4),
@@ -577,7 +638,11 @@ class _OrganizationDetailsBody extends StatelessWidget {
                         fontWeight: FontWeight.w600)),
                 const SizedBox(height: 4),
                 _row('Number', _fmt(reg['govtId1Number'])),
-                _idImage(reg['govtId1ImageUrl']?.toString()),
+                _idImage(
+                  context,
+                  reg['govtId1ImageUrl']?.toString(),
+                  'Government ID 1 (${_fmt(reg['govtId1Type'])})',
+                ),
                 const SizedBox(height: 10),
                 Text('Government ID 2 (${_fmt(reg['govtId2Type'])})',
                     style: TextStyle(
@@ -586,11 +651,15 @@ class _OrganizationDetailsBody extends StatelessWidget {
                         fontWeight: FontWeight.w600)),
                 const SizedBox(height: 4),
                 _row('Number', _fmt(reg['govtId2Number'])),
-                _idImage(reg['govtId2ImageUrl']?.toString()),
+                _idImage(
+                  context,
+                  reg['govtId2ImageUrl']?.toString(),
+                  'Government ID 2 (${_fmt(reg['govtId2Type'])})',
+                ),
               ]),
             if (sub != null)
               _section('Billing', [
-                _row('Status', _fmt(sub['status'])),
+                _row('Account status', subscriptionStatusLabel(sub)),
                 if (sub['planLabel'] != null)
                   _row('Plan', _fmt(sub['planLabel']))
                 else if (sub['planMonths'] != null)
@@ -610,6 +679,192 @@ class _OrganizationDetailsBody extends StatelessWidget {
                   style: TextStyle(color: colors.textMuted, fontSize: 13),
                 ),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EditOrganizationSheet extends StatefulWidget {
+  const _EditOrganizationSheet({
+    required this.org,
+    required this.onSaveRegistration,
+    required this.onSaveSubscription,
+  });
+
+  final Map<String, dynamic> org;
+  final Future<Map<String, dynamic>> Function(Map<String, dynamic> data)
+      onSaveRegistration;
+  final Future<Map<String, dynamic>> Function(Map<String, dynamic> data)
+      onSaveSubscription;
+
+  @override
+  State<_EditOrganizationSheet> createState() => _EditOrganizationSheetState();
+}
+
+class _EditOrganizationSheetState extends State<_EditOrganizationSheet> {
+  late final TextEditingController _name;
+  late final TextEditingController _adminName;
+  late final TextEditingController _adminEmail;
+  late final TextEditingController _adminPhone;
+  late final TextEditingController _adminPassword;
+  DateTime? _trialEndsAt;
+  DateTime? _paidUntil;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final reg = (widget.org['registration'] as Map?)?.cast<String, dynamic>();
+    final sub = (widget.org['subscription'] as Map?)?.cast<String, dynamic>();
+    _name = TextEditingController(text: widget.org['name']?.toString() ?? '');
+    _adminName = TextEditingController();
+    _adminEmail =
+        TextEditingController(text: reg?['adminEmail']?.toString() ?? '');
+    _adminPhone =
+        TextEditingController(text: reg?['adminPhone']?.toString() ?? '');
+    _adminPassword = TextEditingController();
+    _trialEndsAt = _parseDate(sub?['trialEndsAt']);
+    _paidUntil = _parseDate(sub?['paidUntil']);
+  }
+
+  DateTime? _parseDate(dynamic value) {
+    if (value == null) return null;
+    return DateTime.tryParse(value.toString());
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _adminName.dispose();
+    _adminEmail.dispose();
+    _adminPhone.dispose();
+    _adminPassword.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickDate({
+    required bool trial,
+  }) async {
+    final initial = trial ? _trialEndsAt : _paidUntil;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial ?? DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+    );
+    if (picked == null) return;
+    setState(() {
+      if (trial) {
+        _trialEndsAt = picked;
+      } else {
+        _paidUntil = picked;
+      }
+    });
+  }
+
+  Future<void> _save() async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    try {
+      final regData = <String, dynamic>{
+        'name': _name.text.trim(),
+        'adminEmail': _adminEmail.text.trim(),
+        'adminPhone': _adminPhone.text.trim(),
+      };
+      if (_adminName.text.trim().isNotEmpty) {
+        regData['adminName'] = _adminName.text.trim();
+      }
+      if (_adminPassword.text.isNotEmpty) {
+        regData['adminPassword'] = _adminPassword.text;
+      }
+      await widget.onSaveRegistration(regData);
+      await widget.onSaveSubscription({
+        if (_trialEndsAt != null)
+          'trialEndsAt': _trialEndsAt!.toIso8601String(),
+        if (_paidUntil != null) 'paidUntil': _paidUntil!.toIso8601String(),
+      });
+      if (!mounted) return;
+      Navigator.pop(context, {'ok': true});
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not save',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 16,
+        bottom: MediaQuery.viewInsetsOf(context).bottom + 20,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Edit organisation',
+                style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: c.text)),
+            const SizedBox(height: 16),
+            TextField(
+                controller: _name, decoration: const InputDecoration(labelText: 'Company name')),
+            TextField(
+                controller: _adminName,
+                decoration: const InputDecoration(labelText: 'Admin name')),
+            TextField(
+                controller: _adminEmail,
+                decoration: const InputDecoration(labelText: 'Admin email')),
+            TextField(
+                controller: _adminPhone,
+                decoration: const InputDecoration(labelText: 'Admin phone')),
+            TextField(
+                controller: _adminPassword,
+                obscureText: true,
+                decoration: const InputDecoration(
+                    labelText: 'New admin password (optional)')),
+            const SizedBox(height: 12),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Trial ends'),
+              subtitle: Text(_trialEndsAt?.toString().split(' ').first ??
+                  'Not set'),
+              trailing: IconButton(
+                icon: const Icon(Icons.calendar_today_outlined),
+                onPressed: () => _pickDate(trial: true),
+              ),
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Account expires (paid until)'),
+              subtitle: Text(_paidUntil?.toString().split(' ').first ??
+                  'Not set'),
+              trailing: IconButton(
+                icon: const Icon(Icons.calendar_today_outlined),
+                onPressed: () => _pickDate(trial: false),
+              ),
+            ),
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: _saving ? null : _save,
+              child: _saving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Text('Save changes'),
+            ),
           ],
         ),
       ),

@@ -3,14 +3,8 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../state.dart';
-
-const _paymentBaseUrl = String.fromEnvironment(
-  'PAYMENT_URL',
-  defaultValue: 'https://payment.mytaskking.com',
-);
 
 const _govtIdTypes = [
   ('AADHAAR', 'Aadhaar'),
@@ -26,8 +20,6 @@ typedef ApiOps = ({
     required String filename,
     required String mimeType,
   }) uploadFile,
-  Future<void> Function(String tenantId) requestTrial,
-  Future<List<Map<String, dynamic>>> Function() fetchPlans,
 });
 
 class OrganizationRegistrationWizard extends StatefulWidget {
@@ -35,10 +27,14 @@ class OrganizationRegistrationWizard extends StatefulWidget {
     super.key,
     required this.onRegister,
     required this.api,
+    this.fullScreen = false,
+    this.onBackToLogin,
   });
 
   final RegisterFn onRegister;
   final ApiOps api;
+  final bool fullScreen;
+  final VoidCallback? onBackToLogin;
 
   @override
   State<OrganizationRegistrationWizard> createState() =>
@@ -49,6 +45,7 @@ class _OrganizationRegistrationWizardState
     extends State<OrganizationRegistrationWizard> {
   int _step = 0;
   bool _busy = false;
+  bool _submitted = false;
   int? _uploadingIdSlot;
   String? _id1Url;
   String? _id2Url;
@@ -232,7 +229,11 @@ class _OrganizationRegistrationWizardState
         'govtId2ImageUrl': _id2Url,
       });
       if (!mounted) return;
-      Navigator.pop(context, result);
+      if (widget.fullScreen) {
+        setState(() => _submitted = true);
+      } else {
+        Navigator.pop(context, result);
+      }
     } catch (e) {
       if (mounted) {
         bestieToast(context, 'Registration failed',
@@ -246,11 +247,68 @@ class _OrganizationRegistrationWizardState
   @override
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
+    final content = _submitted ? _successView(c) : _formView(c);
+    if (!widget.fullScreen) {
+      return content;
+    }
+    return Scaffold(
+      backgroundColor: c.surface,
+      appBar: AppBar(
+        title: const Text('Register organisation'),
+        backgroundColor: c.surface,
+        foregroundColor: c.text,
+        leading: _submitted
+            ? null
+            : IconButton(
+                icon: const Icon(Icons.arrow_back_rounded),
+                onPressed: widget.onBackToLogin,
+              ),
+      ),
+      body: SafeArea(child: content),
+    );
+  }
+
+  Widget _successView(BestieColors c) {
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Icon(Icons.check_circle_rounded, size: 72, color: c.success),
+          const SizedBox(height: 20),
+          Text(
+            'Registration submitted',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+              color: c.text,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Our sales team will review your organisation. After approval you will get a 7-day free trial.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: c.textMuted, height: 1.45, fontSize: 15),
+          ),
+          const SizedBox(height: 28),
+          FilledButton(
+            onPressed: widget.onBackToLogin,
+            style: FilledButton.styleFrom(backgroundColor: c.brand),
+            child: const Text('Back to login'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _formView(BestieColors c) {
     return Padding(
       padding: EdgeInsets.only(
         left: 20,
         right: 20,
-        top: 16,
+        top: widget.fullScreen ? 8 : 16,
         bottom: MediaQuery.viewInsetsOf(context).bottom + 20,
       ),
       child: SingleChildScrollView(
@@ -258,12 +316,13 @@ class _OrganizationRegistrationWizardState
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Register organisation',
-                style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    color: c.text)),
-            const SizedBox(height: 4),
+            if (!widget.fullScreen)
+              Text('Register organisation',
+                  style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                      color: c.text)),
+            if (!widget.fullScreen) const SizedBox(height: 4),
             Text('Step ${_step + 1} of 2',
                 style: TextStyle(color: c.textMuted)),
             const SizedBox(height: 16),
@@ -428,110 +487,5 @@ class _OrganizationRegistrationWizardState
         ),
       ],
     );
-  }
-}
-
-Future<void> showOrgRegistrationFlow(
-  BuildContext context, {
-  required RegisterFn onRegister,
-  required ApiOps api,
-}) async {
-  final result = await showModalBottomSheet<Map<String, dynamic>>(
-    context: context,
-    isScrollControlled: true,
-    useSafeArea: true,
-    builder: (ctx) => OrganizationRegistrationWizard(
-      onRegister: onRegister,
-      api: api,
-    ),
-  );
-  if (result == null || !context.mounted) return;
-
-  final tenantId = result['tenantId']?.toString() ??
-      (result['organisation'] as Map?)?['id']?.toString();
-  if (tenantId == null) return;
-
-  final choice = await showDialog<String>(
-    context: context,
-    barrierDismissible: false,
-    builder: (ctx) => AlertDialog(
-      title: const Text('Choose subscription'),
-      content: const Text(
-        'Start with a 7-day free trial (activates after sales approval) or pay monthly now.',
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(ctx, 'trial'),
-          child: const Text('7-day free trial'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(ctx, 'pay'),
-          child: const Text('Pay monthly'),
-        ),
-      ],
-    ),
-  );
-  if (!context.mounted || choice == null) return;
-
-  if (choice == 'trial') {
-    try {
-      await api.requestTrial(tenantId);
-      bestieToast(context, 'Trial requested',
-          body: 'Return after sales team approval.',
-          kind: BestieToastKind.success);
-    } catch (e) {
-      bestieToast(context, 'Could not request trial',
-          body: formatApiError(e), kind: BestieToastKind.error);
-    }
-    return;
-  }
-
-  List<Map<String, dynamic>> plans;
-  try {
-    plans = await api.fetchPlans();
-  } catch (e) {
-    if (context.mounted) {
-      bestieToast(context, 'Could not load plans',
-          body: formatApiError(e), kind: BestieToastKind.error);
-    }
-    return;
-  }
-  if (plans.isEmpty) {
-    if (context.mounted) {
-      bestieToast(context, 'No plans available',
-          body: 'Ask super admin to add subscription plans.',
-          kind: BestieToastKind.error);
-    }
-    return;
-  }
-
-  final planId = await showDialog<String>(
-    context: context,
-    builder: (ctx) => SimpleDialog(
-      title: const Text('Choose a plan'),
-      children: plans.map((plan) {
-        final id = plan['id']?.toString() ?? '';
-        final label = plan['label']?.toString() ?? 'Plan';
-        final inr = plan['amountInr'] ??
-            (((plan['amountPaise'] as num?) ?? 0) / 100);
-        return SimpleDialogOption(
-          onPressed: () => Navigator.pop(ctx, id),
-          child: Text('$label — ₹$inr'),
-        );
-      }).toList(),
-    ),
-  );
-  if (!context.mounted || planId == null || planId.isEmpty) return;
-
-  final uri = Uri.parse(
-    '$_paymentBaseUrl/checkout?tenantId=$tenantId&plan=$planId',
-  );
-  if (await canLaunchUrl(uri)) {
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (context.mounted) {
-      bestieToast(context, 'Complete payment in browser',
-          body: 'Then return here and wait for approval.',
-          kind: BestieToastKind.info);
-    }
   }
 }

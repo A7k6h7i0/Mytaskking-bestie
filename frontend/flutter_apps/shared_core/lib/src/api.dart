@@ -620,6 +620,36 @@ extension BestieApiExt on BestieApi {
     return r.data as Map<String, dynamic>;
   }
 
+  Future<Map<String, dynamic>> updateTenantRegistration(
+    String id,
+    Map<String, dynamic> data,
+  ) async {
+    final r = await dio.patch('/tenants/$id/registration', data: data);
+    return r.data as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> getMyOrganizationAccount() =>
+      get('/tenants/me/account');
+
+  Future<Map<String, dynamic>> updateMyOrganizationAccount(
+    Map<String, dynamic> data,
+  ) async {
+    final r = await dio.patch('/tenants/me/account', data: data);
+    return r.data as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> getMySubscription() =>
+      get('/billing/my-subscription');
+
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) =>
+      post('/auth/change-password', body: {
+        'currentPassword': currentPassword,
+        'newPassword': newPassword,
+      });
+
   Future<List<Map<String, dynamic>>> listAdminNotes() => get(
         '/admin-notes',
       ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));

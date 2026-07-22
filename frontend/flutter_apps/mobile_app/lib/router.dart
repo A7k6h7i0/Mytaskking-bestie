@@ -31,6 +31,8 @@ import 'screens/login_activity_screen.dart';
 import 'screens/work_activity_screen.dart';
 import 'screens/ai_review_screen.dart';
 import 'screens/organizations_screen.dart';
+import 'screens/organization_registration_screen.dart';
+import 'screens/subscription_screen.dart';
 import 'screens/admin_notes_screen.dart';
 import 'screens/payments_screen.dart';
 import 'screens/deleted_chats_screen.dart';
@@ -47,9 +49,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       final logged = auth.accessToken != null;
       final loc = state.matchedLocation;
       final loginPath = loc == '/login';
+      final registerPath = loc == '/register-organization';
       final setupPath = loc == '/telecaller/setup';
 
-      if (!logged && !loginPath) return '/login';
+      if (!logged && !loginPath && !registerPath) return '/login';
       if (logged && loginPath) {
         final role = auth.user?.role;
         if (role == 'TELECALLER' &&
@@ -73,6 +76,10 @@ final routerProvider = Provider<GoRouter>((ref) {
     },
     routes: [
       GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
+      GoRoute(
+        path: '/register-organization',
+        builder: (_, __) => const OrganizationRegistrationScreen(),
+      ),
 
       // Dynamic search — full-screen, outside the shell so it can take the
       // whole viewport (no bottom nav while typing). `?q=` and `?k=` set
@@ -176,8 +183,11 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
               path: '/payments',
               builder: (_, __) => const PaymentsScreen()),
-          GoRoute(
-              path: '/settings', builder: (_, __) => const SettingsScreen()),
+      GoRoute(
+          path: '/settings', builder: (_, __) => const SettingsScreen()),
+      GoRoute(
+          path: '/subscription',
+          builder: (_, __) => const SubscriptionScreen()),
         ],
       ),
     ],
