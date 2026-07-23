@@ -55,6 +55,7 @@ const NAV: NavItem[] = [
   { to: '/payments', label: 'Payments', icon: CreditCard, platformOnly: true },
   { to: '/telecaller', label: 'Telecaller', icon: Headphones },
   { to: '/saved', label: 'Saved', icon: Bookmark },
+  { to: '/field-visits', label: 'Field visits', icon: Radio },
   { to: '/employees', label: 'Employees', icon: Users },
   { to: '/clients', label: 'Clients', icon: UserCog },
   { to: '/analytics', label: 'Analytics', icon: BarChart3 },
@@ -72,8 +73,8 @@ const NAV: NavItem[] = [
 const ALLOWED: Record<string, string[]> = {
   SUPER_ADMIN: NAV.map((n) => n.to),
   ADMIN: NAV.filter((n) => !n.platformOnly).map((n) => n.to),
-  MANAGER: ['/dashboard', '/chat', '/channels', '/tasks', '/reports', '/calendar', '/calls', '/meetings', '/saved', '/employees', '/sessions'],
-  PROJECT_COORDINATOR_MANAGER: ['/dashboard', '/chat', '/channels', '/tasks', '/reports', '/calendar', '/calls', '/meetings', '/saved', '/employees', '/sessions'],
+  MANAGER: ['/dashboard', '/chat', '/channels', '/tasks', '/reports', '/calendar', '/calls', '/meetings', '/saved', '/field-visits', '/employees', '/sessions'],
+  PROJECT_COORDINATOR_MANAGER: ['/dashboard', '/chat', '/channels', '/tasks', '/reports', '/calendar', '/calls', '/meetings', '/saved', '/field-visits', '/employees', '/sessions'],
   EMPLOYEE: ['/dashboard', '/chat', '/channels', '/tasks', '/reports', '/calendar', '/calls', '/meetings', '/saved', '/employees', '/sessions'],
   TELECALLER: ['/dashboard', '/telecaller', '/chat', '/reports', '/calendar', '/saved', '/employees', '/sessions'],
   CLIENT: ['/dashboard', '/channels', '/saved', '/sessions'],

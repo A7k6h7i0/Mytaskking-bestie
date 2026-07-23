@@ -13,6 +13,7 @@ const router = Router();
 const EmployeeRole = Joi.string().valid(
   'ADMIN',
   'MANAGER',
+  'EXECUTIVE',
   'PROJECT_COORDINATOR_MANAGER',
   'EMPLOYEE',
   'TELECALLER',

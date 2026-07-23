@@ -34,6 +34,16 @@ class BestieUser {
       role == 'SALES_HEAD' &&
       (tenantSlug == null || tenantSlug == 'default' || tenantSlug!.isEmpty);
 
+  bool get isExecutive => role == 'EXECUTIVE';
+
+  bool get isFieldManager =>
+      role == 'MANAGER' ||
+      role == 'PROJECT_COORDINATOR_MANAGER' ||
+      role == 'ADMIN' ||
+      isPlatformSuperAdmin;
+
+  bool get hasFieldForceAccess => isExecutive || isFieldManager;
+
   factory BestieUser.fromJson(Map<String, dynamic> j) => BestieUser(
         id: j['id'] as String,
         userId: j['userId'] as String,

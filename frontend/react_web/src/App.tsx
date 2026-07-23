@@ -12,6 +12,7 @@ import CallsPage from '@/pages/CallsPage';
 import CallRoomPage from '@/pages/CallRoomPage';
 import TelecallerPage from '@/pages/TelecallerPage';
 import EmployeesPage from '@/pages/EmployeesPage';
+import FieldVisitsPage from '@/pages/FieldVisitsPage';
 import ClientsPage from '@/pages/ClientsPage';
 import ActivityPage from '@/pages/ActivityPage';
 import CalendarPage from '@/pages/CalendarPage';
@@ -145,8 +146,12 @@ export default function App() {
             element={<RoleGate allow={['SUPER_ADMIN', 'ADMIN', 'TELECALLER']}><TelecallerPage /></RoleGate>}
           />
           <Route
+            path="/field-visits"
+            element={<RoleGate allow={['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'PROJECT_COORDINATOR_MANAGER']}><FieldVisitsPage /></RoleGate>}
+          />
+          <Route
             path="/employees"
-            element={<RoleGate allow={['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'PROJECT_COORDINATOR_MANAGER', 'EMPLOYEE', 'TELECALLER']}><EmployeesPage /></RoleGate>}
+            element={<RoleGate allow={['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'PROJECT_COORDINATOR_MANAGER', 'EMPLOYEE', 'TELECALLER', 'EXECUTIVE']}><EmployeesPage /></RoleGate>}
           />
           <Route
             path="/clients"

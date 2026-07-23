@@ -36,6 +36,13 @@ import 'screens/subscription_screen.dart';
 import 'screens/admin_notes_screen.dart';
 import 'screens/payments_screen.dart';
 import 'screens/deleted_chats_screen.dart';
+import 'screens/marketing/field_dashboard_screen.dart';
+import 'screens/marketing/field_manager_screen.dart';
+import 'screens/marketing/field_hr_screen.dart';
+import 'screens/marketing/marketing_orders_screen.dart';
+import 'screens/marketing/marketing_outlet_visit_screen.dart';
+import 'screens/marketing/marketing_outlets_screen.dart';
+import 'screens/marketing/marketing_shop_search_screen.dart';
 import 'state.dart' hide ThemeMode;
 import 'telecaller_recording_setup.dart';
 
@@ -48,6 +55,7 @@ String _homeRouteForRole(String? role, {bool? isSalesHead}) {
     return '/telecaller';
   }
   if (role == 'SALES_HEAD' || isSalesHead == true) return '/dashboard';
+  if (role == 'EXECUTIVE') return '/field';
   return '/chat';
 }
 
@@ -168,6 +176,25 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, s) => TaskDetailScreen(taskId: s.pathParameters['id']!),
       ),
 
+      GoRoute(
+        path: '/marketing/outlets/:id',
+        builder: (_, s) => MarketingOutletVisitScreen(
+          outletId: s.pathParameters['id']!,
+        ),
+      ),
+
+      GoRoute(
+        path: '/field/hr',
+        builder: (_, __) => const FieldHrScreen(),
+      ),
+
+      GoRoute(
+        path: '/marketing/orders',
+        builder: (_, s) => MarketingOrdersScreen(
+          outletId: s.uri.queryParameters['outletId'],
+        ),
+      ),
+
       // Shell with bottom navigation; nested routes swap the body, sidebar
       // tabs stay rendered.
       ShellRoute(
@@ -205,6 +232,16 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
           path: '/subscription',
           builder: (_, __) => const SubscriptionScreen()),
+          GoRoute(path: '/field', builder: (_, __) => const FieldDashboardScreen()),
+          GoRoute(
+              path: '/field/manager',
+              builder: (_, __) => const FieldManagerScreen()),
+          GoRoute(
+              path: '/marketing/outlets',
+              builder: (_, __) => const MarketingOutletsScreen()),
+          GoRoute(
+              path: '/marketing/shops',
+              builder: (_, __) => const MarketingShopSearchScreen()),
         ],
       ),
     ],

@@ -9,6 +9,7 @@ import 'package:mytaskking_core/mytaskking_core.dart' as core;
 import '../mobile_themes_section.dart';
 import '../state.dart' hide ThemeMode;
 import '../widgets/profile_avatar_editor.dart';
+import 'marketing/field_settings_section.dart';
 
 /// App-level settings and links to the rest of the workspace.
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -407,6 +408,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 label: 'Track activity every: $_trackActivityLabel',
                 onTap: _editTrackActivityInterval,
               ),
+            if (user?.role == 'ADMIN' ||
+                user?.role == 'SUPER_ADMIN' ||
+                user?.role == 'MANAGER')
+              _SectionLabel('Field force', colors: c),
+            if (user?.role == 'ADMIN' ||
+                user?.role == 'SUPER_ADMIN' ||
+                user?.role == 'MANAGER')
+              const FieldSettingsSection(),
             _SectionLabel('People', colors: c),
             if (!(user?.isClient ?? false))
               _SettingTile(

@@ -19,6 +19,7 @@ enum Role {
   SALES_HEAD
   ADMIN
   MANAGER
+  EXECUTIVE
   PROJECT_COORDINATOR_MANAGER
   EMPLOYEE
   TELECALLER
@@ -85,6 +86,18 @@ model User {
   adminNotesAuthored AdminNote[]       @relation("AdminNoteAuthor")
   adminNotesReviewed AdminNote[]       @relation("AdminNoteReviewer")
   registrationReviews TenantRegistration[] @relation("RegistrationReviewer")
+  marketingOutletsAssigned MarketingOutlet[] @relation("MarketingOutletAssignee")
+  marketingOutletsCreated  MarketingOutlet[] @relation("MarketingOutletCreator")
+  fieldVisits              FieldVisit[]
+  fieldGpsLogs             FieldGpsLog[]
+  fieldOrders              FieldOrder[]
+  fieldExpenses            FieldExpense[]
+  fieldLeaves              FieldLeave[]
+  fieldIncidents           FieldIncident[]
+  fieldRatings             FieldRating[]
+  fieldRoutesAssigned      FieldRoute[]      @relation("FieldRouteAssignee")
+  fieldRoutesCreated       FieldRoute[]      @relation("FieldRouteCreator")
+  fieldDailyPlans          FieldDailyPlan[]
 
   // multi-tenancy — each organisation is an isolated workspace (Lark-style)
   tenantId        String     @default("default")
@@ -1433,4 +1446,349 @@ model TrustedDevice {
 
   @@unique([userId, fingerprint])
   @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// FIELD FORCE / MARKETING (merged from Marketing-Executives — org-scoped)
+// ---------------------------------------------------------------------------
+
+model MarketingOutlet {
+  id              String    @id @default(cuid())
+  tenantId        String
+  name            String
+  code            String?
+  ownerName       String?
+  phone           String?
+  email           String?
+  address         String?
+  city            String?
+  state           String?
+  pincode         String?
+  category        String?
+  photoUrls       String?
+  nextVisitDate   DateTime?
+  partyStatus     String    @default("active")
+  source          String    @default("manual")
+  latitude        Decimal?  @db.Decimal(10, 7)
+  longitude       Decimal?  @db.Decimal(10, 7)
+  grade           String?
+  distributorId   String?
+  regionId        String?
+  territoryId     String?
+  assignedToId    String?
+  assignedTo      User?     @relation("MarketingOutletAssignee", fields: [assignedToId], references: [id])
+  status          String    @default("active")
+  approvalStatus  String    @default("approved")
+  createdById     String?
+  createdBy       User?     @relation("MarketingOutletCreator", fields: [createdById], references: [id])
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  visits          FieldVisit[]
+  orders          FieldOrder[]
+
+  @@index([tenantId])
+  @@index([tenantId, assignedToId])
+  @@index([tenantId, status])
+}
+
+model FieldVisit {
+  id                 String          @id @default(cuid())
+  tenantId           String
+  userId             String
+  user               User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  outletId           String
+  outlet             MarketingOutlet @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  planId             String?
+  checkInAt          DateTime?
+  checkOutAt         DateTime?
+  checkInLat         Decimal?        @db.Decimal(10, 7)
+  checkInLng         Decimal?        @db.Decimal(10, 7)
+  selfieUrl          String?
+  notes              String?
+  status             String          @default("planned")
+  overrideReason     String?
+  overrideApprovedBy String?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  orders             FieldOrder[]
+
+  @@index([tenantId, userId])
+  @@index([outletId])
+}
+
+model FieldGpsLog {
+  id           String   @id @default(cuid())
+  tenantId     String
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  latitude     Decimal  @db.Decimal(10, 7)
+  longitude    Decimal  @db.Decimal(10, 7)
+  accuracy     Decimal? @db.Decimal(8, 2)
+  speed        Decimal? @db.Decimal(8, 2)
+  batteryLevel Int?
+  offlineId    String?
+  loggedAt     DateTime
+  createdAt    DateTime @default(now())
+
+  @@index([tenantId, userId])
+  @@index([loggedAt])
+}
+
+model MarketingCategory {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  parentId  String?
+  createdAt DateTime @default(now())
+  products  MarketingProduct[]
+
+  @@index([tenantId])
+}
+
+model MarketingBrand {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  createdAt DateTime @default(now())
+  products  MarketingProduct[]
+
+  @@index([tenantId])
+}
+
+model MarketingProduct {
+  id           String             @id @default(cuid())
+  tenantId     String
+  sku          String?
+  name         String
+  categoryId   String?
+  category     MarketingCategory? @relation(fields: [categoryId], references: [id])
+  brandId      String?
+  brand        MarketingBrand?    @relation(fields: [brandId], references: [id])
+  mrp          Decimal?           @db.Decimal(12, 2)
+  ptr          Decimal?           @db.Decimal(12, 2)
+  pts          Decimal?           @db.Decimal(12, 2)
+  gstPercent   Decimal?           @db.Decimal(5, 2)
+  uom          String?
+  packSize     Int?
+  stock        Int                @default(0)
+  availability Boolean            @default(true)
+  status       String             @default("active")
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  orderItems   FieldOrderItem[]
+
+  @@index([tenantId])
+  @@index([tenantId, sku])
+}
+
+model MarketingRegion {
+  id          String              @id @default(cuid())
+  tenantId    String
+  name        String
+  code        String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  territories MarketingTerritory[]
+
+  @@index([tenantId])
+}
+
+model MarketingTerritory {
+  id          String           @id @default(cuid())
+  tenantId    String
+  regionId    String?
+  region      MarketingRegion? @relation(fields: [regionId], references: [id])
+  name        String
+  description String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([tenantId])
+}
+
+model MarketingDistributor {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  phone     String?
+  email     String?
+  address   String?
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+}
+
+model FieldOrder {
+  id                 String           @id @default(cuid())
+  tenantId           String
+  visitId            String?
+  visit              FieldVisit?      @relation(fields: [visitId], references: [id])
+  outletId           String
+  outlet             MarketingOutlet  @relation(fields: [outletId], references: [id])
+  userId             String
+  user               User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  distributorId      String?
+  subtotal           Decimal          @default(0) @db.Decimal(12, 2)
+  discount           Decimal          @default(0) @db.Decimal(12, 2)
+  gst                Decimal          @default(0) @db.Decimal(12, 2)
+  total              Decimal          @default(0) @db.Decimal(12, 2)
+  paymentMode        String?
+  creditDays         Int?
+  outstandingBalance Decimal?         @db.Decimal(12, 2)
+  notes              String?
+  status             String           @default("draft")
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  items              FieldOrderItem[]
+
+  @@index([tenantId])
+  @@index([tenantId, userId])
+  @@index([outletId])
+}
+
+model FieldOrderItem {
+  id              String           @id @default(cuid())
+  tenantId        String
+  orderId         String
+  order           FieldOrder       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId       String
+  product         MarketingProduct @relation(fields: [productId], references: [id])
+  quantity        Int
+  freeQuantity    Int              @default(0)
+  mrp             Decimal?         @db.Decimal(12, 2)
+  ptr             Decimal?         @db.Decimal(12, 2)
+  discountPercent Decimal          @default(0) @db.Decimal(5, 2)
+  gstPercent      Decimal          @default(0) @db.Decimal(5, 2)
+  lineTotal       Decimal?         @db.Decimal(12, 2)
+  createdAt       DateTime         @default(now())
+
+  @@index([orderId])
+}
+
+model FieldExpense {
+  id              String   @id @default(cuid())
+  tenantId        String
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type            String
+  amount          Decimal  @db.Decimal(12, 2)
+  description     String?
+  receiptUrl      String?
+  expenseDate     String
+  status          String   @default("pending")
+  approvedById    String?
+  approvedAt      DateTime?
+  rejectionReason String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, userId])
+  @@index([tenantId, status])
+}
+
+model FieldLeave {
+  id              String   @id @default(cuid())
+  tenantId        String
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leaveType       String
+  fromDate        String
+  toDate          String
+  days            Int      @default(1)
+  reason          String?
+  status          String   @default("pending")
+  approvedById    String?
+  approvedAt      DateTime?
+  rejectionReason String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, userId])
+}
+
+model FieldHoliday {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  date      String
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+}
+
+model FieldIncident {
+  id              String   @id @default(cuid())
+  tenantId        String
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type            String
+  description     String
+  location        String?
+  mediaUrls       String?
+  status          String   @default("open")
+  resolvedById    String?
+  resolvedAt      DateTime?
+  resolutionNotes String?
+  offlineId       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, userId])
+}
+
+model FieldRating {
+  id         String   @id @default(cuid())
+  tenantId   String
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entityType String
+  entityId   String
+  score      Int
+  notes      String?
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId, entityType, entityId])
+}
+
+model FieldRoute {
+  id           String   @id @default(cuid())
+  tenantId     String
+  name         String
+  description  String?
+  assignedToId String?
+  assignedTo   User?    @relation("FieldRouteAssignee", fields: [assignedToId], references: [id])
+  outletIds    Json     @default("[]")
+  status       String   @default("active")
+  createdById  String?
+  createdBy    User?    @relation("FieldRouteCreator", fields: [createdById], references: [id])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  dailyPlans   FieldDailyPlan[]
+
+  @@index([tenantId])
+  @@index([tenantId, assignedToId])
+}
+
+model FieldDailyPlan {
+  id          String      @id @default(cuid())
+  tenantId    String
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  routeId     String?
+  route       FieldRoute? @relation(fields: [routeId], references: [id])
+  planDate    String
+  outletIds   Json        @default("[]")
+  notes       String?
+  status      String      @default("pending")
+  createdById String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, userId, planDate])
 }

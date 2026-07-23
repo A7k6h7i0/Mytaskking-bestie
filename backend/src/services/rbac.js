@@ -36,6 +36,7 @@ const DEFAULT_MATRIX = {
     'audit.view', 'analytics.view', 'announcement.publish',
     'settings.write', 'session.force_logout',
     'permission.write',
+    'marketing.*',
   ],
   EMPLOYEE: [
     'channel.read', 'channel.post', 'channel.invite',
@@ -55,6 +56,19 @@ const DEFAULT_MATRIX = {
     'call.read', 'call.create',
     'file.upload', 'file.read',
     'calendar.*',
+    'marketing.read', 'marketing.manage', 'marketing.approve',
+    'marketing.gps.view', 'marketing.visits.view', 'marketing.products.write',
+  ],
+  EXECUTIVE: [
+    'channel.read', 'channel.post',
+    'message.read', 'message.create',
+    'task.read', 'task.update',
+    'call.read', 'call.create',
+    'file.upload', 'file.read',
+    'calendar.read',
+    'marketing.read', 'marketing.field',
+    'marketing.outlets.write', 'marketing.visits.write', 'marketing.orders.write',
+    'marketing.gps.write',
   ],
   PROJECT_COORDINATOR_MANAGER: [
     'channel.read', 'channel.post', 'channel.invite',

@@ -1112,6 +1112,170 @@ extension BestieApiExt on BestieApi {
     final r = await dio.post('/tenants/register/upload', data: form);
     return Map<String, dynamic>.from(r.data as Map);
   }
+
+  // ---- field force / marketing ----
+  Future<Map<String, dynamic>> marketingDashboard() =>
+      get('/marketing/dashboard');
+
+  Future<Map<String, dynamic>> marketingFieldSettings() =>
+      get('/marketing/settings');
+
+  Future<Map<String, dynamic>> listMarketingOutlets({
+    String? search,
+    String? assignedTo,
+    String? approvalStatus,
+    int page = 1,
+    int pageSize = 25,
+  }) => get('/marketing/outlets', query: {
+        if (search != null && search.isNotEmpty) 'search': search,
+        if (assignedTo != null) 'assigned_to': assignedTo,
+        if (approvalStatus != null) 'approval_status': approvalStatus,
+        'page': page,
+        'pageSize': pageSize,
+      });
+
+  Future<Map<String, dynamic>> createMarketingOutlet(
+          Map<String, dynamic> body) =>
+      post('/marketing/outlets', body: body);
+
+  Future<Map<String, dynamic>> getMarketingOutlet(String id) =>
+      get('/marketing/outlets/$id');
+
+  Future<Map<String, dynamic>> updateMarketingOutlet(
+    String id,
+    Map<String, dynamic> body,
+  ) async {
+    final r = await dio.patch('/marketing/outlets/$id', data: body);
+    return Map<String, dynamic>.from(r.data as Map);
+  }
+
+  Future<Map<String, dynamic>> approveMarketingOutlet(String id) =>
+      post('/marketing/outlets/$id/approve', body: const {});
+
+  Future<void> deactivateMarketingOutlet(String id) async {
+    await dio.delete('/marketing/outlets/$id');
+  }
+
+  Future<Map<String, dynamic>> startFieldVisit(Map<String, dynamic> body) =>
+      post('/marketing/visits/start', body: body);
+
+  Future<Map<String, dynamic>> endFieldVisit(
+          String id, Map<String, dynamic> body) =>
+      post('/marketing/visits/$id/end', body: body);
+
+  Future<Map<String, dynamic>> listMyFieldVisits({
+    int page = 1,
+    String? status,
+  }) =>
+      get('/marketing/visits/my', query: {
+        'page': page,
+        if (status != null) 'status': status,
+      });
+
+  Future<Map<String, dynamic>?> getActiveFieldVisit() async {
+    final resp = await get('/marketing/visits/active');
+    final visit = resp['visit'];
+    if (visit == null) return null;
+    return Map<String, dynamic>.from(visit as Map);
+  }
+
+  Future<Map<String, dynamic>> listFieldVisits({String? userId, int page = 1}) =>
+      get('/marketing/visits', query: {
+        if (userId != null) 'user_id': userId,
+        'page': page,
+      });
+
+  Future<Map<String, dynamic>> logFieldGps(Map<String, dynamic> body) =>
+      post('/marketing/gps', body: body);
+
+  Future<Map<String, dynamic>> searchBusinessDirectory({
+    required String q,
+    double? lat,
+    double? lng,
+    double radius = 10,
+    int page = 1,
+    int limit = 30,
+  }) => get('/marketing/businesses/search', query: {
+        'q': q,
+        if (lat != null) 'lat': lat,
+        if (lng != null) 'lng': lng,
+        'radius': radius,
+        'page': page,
+        'limit': limit,
+      });
+
+  Future<Map<String, dynamic>> listMarketingProducts({String? search}) =>
+      get('/marketing/products', query: {if (search != null) 'search': search});
+
+  Future<Map<String, dynamic>> listFieldOrders({int page = 1}) =>
+      get('/marketing/orders', query: {'page': page});
+
+  Future<Map<String, dynamic>> createFieldOrder(Map<String, dynamic> body) =>
+      post('/marketing/orders', body: body);
+
+  Future<List<Map<String, dynamic>>> listMarketingRegions() =>
+      get('/marketing/regions').then(
+        (r) => r is List
+            ? List<Map<String, dynamic>>.from(
+                r.map((e) => Map<String, dynamic>.from(e as Map)))
+            : List<Map<String, dynamic>>.from(
+                ((r['items'] as List?) ?? const []).map(
+                  (e) => Map<String, dynamic>.from(e as Map),
+                ),
+              ),
+      );
+
+  // ---- field HR ops ----
+  Future<Map<String, dynamic>> listFieldExpenses({String? status}) =>
+      get('/marketing/expenses', query: {if (status != null) 'status': status});
+
+  Future<Map<String, dynamic>> createFieldExpense(Map<String, dynamic> body) =>
+      post('/marketing/expenses', body: body);
+
+  Future<Map<String, dynamic>> approveFieldExpense(String id) =>
+      post('/marketing/expenses/$id/approve', body: const {});
+
+  Future<Map<String, dynamic>> listFieldLeaves({String? status}) =>
+      get('/marketing/leaves', query: {if (status != null) 'status': status});
+
+  Future<Map<String, dynamic>> createFieldLeave(Map<String, dynamic> body) =>
+      post('/marketing/leaves', body: body);
+
+  Future<Map<String, dynamic>> approveFieldLeave(String id) =>
+      post('/marketing/leaves/$id/approve', body: const {});
+
+  Future<Map<String, dynamic>> listFieldIncidents() =>
+      get('/marketing/incidents');
+
+  Future<Map<String, dynamic>> createFieldIncident(Map<String, dynamic> body) =>
+      post('/marketing/incidents', body: body);
+
+  Future<Map<String, dynamic>> resolveFieldIncident(String id, {String? notes}) =>
+      post('/marketing/incidents/$id/resolve', body: {if (notes != null) 'notes': notes});
+
+  Future<Map<String, dynamic>> listFieldRatings() => get('/marketing/ratings');
+
+  Future<Map<String, dynamic>> createFieldRating(Map<String, dynamic> body) =>
+      post('/marketing/ratings', body: body);
+
+  Future<Map<String, dynamic>> listFieldRoutes() => get('/marketing/routes');
+
+  Future<Map<String, dynamic>> createFieldRoute(Map<String, dynamic> body) =>
+      post('/marketing/routes', body: body);
+
+  Future<Map<String, dynamic>> listFieldDailyPlans({String? date}) =>
+      get('/marketing/daily-plans', query: {if (date != null) 'date': date});
+
+  Future<Map<String, dynamic>> createFieldDailyPlan(Map<String, dynamic> body) =>
+      post('/marketing/daily-plans', body: body);
+
+  Future<Map<String, dynamic>> fieldSyncPull({String? lastSyncedAt}) =>
+      post('/marketing/sync/pull', body: {
+        if (lastSyncedAt != null) 'lastSyncedAt': lastSyncedAt,
+      });
+
+  Future<Map<String, dynamic>> fieldSyncBatch(Map<String, dynamic> body) =>
+      post('/marketing/sync/batch', body: body);
 }
 
 // BestieApi already exposes `get(path, query:)` and `post(path, body:)`

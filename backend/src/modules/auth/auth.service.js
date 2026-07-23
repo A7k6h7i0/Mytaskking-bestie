@@ -10,7 +10,7 @@ const r2 = require('../../services/r2');
 const logger = require('../../utils/logger');
 const tenantService = require('../../services/tenant');
 
-const SELFIE_ROLES = new Set(['MANAGER', 'PROJECT_COORDINATOR_MANAGER', 'EMPLOYEE', 'TELECALLER']);
+const SELFIE_ROLES = new Set(['MANAGER', 'PROJECT_COORDINATOR_MANAGER', 'EMPLOYEE', 'TELECALLER', 'EXECUTIVE']);
 
 async function hashPassword(plain) {
   return bcrypt.hash(plain, 12);

@@ -56,6 +56,18 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
         'Settings'),
   ];
 
+  static const _executiveTabs = [
+    _Tab('/field', Icons.dashboard_outlined, Icons.dashboard_rounded, 'Home'),
+    _Tab('/marketing/outlets', Icons.storefront_outlined,
+        Icons.storefront_rounded, 'Outlets'),
+    _Tab('/marketing/shops', Icons.search_rounded, Icons.search_rounded,
+        'Shops'),
+    _Tab('/chat', Icons.chat_bubble_outline_rounded, Icons.chat_bubble_rounded,
+        'Chat'),
+    _Tab('/settings', Icons.settings_outlined, Icons.settings_rounded,
+        'Settings'),
+  ];
+
   static const _clientTabs = [
     _Tab('/chat', Icons.chat_bubble_outline_rounded, Icons.chat_bubble_rounded,
         'Chat'),
@@ -79,7 +91,9 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
         location.startsWith('/login-activity') ||
         location.startsWith('/work-activity') ||
         location.startsWith('/ai-review') ||
-        location.startsWith('/subscription')) {
+        location.startsWith('/subscription') ||
+        location.startsWith('/field') ||
+        location.startsWith('/marketing')) {
       return -1;
     }
     return tabs.indexWhere((t) => location.startsWith(t.path));
@@ -89,6 +103,7 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
     if (user == null) return _employeeTabs;
     if (user.isClient) return _clientTabs;
     if (user.isSalesHead) return _salesHeadTabs;
+    if (user.isExecutive) return _executiveTabs;
     if (user.role == 'TELECALLER') return _telecallerTabs;
     return _employeeTabs;
   }
@@ -104,6 +119,8 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
         location == '/saved' ||
         location == '/organizations' ||
         location == '/admin-notes' ||
+        location == '/field' ||
+        location.startsWith('/marketing/') ||
         location == '/settings';
   }
 
@@ -115,9 +132,10 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
       return;
     }
     final home = user?.isSalesHead == true ||
+            user?.isExecutive == true ||
             user?.role == 'TELECALLER' ||
             user?.isClient == true
-        ? '/dashboard'
+        ? (user?.isExecutive == true ? '/field' : '/dashboard')
         : '/chat';
     if (_isRootShellTab(location) && location != home) {
       router.go(home);
@@ -252,6 +270,10 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
     return [
       _MoreEntry(
           Icons.dashboard_outlined, 'Dashboard', '/dashboard', c.brand, true),
+      _MoreEntry(Icons.storefront_outlined, 'Field team', '/field', c.brand,
+          user?.hasFieldForceAccess == true && user?.isExecutive != true),
+      _MoreEntry(Icons.groups_outlined, 'Team visits', '/field/manager', c.info,
+          user?.isFieldManager == true),
       _MoreEntry(Icons.notifications_outlined, 'Notifications',
           '/notifications', c.warning, true),
       _MoreEntry(Icons.inbox_outlined, 'Requests', '/admin-notes', c.brand,

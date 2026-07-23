@@ -187,6 +187,7 @@ export default function EmployeesPage() {
             <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
               <option value="ADMIN">Admin</option>
               <option value="MANAGER">Manager</option>
+              <option value="EXECUTIVE">Executive</option>
               <option value="PROJECT_COORDINATOR_MANAGER">Project Coordinating Manager</option>
               <option value="EMPLOYEE">Employee</option>
               <option value="TELECALLER">Telecaller</option>

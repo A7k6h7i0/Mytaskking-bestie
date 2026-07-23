@@ -18,6 +18,7 @@ async function list(req, { q, role, status, page = 1, pageSize = 25, forChat = f
                 'SUPER_ADMIN',
                 'ADMIN',
                 'MANAGER',
+                'EXECUTIVE',
                 'PROJECT_COORDINATOR_MANAGER',
                 'EMPLOYEE',
                 'TELECALLER',

@@ -18,6 +18,7 @@ class _EmployeesScreenState extends ConsumerState<EmployeesScreen> {
   static const _baseRoles = [
     'ADMIN',
     'MANAGER',
+    'EXECUTIVE',
     'PROJECT_COORDINATOR_MANAGER',
     'EMPLOYEE',
     'TELECALLER',
@@ -32,6 +33,7 @@ class _EmployeesScreenState extends ConsumerState<EmployeesScreen> {
 
   static String _roleLabel(String role) => switch (role) {
         'PROJECT_COORDINATOR_MANAGER' => 'Project coordinator',
+        'EXECUTIVE' => 'Executive',
         'TELECALLER' => 'Telecaller',
         'SALES_HEAD' => 'Sales head',
         _ => role[0] + role.substring(1).toLowerCase().replaceAll('_', ' '),

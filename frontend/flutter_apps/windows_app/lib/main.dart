@@ -38,6 +38,7 @@ import 'work_activity_screen.dart';
 /// Desktop home after login — mirrors mobile role routing where it differs.
 String _desktopHomeRoute(BestieUser? user) {
   if (user?.isSalesHead == true) return '/dashboard';
+  if (user?.isExecutive == true) return '/field';
   return '/dashboard';
 }
 
@@ -173,6 +174,22 @@ class _BestieWindowsAppState extends ConsumerState<BestieWindowsApp> {
           builder: (_, s) =>
               DesktopTaskDetailScreen(taskId: s.pathParameters['id']!),
         ),
+        GoRoute(
+          path: '/marketing/outlets/:id',
+          builder: (_, s) => MarketingOutletVisitScreen(
+            outletId: s.pathParameters['id']!,
+          ),
+        ),
+        GoRoute(
+          path: '/field/hr',
+          builder: (_, __) => const FieldHrScreen(),
+        ),
+        GoRoute(
+          path: '/marketing/orders',
+          builder: (_, s) => MarketingOrdersScreen(
+            outletId: s.uri.queryParameters['outletId'],
+          ),
+        ),
         ShellRoute(
           builder: (_, __, child) => DesktopShell(child: child),
           routes: [
@@ -242,6 +259,18 @@ class _BestieWindowsAppState extends ConsumerState<BestieWindowsApp> {
               path: '/profile',
               builder: (_, __) => const DesktopProfileScreen(),
             ),
+            GoRoute(
+                path: '/field',
+                builder: (_, __) => const FieldDashboardScreen()),
+            GoRoute(
+                path: '/field/manager',
+                builder: (_, __) => const FieldManagerScreen()),
+            GoRoute(
+                path: '/marketing/outlets',
+                builder: (_, __) => const MarketingOutletsScreen()),
+            GoRoute(
+                path: '/marketing/shops',
+                builder: (_, __) => const MarketingShopSearchScreen()),
           ],
         ),
       ],
@@ -668,6 +697,31 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
       ];
     }
 
+    if (user?.isExecutive == true) {
+      return const [
+        BestieSidebarItem(
+            icon: Icons.dashboard_outlined,
+            label: 'Home',
+            route: '/field'),
+        BestieSidebarItem(
+            icon: Icons.storefront_outlined,
+            label: 'Outlets',
+            route: '/marketing/outlets'),
+        BestieSidebarItem(
+            icon: Icons.search_rounded,
+            label: 'Shops',
+            route: '/marketing/shops'),
+        BestieSidebarItem(
+            icon: Icons.chat_bubble_outline,
+            label: 'Chat',
+            route: '/chat'),
+        BestieSidebarItem(
+            icon: Icons.settings_outlined,
+            label: 'Settings',
+            route: '/settings'),
+      ];
+    }
+
     if (isTelecallerOnly) {
       return const [
         BestieSidebarItem(
@@ -725,6 +779,16 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
             icon: Icons.business_center_outlined,
             label: 'Clients',
             route: '/clients'),
+      if (user?.hasFieldForceAccess == true && user?.isExecutive != true)
+        const BestieSidebarItem(
+            icon: Icons.storefront_outlined,
+            label: 'Field team',
+            route: '/field'),
+      if (user?.isFieldManager == true)
+        const BestieSidebarItem(
+            icon: Icons.groups_outlined,
+            label: 'Team visits',
+            route: '/field/manager'),
       if (isTelecaller)
         const BestieSidebarItem(
             icon: Icons.headset_mic_outlined,
@@ -786,6 +850,10 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     if (path.startsWith('/notifications')) return '/notifications';
     if (path.startsWith('/settings')) return '/settings';
     if (path.startsWith('/profile')) return '/profile';
+    if (path.startsWith('/field/manager')) return '/field/manager';
+    if (path.startsWith('/field')) return '/field';
+    if (path.startsWith('/marketing/outlets')) return '/marketing/outlets';
+    if (path.startsWith('/marketing/shops')) return '/marketing/shops';
     return '/dashboard';
   }
 

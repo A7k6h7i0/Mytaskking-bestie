@@ -4,7 +4,15 @@ import 'package:flutter/material.dart';
 
 
 class FrontSelfieCapture extends StatefulWidget {
-  const FrontSelfieCapture({super.key});
+  const FrontSelfieCapture({
+    super.key,
+    this.title = 'Take login selfie',
+    this.hint =
+        'Front camera only. Center your face and take a clear live selfie.',
+  });
+
+  final String title;
+  final String hint;
 
   @override
   State<FrontSelfieCapture> createState() => _FrontSelfieCaptureState();
@@ -86,7 +94,7 @@ class _FrontSelfieCaptureState extends State<FrontSelfieCapture> {
       appBar: AppBar(
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
-        title: const Text('Take login selfie'),
+        title: Text(widget.title),
       ),
       body: SafeArea(
         child: Column(children: [
@@ -107,12 +115,12 @@ class _FrontSelfieCaptureState extends State<FrontSelfieCapture> {
                     child: CameraPreview(controller),
                   ),
           ),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(20, 16, 20, 8),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
             child: Text(
-              'Front camera only. Center your face and take a clear live selfie.',
+              widget.hint,
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white70),
+              style: const TextStyle(color: Colors.white70),
             ),
           ),
           Padding(

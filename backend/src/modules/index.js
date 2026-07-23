@@ -45,6 +45,7 @@ const billing = require('./billing/billing.routes');
 const adminNotes = require('./adminNotes/adminNotes.routes');
 const emergency = require('./emergency/emergency.routes');
 const workActivity = require('./workActivity/workActivity.routes');
+const marketing = require('./marketing/marketing.routes');
 
 module.exports = function buildRouter() {
   const router = Router();
@@ -87,6 +88,7 @@ module.exports = function buildRouter() {
   router.use('/admin-notes', adminNotes);
   router.use('/emergency', emergency);
   router.use('/work-activity', workActivity);
+  router.use('/marketing', marketing);
 
   // openapi serves /openapi.json + /docs at the root of /api/v1
   router.use('/', openapi);
