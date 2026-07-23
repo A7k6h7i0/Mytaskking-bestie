@@ -39,11 +39,28 @@ import 'screens/deleted_chats_screen.dart';
 import 'state.dart' hide ThemeMode;
 import 'telecaller_recording_setup.dart';
 
+String _homeRouteForRole(String? role, {bool? isSalesHead}) {
+  if (role == 'TELECALLER') {
+    if (TelecallerRecordingSetup.isLoaded &&
+        !TelecallerRecordingSetup.isComplete) {
+      return '/telecaller/setup';
+    }
+    return '/telecaller';
+  }
+  if (role == 'SALES_HEAD' || isSalesHead == true) return '/dashboard';
+  return '/chat';
+}
+
 final routerProvider = Provider<GoRouter>((ref) {
   final auth = ref.watch(authStoreProvider);
 
   return GoRouter(
-    initialLocation: auth.accessToken == null ? '/login' : '/chat',
+    initialLocation: auth.accessToken == null
+        ? '/login'
+        : _homeRouteForRole(
+            auth.user?.role,
+            isSalesHead: auth.user?.isSalesHead,
+          ),
     refreshListenable: _AuthListenable(auth),
     redirect: (ctx, state) {
       final logged = auth.accessToken != null;
@@ -55,14 +72,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       if (!logged && !loginPath && !registerPath) return '/login';
       if (logged && loginPath) {
         final role = auth.user?.role;
-        if (role == 'TELECALLER' &&
-            TelecallerRecordingSetup.isLoaded &&
-            !TelecallerRecordingSetup.isComplete) {
-          return '/telecaller/setup';
-        }
-        if (role == 'TELECALLER') return '/telecaller';
-        if (role == 'SALES_HEAD') return '/dashboard';
-        return '/chat';
+        return _homeRouteForRole(
+          role,
+          isSalesHead: auth.user?.isSalesHead,
+        );
+      }
+      // Sales head has no chat tab — cold start used to land on /chat.
+      if (logged && auth.user?.isSalesHead == true && loc == '/chat') {
+        return '/dashboard';
       }
       if (logged &&
           auth.user?.role == 'TELECALLER' &&

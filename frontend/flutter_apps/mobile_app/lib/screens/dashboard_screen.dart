@@ -26,7 +26,7 @@ class DashboardScreen extends ConsumerWidget {
     final meetings = ref.watch(meetingsProvider);
 
     return Scaffold(
-      appBar: _appBar(context),
+      appBar: _appBar(context, hideSearch: user?.isSalesHead ?? false),
       body: RefreshIndicator(
         onRefresh: () async {
           ref.invalidate(_dashboardAttendanceProvider);
@@ -102,19 +102,21 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  PreferredSizeWidget _appBar(BuildContext context) {
+  PreferredSizeWidget _appBar(BuildContext context, {bool hideSearch = false}) {
     return AppBar(
       elevation: 0,
       backgroundColor: Theme.of(context).colorScheme.surface,
       title: const BestieLogo(size: 28, withWordmark: true),
       titleSpacing: 16,
       actions: [
-        IconButton(
-          icon: const Icon(Icons.search_rounded),
-          tooltip: 'Search people, messages, files',
-          onPressed: () => context.go('/search'),
-        ),
-        const SizedBox(width: 4),
+        if (!hideSearch) ...[
+          IconButton(
+            icon: const Icon(Icons.search_rounded),
+            tooltip: 'Search people, messages, files',
+            onPressed: () => context.go('/search'),
+          ),
+          const SizedBox(width: 4),
+        ],
       ],
     );
   }

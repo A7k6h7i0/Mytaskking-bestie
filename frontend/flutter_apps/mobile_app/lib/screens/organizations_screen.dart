@@ -18,11 +18,43 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
   List<Map<String, dynamic>> _items = const [];
   bool _loading = true;
   String? _error;
+  final _search = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  bool _isOrgPaid(Map<String, dynamic> org) {
+    final sub = (org['subscription'] as Map?)?.cast<String, dynamic>();
+    return (sub?['status'] ?? '').toString() == 'PAID';
+  }
+
+  List<Map<String, dynamic>> _filteredItems() {
+    final q = _search.text.trim().toLowerCase();
+    if (q.isEmpty) return _items;
+    return _items.where((org) {
+      if (q == 'paid') return _isOrgPaid(org);
+      if (q == 'unpaid') return !_isOrgPaid(org);
+      final name = (org['name'] ?? '').toString().toLowerCase();
+      final slug = (org['slug'] ?? '').toString().toLowerCase();
+      final status = (org['status'] ?? '').toString().toLowerCase();
+      final sub = (org['subscription'] as Map?)?.cast<String, dynamic>();
+      final subLabel = subscriptionStatusLabel(sub).toLowerCase();
+      final subStatus = (sub?['status'] ?? '').toString().toLowerCase();
+      return name.contains(q) ||
+          slug.contains(q) ||
+          status.contains(q) ||
+          subLabel.contains(q) ||
+          subStatus.contains(q);
+    }).toList();
   }
 
   Future<void> _load() async {
@@ -269,6 +301,7 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
     final user = ref.watch(authStoreProvider).user;
     final isSuper = user?.isPlatformSuperAdmin ?? false;
     final isSales = user?.isSalesHead ?? false;
+    final filtered = _filteredItems();
     return Scaffold(
       backgroundColor: c.surface,
       appBar: AppBar(
@@ -283,7 +316,37 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
               label: const Text('Add organisation'),
             )
           : null,
-      body: RefreshIndicator(
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: TextField(
+              controller: _search,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                prefixIcon:
+                    Icon(Icons.search_rounded, color: c.textMuted, size: 18),
+                hintText: isSales
+                    ? 'Search name, slug, paid, unpaid…'
+                    : 'Search organisation name or slug…',
+                filled: true,
+                fillColor: c.surface2,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(BestieTokens.rPill),
+                  borderSide: BorderSide.none,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(BestieTokens.rPill),
+                  borderSide: BorderSide.none,
+                ),
+                isDense: true,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              ),
+            ),
+          ),
+          Expanded(
+            child: RefreshIndicator(
         onRefresh: _load,
         child: _loading
             ? ListView(
@@ -325,13 +388,37 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
                           ),
                         ],
                       )
+                    : filtered.isEmpty
+                        ? ListView(
+                            padding: const EdgeInsets.all(24),
+                            children: [
+                              Icon(Icons.search_off_rounded,
+                                  size: 48, color: c.textMuted),
+                              const SizedBox(height: 12),
+                              Text(
+                                'No matches',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w600,
+                                    color: c.text),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Try another name, slug, or type paid / unpaid.',
+                                textAlign: TextAlign.center,
+                                style:
+                                    TextStyle(color: c.textMuted, height: 1.4),
+                              ),
+                            ],
+                          )
                     : ListView.separated(
                         padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
-                        itemCount: _items.length,
+                        itemCount: filtered.length,
                         separatorBuilder: (_, __) =>
                             const SizedBox(height: 10),
                         itemBuilder: (_, i) {
-                          final org = _items[i];
+                          final org = filtered[i];
                           final status =
                               (org['status'] ?? 'ACTIVE').toString();
                           final pending = status == 'PENDING';
@@ -476,6 +563,9 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
                           );
                         },
                       ),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -19,6 +19,7 @@ import 'package:mytaskking_mobile/mobile_appearance_providers.dart';
 import 'package:mytaskking_mobile/mobile_local_settings.dart';
 import 'package:mytaskking_mobile/mobile_theme_palettes.dart';
 import 'package:mytaskking_mobile/screens/organizations_screen.dart';
+import 'package:mytaskking_mobile/screens/admin_notes_screen.dart';
 import 'package:mytaskking_mobile/screens/subscription_screen.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
@@ -33,6 +34,19 @@ import 'desktop_calls_screen.dart';
 import 'desktop_task_detail_screen.dart';
 import 'desktop_notifications_screen.dart';
 import 'work_activity_screen.dart';
+
+/// Desktop home after login — mirrors mobile role routing where it differs.
+String _desktopHomeRoute(BestieUser? user) {
+  if (user?.isSalesHead == true) return '/dashboard';
+  return '/dashboard';
+}
+
+const _salesHeadShellRoutes = {
+  '/dashboard',
+  '/organizations',
+  '/admin-notes',
+  '/settings',
+};
 
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -95,13 +109,26 @@ class _BestieWindowsAppState extends ConsumerState<BestieWindowsApp> {
   GoRouter _router(BestieAuthStore auth) {
     final logged = auth.accessToken != null;
     return GoRouter(
-      initialLocation: logged ? '/dashboard' : '/login',
+      initialLocation:
+          logged ? _desktopHomeRoute(auth.user) : '/login',
       refreshListenable: _AuthListenable(auth),
       redirect: (_, state) {
         final isLoggedIn = auth.accessToken != null;
-        final loginPath = state.matchedLocation == '/login';
+        final loc = state.matchedLocation;
+        final loginPath = loc == '/login';
         if (!isLoggedIn && !loginPath) return '/login';
-        if (isLoggedIn && loginPath) return '/dashboard';
+        if (isLoggedIn && loginPath) {
+          return _desktopHomeRoute(auth.user);
+        }
+        // Sales head: same shell as mobile — no chat workspace.
+        if (isLoggedIn && auth.user?.isSalesHead == true) {
+          if (loc == '/chat' || loc.startsWith('/chat/')) {
+            return '/dashboard';
+          }
+          if (!_salesHeadShellRoutes.contains(loc)) {
+            return '/dashboard';
+          }
+        }
         return null;
       },
       routes: [
@@ -192,6 +219,9 @@ class _BestieWindowsAppState extends ConsumerState<BestieWindowsApp> {
             GoRoute(
                 path: '/organizations',
                 builder: (_, __) => const OrganizationsScreen()),
+            GoRoute(
+                path: '/admin-notes',
+                builder: (_, __) => const AdminNotesScreen()),
             GoRoute(path: '/tasks', builder: (_, __) => const TasksScreen()),
             GoRoute(
                 path: '/attendance',
@@ -617,6 +647,27 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     final isOrgBillingAdmin =
         isAdmin && !isPlatformSuperAdmin && !isTelecallerOnly && !isSalesHead;
 
+    if (isSalesHead) {
+      return const [
+        BestieSidebarItem(
+            icon: Icons.dashboard_outlined,
+            label: 'Home',
+            route: '/dashboard'),
+        BestieSidebarItem(
+            icon: Icons.apartment_rounded,
+            label: 'Organisations',
+            route: '/organizations'),
+        BestieSidebarItem(
+            icon: Icons.sticky_note_2_outlined,
+            label: 'Notes',
+            route: '/admin-notes'),
+        BestieSidebarItem(
+            icon: Icons.settings_outlined,
+            label: 'Settings',
+            route: '/settings'),
+      ];
+    }
+
     if (isTelecallerOnly) {
       return const [
         BestieSidebarItem(
@@ -722,6 +773,7 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     if (path.startsWith('/work-activity')) return '/work-activity';
     if (path.startsWith('/login-activity')) return '/login-activity';
     if (path.startsWith('/organizations')) return '/organizations';
+    if (path.startsWith('/admin-notes')) return '/admin-notes';
     if (path.startsWith('/employees')) return '/employees';
     if (path.startsWith('/clients')) return '/clients';
     if (path.startsWith('/telecaller')) return '/telecaller';

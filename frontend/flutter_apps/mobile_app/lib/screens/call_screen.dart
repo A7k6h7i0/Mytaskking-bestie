@@ -513,7 +513,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       final userId = data['userId']?.toString();
       final uidRaw = data['agoraUid'];
       final agoraUid = uidRaw is int ? uidRaw : int.tryParse('$uidRaw');
-      final me = ref.read(authStoreProvider).user;
+        final me = ref.read(authStoreProvider).user;
       final isSelf = userId != null && userId == me?.id;
       if (!isSelf && userId != null && userId.isNotEmpty) {
         if (!_CallSession.useMediasoup &&
@@ -561,7 +561,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       final isNew = _seenPeerUids.add(uid);
       setState(() {
         if (!_CallSession.useMediasoup) {
-          _remoteUids.add(uid);
+        _remoteUids.add(uid);
         } else if (_sfuHasLiveSocket(_CallSession.uidToSocketId[uid])) {
           _remoteUids.add(uid);
         }
@@ -1106,7 +1106,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       if (_isMeeting) {
         _applyServerLiveRoster(fresh);
       } else {
-        _syncParticipantsFromCallMeta();
+      _syncParticipantsFromCallMeta();
       }
       _cacheAvatarsFromCallMeta();
     } catch (_) {}
@@ -1183,7 +1183,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     if (userId == me) return;
     // Drop live tiles immediately — 4s grace left ghosts after hang-up.
     _removeRemotePeersForUser(userId);
-    if (mounted) setState(() {});
+      if (mounted) setState(() {});
   }
 
   void _cancelRemoteOfflineGrace(int uid) {
@@ -2129,8 +2129,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
     return _participantCount > 2 ||
         _joinedParticipants.length > 2 ||
         _distinctRemoteUserCount > 1 ||
-        ((_callMeta?['call'] as Map?)?['kind'] == 'GROUP' &&
-            _participantCount >= 3);
+      ((_callMeta?['call'] as Map?)?['kind'] == 'GROUP' &&
+          _participantCount >= 3);
   }
 
   Future<void> _enableSpeakerHighlight() async {
@@ -2238,10 +2238,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final body = isMeetingEnd
         ? 'This meeting has ended.'
         : status == 'MISSED'
-            ? 'No answer — the call was not picked up.'
-            : status == 'DECLINED'
-                ? 'The other person declined the call.'
-                : 'The other person left the call.';
+        ? 'No answer — the call was not picked up.'
+        : status == 'DECLINED'
+            ? 'The other person declined the call.'
+            : 'The other person left the call.';
     context.go(isMeetingEnd ? '/meetings' : '/chat');
     if (mounted) {
       bestieToast(
@@ -2395,7 +2395,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
         if (_agoraUidToUserId[entry.key] == me?.id) continue;
         if (entry.value.trim().isNotEmpty) {
           liveRemoteName = entry.value.trim();
-          break;
+        break;
         }
       }
     }
@@ -2498,15 +2498,15 @@ class _CallScreenState extends ConsumerState<CallScreen>
     }
 
     if (userId == null) {
-      for (final entry in _joinedParticipants.entries) {
+    for (final entry in _joinedParticipants.entries) {
         if (entry.key == me?.id) continue;
         final n = entry.value.trim();
         if (n.isNotEmpty && !_isSelfDisplayName(n)) {
           userId = entry.key;
           name = n;
-          break;
-        }
+        break;
       }
+    }
     }
 
     if (userId == null && _remoteUids.isNotEmpty) {
@@ -3199,25 +3199,25 @@ class _CallScreenState extends ConsumerState<CallScreen>
           unawaited(_primeMediasoupPlayback());
           if (_isMeeting) _startMeetingHeartbeat();
         } else {
-          _registerHandlers(_CallSession.engine!);
-          unawaited(_enableSpeakerHighlight());
-          _purgeSelfFromRemoteTracking();
-          _restoreLiveCallUi();
-          setState(() {
+        _registerHandlers(_CallSession.engine!);
+        unawaited(_enableSpeakerHighlight());
+        _purgeSelfFromRemoteTracking();
+        _restoreLiveCallUi();
+        setState(() {
             if (_CallSession.connectedAt != null && _CallSession.engine != null) {
               _joined = true;
             } else {
-              _joined = _CallSession.joined;
+          _joined = _CallSession.joined;
             }
-          });
-          _syncRemotePeerSnapshot();
-          _publishActiveCallState();
-          _startAudioHealthCheck();
-          _startTokenRefresh();
-          _reassertAudio();
-          _showOngoingCallNotification();
-          _CallSession.startAudioRouteKeepAlive();
-          if (!_isVideo) unawaited(_startProximityIfVoice());
+        });
+        _syncRemotePeerSnapshot();
+        _publishActiveCallState();
+        _startAudioHealthCheck();
+        _startTokenRefresh();
+        _reassertAudio();
+        _showOngoingCallNotification();
+        _CallSession.startAudioRouteKeepAlive();
+        if (!_isVideo) unawaited(_startProximityIfVoice());
           if (_isMeeting) _startMeetingHeartbeat();
         }
       } catch (e) {
@@ -4234,8 +4234,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
     if (_CallSession.useMediasoup) {
       _CallSession.mediasoup?.setMuted(_muted);
     } else {
-      await _engine?.enableLocalAudio(true);
-      await _engine?.muteLocalAudioStream(_muted);
+    await _engine?.enableLocalAudio(true);
+    await _engine?.muteLocalAudioStream(_muted);
     }
     _CallSession._ping();
     final meId = ref.read(authStoreProvider).user?.id;
@@ -4600,7 +4600,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
         } catch (_) {}
         await _engine!.startScreenCapture(
           const ScreenCaptureParameters2(
-            captureVideo: true,
+          captureVideo: true,
             captureAudio: false,
           ),
         );
@@ -4615,14 +4615,14 @@ class _CallScreenState extends ConsumerState<CallScreen>
         // Android sometimes needs a second nudge after projection starts.
         await Future<void>.delayed(const Duration(milliseconds: 400));
         try {
-          await _engine!.updateChannelMediaOptions(ChannelMediaOptions(
-            publishScreenCaptureVideo: true,
+        await _engine!.updateChannelMediaOptions(ChannelMediaOptions(
+          publishScreenCaptureVideo: true,
             publishScreenCaptureAudio: false,
-            publishScreenTrack: true,
-            publishCameraTrack: _isVideo && !_cameraOff,
-            clientRoleType: ClientRoleType.clientRoleBroadcaster,
-            autoSubscribeVideo: true,
-          ));
+          publishScreenTrack: true,
+          publishCameraTrack: _isVideo && !_cameraOff,
+          clientRoleType: ClientRoleType.clientRoleBroadcaster,
+          autoSubscribeVideo: true,
+        ));
         } catch (_) {}
         setState(() => _sharing = true);
         _emitScreenShareState(active: true);
@@ -5123,7 +5123,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
                     top: topInset + 64,
                     width: 104,
                     height: 150,
-                    child: Container(
+                      child: Container(
                         clipBehavior: Clip.antiAlias,
                         decoration: BoxDecoration(
                           color: _kParticipantTileBg,
@@ -5167,7 +5167,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
                               )
                             : (_buildLocalVideoWidget() ??
                                 const SizedBox.shrink()),
-                      ),
+                    ),
                   ),
 
                 Positioned(
@@ -5315,7 +5315,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
                             ),
                           ],
                         ),
-                      ),
+                            ),
                     ),
                   ),
                 // Controls fade + slide up on entrance.
@@ -5886,21 +5886,21 @@ class _CallScreenState extends ConsumerState<CallScreen>
                   ),
                 )
               : CallUiGlassContainer(
-                  borderRadius: 12,
+            borderRadius: 12,
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                  child: SizedBox(
-                    width: 34,
-                    height: 18,
-                    child: Center(
-                      child: Icon(
-                        icon,
-                        color: CallScreenUiColors.textPrimary,
-                        size: 18,
-                      ),
-                    ),
-                  ),
+            child: SizedBox(
+              width: 34,
+              height: 18,
+              child: Center(
+                child: Icon(
+                  icon,
+                  color: CallScreenUiColors.textPrimary,
+                  size: 18,
                 ),
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -5941,29 +5941,29 @@ class _CallScreenState extends ConsumerState<CallScreen>
                 ),
               )
             : CallUiGlassContainer(
-                borderRadius: 12,
+          borderRadius: 12,
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.group_outlined,
-                      color: CallScreenUiColors.textPrimary,
-                      size: 18,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      '$count',
-                      style: const TextStyle(
-                        color: CallScreenUiColors.textPrimary,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.group_outlined,
+                color: CallScreenUiColors.textPrimary,
+                size: 18,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                '$count',
+                style: const TextStyle(
+                  color: CallScreenUiColors.textPrimary,
                         fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
+                  fontWeight: FontWeight.w700,
                 ),
               ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -6067,32 +6067,25 @@ class _CallScreenState extends ConsumerState<CallScreen>
             icon: Icons.keyboard_arrow_down_rounded,
             onTap: _minimize,
           ),
-          Expanded(
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(mainAxisSize: MainAxisSize.min, children: [
-                    const CallUiBrandLogo(size: 34),
-                    const SizedBox(width: 6),
+          const SizedBox(width: 8),
+          _callThemeToggleButton(),
+          const SizedBox(width: 8),
+          _callHeaderParticipantsButton(),
+          const Spacer(),
+          const Icon(Icons.verified_rounded,
+              color: CallScreenUiColors.verifiedBlue, size: 16),
+          const SizedBox(width: 5),
                     Text('MyTaskKing',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: _oneToOnePalette.textPrimary,
+                color: _oneToOnePalette.textPrimary,
                           fontSize: 14,
                           fontWeight: FontWeight.w700,
                           letterSpacing: -0.2,
                         )),
-                    const SizedBox(width: 5),
-                    const Icon(Icons.verified_rounded,
-                        color: CallScreenUiColors.verifiedBlue, size: 16),
-                  ]),
-                ]),
-          ),
-          _callThemeToggleButton(),
-          const SizedBox(width: 8),
-          _callHeaderParticipantsButton(),
+          const SizedBox(width: 6),
+          const CallUiBrandLogo(size: 34),
         ]),
       );
     }
@@ -7014,8 +7007,6 @@ class _CallScreenState extends ConsumerState<CallScreen>
           child: Column(children: [
             Expanded(child: _whatsappParticipantGrid()),
             const SizedBox(height: 10),
-            _participantsStrip(showTimer: false),
-            const SizedBox(height: 8),
             Text(_connectedAt == null ? _status : _formatElapsed(_elapsed),
                 style: const TextStyle(color: Colors.white70, fontSize: 14)),
           ]),
@@ -7046,13 +7037,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
           6,
           108 + MediaQuery.paddingOf(context).bottom,
         ),
-        child: Column(
-          children: [
-            Expanded(child: _whatsappParticipantGrid(forVideo: true)),
-            const SizedBox(height: 8),
-            _participantsStrip(showTimer: false),
-          ],
-        ),
+        child: _whatsappParticipantGrid(forVideo: true),
       );
     }
     if (_remoteUids.isEmpty) {
@@ -7060,9 +7045,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
       if (_CallSession.useMediasoup && _isVideo && _hasLiveMediaEngine) {
         final remoteStream = _mediasoupRemoteVideoStreamForUid(null);
         if (remoteStream != null) {
-          return Stack(
-            fit: StackFit.expand,
-            children: [
+        return Stack(
+          fit: StackFit.expand,
+          children: [
               Positioned.fill(
                 child: MediasoupVideoView(
                   key: ValueKey(
@@ -7185,7 +7170,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
                     'Connecting to video…',
                     style: TextStyle(color: Colors.white70),
                   ),
-                )),
+        )),
       ),
     ]);
   }
@@ -7229,67 +7214,6 @@ class _CallScreenState extends ConsumerState<CallScreen>
           ),
         ],
       ),
-    );
-  }
-
-  Widget _participantsStrip({bool showTimer = true}) {
-    // Prefer SFU-live people only — roster invitees / ghosts stay out.
-    final me = ref.read(authStoreProvider).user;
-    final names = <String>[];
-    final session = _CallSession.mediasoup;
-    if (_CallSession.useMediasoup && session != null) {
-      for (final entry in session.remoteNames.entries) {
-        if (entry.key == session.mySocketId) continue;
-        final n = entry.value.trim();
-        if (n.isNotEmpty && n != 'Participant') names.add(n);
-      }
-    } else {
-      for (final entry in _joinedParticipants.entries) {
-        if (entry.key == me?.id) continue;
-        final n = entry.value.trim();
-        if (n.isNotEmpty) names.add(n);
-      }
-      if (names.isEmpty) {
-        for (final uid in _remoteUids) {
-          final mapped = _agoraUidToUserId[uid];
-          if (mapped != null && mapped == me?.id) continue;
-          final n = _remoteNames[uid]?.trim();
-          if (n != null && n.isNotEmpty && n != 'Participant') names.add(n);
-        }
-      }
-    }
-    final label = names.isEmpty ? 'Waiting for others' : names.join(', ');
-    return Container(
-      constraints: const BoxConstraints(maxWidth: 320),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.42),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white24),
-      ),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        const Icon(Icons.people_alt_rounded, color: Colors.white70, size: 18),
-        const SizedBox(width: 8),
-        Flexible(
-          child: Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-        if (showTimer && _connectedAt != null) ...[
-          const SizedBox(width: 10),
-          Text(
-            _formatElapsed(_elapsed),
-            style: const TextStyle(color: Colors.white70, fontSize: 12),
-          ),
-        ],
-      ]),
     );
   }
 
@@ -7544,15 +7468,15 @@ class _CallScreenState extends ConsumerState<CallScreen>
           }
         } else if (!seen.contains(mappedUserId)) {
           seen.add(mappedUserId);
-          tiles.add((
+        tiles.add((
             name: displayName,
-            userId: mappedUserId,
+          userId: mappedUserId,
             imageUrl: _avatarUrlForUserId(mappedUserId),
-            agoraUid: uid,
-            isLocal: false,
-            muted: _remoteMuted[uid] ?? false,
-            videoMuted: _remoteVideoMuted[uid] ?? false,
-          ));
+          agoraUid: uid,
+          isLocal: false,
+          muted: _remoteMuted[uid] ?? false,
+          videoMuted: _remoteVideoMuted[uid] ?? false,
+        ));
         }
       }
     }
@@ -7619,18 +7543,18 @@ class _CallScreenState extends ConsumerState<CallScreen>
                     return tileAt(firstIdx, height: tileH);
                   }
                   return Row(
-                    children: [
-                      for (var c = 0; c < cols; c++) ...[
-                        Expanded(
-                          child: () {
-                            final idx = r * cols + c;
-                            if (idx >= n) return const SizedBox.shrink();
-                            return tileAt(idx, height: tileH);
-                          }(),
-                        ),
-                        if (c < cols - 1) const SizedBox(width: gap),
-                      ],
+                  children: [
+                    for (var c = 0; c < cols; c++) ...[
+                      Expanded(
+                        child: () {
+                          final idx = r * cols + c;
+                          if (idx >= n) return const SizedBox.shrink();
+                          return tileAt(idx, height: tileH);
+                        }(),
+                      ),
+                      if (c < cols - 1) const SizedBox(width: gap),
                     ],
+                  ],
                   );
                 }(),
               ),
@@ -7694,10 +7618,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
                       imageUrl: resolvedImageUrl,
                       height: height,
                       speaking: speaking,
-                    )
+                )
               else
                 _participantAvatarFallback(
-                  name: name,
+                        name: name,
                   imageUrl: resolvedImageUrl,
                   height: height,
                   speaking: speaking,
@@ -7728,7 +7652,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
                         padding: EdgeInsets.only(right: 4),
                         child: Icon(Icons.videocam_off_rounded,
                             color: Colors.white70, size: 16),
-                      ),
+                    ),
                     if (muted)
                       const Icon(Icons.mic_off_rounded,
                           color: Colors.white70, size: 16),
@@ -8350,7 +8274,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
           selected: _sharing,
           danger: false,
           onTap: _toggleShare,
-        ),
+      ),
       (
         label: 'End',
         icon: Icons.call_end_rounded,
@@ -8537,20 +8461,20 @@ class _CallScreenState extends ConsumerState<CallScreen>
           ],
         ),
         if (_kScreenShareUiEnabled)
-          CallUiGlassControlButton(
-            label: _sharing ? 'Stop share' : 'Share screen',
-            icon: _sharing
-                ? Icons.stop_screen_share_rounded
-                : Icons.screen_share_rounded,
-            isSelected: _sharing,
-            onTap: _toggleShare,
-            lightControls: lightControls,
-            compact: compact,
-            iconGradient: const [
-              CallScreenUiColors.neonBlue,
-              CallScreenUiColors.verifiedBlue,
-            ],
-          ),
+        CallUiGlassControlButton(
+          label: _sharing ? 'Stop share' : 'Share screen',
+          icon: _sharing
+              ? Icons.stop_screen_share_rounded
+              : Icons.screen_share_rounded,
+          isSelected: _sharing,
+          onTap: _toggleShare,
+          lightControls: lightControls,
+          compact: compact,
+          iconGradient: const [
+            CallScreenUiColors.neonBlue,
+            CallScreenUiColors.verifiedBlue,
+          ],
+        ),
         CallUiGlassControlButton(
           label: 'Add Participant',
           icon: Icons.person_add_outlined,
@@ -8563,18 +8487,18 @@ class _CallScreenState extends ConsumerState<CallScreen>
           ],
         ),
         if (_kClientRecordUiEnabled)
-          CallUiGlassControlButton(
-            label: 'Record',
-            icon: Icons.fiber_manual_record_outlined,
-            isSelected: _recording,
-            onTap: _toggleRecord,
-            lightControls: lightControls,
-            compact: compact,
-            iconGradient: const [
-              Color(0xFFFF6B6B),
-              Color(0xFFFF4757),
-            ],
-          ),
+        CallUiGlassControlButton(
+          label: 'Record',
+          icon: Icons.fiber_manual_record_outlined,
+          isSelected: _recording,
+          onTap: _toggleRecord,
+          lightControls: lightControls,
+          compact: compact,
+          iconGradient: const [
+            Color(0xFFFF6B6B),
+            Color(0xFFFF4757),
+          ],
+        ),
         CallUiGlassControlButton(
           label: 'Call Notes',
           icon: Icons.edit_note_outlined,
@@ -8687,9 +8611,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: _kPremiumControlGridWidth),
         child: Row(
-          children: [
+      children: [
             for (var i = 0; i < slots; i++) ...[
-              if (i > 0) SizedBox(width: gap),
+          if (i > 0) SizedBox(width: gap),
               Expanded(child: items[i]),
             ],
           ],
@@ -8944,27 +8868,27 @@ class _CallScreenState extends ConsumerState<CallScreen>
               tile(Icons.person_add_alt_1_rounded, 'Add participant',
                   _showInvite),
               if (_kScreenShareUiEnabled)
-                tile(
-                  _sharing
-                      ? Icons.stop_screen_share_rounded
-                      : Icons.screen_share_rounded,
-                  _sharing ? 'Stop sharing' : 'Share screen',
-                  _toggleShare,
-                  color: _sharing ? c.danger : null,
-                ),
+              tile(
+                _sharing
+                    ? Icons.stop_screen_share_rounded
+                    : Icons.screen_share_rounded,
+                _sharing ? 'Stop sharing' : 'Share screen',
+                _toggleShare,
+                color: _sharing ? c.danger : null,
+              ),
               if (_kClientRecordUiEnabled)
-                tile(
-                  _savingRecording
-                      ? Icons.hourglass_top_rounded
-                      : (_recording
-                          ? Icons.stop_circle_rounded
-                          : Icons.fiber_manual_record_rounded),
-                  _savingRecording
-                      ? 'Saving recording…'
-                      : (_recording ? 'Stop recording' : 'Record call'),
-                  _toggleRecord,
-                  color: _recording ? c.danger : null,
-                ),
+              tile(
+                _savingRecording
+                    ? Icons.hourglass_top_rounded
+                    : (_recording
+                        ? Icons.stop_circle_rounded
+                        : Icons.fiber_manual_record_rounded),
+                _savingRecording
+                    ? 'Saving recording…'
+                    : (_recording ? 'Stop recording' : 'Record call'),
+                _toggleRecord,
+                color: _recording ? c.danger : null,
+              ),
               tile(Icons.notes_rounded, 'Call notes', _showCallNotes),
               tile(Icons.campaign_rounded, 'Buzzer', _sendEmergencyBuzzer),
               tile(Icons.people_alt_rounded, 'Participants', _showParticipants),
@@ -9002,15 +8926,15 @@ class _CallScreenState extends ConsumerState<CallScreen>
         ),
         child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
           if (_kScreenShareUiEnabled)
-            _ctrlCircle(
-              icon: _sharing
-                  ? Icons.stop_screen_share_rounded
-                  : Icons.screen_share_rounded,
-              onTap: _toggleShare,
-              active: _sharing,
-              size: compact ? 42 : 52,
-              iconSize: compact ? 18 : 22,
-            ),
+          _ctrlCircle(
+            icon: _sharing
+                ? Icons.stop_screen_share_rounded
+                : Icons.screen_share_rounded,
+            onTap: _toggleShare,
+            active: _sharing,
+            size: compact ? 42 : 52,
+            iconSize: compact ? 18 : 22,
+          ),
           _ctrlCircle(
             icon: (!_videoEnabled || _cameraOff)
                 ? Icons.videocam_off_rounded
@@ -9086,15 +9010,15 @@ class _CallScreenState extends ConsumerState<CallScreen>
             iconSize: compact ? 18 : 22,
           ),
           if (_kScreenShareUiEnabled)
-            _ctrlCircle(
-              icon: _sharing
-                  ? Icons.stop_screen_share_rounded
-                  : Icons.present_to_all_rounded,
-              onTap: _toggleShare,
-              active: _sharing,
-              size: compact ? 42 : 52,
-              iconSize: compact ? 18 : 22,
-            ),
+          _ctrlCircle(
+            icon: _sharing
+                ? Icons.stop_screen_share_rounded
+                : Icons.present_to_all_rounded,
+            onTap: _toggleShare,
+            active: _sharing,
+            size: compact ? 42 : 52,
+            iconSize: compact ? 18 : 22,
+          ),
           _ctrlCircle(
             icon: _handRaised
                 ? Icons.front_hand_rounded
@@ -9162,27 +9086,27 @@ class _CallScreenState extends ConsumerState<CallScreen>
                 ),
               ),
               if (_kScreenShareUiEnabled)
-                tile(
-                  _sharing
-                      ? Icons.stop_screen_share_rounded
-                      : Icons.screen_share_rounded,
-                  _sharing ? 'Stop sharing' : 'Share screen',
-                  _toggleShare,
-                  color: _sharing ? c.danger : null,
-                ),
+              tile(
+                _sharing
+                    ? Icons.stop_screen_share_rounded
+                    : Icons.screen_share_rounded,
+                _sharing ? 'Stop sharing' : 'Share screen',
+                _toggleShare,
+                color: _sharing ? c.danger : null,
+              ),
               if (_kClientRecordUiEnabled)
-                tile(
-                  _savingRecording
-                      ? Icons.hourglass_top_rounded
-                      : (_recording
-                          ? Icons.stop_circle_rounded
-                          : Icons.fiber_manual_record_rounded),
-                  _savingRecording
-                      ? 'Saving recording…'
-                      : (_recording ? 'Stop recording' : 'Record call'),
-                  _toggleRecord,
-                  color: _recording ? c.danger : null,
-                ),
+              tile(
+                _savingRecording
+                    ? Icons.hourglass_top_rounded
+                    : (_recording
+                        ? Icons.stop_circle_rounded
+                        : Icons.fiber_manual_record_rounded),
+                _savingRecording
+                    ? 'Saving recording…'
+                    : (_recording ? 'Stop recording' : 'Record call'),
+                _toggleRecord,
+                color: _recording ? c.danger : null,
+              ),
               tile(Icons.people_alt_rounded, 'Participants', _showParticipants),
               tile(
                 _audioRouteIcon(_route),

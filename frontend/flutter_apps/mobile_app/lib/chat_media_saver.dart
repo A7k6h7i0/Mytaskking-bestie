@@ -89,8 +89,8 @@ class ChatMediaSaver {
     await _saveToDownloads(bytes, filename);
   }
 
-  /// Downloads a remote file and saves it to a user-chosen path on desktop,
-  /// or to Downloads on mobile. Returns the saved path, or null if cancelled.
+  /// Downloads a remote file and saves it to a user-chosen path on desktop/Android,
+  /// or to Downloads on iOS. Returns the saved path, or null if cancelled.
   static Future<String?> saveUrlWithSaveDialog(
     String url, {
     String? suggestedName,
@@ -102,7 +102,10 @@ class ChatMediaSaver {
     final bytes = await _downloadUrlBytes(url);
 
     if (!kIsWeb &&
-        (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
+        (Platform.isWindows ||
+            Platform.isMacOS ||
+            Platform.isLinux ||
+            Platform.isAndroid)) {
       final savePath = await FilePicker.platform.saveFile(
         dialogTitle: 'Save recording',
         fileName: filename,
@@ -111,7 +114,8 @@ class ChatMediaSaver {
 
       var targetPath = savePath;
       final ext = p.extension(filename);
-      if (ext.isNotEmpty && !targetPath.toLowerCase().endsWith(ext.toLowerCase())) {
+      if (ext.isNotEmpty &&
+          !targetPath.toLowerCase().endsWith(ext.toLowerCase())) {
         targetPath = '$savePath$ext';
       }
 

@@ -289,7 +289,6 @@ class _EmployeeFormDialogState extends ConsumerState<_EmployeeFormDialog> {
   late final TextEditingController _email;
   late final TextEditingController _phone;
   late final TextEditingController _avatarUrl;
-  late final TextEditingController _departmentId;
   late final Set<String> _supervisorIds;
   late String _role;
   late String _status;
@@ -312,8 +311,6 @@ class _EmployeeFormDialogState extends ConsumerState<_EmployeeFormDialog> {
     _phone = TextEditingController(text: employee?['phone']?.toString());
     _avatarUrl =
         TextEditingController(text: employee?['avatarUrl']?.toString());
-    _departmentId =
-        TextEditingController(text: employee?['departmentId']?.toString());
     _supervisorIds = ((employee?['supervisors'] as List?) ?? const [])
         .map((entry) => (entry as Map?)?['supervisorId']?.toString())
         .whereType<String>()
@@ -331,7 +328,6 @@ class _EmployeeFormDialogState extends ConsumerState<_EmployeeFormDialog> {
     _email.dispose();
     _phone.dispose();
     _avatarUrl.dispose();
-    _departmentId.dispose();
     super.dispose();
   }
 
@@ -371,7 +367,6 @@ class _EmployeeFormDialogState extends ConsumerState<_EmployeeFormDialog> {
       'email': _optional(_email),
       'phone': _optional(_phone),
       'avatarUrl': _optional(_avatarUrl),
-      'departmentId': _optional(_departmentId),
       'supervisorIds': _supervisorIds.toList(),
       if (_password.text.isNotEmpty) 'password': _password.text,
     };
@@ -470,12 +465,6 @@ class _EmployeeFormDialogState extends ConsumerState<_EmployeeFormDialog> {
               controller: _avatarUrl,
               decoration: _decoration('Avatar URL'),
               keyboardType: TextInputType.url,
-              textInputAction: TextInputAction.next,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _departmentId,
-              decoration: _decoration('Department ID'),
               textInputAction: TextInputAction.next,
             ),
             const SizedBox(height: 12),
