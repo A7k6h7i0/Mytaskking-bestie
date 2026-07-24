@@ -5,8 +5,10 @@ import 'package:latlong2/latlong.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../../state.dart';
-import 'field_route_helpers.dart';
+import '../shell_screen.dart';
 import 'add_outlet_screen.dart';
+import 'field_helpers.dart';
+import 'field_route_helpers.dart';
 
 class MarketingOutletsScreen extends ConsumerStatefulWidget {
   const MarketingOutletsScreen({super.key});
@@ -99,9 +101,80 @@ class _MarketingOutletsScreenState extends ConsumerState<MarketingOutletsScreen>
     }
   }
 
+  Widget _outletTrailing(
+    BestieColors c,
+    Map<String, dynamic> o,
+  ) {
+    final me = ref.read(authStoreProvider).user;
+    final pt = FieldRouteHelpers.outletLatLng(o);
+    final canApprove = canApproveMarketingOutlet(me, o);
+    if (pt == null && !canApprove) {
+      return Icon(Icons.chevron_right_rounded, color: c.textMuted);
+    }
+    if (pt != null && !canApprove) {
+      return IconButton(
+        tooltip: 'Navigate',
+        visualDensity: VisualDensity.compact,
+        icon: Icon(Icons.navigation_outlined, color: c.brand, size: 20),
+        onPressed: () => _openOutletNavigation(o, pt),
+      );
+    }
+    if (pt == null && canApprove) {
+      return IconButton(
+        tooltip: 'Approve',
+        visualDensity: VisualDensity.compact,
+        icon: Icon(Icons.check_circle_outline, color: c.success),
+        onPressed: () => _approveOutlet(o['id'].toString()),
+      );
+    }
+    return PopupMenuButton<String>(
+      tooltip: 'Actions',
+      icon: Icon(Icons.more_vert_rounded, color: c.textMuted, size: 20),
+      onSelected: (action) {
+        if (action == 'nav' && pt != null) {
+          _openOutletNavigation(o, pt);
+        } else if (action == 'approve') {
+          _approveOutlet(o['id'].toString());
+        }
+      },
+      itemBuilder: (_) => [
+        PopupMenuItem(
+          value: 'nav',
+          child: ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.navigation_outlined, color: c.brand),
+            title: const Text('Navigate'),
+          ),
+        ),
+        PopupMenuItem(
+          value: 'approve',
+          child: ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.check_circle_outline, color: c.success),
+            title: const Text('Approve'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _openOutletNavigation(Map<String, dynamic> o, LatLng pt) async {
+    if (_position != null) {
+      await FieldRouteHelpers.openMapsDirections(_position!, pt);
+    } else {
+      await FieldRouteHelpers.openMapsNavigation(
+        pt,
+        label: o['name']?.toString(),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
+    final bottomClearance = shellNavClearance(context);
     return Scaffold(
       backgroundColor: c.surface,
       appBar: AppBar(
@@ -109,10 +182,13 @@ class _MarketingOutletsScreenState extends ConsumerState<MarketingOutletsScreen>
         backgroundColor: c.surface,
         foregroundColor: c.text,
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _addOutlet,
-        icon: const Icon(Icons.add_business_rounded),
-        label: const Text('Add outlet'),
+      floatingActionButton: Padding(
+        padding: EdgeInsets.only(bottom: bottomClearance - 24),
+        child: FloatingActionButton.extended(
+          onPressed: _addOutlet,
+          icon: const Icon(Icons.add_business_rounded),
+          label: const Text('Add outlet'),
+        ),
       ),
       body: Column(
         children: [
@@ -196,7 +272,12 @@ class _MarketingOutletsScreenState extends ConsumerState<MarketingOutletsScreen>
                               ],
                             )
                           : ListView.separated(
-                              padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+                              padding: EdgeInsets.fromLTRB(
+                                16,
+                                8,
+                                16,
+                                bottomClearance + 72,
+                              ),
                               itemCount: _items.length,
                               separatorBuilder: (_, __) => const SizedBox(height: 8),
                               itemBuilder: (_, i) {
@@ -228,41 +309,7 @@ class _MarketingOutletsScreenState extends ConsumerState<MarketingOutletsScreen>
                                       ].join(' · '),
                                       style: TextStyle(color: c.textMuted, fontSize: 12),
                                     ),
-                                    trailing: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        if (FieldRouteHelpers.outletLatLng(o) != null)
-                                          IconButton(
-                                            tooltip: 'Navigate',
-                                            icon: Icon(Icons.navigation_outlined,
-                                                color: c.brand, size: 20),
-                                            onPressed: () async {
-                                              final pt =
-                                                  FieldRouteHelpers.outletLatLng(o)!;
-                                              if (_position != null) {
-                                                await FieldRouteHelpers
-                                                    .openMapsDirections(_position!, pt);
-                                              } else {
-                                                await FieldRouteHelpers.openMapsNavigation(
-                                                  pt,
-                                                  label: o['name']?.toString(),
-                                                );
-                                              }
-                                            },
-                                          ),
-                                        if (_isManager &&
-                                            o['approvalStatus'] == 'pending')
-                                          IconButton(
-                                            tooltip: 'Approve',
-                                            icon: Icon(Icons.check_circle_outline,
-                                                color: c.success),
-                                            onPressed: () =>
-                                                _approveOutlet(o['id'].toString()),
-                                          ),
-                                        Icon(Icons.chevron_right_rounded,
-                                            color: c.textMuted),
-                                      ],
-                                    ),
+                                    trailing: _outletTrailing(c, o),
                                     onTap: () {
                                       final id = o['id']?.toString();
                                       if (id != null) {

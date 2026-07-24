@@ -5,6 +5,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../../state.dart';
+import 'field_helpers.dart';
 import 'field_route_helpers.dart';
 import 'outlet_location_picker.dart';
 
@@ -23,8 +24,12 @@ class _AddOutletScreenState extends ConsumerState<AddOutletScreen> {
 
   LatLng? _location;
   String? _locationLabel;
+  Map<String, dynamic>? _assignedExecutive;
   bool _busy = false;
   bool _locating = false;
+
+  bool get _mustAssignExecutive =>
+      mustAssignExecutiveOnOutletCreate(ref.read(authStoreProvider).user);
 
   @override
   void dispose() {
@@ -95,11 +100,24 @@ class _AddOutletScreenState extends ConsumerState<AddOutletScreen> {
     await _setLocation(picked);
   }
 
+  Future<void> _pickExecutive() async {
+    final picked = await pickExecutive(context, ref);
+    if (picked != null && mounted) {
+      setState(() => _assignedExecutive = picked);
+    }
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     if (_location == null) {
       bestieToast(context, 'Add shop location',
           body: 'Tap “Use my location” or “Pick on map”.',
+          kind: BestieToastKind.warning);
+      return;
+    }
+    if (_mustAssignExecutive && _assignedExecutive == null) {
+      bestieToast(context, 'Assign executive',
+          body: 'Select a field executive for this outlet.',
           kind: BestieToastKind.warning);
       return;
     }
@@ -129,6 +147,7 @@ class _AddOutletScreenState extends ConsumerState<AddOutletScreen> {
         'longitude': _location!.longitude,
         if (address != null && address.isNotEmpty) 'address': address,
         if (city != null && city.isNotEmpty) 'city': city,
+        if (_assignedExecutive != null) 'assignedToId': _assignedExecutive!['id'],
         'source': 'manual',
       });
 
@@ -200,6 +219,26 @@ class _AddOutletScreenState extends ConsumerState<AddOutletScreen> {
                 prefixIcon: Icon(Icons.phone_outlined, color: c.textMuted),
               ),
             ),
+            if (_mustAssignExecutive) ...[
+              const SizedBox(height: 24),
+              Text('Assign executive',
+                  style: TextStyle(fontWeight: FontWeight.w700, color: c.text)),
+              const SizedBox(height: 4),
+              Text(
+                'Required — choose who will visit and manage this outlet',
+                style: TextStyle(color: c.textMuted, fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              _locationTile(
+                c,
+                icon: Icons.person_outline_rounded,
+                title: _assignedExecutive?['name']?.toString() ?? 'Select executive',
+                subtitle: _assignedExecutive == null
+                    ? 'Tap to pick from your field team'
+                    : 'Tap to change assignment',
+                onTap: _pickExecutive,
+              ),
+            ],
             const SizedBox(height: 24),
             Text('Shop location',
                 style: TextStyle(fontWeight: FontWeight.w700, color: c.text)),

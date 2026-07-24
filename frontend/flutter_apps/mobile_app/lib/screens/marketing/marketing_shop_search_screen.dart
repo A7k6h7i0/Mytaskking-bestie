@@ -5,7 +5,9 @@ import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../../state.dart';
+import '../shell_screen.dart';
 import 'business_directory_service.dart';
+import 'field_helpers.dart';
 import 'field_route_helpers.dart';
 import 'shop_listing_card.dart';
 import 'shop_detail_screen.dart';
@@ -270,6 +272,17 @@ class _MarketingShopSearchScreenState
 
   Future<void> _saveAsOutlet(Map<String, dynamic> biz) async {
     final id = biz['id']?.toString() ?? biz['placeId']?.toString() ?? biz['businessName']?.toString();
+
+    final exec = await ensureExecutiveForOutlet(context, ref);
+    if (!mounted) return;
+    if (mustAssignExecutiveOnOutletCreate(ref.read(authStoreProvider).user) &&
+        exec == null) {
+      bestieToast(context, 'Assign executive',
+          body: 'Select a field executive before saving this shop as an outlet.',
+          kind: BestieToastKind.warning);
+      return;
+    }
+
     setState(() => _savingId = id);
     try {
       await ref.read(apiProvider).createMarketingOutlet({
@@ -279,6 +292,7 @@ class _MarketingShopSearchScreenState
         'latitude': biz['gpsLat'],
         'longitude': biz['gpsLng'],
         'category': biz['businessCategory'],
+        if (exec != null) 'assignedToId': exec['id'],
         'source': 'directory',
       });
       if (mounted) {
@@ -303,8 +317,9 @@ class _MarketingShopSearchScreenState
   @override
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
+    final bottomClearance = shellNavClearance(context);
     return Scaffold(
-      backgroundColor: const Color(0xFFF3F4F6),
+      backgroundColor: c.bg,
       appBar: AppBar(
         title: const Text('Shop search'),
         backgroundColor: c.surface,
@@ -321,7 +336,10 @@ class _MarketingShopSearchScreenState
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Text(
-                    'Find shops to add as outlets. Type or tap Voice search.',
+                    ref.watch(authStoreProvider).user?.isFieldManager == true &&
+                            !canActAsFieldExecutive(ref.watch(authStoreProvider).user)
+                        ? 'Find shops to add as outlets for your team. You will assign an executive when saving.'
+                        : 'Find shops to add as outlets. Type or tap Voice search.',
                     style: TextStyle(color: c.textMuted, fontSize: 13),
                   ),
                   const SizedBox(height: 12),
@@ -472,14 +490,14 @@ class _MarketingShopSearchScreenState
                           final cols = _gridColumns(constraints.maxWidth);
                           if (cols == 1) {
                             return ListView.separated(
-                              padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+                              padding: EdgeInsets.fromLTRB(16, 12, 16, bottomClearance),
                               itemCount: _results.length,
                               separatorBuilder: (_, __) => const SizedBox(height: 16),
                               itemBuilder: (_, i) => _cardAt(i),
                             );
                           }
                           return GridView.builder(
-                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+                            padding: EdgeInsets.fromLTRB(16, 12, 16, bottomClearance),
                             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                               crossAxisCount: cols,
                               crossAxisSpacing: 16,

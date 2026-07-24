@@ -5,7 +5,12 @@ const { NotFound, Forbidden, BadRequest } = require('../../utils/errors');
 const {
   tenantId,
   isManager,
+  isExecutive,
   assertManager,
+  assertExecutiveFieldWorker,
+  assertNotOwnSubmission,
+  assertExecutiveOutletRead,
+  assertExecutiveOutletTransact,
   parsePage,
   paginate,
 } = require('./marketing.helpers');
@@ -62,6 +67,10 @@ async function createOutlet(req, body) {
   const settings = await getFieldSettings(req);
   const needsApproval =
     settings.outletCreationApprovalRequired && !isManager(req.user);
+  const assigneeId = body.assigned_to || body.assignedToId || null;
+  if (isManager(req.user) && !isExecutive(req.user) && !assigneeId) {
+    throw BadRequest('Assign a field executive when creating an outlet');
+  }
   return prisma.marketingOutlet.create({
     data: {
       tenantId: tenantId(req),
@@ -81,7 +90,7 @@ async function createOutlet(req, body) {
       territoryId: body.territory_id || body.territoryId || null,
       regionId: body.region_id || body.regionId || null,
       distributorId: body.distributor_id || body.distributorId || null,
-      assignedToId: body.assigned_to || body.assignedToId || req.user.id,
+      assignedToId: assigneeId || req.user.id,
       grade: body.grade || null,
       approvalStatus: needsApproval ? 'pending' : 'approved',
       createdById: req.user.id,
@@ -97,6 +106,7 @@ async function getOutlet(req, id) {
     },
   });
   if (!row) throw NotFound('Outlet not found');
+  assertExecutiveOutletRead(req.user, row);
   return row;
 }
 
@@ -162,6 +172,8 @@ async function deactivateOutlet(req, id) {
 
 async function approveOutlet(req, id) {
   assertManager(req.user);
+  const row = await getOutlet(req, id);
+  assertNotOwnSubmission(req, row, 'createdById');
   return prisma.marketingOutlet.update({
     where: { id },
     data: { approvalStatus: 'approved' },
@@ -171,6 +183,7 @@ async function approveOutlet(req, id) {
 // ---- visits ----
 
 async function startVisit(req, body) {
+  assertExecutiveFieldWorker(req.user);
   if (!body.outlet_id && !body.outletId) throw BadRequest('outlet_id required');
   const settings = await getFieldSettings(req);
   const selfieProvided = !!(body.selfie_url || body.selfieUrl);
@@ -179,9 +192,7 @@ async function startVisit(req, body) {
   }
   const outletId = body.outlet_id || body.outletId;
   const outlet = await getOutlet(req, outletId);
-  if (outlet.approvalStatus === 'pending' && !isManager(req.user)) {
-    throw Forbidden('Outlet is pending manager approval');
-  }
+  assertExecutiveOutletTransact(req.user, outlet);
 
   const active = await prisma.fieldVisit.findFirst({
     where: {
@@ -321,6 +332,7 @@ async function getActiveVisit(req) {
 }
 
 async function logGps(req, body) {
+  assertExecutiveFieldWorker(req.user);
   if (body.latitude == null || body.longitude == null) {
     throw BadRequest('latitude and longitude required');
   }
@@ -412,6 +424,58 @@ async function createProduct(req, body) {
   });
 }
 
+async function getProduct(req, id) {
+  const row = await prisma.marketingProduct.findFirst({
+    where: { id, tenantId: tenantId(req) },
+  });
+  if (!row) throw NotFound('Product not found');
+  return row;
+}
+
+async function updateProduct(req, id, body) {
+  assertManager(req.user);
+  await getProduct(req, id);
+  const data = {};
+  if (body.name !== undefined) {
+    if (!String(body.name).trim()) throw BadRequest('name required');
+    data.name = body.name.trim();
+  }
+  if (body.sku !== undefined) data.sku = body.sku || null;
+  if (body.category_id !== undefined || body.categoryId !== undefined) {
+    data.categoryId = body.category_id ?? body.categoryId ?? null;
+  }
+  if (body.brand_id !== undefined || body.brandId !== undefined) {
+    data.brandId = body.brand_id ?? body.brandId ?? null;
+  }
+  if (body.mrp !== undefined) data.mrp = body.mrp;
+  if (body.ptr !== undefined) data.ptr = body.ptr;
+  if (body.pts !== undefined) data.pts = body.pts;
+  if (body.gst_percent !== undefined || body.gstPercent !== undefined) {
+    data.gstPercent = body.gst_percent ?? body.gstPercent;
+  }
+  if (body.uom !== undefined) data.uom = body.uom || null;
+  if (body.pack_size !== undefined || body.packSize !== undefined) {
+    data.packSize = body.pack_size ?? body.packSize;
+  }
+  if (body.stock !== undefined) data.stock = body.stock;
+  if (body.availability !== undefined) data.availability = body.availability !== false;
+  if (body.status !== undefined) data.status = body.status;
+  return prisma.marketingProduct.update({
+    where: { id },
+    data,
+    include: { category: true, brand: true },
+  });
+}
+
+async function deleteProduct(req, id) {
+  assertManager(req.user);
+  await getProduct(req, id);
+  return prisma.marketingProduct.update({
+    where: { id },
+    data: { status: 'inactive' },
+  });
+}
+
 async function listCategories(req) {
   return prisma.marketingCategory.findMany({
     where: { tenantId: tenantId(req) },
@@ -431,6 +495,40 @@ async function createCategory(req, body) {
   });
 }
 
+async function getCategory(req, id) {
+  const row = await prisma.marketingCategory.findFirst({
+    where: { id, tenantId: tenantId(req) },
+  });
+  if (!row) throw NotFound('Category not found');
+  return row;
+}
+
+async function updateCategory(req, id, body) {
+  assertManager(req.user);
+  await getCategory(req, id);
+  if (!body.name?.trim()) throw BadRequest('name required');
+  return prisma.marketingCategory.update({
+    where: { id },
+    data: {
+      name: body.name.trim(),
+      ...(body.parent_id !== undefined || body.parentId !== undefined
+        ? { parentId: body.parent_id ?? body.parentId ?? null }
+        : {}),
+    },
+  });
+}
+
+async function deleteCategory(req, id) {
+  assertManager(req.user);
+  const tid = tenantId(req);
+  await getCategory(req, id);
+  await prisma.marketingProduct.updateMany({
+    where: { tenantId: tid, categoryId: id },
+    data: { categoryId: null },
+  });
+  await prisma.marketingCategory.delete({ where: { id } });
+}
+
 async function listBrands(req) {
   return prisma.marketingBrand.findMany({
     where: { tenantId: tenantId(req) },
@@ -444,6 +542,35 @@ async function createBrand(req, body) {
   return prisma.marketingBrand.create({
     data: { tenantId: tenantId(req), name: body.name.trim() },
   });
+}
+
+async function getBrand(req, id) {
+  const row = await prisma.marketingBrand.findFirst({
+    where: { id, tenantId: tenantId(req) },
+  });
+  if (!row) throw NotFound('Brand not found');
+  return row;
+}
+
+async function updateBrand(req, id, body) {
+  assertManager(req.user);
+  await getBrand(req, id);
+  if (!body.name?.trim()) throw BadRequest('name required');
+  return prisma.marketingBrand.update({
+    where: { id },
+    data: { name: body.name.trim() },
+  });
+}
+
+async function deleteBrand(req, id) {
+  assertManager(req.user);
+  const tid = tenantId(req);
+  await getBrand(req, id);
+  await prisma.marketingProduct.updateMany({
+    where: { tenantId: tid, brandId: id },
+    data: { brandId: null },
+  });
+  await prisma.marketingBrand.delete({ where: { id } });
 }
 
 // ---- territories / distributors ----
@@ -493,9 +620,11 @@ async function createDistributor(req, body) {
 // ---- orders ----
 
 async function createOrder(req, body) {
+  assertExecutiveFieldWorker(req.user);
   if (!body.outlet_id && !body.outletId) throw BadRequest('outlet_id required');
   const outletId = body.outlet_id || body.outletId;
-  await getOutlet(req, outletId);
+  const outlet = await getOutlet(req, outletId);
+  assertExecutiveOutletTransact(req.user, outlet);
   const items = Array.isArray(body.items) ? body.items : [];
   let subtotal = 0;
   const lineRows = [];
@@ -569,6 +698,38 @@ async function listOrders(req, query = {}) {
   return paginate(items, total, page, pageSize);
 }
 
+async function getOrder(req, id) {
+  const row = await prisma.fieldOrder.findFirst({
+    where: { id, tenantId: tenantId(req) },
+    include: {
+      outlet: {
+        select: {
+          id: true,
+          name: true,
+          address: true,
+          city: true,
+          state: true,
+          phone: true,
+        },
+      },
+      user: { select: { id: true, name: true, userId: true } },
+      items: {
+        include: {
+          product: { select: { id: true, name: true, sku: true, uom: true } },
+        },
+      },
+      visit: {
+        select: { id: true, checkInAt: true, checkOutAt: true, status: true },
+      },
+    },
+  });
+  if (!row) throw NotFound('Order not found');
+  if (!isManager(req.user) && row.userId !== req.user.id) {
+    throw Forbidden('Not your order');
+  }
+  return row;
+}
+
 // ---- dashboard stats ----
 
 async function fieldDashboard(req) {
@@ -613,16 +774,23 @@ module.exports = {
   listGps,
   listProducts,
   createProduct,
+  updateProduct,
+  deleteProduct,
   listCategories,
   createCategory,
+  updateCategory,
+  deleteCategory,
   listBrands,
   createBrand,
+  updateBrand,
+  deleteBrand,
   listTerritories,
   createTerritory,
   listDistributors,
   createDistributor,
   createOrder,
   listOrders,
+  getOrder,
   fieldDashboard,
   listRegions,
   createRegion,

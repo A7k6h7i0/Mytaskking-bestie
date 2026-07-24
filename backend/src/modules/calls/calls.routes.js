@@ -52,6 +52,29 @@ async function rememberCallClientApp(callId, clientApp) {
   } catch (_) {/* best-effort */}
 }
 
+/** Org-wide call sounds uploaded by admin (ring + emergency buzzer). */
+async function loadOrgCallSettings(req) {
+  const scope = tenant.orgSettingScope(req, 'calls');
+  const rows = await prisma.workspaceSetting.findMany({
+    where: {
+      scope,
+      key: { in: ['emergencyBuzzerEnabled', 'emergencyBuzzerSoundUrl', 'ringingSoundUrl'] },
+    },
+  });
+  const map = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  return {
+    emergencyBuzzerEnabled: map.emergencyBuzzerEnabled !== false,
+    emergencyBuzzerSoundUrl:
+      typeof map.emergencyBuzzerSoundUrl === 'string' ? map.emergencyBuzzerSoundUrl : '',
+    ringingSoundUrl: typeof map.ringingSoundUrl === 'string' ? map.ringingSoundUrl : '',
+  };
+}
+
+function fcmCallSoundData(orgCallSounds) {
+  if (!orgCallSounds?.ringingSoundUrl) return {};
+  return { ringingSoundUrl: orgCallSounds.ringingSoundUrl };
+}
+
 router.post(
   '/initiate',
   validate({
@@ -137,6 +160,7 @@ router.post(
     }
     // FCM push — tagged with clientApp so other app families can ignore cross-app rings.
     if (inviteeIds.length) {
+      const orgCallSounds = await loadOrgCallSettings(req);
       prisma.deviceToken
         .findMany({ where: { userId: { in: inviteeIds } } })
         .then(async (devices) => {
@@ -166,6 +190,7 @@ router.post(
                     { action: 'call.decline', userId, callId: result.call.id },
                     '2m'
                   ),
+                  ...fcmCallSoundData(orgCallSounds),
                 },
               })
             )
@@ -374,21 +399,17 @@ router.post('/:id/buzzer', asyncHandler(async (req, res) => {
   if (!call || !(call.participants || []).some((p) => p.userId === req.user.id)) {
     return res.status(404).json({ error: 'Call not found' });
   }
-  const [enabledSetting, soundSetting] = await Promise.all([
-    prisma.workspaceSetting.findUnique({
-      where: { scope_key: { scope: 'calls', key: 'emergencyBuzzerEnabled' } },
-    }),
-    prisma.workspaceSetting.findUnique({
-      where: { scope_key: { scope: 'calls', key: 'emergencyBuzzerSoundUrl' } },
-    }),
-  ]);
-  if (enabledSetting?.value === false) return res.status(403).json({ error: 'Emergency buzzer is disabled' });
+  const orgCallSounds = await loadOrgCallSettings(req);
+  if (!orgCallSounds.emergencyBuzzerEnabled) {
+    return res.status(403).json({ error: 'Emergency buzzer is disabled' });
+  }
+  const buzzerUrl = orgCallSounds.emergencyBuzzerSoundUrl || null;
   for (const participant of call.participants || []) {
     if (participant.userId === req.user.id) continue;
     req.app.get('io')?.to(`user:${participant.userId}`).emit('call.buzzer', {
       callId: call.id,
       fromName: req.user.name,
-      audioUrl: typeof soundSetting?.value === 'string' ? soundSetting.value : null,
+      audioUrl: buzzerUrl,
     });
   }
   res.json({ ok: true });
@@ -437,6 +458,7 @@ router.post(
     // Ring the newly-added people even when their app is backgrounded/killed —
     // the socket-only `call.invited` above never reached them otherwise (the
     // "added but no incoming call" bug). Mirrors the FCM push in /initiate.
+    const orgCallSounds = await loadOrgCallSettings(req);
     prisma.deviceToken
       .findMany({ where: { userId: { in: userIds } } })
       .then(async (devices) => {
@@ -465,6 +487,7 @@ router.post(
                   { action: 'call.decline', userId, callId: result.call.id },
                   '2m'
                 ),
+                ...fcmCallSoundData(orgCallSounds),
               },
             })
           )
@@ -499,6 +522,7 @@ router.post(
       token: result.tokens[result.targetUserId],
       transfer: true,
     });
+    const orgCallSounds = await loadOrgCallSettings(req);
     prisma.deviceToken
       .findMany({ where: { userId: result.targetUserId } })
       .then((devices) => {
@@ -519,6 +543,7 @@ router.post(
               { action: 'call.decline', userId: result.targetUserId, callId: result.call.id },
               '2m'
             ),
+            ...fcmCallSoundData(orgCallSounds),
           },
         });
       })

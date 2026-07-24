@@ -6,6 +6,7 @@ const { requireAuth } = require('../../middleware/auth');
 const { assertFieldAccess } = require('./marketing.helpers');
 const service = require('./marketing.service');
 const ops = require('./marketing.ops.service');
+const exportService = require('./marketing.export.service');
 
 const DATA_BASE =
   process.env.BUSINESS_DATA_URL || 'https://data.mytaskking.com';
@@ -33,6 +34,21 @@ router.get(
   '/dashboard',
   asyncHandler(async (req, res) => {
     res.json(await service.fieldDashboard(req));
+  })
+);
+
+router.get(
+  '/export.xlsx',
+  asyncHandler(async (req, res) => {
+    const report = await exportService.buildMarketingExport(req, req.query);
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${report.filename}"`);
+    res.setHeader('X-Report-Row-Count', String(report.rowCount));
+    res.setHeader('X-Report-Executive-Count', String(report.executives));
+    res.send(report.buffer);
   })
 );
 
@@ -134,6 +150,19 @@ router.post(
     res.status(201).json(await service.createProduct(req, req.body))
   )
 );
+router.patch(
+  '/products/:id',
+  asyncHandler(async (req, res) =>
+    res.json(await service.updateProduct(req, req.params.id, req.body))
+  )
+);
+router.delete(
+  '/products/:id',
+  asyncHandler(async (req, res) => {
+    await service.deleteProduct(req, req.params.id);
+    res.status(204).end();
+  })
+);
 router.get(
   '/categories',
   asyncHandler(async (req, res) => res.json(await service.listCategories(req)))
@@ -144,6 +173,19 @@ router.post(
     res.status(201).json(await service.createCategory(req, req.body))
   )
 );
+router.patch(
+  '/categories/:id',
+  asyncHandler(async (req, res) =>
+    res.json(await service.updateCategory(req, req.params.id, req.body))
+  )
+);
+router.delete(
+  '/categories/:id',
+  asyncHandler(async (req, res) => {
+    await service.deleteCategory(req, req.params.id);
+    res.status(204).end();
+  })
+);
 router.get(
   '/brands',
   asyncHandler(async (req, res) => res.json(await service.listBrands(req)))
@@ -153,6 +195,19 @@ router.post(
   asyncHandler(async (req, res) =>
     res.status(201).json(await service.createBrand(req, req.body))
   )
+);
+router.patch(
+  '/brands/:id',
+  asyncHandler(async (req, res) =>
+    res.json(await service.updateBrand(req, req.params.id, req.body))
+  )
+);
+router.delete(
+  '/brands/:id',
+  asyncHandler(async (req, res) => {
+    await service.deleteBrand(req, req.params.id);
+    res.status(204).end();
+  })
 );
 router.get(
   '/territories',
@@ -179,6 +234,10 @@ router.post(
 router.get(
   '/orders',
   asyncHandler(async (req, res) => res.json(await service.listOrders(req, req.query)))
+);
+router.get(
+  '/orders/:id',
+  asyncHandler(async (req, res) => res.json(await service.getOrder(req, req.params.id)))
 );
 router.post(
   '/orders',

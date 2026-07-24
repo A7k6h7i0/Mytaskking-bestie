@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../state.dart';
+import 'shell_screen.dart';
 import '../utils/subscription_status.dart';
 import '../widgets/document_image_viewer.dart';
 
@@ -302,6 +303,7 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
     final isSuper = user?.isPlatformSuperAdmin ?? false;
     final isSales = user?.isSalesHead ?? false;
     final filtered = _filteredItems();
+    final bottomClearance = shellNavClearance(context);
     return Scaffold(
       backgroundColor: c.surface,
       appBar: AppBar(
@@ -310,10 +312,13 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
         foregroundColor: c.text,
       ),
       floatingActionButton: isSuper
-          ? FloatingActionButton.extended(
-              onPressed: _showCreateSheet,
-              icon: const Icon(Icons.add_business_rounded),
-              label: const Text('Add organisation'),
+          ? Padding(
+              padding: EdgeInsets.only(bottom: bottomClearance - 24),
+              child: FloatingActionButton.extended(
+                onPressed: _showCreateSheet,
+                icon: const Icon(Icons.add_business_rounded),
+                label: const Text('Add organisation'),
+              ),
             )
           : null,
       body: Column(
@@ -413,7 +418,12 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
                             ],
                           )
                     : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+                        padding: EdgeInsets.fromLTRB(
+                          16,
+                          12,
+                          16,
+                          isSuper ? bottomClearance + 72 : bottomClearance,
+                        ),
                         itemCount: filtered.length,
                         separatorBuilder: (_, __) =>
                             const SizedBox(height: 10),

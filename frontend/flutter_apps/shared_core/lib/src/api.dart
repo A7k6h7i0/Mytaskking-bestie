@@ -1150,6 +1150,43 @@ extension BestieApiExt on BestieApi {
   Future<Map<String, dynamic>> marketingFieldSettings() =>
       get('/marketing/settings');
 
+  /// Full marketing field workbook (.xlsx). Manager / admin only.
+  Future<({Uint8List bytes, String filename, int rowCount, int executiveCount})>
+      downloadMarketingExport({
+    String? from,
+    String? to,
+  }) async {
+    final r = await dio.get<List<int>>(
+      '/marketing/export.xlsx',
+      queryParameters: {
+        if (from != null && from.isNotEmpty) 'from': from,
+        if (to != null && to.isNotEmpty) 'to': to,
+      },
+      options: Options(responseType: ResponseType.bytes),
+    );
+    final raw = r.data;
+    if (raw == null || raw.isEmpty) throw 'Export is empty';
+    final bytes = raw is Uint8List ? raw : Uint8List.fromList(raw);
+
+    var filename = 'marketing-field-export.xlsx';
+    final cd = r.headers.value('content-disposition');
+    if (cd != null) {
+      final match = RegExp(r'filename="?([^";]+)"?').firstMatch(cd);
+      if (match != null) filename = match.group(1)!;
+    }
+
+    final rowCount =
+        int.tryParse(r.headers.value('x-report-row-count') ?? '') ?? 0;
+    final executiveCount =
+        int.tryParse(r.headers.value('x-report-executive-count') ?? '') ?? 0;
+    return (
+      bytes: bytes,
+      filename: filename,
+      rowCount: rowCount,
+      executiveCount: executiveCount,
+    );
+  }
+
   Future<Map<String, dynamic>> listMarketingOutlets({
     String? search,
     String? assignedTo,
@@ -1246,6 +1283,9 @@ extension BestieApiExt on BestieApi {
   Future<Map<String, dynamic>> listFieldOrders({int page = 1}) =>
       get('/marketing/orders', query: {'page': page});
 
+  Future<Map<String, dynamic>> getFieldOrder(String id) =>
+      get('/marketing/orders/$id');
+
   Future<Map<String, dynamic>> createFieldOrder(Map<String, dynamic> body) =>
       post('/marketing/orders', body: body);
 
@@ -1267,11 +1307,38 @@ extension BestieApiExt on BestieApi {
   Future<Map<String, dynamic>> createMarketingProduct(Map<String, dynamic> body) =>
       post('/marketing/products', body: body);
 
+  Future<Map<String, dynamic>> updateMarketingProduct(
+          String id, Map<String, dynamic> body) async {
+    final r = await dio.patch('/marketing/products/$id', data: body);
+    return Map<String, dynamic>.from(r.data as Map);
+  }
+
+  Future<void> deleteMarketingProduct(String id) =>
+      dio.delete('/marketing/products/$id');
+
   Future<Map<String, dynamic>> createMarketingCategory(Map<String, dynamic> body) =>
       post('/marketing/categories', body: body);
 
+  Future<Map<String, dynamic>> updateMarketingCategory(
+          String id, Map<String, dynamic> body) async {
+    final r = await dio.patch('/marketing/categories/$id', data: body);
+    return Map<String, dynamic>.from(r.data as Map);
+  }
+
+  Future<void> deleteMarketingCategory(String id) =>
+      dio.delete('/marketing/categories/$id');
+
   Future<Map<String, dynamic>> createMarketingBrand(Map<String, dynamic> body) =>
       post('/marketing/brands', body: body);
+
+  Future<Map<String, dynamic>> updateMarketingBrand(
+          String id, Map<String, dynamic> body) async {
+    final r = await dio.patch('/marketing/brands/$id', data: body);
+    return Map<String, dynamic>.from(r.data as Map);
+  }
+
+  Future<void> deleteMarketingBrand(String id) =>
+      dio.delete('/marketing/brands/$id');
 
   Future<Map<String, dynamic>> listFieldGps({String? userId, int page = 1}) =>
       get('/marketing/gps', query: {

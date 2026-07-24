@@ -129,6 +129,8 @@ class ShopDetailScreen extends StatelessWidget {
         ),
     ];
 
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+
     return Scaffold(
       backgroundColor: c.surface,
       body: CustomScrollView(
@@ -143,7 +145,7 @@ class ShopDetailScreen extends StatelessWidget {
                 fit: StackFit.expand,
                 children: [
                   ColoredBox(
-                    color: const Color(0xFFE2E8F0),
+                    color: c.surface2,
                     child: _image.isNotEmpty
                         ? Image.network(
                             _image,
@@ -190,12 +192,14 @@ class ShopDetailScreen extends StatelessWidget {
           ),
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+              padding: EdgeInsets.fromLTRB(20, 16, 20, 24 + bottomInset),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Text(
                     _name,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.w800,
@@ -205,10 +209,12 @@ class ShopDetailScreen extends StatelessWidget {
                   ),
                   if (rating != null && rating > 0) ...[
                     const SizedBox(height: 10),
-                    Row(
+                    Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 8,
+                      runSpacing: 4,
                       children: [
                         _stars(rating),
-                        const SizedBox(width: 8),
                         Text(
                           rating.toStringAsFixed(1),
                           style: TextStyle(
@@ -217,13 +223,11 @@ class ShopDetailScreen extends StatelessWidget {
                             color: c.text,
                           ),
                         ),
-                        if (reviews != null && reviews > 0) ...[
-                          const SizedBox(width: 6),
+                        if (reviews != null && reviews > 0)
                           Text(
                             '($reviews reviews)',
                             style: TextStyle(color: c.textMuted, fontSize: 14),
                           ),
-                        ],
                       ],
                     ),
                   ],
@@ -241,36 +245,7 @@ class ShopDetailScreen extends StatelessWidget {
                   const SizedBox(height: 10),
                   ...rows.map((r) => _detailRow(c, r.icon, r.label, r.value, r.action)),
                   const SizedBox(height: 24),
-                  Row(
-                    children: [
-                      if (_website.isNotEmpty)
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: _openWebsite,
-                            icon: const Icon(Icons.language_rounded, size: 18),
-                            label: const Text('Website'),
-                          ),
-                        ),
-                      if (_website.isNotEmpty) const SizedBox(width: 10),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: (_position != null || _address.isNotEmpty)
-                              ? _openDirections
-                              : null,
-                          icon: const Icon(Icons.directions_rounded, size: 18),
-                          label: const Text('Directions'),
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (_phone.isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    OutlinedButton.icon(
-                      onPressed: _callPhone,
-                      icon: const Icon(Icons.call_outlined, size: 18),
-                      label: Text('Call $_phone'),
-                    ),
-                  ],
+                  _actionButtons(c),
                   const SizedBox(height: 14),
                   FilledButton.icon(
                     onPressed: saving ? null : onSaveOutlet,
@@ -293,6 +268,73 @@ class ShopDetailScreen extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _actionButtons(BestieColors c) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final narrow = constraints.maxWidth < 380;
+        final websiteBtn = _website.isNotEmpty
+            ? OutlinedButton.icon(
+                onPressed: _openWebsite,
+                icon: const Icon(Icons.language_rounded, size: 18),
+                label: const Text('Website'),
+              )
+            : null;
+        final directionsBtn = OutlinedButton.icon(
+          onPressed: (_position != null || _address.isNotEmpty) ? _openDirections : null,
+          icon: const Icon(Icons.directions_rounded, size: 18),
+          label: const Text('Directions'),
+        );
+        final callBtn = _phone.isNotEmpty
+            ? OutlinedButton.icon(
+                onPressed: _callPhone,
+                icon: const Icon(Icons.call_outlined, size: 18),
+                label: Text(
+                  'Call $_phone',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              )
+            : null;
+
+        if (narrow) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (websiteBtn != null) ...[
+                SizedBox(width: double.infinity, child: websiteBtn),
+                const SizedBox(height: 10),
+              ],
+              SizedBox(width: double.infinity, child: directionsBtn),
+              if (callBtn != null) ...[
+                const SizedBox(height: 10),
+                SizedBox(width: double.infinity, child: callBtn),
+              ],
+            ],
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                if (websiteBtn != null) ...[
+                  Expanded(child: websiteBtn),
+                  const SizedBox(width: 10),
+                ],
+                Expanded(child: directionsBtn),
+              ],
+            ),
+            if (callBtn != null) ...[
+              const SizedBox(height: 10),
+              SizedBox(width: double.infinity, child: callBtn),
+            ],
+          ],
+        );
+      },
     );
   }
 
@@ -420,6 +462,8 @@ class ShopDetailScreen extends StatelessWidget {
                       const SizedBox(height: 4),
                       Text(
                         value,
+                        maxLines: 4,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(fontSize: 14, color: c.text, height: 1.35),
                       ),
                     ],

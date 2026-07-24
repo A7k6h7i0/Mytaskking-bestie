@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../../state.dart';
+import '../shell_screen.dart';
 import 'field_gps_tracker.dart';
 import 'field_sync_service.dart';
 import 'field_sync_banner.dart';
@@ -86,6 +87,8 @@ class _FieldDashboardScreenState extends ConsumerState<FieldDashboardScreen>
     final c = BestieColors.of(context);
     final user = ref.watch(authStoreProvider).user;
     final isManager = user?.isFieldManager ?? false;
+    final isExecutive = canActAsFieldExecutive(user);
+    final bottomClearance = shellNavClearance(context);
 
     return Scaffold(
       backgroundColor: c.surface,
@@ -117,7 +120,7 @@ class _FieldDashboardScreenState extends ConsumerState<FieldDashboardScreen>
                     ],
                   )
                 : ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+                    padding: EdgeInsets.fromLTRB(16, 12, 16, bottomClearance),
                     children: [
                       FieldSyncBanner(
                         onSync: () => FieldSyncService.syncAll(ref.read(apiProvider))
@@ -140,7 +143,7 @@ class _FieldDashboardScreenState extends ConsumerState<FieldDashboardScreen>
                         style: TextStyle(color: c.textMuted, fontSize: 13),
                       ),
                       const SizedBox(height: 16),
-                      if (_activeVisit != null) ...[
+                      if (_activeVisit != null && isExecutive) ...[
                         _activeVisitCard(c),
                         const SizedBox(height: 16),
                       ],
@@ -153,8 +156,10 @@ class _FieldDashboardScreenState extends ConsumerState<FieldDashboardScreen>
                       _actionTile(
                         c,
                         icon: Icons.map_outlined,
-                        label: 'Route & map',
-                        subtitle: 'Distance to outlets, optimize visits',
+                        label: isManager ? 'Outlet map' : 'Route & map',
+                        subtitle: isManager
+                            ? 'Monitor team outlets on the map'
+                            : 'Distance to outlets, optimize visits',
                         onTap: () => context.go('/field/route'),
                       ),
                       _actionTile(
@@ -167,10 +172,12 @@ class _FieldDashboardScreenState extends ConsumerState<FieldDashboardScreen>
                         c,
                         icon: Icons.search_rounded,
                         label: 'Shop search',
-                        subtitle: 'Find businesses via directory',
+                        subtitle: isManager
+                            ? 'Find shops and add as outlets for your team'
+                            : 'Find businesses via directory',
                         onTap: () => context.push('/marketing/shops'),
                       ),
-                      if (!isManager)
+                      if (isExecutive)
                         _actionTile(
                           c,
                           icon: Icons.history_rounded,
@@ -178,6 +185,13 @@ class _FieldDashboardScreenState extends ConsumerState<FieldDashboardScreen>
                           onTap: () => context.push('/field/visits'),
                         ),
                       if (isManager) ...[
+                        _actionTile(
+                          c,
+                          icon: Icons.download_for_offline_outlined,
+                          label: 'Export Excel',
+                          subtitle: 'Outlets, visits, orders, GPS, HR, catalog',
+                          onTap: () => context.push('/field/export'),
+                        ),
                         _actionTile(
                           c,
                           icon: Icons.groups_outlined,
@@ -208,7 +222,10 @@ class _FieldDashboardScreenState extends ConsumerState<FieldDashboardScreen>
                       _actionTile(
                         c,
                         icon: Icons.receipt_long_outlined,
-                        label: 'Orders',
+                        label: isManager ? 'Team orders' : 'Orders',
+                        subtitle: isManager
+                            ? 'View orders placed by executives'
+                            : 'Place orders at outlets',
                         onTap: () => context.push('/marketing/orders'),
                       ),
                       _actionTile(

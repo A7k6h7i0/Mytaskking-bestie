@@ -16,7 +16,7 @@ class FieldSettingsSection extends ConsumerStatefulWidget {
 class _FieldSettingsSectionState extends ConsumerState<FieldSettingsSection> {
   bool _visitSelfieRequired = true;
   bool _blinkSelfieRequired = true;
-  bool _outletApprovalRequired = false;
+  bool _outletApprovalRequired = true;
   int _gpsInterval = 120;
   int _autoVisitMinutes = 0;
   bool _loading = true;

@@ -6,6 +6,9 @@ const {
   tenantId,
   isManager,
   assertManager,
+  assertExecutiveFieldWorker,
+  assertNotOwnSubmission,
+  executiveOutletWhere,
   parsePage,
   paginate,
 } = require('./marketing.helpers');
@@ -57,6 +60,7 @@ async function approveExpense(req, id) {
   assertManager(req.user);
   const row = await prisma.fieldExpense.findFirst({ where: { id, tenantId: tenantId(req) } });
   if (!row) throw NotFound('Expense not found');
+  assertNotOwnSubmission(req, row);
   return prisma.fieldExpense.update({
     where: { id },
     data: { status: 'approved', approvedById: req.user.id, approvedAt: new Date() },
@@ -67,6 +71,7 @@ async function rejectExpense(req, id, body) {
   assertManager(req.user);
   const row = await prisma.fieldExpense.findFirst({ where: { id, tenantId: tenantId(req) } });
   if (!row) throw NotFound('Expense not found');
+  assertNotOwnSubmission(req, row);
   return prisma.fieldExpense.update({
     where: { id },
     data: { status: 'rejected', rejectionReason: body.reason || null },
@@ -117,6 +122,7 @@ async function approveLeave(req, id) {
   assertManager(req.user);
   const row = await prisma.fieldLeave.findFirst({ where: { id, tenantId: tenantId(req) } });
   if (!row) throw NotFound('Leave not found');
+  assertNotOwnSubmission(req, row);
   return prisma.fieldLeave.update({
     where: { id },
     data: { status: 'approved', approvedById: req.user.id, approvedAt: new Date() },
@@ -127,6 +133,7 @@ async function rejectLeave(req, id, body) {
   assertManager(req.user);
   const row = await prisma.fieldLeave.findFirst({ where: { id, tenantId: tenantId(req) } });
   if (!row) throw NotFound('Leave not found');
+  assertNotOwnSubmission(req, row);
   return prisma.fieldLeave.update({
     where: { id },
     data: { status: 'rejected', rejectionReason: body.reason || null },
@@ -189,6 +196,7 @@ async function resolveIncident(req, id, body) {
   assertManager(req.user);
   const row = await prisma.fieldIncident.findFirst({ where: { id, tenantId: tenantId(req) } });
   if (!row) throw NotFound('Incident not found');
+  assertNotOwnSubmission(req, row);
   return prisma.fieldIncident.update({
     where: { id },
     data: {
@@ -351,7 +359,11 @@ async function syncPull(req, body = {}) {
 
   const [outlets, products, distributors, routes] = await Promise.all([
     prisma.marketingOutlet.findMany({
-      where: { tenantId: tid, updatedAt: { gte: since } },
+      where: {
+        tenantId: tid,
+        updatedAt: { gte: since },
+        ...(isManager(req.user) ? {} : executiveOutletWhere(req.user)),
+      },
       take: 500,
     }),
     prisma.marketingProduct.findMany({
@@ -376,6 +388,7 @@ async function syncPull(req, body = {}) {
 }
 
 async function syncBatch(req, body = {}) {
+  assertExecutiveFieldWorker(req.user);
   const tid = tenantId(req);
   const userId = req.user.id;
   const visits = Array.isArray(body.visits) ? body.visits : [];

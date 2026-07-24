@@ -106,3 +106,26 @@ Future<({DateTime? value, bool cancelled})> bestiePickScheduledDateTime(
   if (picked.isBefore(now)) return (value: null, cancelled: false);
   return (value: picked, cancelled: false);
 }
+
+/// Theme-aware date-only picker. Returns null if cancelled.
+Future<DateTime?> bestiePickDate(
+  BuildContext context, {
+  DateTime? initial,
+  DateTime? firstDate,
+  DateTime? lastDate,
+}) {
+  final now = DateTime.now();
+  final start = firstDate ?? DateTime(now.year - 5);
+  final end = lastDate ?? DateTime(now.year + 5);
+  var seed = initial ?? now;
+  if (seed.isBefore(start)) seed = start;
+  if (seed.isAfter(end)) seed = end;
+  return showDatePicker(
+    context: context,
+    useRootNavigator: true,
+    initialDate: seed,
+    firstDate: start,
+    lastDate: end,
+    builder: _bestiePickerBuilder,
+  );
+}

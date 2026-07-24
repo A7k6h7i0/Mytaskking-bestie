@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../../state.dart';
+import 'field_form_dialogs.dart';
 import 'field_helpers.dart';
 import 'field_offline_queue.dart';
 import 'field_sync_service.dart';
@@ -17,13 +18,111 @@ class FieldHrScreen extends ConsumerStatefulWidget {
   ConsumerState<FieldHrScreen> createState() => _FieldHrScreenState();
 }
 
-class _FieldHrScreenState extends ConsumerState<FieldHrScreen> {
+class _FieldHrScreenState extends ConsumerState<FieldHrScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
+  final _expensesKey = GlobalKey<_ExpensesTabState>();
+  final _leavesKey = GlobalKey<_LeavesTabState>();
+  final _incidentsKey = GlobalKey<_IncidentsTabState>();
+  final _ratingsKey = GlobalKey<_RatingsTabState>();
+  final _routesKey = GlobalKey<_RoutesTabState>();
+  final _holidaysKey = GlobalKey<_HolidaysTabState>();
+
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 6, vsync: this)
+      ..addListener(() {
+        if (!_tabController.indexIsChanging) setState(() {});
+      });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       FieldSyncService.syncAll(ref.read(apiProvider)).catchError((_) {});
     });
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  Widget? _floatingActionButton(BestieColors c, bool isManager) {
+    switch (_tabController.index) {
+      case 0:
+        return FloatingActionButton.extended(
+          heroTag: 'hr-expenses',
+          backgroundColor: c.brand,
+          foregroundColor: Colors.white,
+          onPressed: () => _expensesKey.currentState?.add(),
+          icon: const Icon(Icons.add_rounded),
+          label: const Text('Add expense'),
+        );
+      case 1:
+        return FloatingActionButton.extended(
+          heroTag: 'hr-leaves',
+          backgroundColor: c.brand,
+          foregroundColor: Colors.white,
+          onPressed: () => _leavesKey.currentState?.apply(),
+          icon: const Icon(Icons.add_rounded),
+          label: const Text('Apply leave'),
+        );
+      case 2:
+        return FloatingActionButton.extended(
+          heroTag: 'hr-incidents',
+          backgroundColor: c.brand,
+          foregroundColor: Colors.white,
+          onPressed: () => _incidentsKey.currentState?.report(),
+          icon: const Icon(Icons.add_rounded),
+          label: const Text('Report'),
+        );
+      case 3:
+        return FloatingActionButton.extended(
+          heroTag: 'hr-ratings',
+          backgroundColor: c.brand,
+          foregroundColor: Colors.white,
+          onPressed: () => _ratingsKey.currentState?.rate(),
+          icon: const Icon(Icons.add_rounded),
+          label: const Text('Rate outlet'),
+        );
+      case 4:
+        if (!isManager) return null;
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            FloatingActionButton.extended(
+              heroTag: 'hr-daily-plan',
+              backgroundColor: c.surface,
+              foregroundColor: c.brand,
+              elevation: 1,
+              onPressed: () => _routesKey.currentState?.addDailyPlan(),
+              icon: const Icon(Icons.event_note_outlined),
+              label: const Text('Daily plan'),
+            ),
+            const SizedBox(height: 10),
+            FloatingActionButton.extended(
+              heroTag: 'hr-route',
+              backgroundColor: c.brand,
+              foregroundColor: Colors.white,
+              onPressed: () => _routesKey.currentState?.addRoute(),
+              icon: const Icon(Icons.add_road_rounded),
+              label: const Text('New route'),
+            ),
+          ],
+        );
+      case 5:
+        if (!isManager) return null;
+        return FloatingActionButton.extended(
+          heroTag: 'hr-holidays',
+          backgroundColor: c.brand,
+          foregroundColor: Colors.white,
+          onPressed: () => _holidaysKey.currentState?.add(),
+          icon: const Icon(Icons.add_rounded),
+          label: const Text('Add holiday'),
+        );
+      default:
+        return null;
+    }
   }
 
   @override
@@ -35,38 +134,48 @@ class _FieldHrScreenState extends ConsumerState<FieldHrScreen> {
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) fieldGoBack(context);
       },
-      child: DefaultTabController(
-        length: 6,
-        child: Scaffold(
+      child: Scaffold(
+        backgroundColor: c.bg,
+        appBar: AppBar(
+          leading: BackButton(onPressed: () => fieldGoBack(context)),
+          title: const Text('Field HR'),
           backgroundColor: c.surface,
-          appBar: AppBar(
-            leading: BackButton(onPressed: () => fieldGoBack(context)),
-            title: const Text('Field HR'),
-            backgroundColor: c.surface,
-            foregroundColor: c.text,
-            bottom: TabBar(
-              isScrollable: true,
-              labelColor: c.brand,
-              tabs: const [
-                Tab(text: 'Expenses'),
-                Tab(text: 'Leaves'),
-                Tab(text: 'Incidents'),
-                Tab(text: 'Ratings'),
-                Tab(text: 'Routes'),
-                Tab(text: 'Holidays'),
-              ],
-            ),
-          ),
-          body: TabBarView(
-            children: [
-              _ExpensesTab(isManager: isManager),
-              _LeavesTab(isManager: isManager),
-              _IncidentsTab(isManager: isManager),
-              _RatingsTab(),
-              _RoutesTab(isManager: isManager),
-              _HolidaysTab(isManager: isManager),
+          foregroundColor: c.text,
+          elevation: 0,
+          scrolledUnderElevation: 0.5,
+          bottom: TabBar(
+            controller: _tabController,
+            isScrollable: true,
+            tabAlignment: TabAlignment.start,
+            labelColor: c.brand,
+            unselectedLabelColor: c.textMuted,
+            indicatorColor: c.brand,
+            indicatorWeight: 2.5,
+            dividerColor: c.borderSoft,
+            labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+            unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
+            tabs: const [
+              Tab(text: 'Expenses'),
+              Tab(text: 'Leaves'),
+              Tab(text: 'Incidents'),
+              Tab(text: 'Ratings'),
+              Tab(text: 'Routes'),
+              Tab(text: 'Holidays'),
             ],
           ),
+        ),
+        floatingActionButton: _floatingActionButton(c, isManager),
+        floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+        body: TabBarView(
+          controller: _tabController,
+          children: [
+            _ExpensesTab(key: _expensesKey, isManager: isManager),
+            _LeavesTab(key: _leavesKey, isManager: isManager),
+            _IncidentsTab(key: _incidentsKey, isManager: isManager),
+            _RatingsTab(key: _ratingsKey),
+            _RoutesTab(key: _routesKey, isManager: isManager),
+            _HolidaysTab(key: _holidaysKey, isManager: isManager),
+          ],
         ),
       ),
     );
@@ -75,7 +184,7 @@ class _FieldHrScreenState extends ConsumerState<FieldHrScreen> {
 
 class _ExpensesTab extends ConsumerStatefulWidget {
   final bool isManager;
-  const _ExpensesTab({required this.isManager});
+  const _ExpensesTab({super.key, required this.isManager});
 
   @override
   ConsumerState<_ExpensesTab> createState() => _ExpensesTabState();
@@ -106,28 +215,26 @@ class _ExpensesTabState extends ConsumerState<_ExpensesTab> {
     }
   }
 
-  Future<void> _add() async {
+  Future<void> add() async {
+    final c = BestieColors.of(context);
     final typeCtrl = TextEditingController(text: 'Travel');
     final amountCtrl = TextEditingController();
-    final dateCtrl = TextEditingController(
-        text: DateTime.now().toIso8601String().substring(0, 10));
-    final ok = await showDialog<bool>(
+    final dateCtrl = TextEditingController(text: formatFieldDate(DateTime.now()));
+    final ok = await showFieldFormDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('New expense'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(controller: typeCtrl, decoration: const InputDecoration(labelText: 'Type')),
-            TextField(controller: amountCtrl, decoration: const InputDecoration(labelText: 'Amount'), keyboardType: TextInputType.number),
-            TextField(controller: dateCtrl, decoration: const InputDecoration(labelText: 'Date (YYYY-MM-DD)')),
-          ],
+      title: 'New expense',
+      subtitle: 'Submit a travel or field expense for approval.',
+      confirmLabel: 'Submit',
+      fields: [
+        fieldFormTextField(c, controller: typeCtrl, label: 'Type'),
+        fieldFormTextField(
+          c,
+          controller: amountCtrl,
+          label: 'Amount',
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Submit')),
-        ],
-      ),
+        fieldFormDateField(context, c, controller: dateCtrl, label: 'Date'),
+      ],
     );
     if (ok != true) {
       typeCtrl.dispose();
@@ -137,16 +244,12 @@ class _ExpensesTabState extends ConsumerState<_ExpensesTab> {
     }
     try {
       String? receiptUrl;
-      final pickReceipt = await showDialog<bool>(
+      final pickReceipt = await showFieldConfirmDialog(
         context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Receipt'),
-          content: const Text('Attach a receipt photo?'),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Skip')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Attach')),
-          ],
-        ),
+        title: 'Receipt',
+        message: 'Attach a receipt photo?',
+        confirmLabel: 'Attach',
+        cancelLabel: 'Skip',
       );
       if (pickReceipt == true) {
         final file = await ImagePicker().pickImage(source: ImageSource.camera, imageQuality: 75);
@@ -181,59 +284,61 @@ class _ExpensesTabState extends ConsumerState<_ExpensesTab> {
   @override
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
+    final me = ref.watch(authStoreProvider).user;
     if (_loading) return const Center(child: BestieSpinner());
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      floatingActionButton: FloatingActionButton(onPressed: _add, child: const Icon(Icons.add)),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: _items.isEmpty
-            ? ListView(children: [Center(child: Text('No expenses', style: TextStyle(color: c.textMuted)))])
-            : ListView.separated(
-                padding: const EdgeInsets.all(16),
-                itemCount: _items.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 8),
-                itemBuilder: (_, i) {
-                  final e = _items[i];
-                  return ListTile(
-                    tileColor: c.surface2,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    title: Text('${e['type']} — ${e['amount']}'),
-                    subtitle: Text('${e['expenseDate']} · ${e['status']}'),
-                    trailing: widget.isManager && e['status'] == 'pending'
-                        ? Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                tooltip: 'Approve',
-                                icon: Icon(Icons.check_circle_outline, color: c.success),
-                                onPressed: () async {
-                                  await ref.read(apiProvider).approveFieldExpense(e['id'].toString());
-                                  await _load();
-                                },
-                              ),
-                              IconButton(
-                                tooltip: 'Reject',
-                                icon: Icon(Icons.cancel_outlined, color: c.danger),
-                                onPressed: () async {
-                                  await ref.read(apiProvider).rejectFieldExpense(e['id'].toString());
-                                  await _load();
-                                },
-                              ),
-                            ],
-                          )
-                        : null,
-                  );
-                },
-              ),
-      ),
+    return RefreshIndicator(
+      onRefresh: _load,
+      color: c.brand,
+      child: _items.isEmpty
+          ? ListView(
+              padding: _hrListPadding(context),
+              children: [
+                _HrEmptyState(
+                  icon: Icons.receipt_long_outlined,
+                  title: 'No expenses yet',
+                  subtitle: 'Tap Add expense to submit your first claim.',
+                  color: c,
+                ),
+              ],
+            )
+          : ListView.separated(
+              padding: _hrListPadding(context),
+              itemCount: _items.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 10),
+              itemBuilder: (_, i) {
+                final e = _items[i];
+                final canReview = widget.isManager &&
+                    e['status'] == 'pending' &&
+                    canApproveFieldSubmission(me, e);
+                return _HrRecordCard(
+                  c: c,
+                  icon: Icons.payments_outlined,
+                  title: '${e['type']} — ${e['amount']}',
+                  subtitle: e['expenseDate']?.toString() ?? '',
+                  badge: _HrStatusBadge(status: e['status']?.toString()),
+                  trailing: canReview
+                      ? _HrReviewActions(
+                          c: c,
+                          onApprove: () async {
+                            await ref.read(apiProvider).approveFieldExpense(e['id'].toString());
+                            await _load();
+                          },
+                          onReject: () async {
+                            await ref.read(apiProvider).rejectFieldExpense(e['id'].toString());
+                            await _load();
+                          },
+                        )
+                      : null,
+                );
+              },
+            ),
     );
   }
 }
 
 class _LeavesTab extends ConsumerStatefulWidget {
   final bool isManager;
-  const _LeavesTab({required this.isManager});
+  const _LeavesTab({super.key, required this.isManager});
 
   @override
   ConsumerState<_LeavesTab> createState() => _LeavesTabState();
@@ -264,29 +369,28 @@ class _LeavesTabState extends ConsumerState<_LeavesTab> {
     }
   }
 
-  Future<void> _apply() async {
+  Future<void> apply() async {
+    final c = BestieColors.of(context);
     final typeCtrl = TextEditingController(text: 'Casual');
-    final fromCtrl = TextEditingController();
-    final toCtrl = TextEditingController();
-    final ok = await showDialog<bool>(
+    final fromCtrl = TextEditingController(text: formatFieldDate(DateTime.now()));
+    final toCtrl = TextEditingController(text: formatFieldDate(DateTime.now()));
+    final ok = await showFieldFormDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Apply leave'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(controller: typeCtrl, decoration: const InputDecoration(labelText: 'Leave type')),
-            TextField(controller: fromCtrl, decoration: const InputDecoration(labelText: 'From (YYYY-MM-DD)')),
-            TextField(controller: toCtrl, decoration: const InputDecoration(labelText: 'To (YYYY-MM-DD)')),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Apply')),
-        ],
-      ),
+      title: 'Apply leave',
+      subtitle: 'Choose leave type and date range.',
+      confirmLabel: 'Apply',
+      fields: [
+        fieldFormTextField(c, controller: typeCtrl, label: 'Leave type'),
+        fieldFormDateField(context, c, controller: fromCtrl, label: 'From date'),
+        fieldFormDateField(context, c, controller: toCtrl, label: 'To date'),
+      ],
     );
-    if (ok != true) return;
+    if (ok != true) {
+      typeCtrl.dispose();
+      fromCtrl.dispose();
+      toCtrl.dispose();
+      return;
+    }
     try {
       await ref.read(apiProvider).createFieldLeave({
         'leaveType': typeCtrl.text.trim(),
@@ -308,52 +412,58 @@ class _LeavesTabState extends ConsumerState<_LeavesTab> {
   @override
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
+    final me = ref.watch(authStoreProvider).user;
     if (_loading) return const Center(child: BestieSpinner());
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      floatingActionButton: FloatingActionButton(onPressed: _apply, child: const Icon(Icons.add)),
-      body: ListView.separated(
-        padding: const EdgeInsets.all(16),
-        itemCount: _items.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 8),
-        itemBuilder: (_, i) {
-          final l = _items[i];
-          return ListTile(
-            tileColor: c.surface2,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            title: Text('${l['leaveType']} · ${l['fromDate']} → ${l['toDate']}'),
-            subtitle: Text(l['status']?.toString() ?? ''),
-            trailing: widget.isManager && l['status'] == 'pending'
-                ? Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: Icon(Icons.check_circle_outline, color: c.success),
-                        onPressed: () async {
-                          await ref.read(apiProvider).approveFieldLeave(l['id'].toString());
-                          await _load();
-                        },
-                      ),
-                      IconButton(
-                        icon: Icon(Icons.cancel_outlined, color: c.danger),
-                        onPressed: () async {
-                          await ref.read(apiProvider).rejectFieldLeave(l['id'].toString());
-                          await _load();
-                        },
-                      ),
-                    ],
-                  )
-                : null,
-          );
-        },
-      ),
+    if (_items.isEmpty) {
+      return ListView(
+        padding: _hrListPadding(context),
+        children: [
+          _HrEmptyState(
+            icon: Icons.beach_access_outlined,
+            title: 'No leave requests',
+            subtitle: 'Tap Apply leave to request time off.',
+            color: c,
+          ),
+        ],
+      );
+    }
+    return ListView.separated(
+      padding: _hrListPadding(context),
+      itemCount: _items.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemBuilder: (_, i) {
+        final l = _items[i];
+        final canReview = widget.isManager &&
+            l['status'] == 'pending' &&
+            canApproveFieldSubmission(me, l);
+        return _HrRecordCard(
+          c: c,
+          icon: Icons.event_busy_outlined,
+          title: l['leaveType']?.toString() ?? 'Leave',
+          subtitle: '${l['fromDate']} → ${l['toDate']}',
+          badge: _HrStatusBadge(status: l['status']?.toString()),
+          trailing: canReview
+              ? _HrReviewActions(
+                  c: c,
+                  onApprove: () async {
+                    await ref.read(apiProvider).approveFieldLeave(l['id'].toString());
+                    await _load();
+                  },
+                  onReject: () async {
+                    await ref.read(apiProvider).rejectFieldLeave(l['id'].toString());
+                    await _load();
+                  },
+                )
+              : null,
+        );
+      },
     );
   }
 }
 
 class _IncidentsTab extends ConsumerStatefulWidget {
   final bool isManager;
-  const _IncidentsTab({required this.isManager});
+  const _IncidentsTab({super.key, required this.isManager});
 
   @override
   ConsumerState<_IncidentsTab> createState() => _IncidentsTabState();
@@ -384,27 +494,25 @@ class _IncidentsTabState extends ConsumerState<_IncidentsTab> {
     }
   }
 
-  Future<void> _report() async {
+  Future<void> report() async {
+    final c = BestieColors.of(context);
     final typeCtrl = TextEditingController(text: 'Safety');
     final descCtrl = TextEditingController();
-    final ok = await showDialog<bool>(
+    final ok = await showFieldFormDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Report incident'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(controller: typeCtrl, decoration: const InputDecoration(labelText: 'Type')),
-            TextField(controller: descCtrl, maxLines: 3, decoration: const InputDecoration(labelText: 'Description')),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Report')),
-        ],
-      ),
+      title: 'Report incident',
+      subtitle: 'Describe what happened in the field.',
+      confirmLabel: 'Report',
+      fields: [
+        fieldFormTextField(c, controller: typeCtrl, label: 'Type'),
+        fieldFormTextField(c, controller: descCtrl, label: 'Description', maxLines: 3),
+      ],
     );
-    if (ok != true) return;
+    if (ok != true) {
+      typeCtrl.dispose();
+      descCtrl.dispose();
+      return;
+    }
     final offlineId = 'inc-${DateTime.now().millisecondsSinceEpoch}';
     final payload = {
       'type': typeCtrl.text.trim(),
@@ -440,49 +548,55 @@ class _IncidentsTabState extends ConsumerState<_IncidentsTab> {
   @override
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
+    final me = ref.watch(authStoreProvider).user;
     if (_loading) return const Center(child: BestieSpinner());
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      floatingActionButton: FloatingActionButton(onPressed: _report, child: const Icon(Icons.add)),
-      body: ListView.separated(
-        padding: const EdgeInsets.all(16),
-        itemCount: _items.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 8),
-        itemBuilder: (_, i) {
-          final item = _items[i];
-          return ListTile(
-            tileColor: c.surface2,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            title: Text(item['type']?.toString() ?? 'Incident'),
-            subtitle: Text(item['description']?.toString() ?? ''),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                BestieBadge(
-                  tone: item['status'] == 'resolved'
-                      ? BestieTone.success
-                      : BestieTone.warning,
-                  child: Text(item['status']?.toString() ?? 'open'),
-                ),
-                if (widget.isManager && item['status'] == 'open' && item['id'] != null)
-                  IconButton(
-                    tooltip: 'Resolve',
-                    icon: Icon(Icons.done_all, color: c.success),
-                    onPressed: () async {
-                      await ref.read(apiProvider).resolveFieldIncident(item['id'].toString());
-                      await _load();
-                    },
-                  ),
-              ],
-            ),
-          );
-        },
-      ),
+    if (_items.isEmpty) {
+      return ListView(
+        padding: _hrListPadding(context),
+        children: [
+          _HrEmptyState(
+            icon: Icons.report_problem_outlined,
+            title: 'No incidents reported',
+            subtitle: 'Tap Report to log a safety or field issue.',
+            color: c,
+          ),
+        ],
+      );
+    }
+    return ListView.separated(
+      padding: _hrListPadding(context),
+      itemCount: _items.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemBuilder: (_, i) {
+        final item = _items[i];
+        final canResolve = widget.isManager &&
+            item['status'] == 'open' &&
+            item['id'] != null &&
+            canApproveFieldSubmission(me, item);
+        return _HrRecordCard(
+          c: c,
+          icon: Icons.warning_amber_rounded,
+          title: item['type']?.toString() ?? 'Incident',
+          subtitle: item['description']?.toString() ?? '',
+          badge: _HrStatusBadge(status: item['status']?.toString()),
+          trailing: canResolve
+              ? IconButton(
+                  tooltip: 'Resolve',
+                  icon: Icon(Icons.done_all_rounded, color: c.success),
+                  onPressed: () async {
+                    await ref.read(apiProvider).resolveFieldIncident(item['id'].toString());
+                    await _load();
+                  },
+                )
+              : null,
+        );
+      },
     );
   }
 }
 
 class _RatingsTab extends ConsumerStatefulWidget {
+  const _RatingsTab({super.key});
   @override
   ConsumerState<_RatingsTab> createState() => _RatingsTabState();
 }
@@ -508,24 +622,23 @@ class _RatingsTabState extends ConsumerState<_RatingsTab> {
     } catch (_) {}
   }
 
-  Future<void> _rate() async {
+  Future<void> rate() async {
     final picked = await pickMarketingOutlet(context, ref, title: 'Rate which outlet?');
     if (picked == null) return;
+    final c = BestieColors.of(context);
     final scoreCtrl = TextEditingController(text: '5');
-    final ok = await showDialog<bool>(
+    final ok = await showFieldFormDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Rate ${picked['name']}'),
-        content: TextField(
+      title: 'Rate ${picked['name']}',
+      subtitle: 'Score this outlet from 1 to 5.',
+      fields: [
+        fieldFormTextField(
+          c,
           controller: scoreCtrl,
-          decoration: const InputDecoration(labelText: 'Score 1-5'),
+          label: 'Score (1–5)',
           keyboardType: TextInputType.number,
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save')),
-        ],
-      ),
+      ],
     );
     if (ok != true) {
       scoreCtrl.dispose();
@@ -550,30 +663,40 @@ class _RatingsTabState extends ConsumerState<_RatingsTab> {
   @override
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      floatingActionButton: FloatingActionButton(onPressed: _rate, child: const Icon(Icons.add)),
-      body: ListView.separated(
-        padding: const EdgeInsets.all(16),
-        itemCount: _items.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 8),
-        itemBuilder: (_, i) {
-          final r = _items[i];
-          return ListTile(
-            tileColor: c.surface2,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            title: Text('${r['entityType']} · score ${r['score']}'),
-            subtitle: Text(r['entityId']?.toString() ?? ''),
-          );
-        },
-      ),
+    if (_items.isEmpty) {
+      return ListView(
+        padding: _hrListPadding(context),
+        children: [
+          _HrEmptyState(
+            icon: Icons.star_outline_rounded,
+            title: 'No outlet ratings',
+            subtitle: 'Tap Rate outlet to score an outlet visit.',
+            color: c,
+          ),
+        ],
+      );
+    }
+    return ListView.separated(
+      padding: _hrListPadding(context),
+      itemCount: _items.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemBuilder: (_, i) {
+        final r = _items[i];
+        return _HrRecordCard(
+          c: c,
+          icon: Icons.star_rounded,
+          iconColor: const Color(0xFFFBBC04),
+          title: 'Score ${r['score']}',
+          subtitle: '${r['entityType']} · ${r['entityId']}',
+        );
+      },
     );
   }
 }
 
 class _RoutesTab extends ConsumerStatefulWidget {
   final bool isManager;
-  const _RoutesTab({required this.isManager});
+  const _RoutesTab({super.key, required this.isManager});
 
   @override
   ConsumerState<_RoutesTab> createState() => _RoutesTabState();
@@ -607,21 +730,23 @@ class _RoutesTabState extends ConsumerState<_RoutesTab> {
     } catch (_) {}
   }
 
-  Future<void> _addRoute() async {
+  Future<void> addRoute() async {
     if (!widget.isManager) return;
+    final c = BestieColors.of(context);
     final nameCtrl = TextEditingController();
-    final ok = await showDialog<bool>(
+    final ok = await showFieldFormDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('New route'),
-        content: TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Route name')),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Create')),
-        ],
-      ),
+      title: 'New route',
+      subtitle: 'Name the route, then pick outlets and an executive.',
+      confirmLabel: 'Create',
+      fields: [
+        fieldFormTextField(c, controller: nameCtrl, label: 'Route name'),
+      ],
     );
-    if (ok != true) return;
+    if (ok != true) {
+      nameCtrl.dispose();
+      return;
+    }
     try {
       final outlets = await pickMarketingOutletsMulti(context, ref);
       final exec = await pickExecutive(context, ref);
@@ -653,47 +778,34 @@ class _RoutesTabState extends ConsumerState<_RoutesTab> {
     await _load();
   }
 
-  Future<void> _addDailyPlan() async {
+  Future<void> addDailyPlan() async {
     if (!widget.isManager) return;
-    final dateCtrl = TextEditingController(
-      text: DateTime.now().toIso8601String().substring(0, 10),
-    );
+    final c = BestieColors.of(context);
+    final dateCtrl = TextEditingController(text: formatFieldDate(DateTime.now()));
     String? routeId;
-    final ok = await showDialog<bool>(
+    final ok = await showFieldFormDialogBuilder(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('Daily plan'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: dateCtrl,
-                decoration: const InputDecoration(labelText: 'Date (YYYY-MM-DD)'),
+      title: 'Daily plan',
+      subtitle: 'Schedule outlets for a specific day.',
+      confirmLabel: 'Create',
+      buildFields: (ctx, setDialogState) => [
+        fieldFormDateField(ctx, c, controller: dateCtrl, label: 'Date'),
+        fieldFormDropdown<String?>(
+          c,
+          value: routeId,
+          label: 'Route (optional)',
+          items: [
+            DropdownMenuItem(value: null, child: Text('No route', style: TextStyle(color: c.text))),
+            ..._routes.map(
+              (r) => DropdownMenuItem(
+                value: r['id']?.toString(),
+                child: Text(r['name']?.toString() ?? 'Route', style: TextStyle(color: c.text)),
               ),
-              const SizedBox(height: 8),
-              DropdownButtonFormField<String?>(
-                value: routeId,
-                decoration: const InputDecoration(labelText: 'Route (optional)'),
-                items: [
-                  const DropdownMenuItem(value: null, child: Text('No route')),
-                  ..._routes.map(
-                    (r) => DropdownMenuItem(
-                      value: r['id']?.toString(),
-                      child: Text(r['name']?.toString() ?? 'Route'),
-                    ),
-                  ),
-                ],
-                onChanged: (v) => setDialogState(() => routeId = v),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Create')),
+            ),
           ],
+          onChanged: (v) => setDialogState(() => routeId = v),
         ),
-      ),
+      ],
     );
     if (ok != true) {
       dateCtrl.dispose();
@@ -721,58 +833,48 @@ class _RoutesTabState extends ConsumerState<_RoutesTab> {
   @override
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      floatingActionButton: widget.isManager
-          ? Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                FloatingActionButton.small(
-                  heroTag: 'daily-plan',
-                  onPressed: _addDailyPlan,
-                  child: const Icon(Icons.event_note),
+    return RefreshIndicator(
+      onRefresh: _load,
+      color: c.brand,
+      child: ListView(
+        padding: _hrListPadding(context),
+        children: [
+          _HrSectionHeader(c: c, title: 'Today\'s plan', icon: Icons.today_outlined),
+          const SizedBox(height: 10),
+          if (_plans.isEmpty)
+            _HrInlineEmpty(c: c, message: 'No daily plan scheduled for today.')
+          else
+            for (final p in _plans)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _HrRecordCard(
+                  c: c,
+                  icon: Icons.event_note_outlined,
+                  title: 'Plan ${p['planDate']}',
+                  subtitle: '${(p['outletIds'] as List?)?.length ?? 0} outlets',
                 ),
-                const SizedBox(height: 8),
-                FloatingActionButton(
-                  heroTag: 'route',
-                  onPressed: _addRoute,
-                  child: const Icon(Icons.add_road),
-                ),
-              ],
-            )
-          : null,
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            Text('Today\'s plan', style: TextStyle(fontWeight: FontWeight.w700, color: c.text)),
-            const SizedBox(height: 8),
-            if (_plans.isEmpty)
-              Text('No daily plan for today', style: TextStyle(color: c.textMuted))
-            else
-              for (final p in _plans)
-                ListTile(
-                  tileColor: c.surface2,
-                  title: Text('Plan ${p['planDate']}'),
-                  subtitle: Text('${(p['outletIds'] as List?)?.length ?? 0} outlets'),
-                ),
-            const SizedBox(height: 16),
-            Text('Routes', style: TextStyle(fontWeight: FontWeight.w700, color: c.text)),
-            const SizedBox(height: 8),
-            for (final r in _routes)
-              ListTile(
-                tileColor: c.surface2,
-                title: Text(r['name']?.toString() ?? 'Route'),
-                subtitle: Text(
-                  '${(r['outletIds'] as List?)?.length ?? 0} outlets · ${(r['assignedTo'] as Map?)?['name'] ?? 'Unassigned'}',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                onTap: widget.isManager ? () => _editRoute(r) : () => context.push('/marketing/outlets'),
               ),
-          ],
-        ),
+          const SizedBox(height: 20),
+          _HrSectionHeader(c: c, title: 'Routes', icon: Icons.route_outlined),
+          const SizedBox(height: 10),
+          if (_routes.isEmpty)
+            _HrInlineEmpty(c: c, message: 'No routes created yet.')
+          else
+            for (final r in _routes)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _HrRecordCard(
+                  c: c,
+                  icon: Icons.add_road_rounded,
+                  title: r['name']?.toString() ?? 'Route',
+                  subtitle:
+                      '${(r['outletIds'] as List?)?.length ?? 0} outlets · ${(r['assignedTo'] as Map?)?['name'] ?? 'Unassigned'}',
+                  onTap: widget.isManager
+                      ? () => _editRoute(r)
+                      : () => context.push('/marketing/outlets'),
+                ),
+              ),
+        ],
       ),
     );
   }
@@ -780,7 +882,7 @@ class _RoutesTabState extends ConsumerState<_RoutesTab> {
 
 class _HolidaysTab extends ConsumerStatefulWidget {
   final bool isManager;
-  const _HolidaysTab({required this.isManager});
+  const _HolidaysTab({super.key, required this.isManager});
 
   @override
   ConsumerState<_HolidaysTab> createState() => _HolidaysTabState();
@@ -810,30 +912,25 @@ class _HolidaysTabState extends ConsumerState<_HolidaysTab> {
     }
   }
 
-  Future<void> _add() async {
+  Future<void> add() async {
     if (!widget.isManager) return;
+    final c = BestieColors.of(context);
     final nameCtrl = TextEditingController();
-    final dateCtrl = TextEditingController(
-      text: DateTime.now().toIso8601String().substring(0, 10),
-    );
-    final ok = await showDialog<bool>(
+    final dateCtrl = TextEditingController(text: formatFieldDate(DateTime.now()));
+    final ok = await showFieldFormDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Add holiday'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Name')),
-            TextField(controller: dateCtrl, decoration: const InputDecoration(labelText: 'Date (YYYY-MM-DD)')),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save')),
-        ],
-      ),
+      title: 'Add holiday',
+      subtitle: 'Mark a company holiday on the calendar.',
+      fields: [
+        fieldFormTextField(c, controller: nameCtrl, label: 'Name'),
+        fieldFormDateField(context, c, controller: dateCtrl, label: 'Date'),
+      ],
     );
-    if (ok != true) return;
+    if (ok != true) {
+      nameCtrl.dispose();
+      dateCtrl.dispose();
+      return;
+    }
     try {
       await ref.read(apiProvider).createFieldHoliday({
         'name': nameCtrl.text.trim(),
@@ -850,27 +947,287 @@ class _HolidaysTabState extends ConsumerState<_HolidaysTab> {
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
     if (_loading) return const Center(child: BestieSpinner());
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      floatingActionButton: widget.isManager
-          ? FloatingActionButton(onPressed: _add, child: const Icon(Icons.add))
-          : null,
-      body: _items.isEmpty
-          ? Center(child: Text('No holidays', style: TextStyle(color: c.textMuted)))
-          : ListView.separated(
-              padding: const EdgeInsets.all(16),
-              itemCount: _items.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
-              itemBuilder: (_, i) {
-                final h = _items[i];
-                return ListTile(
-                  tileColor: c.surface2,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  title: Text(h['name']?.toString() ?? 'Holiday'),
-                  subtitle: Text(h['date']?.toString() ?? ''),
-                );
-              },
+    if (_items.isEmpty) {
+      return ListView(
+        padding: _hrListPadding(context),
+        children: [
+          _HrEmptyState(
+            icon: Icons.celebration_outlined,
+            title: 'No holidays added',
+            subtitle: widget.isManager
+                ? 'Tap Add holiday to mark a company holiday.'
+                : 'Your manager will add company holidays here.',
+            color: c,
+          ),
+        ],
+      );
+    }
+    return ListView.separated(
+      padding: _hrListPadding(context),
+      itemCount: _items.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemBuilder: (_, i) {
+        final h = _items[i];
+        return _HrRecordCard(
+          c: c,
+          icon: Icons.celebration_outlined,
+          title: h['name']?.toString() ?? 'Holiday',
+          subtitle: h['date']?.toString() ?? '',
+        );
+      },
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shared Field HR layout helpers
+// ---------------------------------------------------------------------------
+
+const _kHrFabClearance = 92.0;
+
+EdgeInsets _hrListPadding(BuildContext context) => EdgeInsets.fromLTRB(
+      16,
+      12,
+      16,
+      _kHrFabClearance + MediaQuery.paddingOf(context).bottom,
+    );
+
+class _HrEmptyState extends StatelessWidget {
+  const _HrEmptyState({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final BestieColors color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 12),
+      child: Column(
+        children: [
+          Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              color: color.brandSoft,
+              shape: BoxShape.circle,
             ),
+            child: Icon(icon, size: 34, color: color.brand),
+          ),
+          const SizedBox(height: 18),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 17,
+              color: color.text,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: TextStyle(color: color.textMuted, fontSize: 14, height: 1.45),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HrInlineEmpty extends StatelessWidget {
+  const _HrInlineEmpty({required this.c, required this.message});
+
+  final BestieColors c;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(BestieTokens.rLg),
+        border: Border.all(color: c.borderSoft),
+      ),
+      child: Text(message, style: TextStyle(color: c.textMuted, fontSize: 13)),
+    );
+  }
+}
+
+class _HrSectionHeader extends StatelessWidget {
+  const _HrSectionHeader({required this.c, required this.title, required this.icon});
+
+  final BestieColors c;
+  final String title;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: c.brand),
+        const SizedBox(width: 8),
+        Text(
+          title,
+          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: c.text),
+        ),
+      ],
+    );
+  }
+}
+
+class _HrRecordCard extends StatelessWidget {
+  const _HrRecordCard({
+    required this.c,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.iconColor,
+    this.badge,
+    this.trailing,
+    this.onTap,
+  });
+
+  final BestieColors c;
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color? iconColor;
+  final Widget? badge;
+  final Widget? trailing;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: c.surface,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(BestieTokens.rLg),
+        side: BorderSide(color: c.borderSoft),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 14, 10, 14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: c.brandSoft,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, size: 20, color: iconColor ?? c.brand),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                        color: c.text,
+                        height: 1.3,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: c.textMuted, fontSize: 13, height: 1.35),
+                    ),
+                    if (badge != null) ...[
+                      const SizedBox(height: 8),
+                      badge!,
+                    ],
+                  ],
+                ),
+              ),
+              if (trailing != null) trailing!,
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HrStatusBadge extends StatelessWidget {
+  const _HrStatusBadge({this.status});
+
+  final String? status;
+
+  BestieTone get _tone {
+    switch (status?.toLowerCase()) {
+      case 'approved':
+      case 'resolved':
+        return BestieTone.success;
+      case 'rejected':
+        return BestieTone.danger;
+      case 'pending':
+      case 'open':
+      case 'queued':
+        return BestieTone.warning;
+      default:
+        return BestieTone.neutral;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return BestieBadge(
+      tone: _tone,
+      child: Text(status ?? 'unknown'),
+    );
+  }
+}
+
+class _HrReviewActions extends StatelessWidget {
+  const _HrReviewActions({
+    required this.c,
+    required this.onApprove,
+    required this.onReject,
+  });
+
+  final BestieColors c;
+  final VoidCallback onApprove;
+  final VoidCallback onReject;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          tooltip: 'Approve',
+          visualDensity: VisualDensity.compact,
+          icon: Icon(Icons.check_circle_outline, color: c.success),
+          onPressed: onApprove,
+        ),
+        IconButton(
+          tooltip: 'Reject',
+          visualDensity: VisualDensity.compact,
+          icon: Icon(Icons.cancel_outlined, color: c.danger),
+          onPressed: onReject,
+        ),
+      ],
     );
   }
 }

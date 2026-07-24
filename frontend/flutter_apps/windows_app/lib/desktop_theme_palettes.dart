@@ -4,7 +4,8 @@ import 'package:mytaskking_design/mytaskking_design.dart';
 enum DesktopThemeId {
   mytaskkingBlue('mytaskking_blue', 'MyTaskKing Blue', 'Default'),
   orangeMilk('orange_milk', 'Orange Milk', 'Theme 2'),
-  forestSlate('forest_slate', 'Forest Slate', 'Theme 3');
+  forestSlate('forest_slate', 'Forest Slate', 'Theme 3'),
+  grayWhite('gray_white', 'Gray & White', 'Theme 4');
 
   const DesktopThemeId(this.storageKey, this.title, this.subtitle);
   final String storageKey;
@@ -28,6 +29,8 @@ class DesktopThemePalettes {
         return _orangeMilk;
       case DesktopThemeId.forestSlate:
         return _forestSlate;
+      case DesktopThemeId.grayWhite:
+        return _grayWhite;
       case DesktopThemeId.mytaskkingBlue:
         return _mytaskkingBlue;
     }
@@ -180,6 +183,53 @@ class DesktopThemePalettes {
         Color(0xFFF8FAF9),
       ],
       stops: [0.0, 0.34, 0.62, 1.0],
+    ),
+  );
+
+  static const _grayWhite = BestiePaletteExtension(
+    id: 'gray_white',
+    bg: Color(0xFFF5F5F5),
+    bgSoft: Color(0xFFFAFAFA),
+    bgTint: Color(0xFFFFFFFF),
+    surface: Color(0xFFFFFFFF),
+    surface1: Color(0xFFFAFAFA),
+    surface2: Color(0xFFF0F0F0),
+    surface3: Color(0xFFE8E8E8),
+    border: Color(0xFFE0E0E0),
+    borderSoft: Color(0xFFEBEBEB),
+    borderStrong: Color(0xFFBDBDBD),
+    text: Color(0xFF212121),
+    textSoft: Color(0xFF424242),
+    textMuted: Color(0xFF757575),
+    textFaint: Color(0xFF9E9E9E),
+    brand: Color(0xFF525252),
+    brandSoft: Color(0xFFEEEEEE),
+    brandStrong: Color(0xFF262626),
+    accent: Color(0xFF737373),
+    accentSoft: Color(0xFFF5F5F5),
+    backdropTop: Color(0xFFFFFFFF),
+    backdropMid: Color(0xFFF7F7F7),
+    backdropBottom: Color(0xFFEFEFEF),
+    backdropDot: Color(0xFF525252),
+    panelBorder: Color(0xFFE0E0E0),
+    panelGradientStart: Color(0xE0FFFFFF),
+    panelGradientEnd: Color(0xDBFAFAFA),
+    sidebarGradientStart: Color(0xFFFFFFFF),
+    sidebarGradientEnd: Color(0xFFF5F5F5),
+    sidebarActiveStart: Color(0xFF262626),
+    sidebarActiveEnd: Color(0xFF525252),
+    logoGradientStart: Color(0xFF212121),
+    logoGradientEnd: Color(0xFF616161),
+    previewGradient: LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        Color(0xFF424242),
+        Color(0xFF757575),
+        Color(0xFFE0E0E0),
+        Color(0xFFFFFFFF),
+      ],
+      stops: [0.0, 0.35, 0.68, 1.0],
     ),
   );
 

@@ -35,6 +35,7 @@ class IncomingCallForegroundService : Service() {
     private var audioFocusRequest: AudioFocusRequest? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var notificationId: Int = DEFAULT_NOTIFICATION_ID
+    private var ringingSoundUrl: String? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
@@ -45,6 +46,7 @@ class IncomingCallForegroundService : Service() {
         createChannel()
         notificationId = intent?.getIntExtra(EXTRA_NOTIFICATION_ID, DEFAULT_NOTIFICATION_ID)
             ?: DEFAULT_NOTIFICATION_ID
+        ringingSoundUrl = intent?.getStringExtra(EXTRA_RINGING_SOUND_URL)?.trim()?.takeIf { it.isNotEmpty() }
         active = true
         activeKey = intent?.getStringExtra("callId")
             ?: intent?.getStringExtra("meetingSlug")
@@ -71,6 +73,15 @@ class IncomingCallForegroundService : Service() {
 
     private fun startRinging() {
         stopRinging()
+        val customUrl = ringingSoundUrl
+        if (!customUrl.isNullOrEmpty()) {
+            try {
+                startMediaPlayerLoop(Uri.parse(customUrl))
+                return
+            } catch (_: Exception) {
+                // Fall back to the device default ringtone below.
+            }
+        }
         val audioManager = getSystemService(AudioManager::class.java)
         try {
             @Suppress("DEPRECATION")
@@ -123,8 +134,12 @@ class IncomingCallForegroundService : Service() {
             )
             setDataSource(this@IncomingCallForegroundService, uri)
             isLooping = true
-            prepare()
-            start()
+            setOnPreparedListener { player -> player.start() }
+            setOnErrorListener { _, _, _ ->
+                stopMediaPlayer()
+                false
+            }
+            prepareAsync()
         }
     }
 
@@ -318,6 +333,7 @@ class IncomingCallForegroundService : Service() {
         const val EXTRA_TITLE = "title"
         const val EXTRA_BODY = "body"
         const val EXTRA_FROM_NAME = "fromName"
+        const val EXTRA_RINGING_SOUND_URL = "ringingSoundUrl"
         const val EXTRA_API_BASE_URL = "apiBaseUrl"
         const val EXTRA_ACTION_TOKEN = "actionToken"
         private const val CHANNEL_ID = "incoming_calls_loop_v1"

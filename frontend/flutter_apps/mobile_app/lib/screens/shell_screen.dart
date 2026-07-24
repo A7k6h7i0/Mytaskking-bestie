@@ -6,6 +6,11 @@ import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../state.dart';
 
+/// Bottom inset so FABs and scroll content clear the shell tab bar
+/// ([ShellScreen] uses [Scaffold.extendBody]).
+double shellNavClearance(BuildContext context) =>
+    70.0 + 24 + MediaQuery.of(context).padding.bottom;
+
 /// Mobile shell with role-aware bottom navigation (Stitch-styled).
 ///
 /// • EMPLOYEE / MANAGER / ADMIN — Chat · Tasks · Workday · Meet · More

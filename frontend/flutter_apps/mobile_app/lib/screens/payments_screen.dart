@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../state.dart';
+import 'shell_screen.dart';
 
 class PaymentsScreen extends ConsumerStatefulWidget {
   const PaymentsScreen({super.key});
@@ -169,6 +170,7 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
   @override
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
+    final bottomClearance = shellNavClearance(context);
     return Scaffold(
       backgroundColor: c.surface,
       appBar: AppBar(
@@ -225,7 +227,7 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
                         ],
                       )
                     : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+                        padding: EdgeInsets.fromLTRB(16, 12, 16, bottomClearance),
                         itemCount: _items.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 10),
                         itemBuilder: (_, i) {

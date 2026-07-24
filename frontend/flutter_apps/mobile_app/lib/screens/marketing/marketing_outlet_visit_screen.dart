@@ -35,13 +35,9 @@ class _MarketingOutletVisitScreenState
   bool _busy = false;
   String? _error;
 
-  bool get _isManager {
-    final role = ref.read(authStoreProvider).user?.role ?? '';
-    return role == 'ADMIN' ||
-        role == 'SUPER_ADMIN' ||
-        role == 'MANAGER' ||
-        role == 'PROJECT_COORDINATOR_MANAGER';
-  }
+  bool get _isManager => ref.read(authStoreProvider).user?.isFieldManager ?? false;
+
+  bool get _canCheckIn => canActAsFieldExecutive(ref.read(authStoreProvider).user);
 
   bool get _visitSelfieRequired => _settings?['visitSelfieRequired'] != false;
   bool get _blinkSelfieRequired => _settings?['blinkSelfieRequired'] != false;
@@ -406,7 +402,7 @@ class _MarketingOutletVisitScreenState
         backgroundColor: c.surface,
         foregroundColor: c.text,
         actions: [
-          if (_isManager && outlet?['approvalStatus'] == 'pending')
+          if (canApproveMarketingOutlet(ref.read(authStoreProvider).user, outlet ?? const {}))
             IconButton(
               tooltip: 'Approve outlet',
               onPressed: _approveOutlet,
@@ -503,7 +499,17 @@ class _MarketingOutletVisitScreenState
                         style: TextStyle(color: c.textMuted, fontSize: 13),
                       ),
                       const SizedBox(height: 14),
-                      if (outlet?['approvalStatus'] == 'pending')
+                      if (!_canCheckIn)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Text(
+                            'Visit check-in is for field executives only. '
+                            'Use Team visits to monitor your team.',
+                            style: TextStyle(color: c.textMuted, fontSize: 13),
+                          ),
+                        ),
+                      if (_canCheckIn &&
+                          outlet?['approvalStatus'] == 'pending')
                         Padding(
                           padding: const EdgeInsets.only(bottom: 12),
                           child: Text(
@@ -511,9 +517,10 @@ class _MarketingOutletVisitScreenState
                             style: TextStyle(color: c.warning, fontSize: 13),
                           ),
                         ),
-                      FilledButton.icon(
+                      if (_canCheckIn)
+                        FilledButton.icon(
                         onPressed: _busy ||
-                                (!_isManager && outlet?['approvalStatus'] == 'pending')
+                                outlet?['approvalStatus'] == 'pending'
                             ? null
                             : _startVisit,
                         icon: _busy

@@ -6,6 +6,43 @@ import 'package:mytaskking_core/mytaskking_core.dart';
 import '../../state.dart';
 import 'field_offline_queue.dart';
 
+/// Field visits, orders, and GPS pings — executives only.
+bool canActAsFieldExecutive(BestieUser? user) => user?.isExecutive ?? false;
+
+/// Managers/admins must pick an executive when creating outlets (not self-assigned).
+bool mustAssignExecutiveOnOutletCreate(BestieUser? user) =>
+    (user?.isFieldManager ?? false) && !canActAsFieldExecutive(user);
+
+/// Prompts for executive when required; returns null if user cancels.
+Future<Map<String, dynamic>?> ensureExecutiveForOutlet(
+  BuildContext context,
+  WidgetRef ref,
+) async {
+  final user = ref.read(authStoreProvider).user;
+  if (!mustAssignExecutiveOnOutletCreate(user)) return null;
+  return pickExecutive(context, ref);
+}
+
+/// Managers/admins may approve team submissions, not their own.
+bool canApproveFieldSubmission(
+  BestieUser? me,
+  Map<String, dynamic> item, {
+  String userIdField = 'userId',
+}) {
+  if (me?.isFieldManager != true) return false;
+  final submitter = item[userIdField]?.toString();
+  if (submitter != null && submitter == me?.id) return false;
+  return true;
+}
+
+bool canApproveMarketingOutlet(BestieUser? me, Map<String, dynamic> outlet) {
+  if (me?.isFieldManager != true) return false;
+  if (outlet['approvalStatus']?.toString() != 'pending') return false;
+  final creator = outlet['createdById']?.toString();
+  if (creator != null && creator == me?.id) return false;
+  return true;
+}
+
 /// Navigate back through the stack, or fall back to [fallbackRoute].
 void fieldGoBack(BuildContext context, {String fallbackRoute = '/field'}) {
   if (context.canPop()) {

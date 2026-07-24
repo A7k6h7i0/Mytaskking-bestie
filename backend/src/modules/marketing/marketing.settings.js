@@ -6,7 +6,7 @@ const tenant = require('../../services/tenant');
 const DEFAULTS = {
   visitSelfieRequired: true,
   blinkSelfieRequired: true,
-  outletCreationApprovalRequired: false,
+  outletCreationApprovalRequired: true,
   gpsIntervalMovingSeconds: 120,
   autoVisitDurationMinutes: 0,
 };

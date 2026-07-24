@@ -128,7 +128,7 @@ class ShopListingCard extends StatelessWidget {
                     fit: StackFit.expand,
                     children: [
                       ColoredBox(
-                        color: const Color(0xFFE2E8F0),
+                        color: c.surface2,
                         child: _image.isNotEmpty
                             ? Image.network(
                                 _image,
@@ -348,7 +348,7 @@ class ShopListingCard extends StatelessWidget {
     required VoidCallback onTap,
   }) {
     return Material(
-      color: enabled ? const Color(0xFFF8FAFC) : c.surface2,
+      color: enabled ? c.surface2 : c.surface3,
       borderRadius: BorderRadius.circular(8),
       child: InkWell(
         onTap: enabled ? onTap : null,
@@ -357,19 +357,19 @@ class ShopListingCard extends StatelessWidget {
           height: 42,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: const Color(0xFFE2E8F0)),
+            border: Border.all(color: c.borderSoft),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 16, color: enabled ? const Color(0xFF1E293B) : c.textMuted),
+              Icon(icon, size: 16, color: enabled ? c.text : c.textMuted),
               const SizedBox(width: 6),
               Text(
                 label,
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w500,
-                  color: enabled ? const Color(0xFF1E293B) : c.textMuted,
+                  color: enabled ? c.text : c.textMuted,
                 ),
               ),
             ],

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../../state.dart';
+import 'field_helpers.dart';
 import 'field_qty_stepper.dart';
 import 'field_sub_scaffold.dart';
 
@@ -140,9 +141,11 @@ class _MarketingOrdersScreenState extends ConsumerState<MarketingOrdersScreen> {
   @override
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
+    final canPlaceOrders =
+        canActAsFieldExecutive(ref.watch(authStoreProvider).user);
     return FieldSubScaffold(
-      title: 'Field orders',
-      floatingActionButton: _cart.values.any((q) => q > 0)
+      title: canPlaceOrders ? 'Field orders' : 'Team orders',
+      floatingActionButton: canPlaceOrders && _cart.values.any((q) => q > 0)
           ? FloatingActionButton.extended(
               onPressed: _submitting ? null : _submit,
               icon: _submitting
@@ -161,132 +164,149 @@ class _MarketingOrdersScreenState extends ConsumerState<MarketingOrdersScreen> {
               : Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                      child: OutlinedButton.icon(
-                        onPressed: _pickOutlet,
-                        icon: const Icon(Icons.storefront_outlined),
-                        label: Text(
-                          _outletName ?? 'Select outlet',
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          alignment: Alignment.centerLeft,
+                    if (canPlaceOrders)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                        child: OutlinedButton.icon(
+                          onPressed: _pickOutlet,
+                          icon: const Icon(Icons.storefront_outlined),
+                          label: Text(
+                            _outletName ?? 'Select outlet',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            alignment: Alignment.centerLeft,
+                          ),
                         ),
                       ),
-                    ),
+                    if (!canPlaceOrders)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                        child: Text(
+                          'Orders placed by field executives appear here.',
+                          style: TextStyle(color: c.textMuted, fontSize: 13),
+                        ),
+                      ),
                     Expanded(
-                      child: DefaultTabController(
-                        length: 2,
-                        child: Column(
-                          children: [
-                            TabBar(
-                              labelColor: c.brand,
-                              tabs: const [
-                                Tab(text: 'Products'),
-                                Tab(text: 'My orders'),
-                              ],
-                            ),
-                            Expanded(
-                              child: TabBarView(
+                      child: canPlaceOrders
+                          ? DefaultTabController(
+                              length: 2,
+                              child: Column(
                                 children: [
-                                  _products.isEmpty
-                                      ? Center(
-                                          child: Padding(
-                                            padding: const EdgeInsets.all(24),
-                                            child: Column(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Text('No products yet',
-                                                    style: TextStyle(color: c.textMuted)),
-                                                if (ref.watch(authStoreProvider).user?.isFieldManager == true) ...[
-                                                  const SizedBox(height: 12),
-                                                  FilledButton(
-                                                    onPressed: () => context.push('/marketing/catalog'),
-                                                    child: const Text('Add products'),
-                                                  ),
-                                                ],
-                                              ],
-                                            ),
-                                          ),
-                                        )
-                                      : ListView.separated(
-                                          padding: const EdgeInsets.all(16),
-                                          itemCount: _products.length,
-                                          separatorBuilder: (_, __) =>
-                                              const SizedBox(height: 8),
-                                          itemBuilder: (_, i) {
-                                            final p = _products[i];
-                                            final id = p['id'].toString();
-                                            final qty = _cart[id] ?? 0;
-                                            return Material(
-                                              color: c.surface2,
-                                              borderRadius: BorderRadius.circular(
-                                                  BestieTokens.rLg),
-                                              child: ListTile(
-                                                title: Text(
-                                                    p['name']?.toString() ?? 'Product',
-                                                    style: TextStyle(
-                                                        fontWeight: FontWeight.w600,
-                                                        color: c.text)),
-                                                subtitle: Text(
-                                                  'PTR ${p['ptr'] ?? p['mrp'] ?? '—'}',
-                                                  style: TextStyle(
-                                                      color: c.textMuted,
-                                                      fontSize: 12),
-                                                ),
-                                                trailing: FieldQtyStepper(
-                                                  qty: qty,
-                                                  onChanged: (v) =>
-                                                      setState(() => _cart[id] = v),
-                                                ),
-                                              ),
-                                            );
-                                          },
-                                        ),
-                                  _orders.isEmpty
-                                      ? Center(
-                                          child: Text('No orders yet',
-                                              style: TextStyle(color: c.textMuted)))
-                                      : ListView.separated(
-                                          padding: const EdgeInsets.all(16),
-                                          itemCount: _orders.length,
-                                          separatorBuilder: (_, __) =>
-                                              const SizedBox(height: 8),
-                                          itemBuilder: (_, i) {
-                                            final o = _orders[i];
-                                            final outlet =
-                                                (o['outlet'] as Map?)?.cast<String, dynamic>();
-                                            return Material(
-                                              color: c.surface2,
-                                              borderRadius: BorderRadius.circular(
-                                                  BestieTokens.rLg),
-                                              child: ListTile(
-                                                title: Text(
-                                                    outlet?['name']?.toString() ??
-                                                        'Order',
-                                                    style: TextStyle(
-                                                        fontWeight: FontWeight.w600,
-                                                        color: c.text)),
-                                                subtitle: Text(
-                                                  'Total ${o['total'] ?? o['subtotal'] ?? '—'} · ${o['status'] ?? ''}',
-                                                  style: TextStyle(
-                                                      color: c.textMuted,
-                                                      fontSize: 12),
-                                                ),
-                                              ),
-                                            );
-                                          },
-                                        ),
+                                  TabBar(
+                                    labelColor: c.brand,
+                                    tabs: const [
+                                      Tab(text: 'Products'),
+                                      Tab(text: 'My orders'),
+                                    ],
+                                  ),
+                                  Expanded(
+                                    child: TabBarView(
+                                      children: [
+                                        _buildProductsTab(c),
+                                        _buildOrdersList(c),
+                                      ],
+                                    ),
+                                  ),
                                 ],
                               ),
-                            ),
-                          ],
-                        ),
-                      ),
+                            )
+                          : _buildOrdersList(c),
                     ),
                   ],
                 ),
+    );
+  }
+
+  Widget _buildProductsTab(BestieColors c) {
+    if (_products.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('No products yet', style: TextStyle(color: c.textMuted)),
+              if (ref.watch(authStoreProvider).user?.isFieldManager == true) ...[
+                const SizedBox(height: 12),
+                FilledButton(
+                  onPressed: () => context.push('/marketing/catalog'),
+                  child: const Text('Add products'),
+                ),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.all(16),
+      itemCount: _products.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      itemBuilder: (_, i) {
+        final p = _products[i];
+        final id = p['id'].toString();
+        final qty = _cart[id] ?? 0;
+        return Material(
+          color: c.surface2,
+          borderRadius: BorderRadius.circular(BestieTokens.rLg),
+          child: ListTile(
+            title: Text(
+              p['name']?.toString() ?? 'Product',
+              style: TextStyle(fontWeight: FontWeight.w600, color: c.text),
+            ),
+            subtitle: Text(
+              'PTR ${p['ptr'] ?? p['mrp'] ?? '—'}',
+              style: TextStyle(color: c.textMuted, fontSize: 12),
+            ),
+            trailing: FieldQtyStepper(
+              qty: qty,
+              onChanged: (v) => setState(() => _cart[id] = v),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildOrdersList(BestieColors c) {
+    if (_orders.isEmpty) {
+      return Center(
+        child: Text('No orders yet', style: TextStyle(color: c.textMuted)),
+      );
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.all(16),
+      itemCount: _orders.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      itemBuilder: (_, i) {
+        final o = _orders[i];
+        final outlet = (o['outlet'] as Map?)?.cast<String, dynamic>();
+        final user = (o['user'] as Map?)?.cast<String, dynamic>();
+        return Material(
+          color: c.surface2,
+          borderRadius: BorderRadius.circular(BestieTokens.rLg),
+          child: ListTile(
+            title: Text(
+              outlet?['name']?.toString() ?? 'Order',
+              style: TextStyle(fontWeight: FontWeight.w600, color: c.text),
+            ),
+            subtitle: Text(
+              [
+                'Total ${o['total'] ?? o['subtotal'] ?? '—'}',
+                o['status']?.toString() ?? '',
+                if (user?['name'] != null) 'By ${user!['name']}',
+              ].join(' · '),
+              style: TextStyle(color: c.textMuted, fontSize: 12),
+            ),
+            trailing: Icon(Icons.chevron_right_rounded, color: c.textMuted),
+            onTap: () {
+              final id = o['id']?.toString();
+              if (id != null) context.push('/marketing/orders/$id');
+            },
+          ),
+        );
+      },
     );
   }
 }

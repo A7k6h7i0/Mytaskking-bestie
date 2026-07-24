@@ -7,6 +7,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../../state.dart';
+import '../shell_screen.dart';
 import 'field_route_helpers.dart';
 
 /// Executive route tab — map, distance to outlets, optimized visit order.
@@ -696,11 +697,10 @@ class _FieldRouteScreenState extends ConsumerState<FieldRouteScreen> {
   }
 
   Widget _bottomActions(BestieColors c) {
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-        child: FilledButton.icon(
+    final clearance = shellNavClearance(context);
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, 4, 16, clearance - 24),
+      child: FilledButton.icon(
           onPressed: _optimizing ? null : _optimizeRoute,
           icon: _optimizing
               ? SizedBox(
@@ -711,7 +711,6 @@ class _FieldRouteScreenState extends ConsumerState<FieldRouteScreen> {
               : const Icon(Icons.auto_graph_rounded),
           label: Text(_showOptimized ? 'Re-optimize route' : 'Optimize visit route'),
         ),
-      ),
     );
   }
 }

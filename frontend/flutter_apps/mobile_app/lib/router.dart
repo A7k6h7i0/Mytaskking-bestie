@@ -39,6 +39,8 @@ import 'screens/deleted_chats_screen.dart';
 import 'screens/marketing/field_dashboard_screen.dart';
 import 'screens/marketing/field_manager_screen.dart';
 import 'screens/marketing/field_hr_screen.dart';
+import 'screens/marketing/marketing_export_screen.dart';
+import 'screens/marketing/marketing_order_detail_screen.dart';
 import 'screens/marketing/marketing_orders_screen.dart';
 import 'screens/marketing/marketing_outlet_visit_screen.dart';
 import 'screens/marketing/marketing_outlets_screen.dart';
@@ -203,6 +205,11 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
 
       GoRoute(
+        path: '/field/export',
+        builder: (_, __) => const MarketingExportScreen(),
+      ),
+
+      GoRoute(
         path: '/field/gps',
         builder: (_, __) => const FieldGpsScreen(),
       ),
@@ -216,6 +223,13 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/marketing/orders',
         builder: (_, s) => MarketingOrdersScreen(
           outletId: s.uri.queryParameters['outletId'],
+        ),
+      ),
+
+      GoRoute(
+        path: '/marketing/orders/:id',
+        builder: (_, s) => MarketingOrderDetailScreen(
+          orderId: s.pathParameters['id']!,
         ),
       ),
 

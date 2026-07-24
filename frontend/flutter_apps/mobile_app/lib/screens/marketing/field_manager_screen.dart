@@ -56,6 +56,15 @@ class _FieldManagerScreenState extends ConsumerState<FieldManagerScreen> {
   @override
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
+    final isManager = ref.watch(authStoreProvider).user?.isFieldManager ?? false;
+    if (!isManager) {
+      return FieldSubScaffold(
+        title: 'Team visits',
+        body: Center(
+          child: Text('Managers only', style: TextStyle(color: c.textMuted)),
+        ),
+      );
+    }
     return FieldSubScaffold(
       title: 'Team visits',
       body: RefreshIndicator(

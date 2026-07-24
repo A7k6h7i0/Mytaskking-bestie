@@ -49,6 +49,8 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
   StreamSubscription<Map<String, dynamic>>? _pushInviteSub;
   final List<void Function()> _unsubs = [];
   String? _lastUserId;
+  String? _ringingSoundUrl;
+  String? _buzzerSoundUrl;
   final _ringtone = FlutterRingtonePlayer();
   final _customRingtone = AudioPlayer();
   final _tts = FlutterTts();
@@ -128,6 +130,8 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     }
     _unsubs.clear();
     if (userId == null) return; // logged out — clear listeners only
+
+    unawaited(_loadOrgCallSounds());
 
     final rt = ref.read(realtimeProvider);
     _unsubs.add(rt.onAny('call.incoming', ([data]) => _onIncoming(data)));
@@ -267,6 +271,16 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     _playAlarm();
   }
 
+  Future<void> _loadOrgCallSounds() async {
+    try {
+      final settings =
+          await ref.read(apiProvider).settingsScope(scope: 'calls');
+      final calls = (settings['calls'] as Map?)?.cast<String, dynamic>();
+      _ringingSoundUrl = calls?['ringingSoundUrl']?.toString();
+      _buzzerSoundUrl = calls?['emergencyBuzzerSoundUrl']?.toString();
+    } catch (_) {}
+  }
+
   Future<void> _onCallBuzzer(dynamic data) async {
     if (data is! Map) return;
     if (CallSession.onCallScreen) return;
@@ -274,10 +288,11 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     try {
       var url = data['audioUrl']?.toString();
       if (url == null || url.isEmpty) {
-        final settings =
-            await ref.read(apiProvider).settingsScope(scope: 'calls');
-        final calls = (settings['calls'] as Map?)?.cast<String, dynamic>();
-        url = calls?['emergencyBuzzerSoundUrl']?.toString();
+        url = _buzzerSoundUrl;
+      }
+      if (url == null || url.isEmpty) {
+        await _loadOrgCallSounds();
+        url = _buzzerSoundUrl;
       }
       if (url != null && url.isNotEmpty) {
         await _customRingtone.setReleaseMode(ReleaseMode.release);
@@ -691,6 +706,17 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
 
   Future<void> _playRingtone() async {
     try {
+      var url = _ringingSoundUrl?.trim();
+      if (url == null || url.isEmpty) {
+        await _loadOrgCallSounds();
+        url = _ringingSoundUrl?.trim();
+      }
+      if (url != null && url.isNotEmpty) {
+        await _customRingtone.stop();
+        await _customRingtone.setReleaseMode(ReleaseMode.loop);
+        await _customRingtone.play(UrlSource(url), volume: 1);
+        return;
+      }
       if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
         await _customRingtone.stop();
         await _customRingtone.setReleaseMode(ReleaseMode.loop);
@@ -727,12 +753,15 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
         'Someone';
     final type = meetingSlug != null ? 'meeting.invited' : 'call.incoming';
     try {
+      await _loadOrgCallSounds();
       await _nativeCallNotificationChannel.invokeMethod('startIncoming', {
         'type': type,
         if (callId != null) 'callId': callId,
         if (meetingSlug != null) 'meetingSlug': meetingSlug,
         'mode': mode,
         'fromName': fromName,
+        if (_ringingSoundUrl != null && _ringingSoundUrl!.isNotEmpty)
+          'ringingSoundUrl': _ringingSoundUrl,
       });
     } catch (_) {/* best effort */}
   }

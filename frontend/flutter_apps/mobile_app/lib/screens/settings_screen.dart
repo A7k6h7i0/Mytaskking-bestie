@@ -408,15 +408,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 label: 'Track activity every: $_trackActivityLabel',
                 onTap: _editTrackActivityInterval,
               ),
-            if (user?.role == 'ADMIN' ||
-                user?.role == 'SUPER_ADMIN' ||
-                user?.role == 'MANAGER' ||
-                user?.role == 'PROJECT_COORDINATOR_MANAGER')
+            if (user?.role == 'ADMIN' || user?.role == 'SUPER_ADMIN')
               _SectionLabel('Field force', colors: c),
-            if (user?.role == 'ADMIN' ||
-                user?.role == 'SUPER_ADMIN' ||
-                user?.role == 'MANAGER' ||
-                user?.role == 'PROJECT_COORDINATOR_MANAGER')
+            if (user?.role == 'ADMIN' || user?.role == 'SUPER_ADMIN')
               const FieldSettingsSection(),
             _SectionLabel('People', colors: c),
             if (!(user?.isClient ?? false))
