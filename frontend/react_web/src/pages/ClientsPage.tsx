@@ -12,10 +12,13 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { useConfirm } from '@/components/ui/ConfirmDialog';
 import { toast } from '@/components/Toast';
+import { useAuthStore } from '@/store/auth';
 import './people.css';
 
 export default function ClientsPage() {
   const qc = useQueryClient();
+  const user = useAuthStore((s) => s.user);
+  const canManage = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
   const [q, setQ] = useState('');
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState({
@@ -81,12 +84,14 @@ export default function ClientsPage() {
       <header className="pp__head">
         <div>
           <h1>Clients</h1>
-          <p>Manage external client accounts with time-bound access.</p>
+          <p>{canManage ? 'Manage external client accounts with time-bound access.' : 'View client accounts in your organisation.'}</p>
         </div>
-        <Button onClick={() => setShowNew((v) => !v)} className="m-press"><Plus size={16}/> New client</Button>
+        {canManage && (
+          <Button onClick={() => setShowNew((v) => !v)} className="m-press"><Plus size={16}/> New client</Button>
+        )}
       </header>
 
-      {showNew && (
+      {canManage && showNew && (
         <div className="pp__create m-scale-in">
           <Input label="User ID" value={form.userId} onChange={(e) => setForm({ ...form, userId: e.target.value })} />
           <Input label="Password" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
@@ -118,7 +123,7 @@ export default function ClientsPage() {
             <span>{u.clientCompany || '—'}</span>
             <span>
               {u.accessEndsAt ? dayjs(u.accessEndsAt).format('MMM D, YYYY') : 'Unlimited'}
-              {u.accessEndsAt && (
+              {canManage && u.accessEndsAt && (
                 <button
                   className="pp__link"
                   onClick={() => {
@@ -129,26 +134,32 @@ export default function ClientsPage() {
               )}
             </span>
             <span><StatusBadge status={u.status} pulse={u.status === 'ACTIVE'} /></span>
-            <span className="pp__actions">
-              <Tooltip label="Disable">
-                <button className="pp__icon m-press" onClick={() => askDisable(u)} aria-label="Disable client">
-                  <UserX size={14} />
-                </button>
-              </Tooltip>
-              <Tooltip label="Delete">
-                <button className="pp__icon pp__icon--danger m-press" onClick={() => askDelete(u)} aria-label="Delete client">
-                  <Trash2 size={14} />
-                </button>
-              </Tooltip>
-            </span>
+            {canManage ? (
+              <span className="pp__actions">
+                <Tooltip label="Disable">
+                  <button className="pp__icon m-press" onClick={() => askDisable(u)} aria-label="Disable client">
+                    <UserX size={14} />
+                  </button>
+                </Tooltip>
+                <Tooltip label="Delete">
+                  <button className="pp__icon pp__icon--danger m-press" onClick={() => askDelete(u)} aria-label="Delete client">
+                    <Trash2 size={14} />
+                  </button>
+                </Tooltip>
+              </span>
+            ) : (
+              <span />
+            )}
           </div>
         ))}
         {!isLoading && !data?.items.length && (
           <EmptyState
             illustration="lock"
             title="No clients yet"
-            description="Add your first client and assign them to a channel. Their account expires automatically after the access window you set."
-            action={<Button onClick={() => setShowNew(true)}><Plus size={16}/> New client</Button>}
+            description={canManage
+              ? 'Add your first client and assign them to a channel. Their account expires automatically after the access window you set.'
+              : 'Clients will appear here once an admin onboards them.'}
+            action={canManage ? <Button onClick={() => setShowNew(true)}><Plus size={16}/> New client</Button> : undefined}
           />
         )}
       </div>

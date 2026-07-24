@@ -137,6 +137,64 @@ class ShopSearchFuzzy {
     }.where((v) => v.trim().isNotEmpty).toList();
   }
 
+  /// Live autocomplete suggestions while the user types (prefix + fuzzy).
+  static List<String> suggestCategories(String raw, {int limit = 6}) =>
+      _suggestFrom(raw, categories, limit: limit);
+
+  static List<String> suggestAreas(String raw, {int limit = 6}) =>
+      _suggestFrom(raw, areas, limit: limit);
+
+  static List<String> _suggestFrom(
+    String raw,
+    List<String> candidates, {
+    int limit = 6,
+    int minChars = 2,
+  }) {
+    final q = raw.trim();
+    if (q.length < minChars) return const [];
+
+    final qLower = q.toLowerCase();
+    if (candidates.any((c) => c.toLowerCase() == qLower)) return const [];
+
+    final scored = <MapEntry<String, double>>[];
+
+    for (final candidate in candidates) {
+      final cLower = candidate.toLowerCase();
+      var score = 0.0;
+
+      if (cLower.startsWith(qLower)) {
+        score = 1.0 + (qLower.length / cLower.length) * 0.1;
+      } else if (cLower.contains(qLower)) {
+        score = 0.88;
+      } else {
+        for (final word in cLower.split(RegExp(r'\s+'))) {
+          if (word.length < 2) continue;
+          if (word.startsWith(qLower)) {
+            score = score > 0.92 ? score : 0.92;
+          } else if (word.contains(qLower)) {
+            score = score > 0.82 ? score : 0.82;
+          } else {
+            final wSim = similarity(qLower, word);
+            if (wSim >= 0.62 && wSim > score) score = wSim;
+          }
+        }
+        final sim = similarity(qLower, cLower);
+        if (sim >= 0.62 && sim > score) score = sim;
+      }
+
+      if (score >= 0.62) scored.add(MapEntry(candidate, score));
+    }
+
+    scored.sort((a, b) => b.value.compareTo(a.value));
+    final seen = <String>{};
+    final out = <String>[];
+    for (final entry in scored) {
+      if (seen.add(entry.key.toLowerCase())) out.add(entry.key);
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+
   /// Fuzzy substring / word match for ranking.
   static bool fuzzyContains(String haystack, String needle) {
     final h = haystack.toLowerCase();

@@ -73,7 +73,7 @@ const NAV: NavItem[] = [
 const ALLOWED: Record<string, string[]> = {
   SUPER_ADMIN: NAV.map((n) => n.to),
   ADMIN: NAV.filter((n) => !n.platformOnly).map((n) => n.to),
-  MANAGER: ['/dashboard', '/chat', '/channels', '/tasks', '/reports', '/calendar', '/calls', '/meetings', '/saved', '/field-visits', '/employees', '/sessions'],
+  MANAGER: ['/dashboard', '/chat', '/channels', '/tasks', '/reports', '/calendar', '/calls', '/meetings', '/saved', '/field-visits', '/employees', '/clients', '/sessions'],
   PROJECT_COORDINATOR_MANAGER: ['/dashboard', '/chat', '/channels', '/tasks', '/reports', '/calendar', '/calls', '/meetings', '/saved', '/field-visits', '/employees', '/sessions'],
   EMPLOYEE: ['/dashboard', '/chat', '/channels', '/tasks', '/reports', '/calendar', '/calls', '/meetings', '/saved', '/employees', '/sessions'],
   TELECALLER: ['/dashboard', '/telecaller', '/chat', '/reports', '/calendar', '/saved', '/employees', '/sessions'],

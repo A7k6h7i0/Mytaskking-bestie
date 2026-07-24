@@ -26,9 +26,13 @@ class _MarketingShopSearchScreenState
     extends ConsumerState<MarketingShopSearchScreen> {
   final _query = TextEditingController();
   final _area = TextEditingController();
+  final _queryFocus = FocusNode();
+  final _areaFocus = FocusNode();
   final _speech = stt.SpeechToText();
 
   List<Map<String, dynamic>> _results = const [];
+  List<String> _querySuggestions = const [];
+  List<String> _areaSuggestions = const [];
   bool _loading = false;
   bool _isListening = false;
   String _voiceText = '';
@@ -38,8 +42,53 @@ class _MarketingShopSearchScreenState
   String? _savingId;
 
   @override
+  void initState() {
+    super.initState();
+    _query.addListener(_onQueryChanged);
+    _area.addListener(_onAreaChanged);
+    _queryFocus.addListener(_onFieldFocusChanged);
+    _areaFocus.addListener(_onFieldFocusChanged);
+  }
+
+  void _onQueryChanged() {
+    if (!mounted) return;
+    setState(() {
+      _querySuggestions = ShopSearchFuzzy.suggestCategories(_query.text);
+    });
+  }
+
+  void _onAreaChanged() {
+    if (!mounted) return;
+    setState(() {
+      _areaSuggestions = ShopSearchFuzzy.suggestAreas(_area.text);
+    });
+  }
+
+  void _onFieldFocusChanged() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  void _clearSuggestions() {
+    _querySuggestions = const [];
+    _areaSuggestions = const [];
+  }
+
+  void _applySuggestion(TextEditingController controller, String value) {
+    controller.text = value;
+    controller.selection = TextSelection.collapsed(offset: value.length);
+    setState(_clearSuggestions);
+  }
+
+  @override
   void dispose() {
     _speech.cancel();
+    _query.removeListener(_onQueryChanged);
+    _area.removeListener(_onAreaChanged);
+    _queryFocus.removeListener(_onFieldFocusChanged);
+    _areaFocus.removeListener(_onFieldFocusChanged);
+    _queryFocus.dispose();
+    _areaFocus.dispose();
     _query.dispose();
     _area.dispose();
     super.dispose();
@@ -215,6 +264,7 @@ class _MarketingShopSearchScreenState
       _loading = true;
       _error = null;
       _correctionHint = correctionHint;
+      _clearSuggestions();
     });
 
     try {
@@ -345,6 +395,7 @@ class _MarketingShopSearchScreenState
                   const SizedBox(height: 12),
                   TextField(
                     controller: _query,
+                    focusNode: _queryFocus,
                     textCapitalization: TextCapitalization.words,
                     decoration: InputDecoration(
                       labelText: 'Shop type',
@@ -358,9 +409,19 @@ class _MarketingShopSearchScreenState
                     ),
                     onSubmitted: (_) => _search(),
                   ),
+                  if (_queryFocus.hasFocus && _querySuggestions.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    _SuggestionStrip(
+                      colors: c,
+                      label: 'Shop type suggestions',
+                      items: _querySuggestions,
+                      onSelect: (s) => _applySuggestion(_query, s),
+                    ),
+                  ],
                   const SizedBox(height: 8),
                   TextField(
                     controller: _area,
+                    focusNode: _areaFocus,
                     textCapitalization: TextCapitalization.words,
                     decoration: InputDecoration(
                       labelText: 'Area (optional)',
@@ -374,6 +435,15 @@ class _MarketingShopSearchScreenState
                     ),
                     onSubmitted: (_) => _search(),
                   ),
+                  if (_areaFocus.hasFocus && _areaSuggestions.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    _SuggestionStrip(
+                      colors: c,
+                      label: 'Area suggestions',
+                      items: _areaSuggestions,
+                      onSelect: (s) => _applySuggestion(_area, s),
+                    ),
+                  ],
                   const SizedBox(height: 10),
                   FilledButton.icon(
                     onPressed: _loading ? null : _search,
@@ -535,6 +605,75 @@ class _MarketingShopSearchScreenState
           saving: _savingId == id,
           onSaveOutlet: () => _saveAsOutlet(biz),
         ),
+      ),
+    );
+  }
+}
+
+class _SuggestionStrip extends StatelessWidget {
+  const _SuggestionStrip({
+    required this.colors,
+    required this.label,
+    required this.items,
+    required this.onSelect,
+  });
+
+  final BestieColors colors;
+  final String label;
+  final List<String> items;
+  final ValueChanged<String> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = colors;
+    return Material(
+      color: c.surface2,
+      elevation: 0,
+      borderRadius: BorderRadius.circular(12),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 2),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: c.textFaint,
+                letterSpacing: 0.2,
+              ),
+            ),
+          ),
+          for (var i = 0; i < items.length; i++) ...[
+            if (i > 0) Divider(height: 1, color: c.borderSoft),
+            InkWell(
+              onTap: () => onSelect(items[i]),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                child: Row(
+                  children: [
+                    Icon(Icons.north_west_rounded, size: 16, color: c.brand),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        items[i],
+                        style: TextStyle(
+                          color: c.text,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

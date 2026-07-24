@@ -4,16 +4,18 @@ const { Router } = require('express');
 const Joi = require('joi');
 const asyncHandler = require('../../utils/asyncHandler');
 const validate = require('../../middleware/validate');
-const { requireAuth, requireAdmin } = require('../../middleware/auth');
+const { requireAuth, requireAdmin, requireRole } = require('../../middleware/auth');
 const service = require('./clients.service');
 const audit = require('../../services/audit');
 
 const router = Router();
+const requireClientViewer = requireRole('SUPER_ADMIN', 'ADMIN', 'MANAGER');
 
-router.use(requireAuth, requireAdmin);
+router.use(requireAuth);
 
 router.get(
   '/',
+  requireClientViewer,
   validate({
     query: Joi.object({
       q: Joi.string().allow(''),
@@ -25,10 +27,11 @@ router.get(
   asyncHandler(async (req, res) => res.json(await service.list(req, req.query)))
 );
 
-router.get('/:id', asyncHandler(async (req, res) => res.json(await service.getById(req, req.params.id))));
+router.get('/:id', requireClientViewer, asyncHandler(async (req, res) => res.json(await service.getById(req, req.params.id))));
 
 router.post(
   '/',
+  requireAdmin,
   validate({
     body: Joi.object({
       userId: Joi.string().trim().min(2).max(64).required(),
@@ -57,6 +60,7 @@ router.post(
 
 router.patch(
   '/:id',
+  requireAdmin,
   validate({
     body: Joi.object({
       name: Joi.string().min(1).max(120),
@@ -75,6 +79,7 @@ router.patch(
 
 router.post(
   '/:id/extend',
+  requireAdmin,
   validate({ body: Joi.object({ accessEndsAt: Joi.date().iso().required() }) }),
   asyncHandler(async (req, res) => {
     const c = await service.extendAccess(req, req.params.id, req.body.accessEndsAt);
@@ -83,13 +88,13 @@ router.post(
   })
 );
 
-router.post('/:id/disable', asyncHandler(async (req, res) => {
+router.post('/:id/disable', requireAdmin, asyncHandler(async (req, res) => {
   const c = await service.disable(req, req.params.id);
   audit.record({ kind: 'client.disabled', entity: 'user', entityId: c.id, req });
   res.json(c);
 }));
 
-router.delete('/:id', asyncHandler(async (req, res) => {
+router.delete('/:id', requireAdmin, asyncHandler(async (req, res) => {
   await service.remove(req, req.params.id);
   audit.record({ kind: 'client.deleted', entity: 'user', entityId: req.params.id, req });
   res.status(204).end();
