@@ -220,7 +220,7 @@ class TelecallerRecordingUploader {
     onState(RecordingProcessState(
       phase: RecordingProcessPhase.scanning,
       detail: label != null
-          ? 'Scanning $label… (Vivo may take up to 30s)'
+          ? 'Scanning $label… (It may take up to 30s)'
           : 'Scanning for call recording…',
     ));
 

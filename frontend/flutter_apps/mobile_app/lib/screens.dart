@@ -40,5 +40,8 @@ export 'screens/marketing/field_settings_section.dart';
 export 'screens/marketing/marketing_orders_screen.dart';
 export 'screens/marketing/marketing_outlet_visit_screen.dart';
 export 'screens/marketing/marketing_outlets_screen.dart';
+export 'screens/marketing/marketing_catalog_screen.dart';
+export 'screens/marketing/field_my_visits_screen.dart';
+export 'screens/marketing/field_gps_screen.dart';
 export 'screens/marketing/marketing_shop_search_screen.dart';
 export 'state.dart';

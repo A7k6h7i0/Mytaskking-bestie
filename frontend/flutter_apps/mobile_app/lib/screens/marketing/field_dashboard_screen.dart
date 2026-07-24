@@ -6,6 +6,8 @@ import 'package:mytaskking_design/mytaskking_design.dart';
 import '../../state.dart';
 import 'field_gps_tracker.dart';
 import 'field_sync_service.dart';
+import 'field_sync_banner.dart';
+import 'field_helpers.dart';
 
 /// Field executive / manager home — visits, outlets, orders at a glance.
 class FieldDashboardScreen extends ConsumerStatefulWidget {
@@ -55,7 +57,7 @@ class _FieldDashboardScreenState extends ConsumerState<FieldDashboardScreen>
       final api = ref.read(apiProvider);
       final results = await Future.wait([
         api.marketingDashboard(),
-        api.getActiveFieldVisit(),
+        resolveActiveFieldVisit(api),
       ]);
       if (!mounted) return;
       setState(() {
@@ -117,6 +119,11 @@ class _FieldDashboardScreenState extends ConsumerState<FieldDashboardScreen>
                 : ListView(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
                     children: [
+                      FieldSyncBanner(
+                        onSync: () => FieldSyncService.syncAll(ref.read(apiProvider))
+                            .then((_) => _load()),
+                      ),
+                      const SizedBox(height: 8),
                       Text(
                         'Hello, ${user?.name ?? 'there'}',
                         style: TextStyle(
@@ -145,36 +152,64 @@ class _FieldDashboardScreenState extends ConsumerState<FieldDashboardScreen>
                       const SizedBox(height: 10),
                       _actionTile(
                         c,
+                        icon: Icons.map_outlined,
+                        label: 'Route & map',
+                        subtitle: 'Distance to outlets, optimize visits',
+                        onTap: () => context.go('/field/route'),
+                      ),
+                      _actionTile(
+                        c,
                         icon: Icons.storefront_outlined,
                         label: 'Outlets',
-                        onTap: () => context.go('/marketing/outlets'),
+                        onTap: () => context.push('/marketing/outlets'),
                       ),
                       _actionTile(
                         c,
                         icon: Icons.search_rounded,
                         label: 'Shop search',
                         subtitle: 'Find businesses via directory',
-                        onTap: () => context.go('/marketing/shops'),
+                        onTap: () => context.push('/marketing/shops'),
                       ),
-                      if (isManager)
+                      if (!isManager)
+                        _actionTile(
+                          c,
+                          icon: Icons.history_rounded,
+                          label: 'My visits',
+                          onTap: () => context.push('/field/visits'),
+                        ),
+                      if (isManager) ...[
                         _actionTile(
                           c,
                           icon: Icons.groups_outlined,
                           label: 'Team visits',
-                          onTap: () => context.go('/field/manager'),
+                          onTap: () => context.push('/field/manager'),
                         ),
+                        _actionTile(
+                          c,
+                          icon: Icons.inventory_2_outlined,
+                          label: 'Product catalog',
+                          subtitle: 'Products, brands, categories',
+                          onTap: () => context.push('/marketing/catalog'),
+                        ),
+                        _actionTile(
+                          c,
+                          icon: Icons.my_location_outlined,
+                          label: 'Team GPS log',
+                          onTap: () => context.push('/field/gps'),
+                        ),
+                      ],
                       _actionTile(
                         c,
                         icon: Icons.work_outline_rounded,
                         label: 'Field HR',
                         subtitle: 'Expenses, leaves, routes',
-                        onTap: () => context.go('/field/hr'),
+                        onTap: () => context.push('/field/hr'),
                       ),
                       _actionTile(
                         c,
                         icon: Icons.receipt_long_outlined,
                         label: 'Orders',
-                        onTap: () => context.go('/marketing/orders'),
+                        onTap: () => context.push('/marketing/orders'),
                       ),
                       _actionTile(
                         c,
@@ -213,13 +248,18 @@ class _FieldDashboardScreenState extends ConsumerState<FieldDashboardScreen>
                         style: TextStyle(
                             fontWeight: FontWeight.w700, color: c.text)),
                     Text(name,
-                        style: TextStyle(color: c.textMuted, fontSize: 12)),
+                        style: TextStyle(color: c.textMuted, fontSize: 12),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
                   ],
                 ),
               ),
-              Text('Tap to complete',
-                  style: TextStyle(
-                      color: c.brand, fontSize: 12, fontWeight: FontWeight.w600)),
+              Flexible(
+                child: Text('Tap to complete',
+                    style: TextStyle(
+                        color: c.brand, fontSize: 11, fontWeight: FontWeight.w600),
+                    overflow: TextOverflow.ellipsis),
+              ),
             ],
           ),
         ),

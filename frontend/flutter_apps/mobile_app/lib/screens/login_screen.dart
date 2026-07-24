@@ -11,7 +11,7 @@ import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../state.dart';
 import '../telecaller_recording_setup.dart';
-import 'front_selfie_capture.dart';
+import 'blink_selfie_capture.dart';
 import 'telecaller_onboarding_screen.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -77,11 +77,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       if (!mounted) return;
       final shouldCaptureSelfie = requiresSelfie && !_skipSelfieOnDesktop;
       if (shouldCaptureSelfie && _selfie == null) {
-        final photo = await Navigator.of(context).push<Uint8List>(
-          MaterialPageRoute(builder: (_) => const FrontSelfieCapture()),
+        final photo = await BlinkSelfieCaptureScreen.captureBytes(
+          context,
+          title: 'Blink to sign in',
         );
         if (photo == null) {
-          throw 'A live selfie is required for employee sign-in.';
+          throw 'A blink selfie is required for employee sign-in.';
         }
         _selfie = photo;
         if (mounted) setState(() {});
@@ -327,7 +328,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                     const SizedBox(width: 10),
                                     Expanded(
                                       child: Text(
-                                        'Live login selfie ready',
+                                        'Blink login selfie ready',
                                         style: TextStyle(
                                           color: c.text,
                                           fontWeight: BestieTokens.fwSemibold,

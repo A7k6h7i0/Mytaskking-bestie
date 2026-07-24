@@ -9,6 +9,7 @@ import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../state.dart';
+import '../chat_media_saver.dart';
 import '../telecaller_pending_call.dart';
 import '../telecaller_phone_recorder.dart';
 import '../telecaller_recording_setup.dart';
@@ -32,6 +33,7 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
   Timer? _debounce;
   List<Map<String, dynamic>> _leads = const [];
   bool _loading = true;
+  bool _downloadingReport = false;
   bool _showingOutcomeSheet = false;
   String? _error;
   String? _pendingCallId;
@@ -270,11 +272,61 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
     }
   }
 
+  String _istDateLabel([DateTime? now]) {
+    final ist =
+        (now ?? DateTime.now()).toUtc().add(const Duration(hours: 5, minutes: 30));
+    final m = ist.month.toString().padLeft(2, '0');
+    final d = ist.day.toString().padLeft(2, '0');
+    return '${ist.year}-$m-$d';
+  }
+
+  Future<void> _downloadDailyReport() async {
+    if (_downloadingReport) return;
+    setState(() => _downloadingReport = true);
+    try {
+      final user = ref.read(authStoreProvider).user;
+      final date = _istDateLabel();
+      final scope = user?.isPlatformSuperAdmin == true ? 'all' : 'org';
+      final report = await ref.read(apiProvider).downloadTelecallerDailyReport(
+            date: date,
+            scope: scope,
+          );
+      if (!mounted) return;
+      final path = await ChatMediaSaver.saveBytesWithSaveDialog(
+        report.bytes,
+        suggestedName: report.filename,
+        dialogTitle: 'Save telecaller report',
+      );
+      if (!mounted) return;
+      if (path == null) return;
+      bestieToast(
+        context,
+        'Report saved',
+        body: report.callCount > 0
+            ? '${report.callCount} call${report.callCount == 1 ? '' : 's'} · $path'
+            : path,
+        kind: BestieToastKind.success,
+      );
+    } catch (e) {
+      if (mounted) {
+        bestieToast(
+          context,
+          'Could not download report',
+          body: formatApiError(e),
+          kind: BestieToastKind.error,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _downloadingReport = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
     final user = ref.watch(authStoreProvider).user;
     final canManageLeads = user?.role == 'ADMIN' || user?.role == 'SUPER_ADMIN';
+    final canDownloadReports = canManageLeads;
     final canCallLeads = user?.role == 'TELECALLER';
 
     if (_isDesktopClient) {
@@ -282,6 +334,8 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
         embeddedInShell: widget.embeddedInShell,
         colors: c,
         canManageLeads: canManageLeads,
+        canDownloadReports: canDownloadReports,
+        downloadingReport: _downloadingReport,
         canCallLeads: canCallLeads,
         search: _search,
         statuses: _statuses,
@@ -297,6 +351,7 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
         onRefresh: _fetch,
         onCreateLead: _showCreateLeadSheet,
         onBulkAssign: _showBulkAssignSheet,
+        onDownloadReport: _downloadDailyReport,
         onUpdateLeadStatus: _updateLeadStatusInline,
         toneFor: _toneFor,
       );
@@ -320,6 +375,21 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
         ),
         title: const Text('Telecaller'),
         actions: [
+          if (canDownloadReports)
+            IconButton(
+              tooltip: 'Download daily report',
+              onPressed: _downloadingReport ? null : _downloadDailyReport,
+              icon: _downloadingReport
+                  ? SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: c.brand,
+                      ),
+                    )
+                  : const Icon(Icons.download_rounded),
+            ),
           if (canManageLeads)
             IconButton(
               tooltip: 'Bulk assign leads',
@@ -548,6 +618,8 @@ class _DesktopTelecallerLayout extends StatefulWidget {
     this.embeddedInShell = false,
     required this.colors,
     required this.canManageLeads,
+    required this.canDownloadReports,
+    required this.downloadingReport,
     required this.canCallLeads,
     required this.search,
     required this.statuses,
@@ -560,6 +632,7 @@ class _DesktopTelecallerLayout extends StatefulWidget {
     required this.onRefresh,
     required this.onCreateLead,
     required this.onBulkAssign,
+    required this.onDownloadReport,
     required this.onUpdateLeadStatus,
     required this.toneFor,
   });
@@ -567,6 +640,8 @@ class _DesktopTelecallerLayout extends StatefulWidget {
   final bool embeddedInShell;
   final BestieColors colors;
   final bool canManageLeads;
+  final bool canDownloadReports;
+  final bool downloadingReport;
   final bool canCallLeads;
   final TextEditingController search;
   final List<String> statuses;
@@ -579,6 +654,7 @@ class _DesktopTelecallerLayout extends StatefulWidget {
   final Future<void> Function() onRefresh;
   final Future<void> Function() onCreateLead;
   final Future<void> Function() onBulkAssign;
+  final Future<void> Function() onDownloadReport;
   final Future<void> Function(String leadId, String status) onUpdateLeadStatus;
   final BestieTone Function(String status) toneFor;
 
@@ -683,6 +759,23 @@ class _DesktopTelecallerLayoutState extends State<_DesktopTelecallerLayout> {
                     spacing: 8,
                     runSpacing: 8,
                     children: [
+                      if (widget.canDownloadReports)
+                        OutlinedButton.icon(
+                          onPressed: widget.downloadingReport
+                              ? null
+                              : widget.onDownloadReport,
+                          icon: widget.downloadingReport
+                              ? SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: c.brand,
+                                  ),
+                                )
+                              : const Icon(Icons.download_rounded, size: 18),
+                          label: const Text('Report'),
+                        ),
                       if (widget.canManageLeads)
                         OutlinedButton.icon(
                           onPressed: widget.onBulkAssign,

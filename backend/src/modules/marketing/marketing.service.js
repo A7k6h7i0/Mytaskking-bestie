@@ -341,12 +341,14 @@ async function logGps(req, body) {
 
 async function listGps(req, query = {}) {
   const tid = tenantId(req);
-  const targetUser = query.user_id || req.user.id;
-  if (targetUser !== req.user.id) assertManager(req.user);
   const { page, pageSize, skip, take } = parsePage(query);
   const where = {
     tenantId: tid,
-    userId: targetUser,
+    ...(query.user_id && isManager(req.user)
+      ? { userId: query.user_id }
+      : !isManager(req.user)
+        ? { userId: req.user.id }
+        : {}),
     ...(query.from ? { loggedAt: { gte: new Date(query.from) } } : {}),
     ...(query.to ? { loggedAt: { lte: new Date(query.to) } } : {}),
   };
@@ -357,6 +359,7 @@ async function listGps(req, query = {}) {
       skip,
       take,
       orderBy: { loggedAt: 'desc' },
+      include: { user: { select: { id: true, name: true, userId: true } } },
     }),
   ]);
   return paginate(items, total, page, pageSize);

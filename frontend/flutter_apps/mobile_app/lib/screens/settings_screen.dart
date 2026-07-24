@@ -410,11 +410,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
             if (user?.role == 'ADMIN' ||
                 user?.role == 'SUPER_ADMIN' ||
-                user?.role == 'MANAGER')
+                user?.role == 'MANAGER' ||
+                user?.role == 'PROJECT_COORDINATOR_MANAGER')
               _SectionLabel('Field force', colors: c),
             if (user?.role == 'ADMIN' ||
                 user?.role == 'SUPER_ADMIN' ||
-                user?.role == 'MANAGER')
+                user?.role == 'MANAGER' ||
+                user?.role == 'PROJECT_COORDINATOR_MANAGER')
               const FieldSettingsSection(),
             _SectionLabel('People', colors: c),
             if (!(user?.isClient ?? false))

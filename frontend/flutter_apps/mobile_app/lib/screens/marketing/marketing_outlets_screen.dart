@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../../state.dart';
+import 'field_route_helpers.dart';
+import 'add_outlet_screen.dart';
 
 class MarketingOutletsScreen extends ConsumerStatefulWidget {
   const MarketingOutletsScreen({super.key});
@@ -16,6 +19,7 @@ class MarketingOutletsScreen extends ConsumerStatefulWidget {
 class _MarketingOutletsScreenState extends ConsumerState<MarketingOutletsScreen> {
   final _search = TextEditingController();
   List<Map<String, dynamic>> _items = const [];
+  LatLng? _position;
   bool _loading = true;
   String? _error;
   String? _approvalFilter;
@@ -47,14 +51,21 @@ class _MarketingOutletsScreenState extends ConsumerState<MarketingOutletsScreen>
       _error = null;
     });
     try {
+      final position = await FieldRouteHelpers.resolveCurrentPosition();
       final resp = await ref.read(apiProvider).listMarketingOutlets(
             search: _search.text.trim(),
             approvalStatus: _approvalFilter,
+            pageSize: 100,
           );
       final items = (resp['items'] as List?) ?? const [];
+      var mapped = items.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      if (position != null) {
+        mapped = FieldRouteHelpers.withDistancesFrom(position, mapped);
+      }
       if (!mounted) return;
       setState(() {
-        _items = items.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        _position = position;
+        _items = mapped;
         _loading = false;
       });
     } catch (e) {
@@ -67,53 +78,10 @@ class _MarketingOutletsScreenState extends ConsumerState<MarketingOutletsScreen>
   }
 
   Future<void> _addOutlet() async {
-    final nameCtrl = TextEditingController();
-    final phoneCtrl = TextEditingController();
-    final c = BestieColors.of(context);
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Add outlet'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-                controller: nameCtrl,
-                decoration: const InputDecoration(labelText: 'Shop name')),
-            TextField(
-                controller: phoneCtrl,
-                decoration: const InputDecoration(labelText: 'Phone')),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: c.brand),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const AddOutletScreen()),
     );
-    if (ok != true || nameCtrl.text.trim().isEmpty) return;
-    try {
-      await ref.read(apiProvider).createMarketingOutlet({
-        'name': nameCtrl.text.trim(),
-        if (phoneCtrl.text.trim().isNotEmpty) 'phone': phoneCtrl.text.trim(),
-      });
-      await _load();
-      if (mounted) {
-        bestieToast(context, 'Outlet added', kind: BestieToastKind.success);
-      }
-    } catch (e) {
-      if (mounted) {
-        bestieToast(context, 'Could not add outlet',
-            body: formatApiError(e), kind: BestieToastKind.error);
-      }
-    } finally {
-      nameCtrl.dispose();
-      phoneCtrl.dispose();
-    }
+    if (saved == true) await _load();
   }
 
   Future<void> _approveOutlet(String id) async {
@@ -250,6 +218,9 @@ class _MarketingOutletsScreenState extends ConsumerState<MarketingOutletsScreen>
                                             color: c.text)),
                                     subtitle: Text(
                                       [
+                                        if (o['_distKm'] != null)
+                                          FieldRouteHelpers.formatKm(
+                                              (o['_distKm'] as num).toDouble()),
                                         if (o['city'] != null) o['city'].toString(),
                                         if (o['phone'] != null) o['phone'].toString(),
                                         if (assignee?['name'] != null)
@@ -260,6 +231,25 @@ class _MarketingOutletsScreenState extends ConsumerState<MarketingOutletsScreen>
                                     trailing: Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
+                                        if (FieldRouteHelpers.outletLatLng(o) != null)
+                                          IconButton(
+                                            tooltip: 'Navigate',
+                                            icon: Icon(Icons.navigation_outlined,
+                                                color: c.brand, size: 20),
+                                            onPressed: () async {
+                                              final pt =
+                                                  FieldRouteHelpers.outletLatLng(o)!;
+                                              if (_position != null) {
+                                                await FieldRouteHelpers
+                                                    .openMapsDirections(_position!, pt);
+                                              } else {
+                                                await FieldRouteHelpers.openMapsNavigation(
+                                                  pt,
+                                                  label: o['name']?.toString(),
+                                                );
+                                              }
+                                            },
+                                          ),
                                         if (_isManager &&
                                             o['approvalStatus'] == 'pending')
                                           IconButton(

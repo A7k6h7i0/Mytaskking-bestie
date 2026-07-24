@@ -95,19 +95,34 @@ class ChatMediaSaver {
     String url, {
     String? suggestedName,
   }) async {
-    final filename = _safeFilename(
-      suggestedName ??
-          p.basename(Uri.tryParse(url)?.path ?? '').ifEmpty('recording.webm'),
-    );
+    final filename = _resolveDownloadFilename(url, suggestedName: suggestedName);
     final bytes = await _downloadUrlBytes(url);
+    return saveBytesWithSaveDialog(bytes, suggestedName: filename);
+  }
+
+  /// Saves [bytes] to a user-chosen path (desktop/Android) or Downloads (iOS).
+  static Future<String?> saveBytesWithSaveDialog(
+    Uint8List bytes, {
+    required String suggestedName,
+    String dialogTitle = 'Save file',
+  }) async {
+    final filename = _safeFilename(suggestedName);
+
+    if (!kIsWeb && Platform.isAndroid) {
+      // Android scoped storage: bytes must be passed into saveFile.
+      final savedPath = await FilePicker.platform.saveFile(
+        dialogTitle: dialogTitle,
+        fileName: filename,
+        bytes: bytes,
+      );
+      if (savedPath == null || savedPath.isEmpty) return null;
+      return savedPath;
+    }
 
     if (!kIsWeb &&
-        (Platform.isWindows ||
-            Platform.isMacOS ||
-            Platform.isLinux ||
-            Platform.isAndroid)) {
+        (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
       final savePath = await FilePicker.platform.saveFile(
-        dialogTitle: 'Save recording',
+        dialogTitle: dialogTitle,
         fileName: filename,
       );
       if (savePath == null || savePath.isEmpty) return null;
@@ -210,6 +225,27 @@ class ChatMediaSaver {
   static String _safeFilename(String raw) {
     final cleaned = raw.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
     return cleaned.isEmpty ? 'mytaskking-file' : cleaned;
+  }
+
+  static String _resolveDownloadFilename(String url, {String? suggestedName}) {
+    final fromUrl = p.basename(Uri.tryParse(url)?.path ?? '');
+    final name = (suggestedName ?? '').trim();
+    if (name.isNotEmpty &&
+        name.toLowerCase() != 'recording' &&
+        p.extension(name).isNotEmpty) {
+      return _safeFilename(name);
+    }
+    if (fromUrl.isNotEmpty && p.extension(fromUrl).isNotEmpty) {
+      return _safeFilename(fromUrl);
+    }
+    if (name.isNotEmpty) {
+      final ext = p.extension(fromUrl);
+      if (ext.isNotEmpty && !name.toLowerCase().endsWith(ext.toLowerCase())) {
+        return _safeFilename('$name$ext');
+      }
+      return _safeFilename(name);
+    }
+    return _safeFilename(fromUrl.ifEmpty('recording.webm'));
   }
 
   static String _withExtension(String name, String ext) {

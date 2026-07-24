@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../../state.dart';
+import 'field_sub_scaffold.dart';
 
 String? _visitSelfieUrl(Map<String, dynamic> visit) {
   final raw = visit['selfieUrl']?.toString() ?? '';
@@ -55,13 +56,8 @@ class _FieldManagerScreenState extends ConsumerState<FieldManagerScreen> {
   @override
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
-    return Scaffold(
-      backgroundColor: c.surface,
-      appBar: AppBar(
-        title: const Text('Team visits'),
-        backgroundColor: c.surface,
-        foregroundColor: c.text,
-      ),
+    return FieldSubScaffold(
+      title: 'Team visits',
       body: RefreshIndicator(
         onRefresh: _load,
         child: _loading

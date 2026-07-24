@@ -42,7 +42,11 @@ import 'screens/marketing/field_hr_screen.dart';
 import 'screens/marketing/marketing_orders_screen.dart';
 import 'screens/marketing/marketing_outlet_visit_screen.dart';
 import 'screens/marketing/marketing_outlets_screen.dart';
+import 'screens/marketing/marketing_catalog_screen.dart';
+import 'screens/marketing/field_my_visits_screen.dart';
+import 'screens/marketing/field_gps_screen.dart';
 import 'screens/marketing/marketing_shop_search_screen.dart';
+import 'screens/marketing/field_route_screen.dart';
 import 'state.dart' hide ThemeMode;
 import 'telecaller_recording_setup.dart';
 
@@ -189,6 +193,26 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
 
       GoRoute(
+        path: '/field/manager',
+        builder: (_, __) => const FieldManagerScreen(),
+      ),
+
+      GoRoute(
+        path: '/field/visits',
+        builder: (_, __) => const FieldMyVisitsScreen(),
+      ),
+
+      GoRoute(
+        path: '/field/gps',
+        builder: (_, __) => const FieldGpsScreen(),
+      ),
+
+      GoRoute(
+        path: '/marketing/catalog',
+        builder: (_, __) => const MarketingCatalogScreen(),
+      ),
+
+      GoRoute(
         path: '/marketing/orders',
         builder: (_, s) => MarketingOrdersScreen(
           outletId: s.uri.queryParameters['outletId'],
@@ -233,9 +257,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           path: '/subscription',
           builder: (_, __) => const SubscriptionScreen()),
           GoRoute(path: '/field', builder: (_, __) => const FieldDashboardScreen()),
-          GoRoute(
-              path: '/field/manager',
-              builder: (_, __) => const FieldManagerScreen()),
+          GoRoute(path: '/field/route', builder: (_, __) => const FieldRouteScreen()),
           GoRoute(
               path: '/marketing/outlets',
               builder: (_, __) => const MarketingOutletsScreen()),

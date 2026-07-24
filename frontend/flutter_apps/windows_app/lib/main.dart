@@ -185,6 +185,22 @@ class _BestieWindowsAppState extends ConsumerState<BestieWindowsApp> {
           builder: (_, __) => const FieldHrScreen(),
         ),
         GoRoute(
+          path: '/field/manager',
+          builder: (_, __) => const FieldManagerScreen(),
+        ),
+        GoRoute(
+          path: '/field/visits',
+          builder: (_, __) => const FieldMyVisitsScreen(),
+        ),
+        GoRoute(
+          path: '/field/gps',
+          builder: (_, __) => const FieldGpsScreen(),
+        ),
+        GoRoute(
+          path: '/marketing/catalog',
+          builder: (_, __) => const MarketingCatalogScreen(),
+        ),
+        GoRoute(
           path: '/marketing/orders',
           builder: (_, s) => MarketingOrdersScreen(
             outletId: s.uri.queryParameters['outletId'],

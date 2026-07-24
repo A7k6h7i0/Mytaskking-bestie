@@ -12,6 +12,8 @@ import '../blink_selfie_capture.dart';
 import '../front_selfie_capture.dart';
 import 'field_gps_tracker.dart';
 import 'field_offline_queue.dart';
+import 'field_helpers.dart';
+import 'field_route_helpers.dart';
 
 /// Outlet visit — check in with live selfie + GPS, check out when done.
 class MarketingOutletVisitScreen extends ConsumerStatefulWidget {
@@ -74,11 +76,11 @@ class _MarketingOutletVisitScreenState
       final api = ref.read(apiProvider);
       final results = await Future.wait([
         api.getMarketingOutlet(widget.outletId),
-        api.getActiveFieldVisit(),
+        resolveActiveFieldVisit(api),
         api.marketingFieldSettings(),
       ]);
       if (!mounted) return;
-      final active = results[1] as Map<String, dynamic>?;
+      final active = results[1];
       setState(() {
         _outlet = Map<String, dynamic>.from(results[0] as Map);
         _activeVisit = active;
@@ -446,22 +448,28 @@ class _MarketingOutletVisitScreenState
                     _infoCard(c, outlet ?? const {}),
                     const SizedBox(height: 20),
                     if (_visitActiveHere) ...[
-                      FilledButton.icon(
-                        onPressed: _busy ? null : () => _endVisit(),
-                        icon: _busy
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2))
-                            : const Icon(Icons.check_circle_outline_rounded),
-                        label: const Text('Complete visit'),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: _busy ? null : () => _endVisit(),
+                          icon: _busy
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2))
+                              : const Icon(Icons.check_circle_outline_rounded),
+                          label: const Text('Complete visit'),
+                        ),
                       ),
                       const SizedBox(height: 10),
-                      OutlinedButton.icon(
-                        onPressed: () => context.push(
-                            '/marketing/orders?outletId=${widget.outletId}'),
-                        icon: const Icon(Icons.receipt_long_outlined),
-                        label: const Text('Place order'),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: () => context.push(
+                              '/marketing/orders?outletId=${widget.outletId}'),
+                          icon: const Icon(Icons.receipt_long_outlined),
+                          label: const Text('Place order'),
+                        ),
                       ),
                     ] else if (_activeVisit != null) ...[
                       Container(
@@ -607,6 +615,26 @@ class _MarketingOutletVisitScreenState
                 padding: const EdgeInsets.only(bottom: 4),
                 child: Text(line, style: TextStyle(color: c.textMuted, fontSize: 13)),
               ),
+          ],
+          if (FieldRouteHelpers.outletLatLng(outlet) != null) ...[
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () async {
+                final pt = FieldRouteHelpers.outletLatLng(outlet)!;
+                final pos = await FieldRouteHelpers.resolveCurrentPosition();
+                if (!context.mounted) return;
+                if (pos != null) {
+                  await FieldRouteHelpers.openMapsDirections(pos, pt);
+                } else {
+                  await FieldRouteHelpers.openMapsNavigation(
+                    pt,
+                    label: outlet['name']?.toString(),
+                  );
+                }
+              },
+              icon: const Icon(Icons.navigation_outlined),
+              label: const Text('Open in Google Maps'),
+            ),
           ],
         ],
       ),

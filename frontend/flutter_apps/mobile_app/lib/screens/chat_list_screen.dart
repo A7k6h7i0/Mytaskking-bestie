@@ -196,7 +196,6 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
     final channels = ref.watch(channelsProvider);
     final me = ref.watch(authStoreProvider).user;
     final isClient = me?.isClient ?? false;
-    final isTelecaller = me?.role == 'TELECALLER';
     // Clear the shell's bottom nav without a nested Scaffold bottom bar — an
     // empty SizedBox there renders as a white strip above the real footer.
     final shellNavClearance =
@@ -409,22 +408,21 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                               ),
                           ],
                         ),
-                        if (!isTelecaller)
-                          _Section(
-                            title: 'Client channels',
-                            icon: Icons.business_center_outlined,
-                            count: filteredClients.length,
-                            emptyHint:
-                                'External client threads will appear here.',
-                            children: [
-                              for (final c in filteredClients)
-                                _ChatTile(
-                                  channel: c,
-                                  kind: 'CLIENT',
-                                  currentUserId: me?.id,
-                                ),
-                            ],
-                          ),
+                        _Section(
+                          title: 'Client channels',
+                          icon: Icons.business_center_outlined,
+                          count: filteredClients.length,
+                          emptyHint:
+                              'External client threads will appear here.',
+                          children: [
+                            for (final c in filteredClients)
+                              _ChatTile(
+                                channel: c,
+                                kind: 'CLIENT',
+                                currentUserId: me?.id,
+                              ),
+                          ],
+                        ),
                       ],
                     );
                   },

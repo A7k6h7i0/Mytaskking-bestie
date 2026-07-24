@@ -58,6 +58,7 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
 
   static const _executiveTabs = [
     _Tab('/field', Icons.dashboard_outlined, Icons.dashboard_rounded, 'Home'),
+    _Tab('/field/route', Icons.map_outlined, Icons.map_rounded, 'Route'),
     _Tab('/marketing/outlets', Icons.storefront_outlined,
         Icons.storefront_rounded, 'Outlets'),
     _Tab('/marketing/shops', Icons.search_rounded, Icons.search_rounded,
@@ -77,7 +78,6 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
   ];
 
   /// Only highlight a bottom tab when the user is actually on that tab route.
-  /// Shell sub-routes like /notifications must not keep Meet/Chat selected.
   static int _tabIndexForLocation(String location, List<_Tab> tabs) {
     if (location.startsWith('/notifications') ||
         location.startsWith('/calendar') ||
@@ -91,12 +91,23 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
         location.startsWith('/login-activity') ||
         location.startsWith('/work-activity') ||
         location.startsWith('/ai-review') ||
-        location.startsWith('/subscription') ||
-        location.startsWith('/field') ||
-        location.startsWith('/marketing')) {
+        location.startsWith('/subscription')) {
       return -1;
     }
-    return tabs.indexWhere((t) => location.startsWith(t.path));
+    if (location == '/field/hr' ||
+        location == '/field/manager' ||
+        location == '/field/visits' ||
+        location == '/field/gps' ||
+        location.startsWith('/marketing/orders') ||
+        location.startsWith('/marketing/catalog') ||
+        (location.startsWith('/marketing/outlets/') &&
+            location != '/marketing/outlets')) {
+      return -1;
+    }
+    for (var i = 0; i < tabs.length; i++) {
+      if (location == tabs[i].path) return i;
+    }
+    return -1;
   }
 
   List<_Tab> _tabsFor(BestieUser? user) {
@@ -120,6 +131,7 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
         location == '/organizations' ||
         location == '/admin-notes' ||
         location == '/field' ||
+        location == '/field/route' ||
         location.startsWith('/marketing/') ||
         location == '/settings';
   }
@@ -274,6 +286,8 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
           user?.hasFieldForceAccess == true && user?.isExecutive != true),
       _MoreEntry(Icons.groups_outlined, 'Team visits', '/field/manager', c.info,
           user?.isFieldManager == true),
+      _MoreEntry(Icons.inventory_2_outlined, 'Product catalog', '/marketing/catalog',
+          c.brand, user?.isFieldManager == true),
       _MoreEntry(Icons.notifications_outlined, 'Notifications',
           '/notifications', c.warning, true),
       _MoreEntry(Icons.inbox_outlined, 'Requests', '/admin-notes', c.brand,

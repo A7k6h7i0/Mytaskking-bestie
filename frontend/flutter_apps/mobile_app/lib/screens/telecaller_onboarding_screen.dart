@@ -33,7 +33,6 @@ class _TelecallerOnboardingScreenState
   int _step = 0;
   bool _awaitingTestCallReturn = false;
   String? _linkedFolder;
-  String? _linkedFile;
   int _linkedFileCount = 0;
 
   @override
@@ -135,7 +134,6 @@ class _TelecallerOnboardingScreenState
         if (mounted) {
           setState(() {
             _linkedFolder = name;
-            _linkedFile = null;
             _linkedFileCount = count;
           });
           bestieToast(context, 'Folder linked',
@@ -155,63 +153,12 @@ class _TelecallerOnboardingScreenState
       if (mounted) {
         setState(() {
           _linkedFolder = path;
-          _linkedFile = null;
           _linkedFileCount = 0;
         });
       }
     } catch (e) {
       if (mounted) {
         bestieToast(context, 'Could not link folder',
-            body: e.toString(), kind: BestieToastKind.error);
-      }
-    }
-  }
-
-  Future<void> _pickRecordingFile() async {
-    try {
-      if (Platform.isAndroid) {
-        await TelecallerRecordingStorage.ensureAudioAccess();
-        final picked = await TelecallerRecordingStorage.pickRecordingFile();
-        if (picked == null) return;
-        final uri = picked['fileUri'] as String?;
-        final name = picked['displayName'] as String? ?? 'recording';
-        if (uri == null || uri.isEmpty) return;
-        await TelecallerRecordingSetup.setLinkedFile(
-          fileUri: uri,
-          displayName: name,
-        );
-        if (mounted) {
-          setState(() {
-            _linkedFile = name;
-            _linkedFolder = name;
-            _linkedFileCount = 1;
-          });
-          bestieToast(context, 'Test file selected',
-              body:
-                  'Also tap Choose folder so future calls upload automatically.',
-              kind: BestieToastKind.info);
-        }
-        return;
-      }
-
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: const ['m4a', 'mp3', 'aac', 'wav', 'amr', 'mp4'],
-        dialogTitle: 'Choose a test recording',
-      );
-      if (result == null || result.files.isEmpty) return;
-      final path = result.files.single.path;
-      if (path == null || path.isEmpty) return;
-      await TelecallerRecordingSetup.setFolderUri(path);
-      if (mounted) {
-        setState(() {
-          _linkedFile = path.split(Platform.pathSeparator).last;
-          _linkedFolder = path;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        bestieToast(context, 'Could not pick file',
             body: e.toString(), kind: BestieToastKind.error);
       }
     }
@@ -229,8 +176,7 @@ class _TelecallerOnboardingScreenState
       bestieToast(
         context,
         'Choose the recordings folder',
-        body: 'Pick the folder where your phone saves call recordings — '
-            'a single test file is not enough for auto-upload.',
+        body: 'Pick the folder where your phone saves call recordings.',
         kind: BestieToastKind.warning,
       );
       return;
@@ -366,10 +312,10 @@ class _TelecallerOnboardingScreenState
           icon: Icons.folder_open_rounded,
           title: 'Link Recordings Storage',
           description:
-              'Choose the folder where your phone saves call recordings, or pick your test recording file directly.',
+              'Choose the folder where your phone saves call recordings so future calls upload automatically.',
           bullets: [
             if (_linkedFolder != null) ...[
-              'Linked: ${_linkedFile ?? _linkedFolder!}',
+              'Linked: $_linkedFolder',
               if (_linkedFileCount > 0)
                 '$_linkedFileCount audio file(s) detected',
             ] else ...[
@@ -378,35 +324,20 @@ class _TelecallerOnboardingScreenState
               'Vivo/Xiaomi: MIUI/sound_recorder/call_rec or Recordings',
             ],
           ],
-          extra: Column(
-            children: [
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: _pickRecordingFolder,
-                icon: const Icon(Icons.create_new_folder_outlined, size: 18),
-                label: const Text('Choose folder'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: brand,
-                  side: BorderSide(color: brand),
-                  minimumSize: const Size(double.infinity, 48),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(24)),
-                ),
+          extra: Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: OutlinedButton.icon(
+              onPressed: _pickRecordingFolder,
+              icon: const Icon(Icons.create_new_folder_outlined, size: 18),
+              label: const Text('Choose folder'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: brand,
+                side: BorderSide(color: brand),
+                minimumSize: const Size(double.infinity, 48),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(24)),
               ),
-              const SizedBox(height: 10),
-              OutlinedButton.icon(
-                onPressed: _pickRecordingFile,
-                icon: const Icon(Icons.audio_file_outlined, size: 18),
-                label: const Text('Pick a recording file'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: brand,
-                  side: BorderSide(color: brand),
-                  minimumSize: const Size(double.infinity, 48),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(24)),
-                ),
-              ),
-            ],
+            ),
           ),
         );
       default:

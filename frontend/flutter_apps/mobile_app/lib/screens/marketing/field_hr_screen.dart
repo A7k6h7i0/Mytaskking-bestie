@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../../state.dart';
+import 'field_helpers.dart';
 import 'field_offline_queue.dart';
 import 'field_sync_service.dart';
 
@@ -28,34 +30,43 @@ class _FieldHrScreenState extends ConsumerState<FieldHrScreen> {
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
     final isManager = ref.watch(authStoreProvider).user?.isFieldManager ?? false;
-    return DefaultTabController(
-      length: 5,
-      child: Scaffold(
-        backgroundColor: c.surface,
-        appBar: AppBar(
-          title: const Text('Field HR'),
+    return PopScope(
+      canPop: context.canPop(),
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) fieldGoBack(context);
+      },
+      child: DefaultTabController(
+        length: 6,
+        child: Scaffold(
           backgroundColor: c.surface,
-          foregroundColor: c.text,
-          bottom: TabBar(
-            isScrollable: true,
-            labelColor: c.brand,
-            tabs: const [
-              Tab(text: 'Expenses'),
-              Tab(text: 'Leaves'),
-              Tab(text: 'Incidents'),
-              Tab(text: 'Ratings'),
-              Tab(text: 'Routes'),
+          appBar: AppBar(
+            leading: BackButton(onPressed: () => fieldGoBack(context)),
+            title: const Text('Field HR'),
+            backgroundColor: c.surface,
+            foregroundColor: c.text,
+            bottom: TabBar(
+              isScrollable: true,
+              labelColor: c.brand,
+              tabs: const [
+                Tab(text: 'Expenses'),
+                Tab(text: 'Leaves'),
+                Tab(text: 'Incidents'),
+                Tab(text: 'Ratings'),
+                Tab(text: 'Routes'),
+                Tab(text: 'Holidays'),
+              ],
+            ),
+          ),
+          body: TabBarView(
+            children: [
+              _ExpensesTab(isManager: isManager),
+              _LeavesTab(isManager: isManager),
+              _IncidentsTab(isManager: isManager),
+              _RatingsTab(),
+              _RoutesTab(isManager: isManager),
+              _HolidaysTab(isManager: isManager),
             ],
           ),
-        ),
-        body: TabBarView(
-          children: [
-            _ExpensesTab(isManager: isManager),
-            _LeavesTab(isManager: isManager),
-            _IncidentsTab(isManager: isManager),
-            _RatingsTab(),
-            _RoutesTab(isManager: isManager),
-          ],
         ),
       ),
     );
@@ -125,10 +136,35 @@ class _ExpensesTabState extends ConsumerState<_ExpensesTab> {
       return;
     }
     try {
+      String? receiptUrl;
+      final pickReceipt = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Receipt'),
+          content: const Text('Attach a receipt photo?'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Skip')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Attach')),
+          ],
+        ),
+      );
+      if (pickReceipt == true) {
+        final file = await ImagePicker().pickImage(source: ImageSource.camera, imageQuality: 75);
+        if (file != null) {
+          final bytes = await file.readAsBytes();
+          final asset = await ref.read(apiProvider).uploadFile(
+                bytes: bytes,
+                filename: 'expense-${DateTime.now().millisecondsSinceEpoch}.jpg',
+                mimeType: 'image/jpeg',
+              );
+          receiptUrl = asset['url']?.toString();
+        }
+      }
       await ref.read(apiProvider).createFieldExpense({
         'type': typeCtrl.text.trim(),
         'amount': double.tryParse(amountCtrl.text.trim()) ?? 0,
         'expenseDate': dateCtrl.text.trim(),
+        if (receiptUrl != null) 'receiptUrl': receiptUrl,
       });
       await _load();
     } catch (e) {
@@ -165,12 +201,26 @@ class _ExpensesTabState extends ConsumerState<_ExpensesTab> {
                     title: Text('${e['type']} — ${e['amount']}'),
                     subtitle: Text('${e['expenseDate']} · ${e['status']}'),
                     trailing: widget.isManager && e['status'] == 'pending'
-                        ? IconButton(
-                            icon: Icon(Icons.check_circle_outline, color: c.success),
-                            onPressed: () async {
-                              await ref.read(apiProvider).approveFieldExpense(e['id'].toString());
-                              await _load();
-                            },
+                        ? Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                tooltip: 'Approve',
+                                icon: Icon(Icons.check_circle_outline, color: c.success),
+                                onPressed: () async {
+                                  await ref.read(apiProvider).approveFieldExpense(e['id'].toString());
+                                  await _load();
+                                },
+                              ),
+                              IconButton(
+                                tooltip: 'Reject',
+                                icon: Icon(Icons.cancel_outlined, color: c.danger),
+                                onPressed: () async {
+                                  await ref.read(apiProvider).rejectFieldExpense(e['id'].toString());
+                                  await _load();
+                                },
+                              ),
+                            ],
                           )
                         : null,
                   );
@@ -274,12 +324,24 @@ class _LeavesTabState extends ConsumerState<_LeavesTab> {
             title: Text('${l['leaveType']} · ${l['fromDate']} → ${l['toDate']}'),
             subtitle: Text(l['status']?.toString() ?? ''),
             trailing: widget.isManager && l['status'] == 'pending'
-                ? IconButton(
-                    icon: Icon(Icons.check_circle_outline, color: c.success),
-                    onPressed: () async {
-                      await ref.read(apiProvider).approveFieldLeave(l['id'].toString());
-                      await _load();
-                    },
+                ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: Icon(Icons.check_circle_outline, color: c.success),
+                        onPressed: () async {
+                          await ref.read(apiProvider).approveFieldLeave(l['id'].toString());
+                          await _load();
+                        },
+                      ),
+                      IconButton(
+                        icon: Icon(Icons.cancel_outlined, color: c.danger),
+                        onPressed: () async {
+                          await ref.read(apiProvider).rejectFieldLeave(l['id'].toString());
+                          await _load();
+                        },
+                      ),
+                    ],
                   )
                 : null,
           );
@@ -447,18 +509,17 @@ class _RatingsTabState extends ConsumerState<_RatingsTab> {
   }
 
   Future<void> _rate() async {
-    final entityCtrl = TextEditingController();
+    final picked = await pickMarketingOutlet(context, ref, title: 'Rate which outlet?');
+    if (picked == null) return;
     final scoreCtrl = TextEditingController(text: '5');
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Rate outlet visit'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(controller: entityCtrl, decoration: const InputDecoration(labelText: 'Outlet ID')),
-            TextField(controller: scoreCtrl, decoration: const InputDecoration(labelText: 'Score 1-5'), keyboardType: TextInputType.number),
-          ],
+        title: Text('Rate ${picked['name']}'),
+        content: TextField(
+          controller: scoreCtrl,
+          decoration: const InputDecoration(labelText: 'Score 1-5'),
+          keyboardType: TextInputType.number,
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
@@ -466,11 +527,14 @@ class _RatingsTabState extends ConsumerState<_RatingsTab> {
         ],
       ),
     );
-    if (ok != true) return;
+    if (ok != true) {
+      scoreCtrl.dispose();
+      return;
+    }
     try {
       await ref.read(apiProvider).createFieldRating({
         'entityType': 'outlet',
-        'entityId': entityCtrl.text.trim(),
+        'entityId': picked['id'].toString(),
         'score': int.tryParse(scoreCtrl.text.trim()) ?? 5,
       });
       await _load();
@@ -479,7 +543,6 @@ class _RatingsTabState extends ConsumerState<_RatingsTab> {
         bestieToast(context, 'Failed', body: formatApiError(e), kind: BestieToastKind.error);
       }
     } finally {
-      entityCtrl.dispose();
       scoreCtrl.dispose();
     }
   }
@@ -560,11 +623,34 @@ class _RoutesTabState extends ConsumerState<_RoutesTab> {
     );
     if (ok != true) return;
     try {
-      await ref.read(apiProvider).createFieldRoute({'name': nameCtrl.text.trim(), 'outletIds': []});
+      final outlets = await pickMarketingOutletsMulti(context, ref);
+      final exec = await pickExecutive(context, ref);
+      await ref.read(apiProvider).createFieldRoute({
+        'name': nameCtrl.text.trim(),
+        'outletIds': outlets.map((o) => o['id']).toList(),
+        if (exec != null) 'assignedToId': exec['id'],
+      });
       await _load();
     } finally {
       nameCtrl.dispose();
     }
+  }
+
+  Future<void> _editRoute(Map<String, dynamic> route) async {
+    if (!widget.isManager) return;
+    final outlets = await pickMarketingOutletsMulti(
+      context,
+      ref,
+      initialIds: ((route['outletIds'] as List?) ?? const [])
+          .map((e) => e.toString())
+          .toList(),
+    );
+    final exec = await pickExecutive(context, ref);
+    await ref.read(apiProvider).updateFieldRoute(route['id'].toString(), {
+      'outletIds': outlets.map((o) => o['id']).toList(),
+      if (exec != null) 'assignedToId': exec['id'],
+    });
+    await _load();
   }
 
   Future<void> _addDailyPlan() async {
@@ -678,12 +764,113 @@ class _RoutesTabState extends ConsumerState<_RoutesTab> {
               ListTile(
                 tileColor: c.surface2,
                 title: Text(r['name']?.toString() ?? 'Route'),
-                subtitle: Text('${(r['outletIds'] as List?)?.length ?? 0} outlets'),
-                onTap: () => context.push('/marketing/outlets'),
+                subtitle: Text(
+                  '${(r['outletIds'] as List?)?.length ?? 0} outlets · ${(r['assignedTo'] as Map?)?['name'] ?? 'Unassigned'}',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                onTap: widget.isManager ? () => _editRoute(r) : () => context.push('/marketing/outlets'),
               ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _HolidaysTab extends ConsumerStatefulWidget {
+  final bool isManager;
+  const _HolidaysTab({required this.isManager});
+
+  @override
+  ConsumerState<_HolidaysTab> createState() => _HolidaysTabState();
+}
+
+class _HolidaysTabState extends ConsumerState<_HolidaysTab> {
+  List<Map<String, dynamic>> _items = const [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final items = await ref.read(apiProvider).listFieldHolidays();
+      if (!mounted) return;
+      setState(() {
+        _items = items;
+        _loading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _add() async {
+    if (!widget.isManager) return;
+    final nameCtrl = TextEditingController();
+    final dateCtrl = TextEditingController(
+      text: DateTime.now().toIso8601String().substring(0, 10),
+    );
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add holiday'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Name')),
+            TextField(controller: dateCtrl, decoration: const InputDecoration(labelText: 'Date (YYYY-MM-DD)')),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await ref.read(apiProvider).createFieldHoliday({
+        'name': nameCtrl.text.trim(),
+        'date': dateCtrl.text.trim(),
+      });
+      await _load();
+    } finally {
+      nameCtrl.dispose();
+      dateCtrl.dispose();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
+    if (_loading) return const Center(child: BestieSpinner());
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      floatingActionButton: widget.isManager
+          ? FloatingActionButton(onPressed: _add, child: const Icon(Icons.add))
+          : null,
+      body: _items.isEmpty
+          ? Center(child: Text('No holidays', style: TextStyle(color: c.textMuted)))
+          : ListView.separated(
+              padding: const EdgeInsets.all(16),
+              itemCount: _items.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              itemBuilder: (_, i) {
+                final h = _items[i];
+                return ListTile(
+                  tileColor: c.surface2,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  title: Text(h['name']?.toString() ?? 'Holiday'),
+                  subtitle: Text(h['date']?.toString() ?? ''),
+                );
+              },
+            ),
     );
   }
 }
