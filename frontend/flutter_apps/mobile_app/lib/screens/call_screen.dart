@@ -20,6 +20,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../active_call_state.dart';
 import '../app_sounds.dart';
+import '../org_call_sounds.dart';
 import '../call_proximity.dart';
 import '../call_screen_theme.dart';
 import '../calls/mediasoup_call_session.dart';
@@ -3028,46 +3029,18 @@ class _CallScreenState extends ConsumerState<CallScreen>
     if (!_isCallInitiator || _isMeeting) return;
     try {
       await _stopRingback();
-      final url = _ringingSoundUrl;
       await _tonePlayer.setAudioContext(_ringbackAudioContext(_route));
-      await _tonePlayer.setReleaseMode(ReleaseMode.loop);
       final ringVolume = switch (_route) {
         CallAudioRoute.speaker => 1.0,
         CallAudioRoute.bluetooth => 0.95,
         CallAudioRoute.earpiece => 0.75,
       };
-      if (url != null && url.isNotEmpty) {
-        await _tonePlayer.play(UrlSource(url), volume: ringVolume);
-        _startOutgoingRingTimeout();
-        return;
-      }
-      if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-        await _tonePlayer.play(
-          BytesSource(AppSounds.desktopRingtoneBytes()),
-          volume: ringVolume,
-        );
-        _startOutgoingRingTimeout();
-        return;
-      }
-      // Custom URL absent: earpiece uses the system ringtone stream; speaker /
-      // Bluetooth need a different stream or Agora hijacks the session.
-      if (_route == CallAudioRoute.earpiece) {
-        await _ringtone.play(
-          android: AndroidSounds.ringtone,
-          ios: IosSounds.electronic,
-          looping: true,
-          volume: ringVolume,
-          asAlarm: false,
-        );
-      } else {
-        await _ringtone.play(
-          android: AndroidSounds.ringtone,
-          ios: IosSounds.electronic,
-          looping: true,
-          volume: ringVolume,
-          asAlarm: true,
-        );
-      }
+      await OrgCallSounds.playRinging(
+        _tonePlayer,
+        orgUrl: _ringingSoundUrl,
+        releaseMode: ReleaseMode.loop,
+        volume: ringVolume,
+      );
       _startOutgoingRingTimeout();
     } catch (_) {}
   }
@@ -3086,18 +3059,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     try {
       final url =
           eventAudioUrl?.isNotEmpty == true ? eventAudioUrl : _buzzerSoundUrl;
-      if (url != null && url.isNotEmpty) {
-        await _tonePlayer.setReleaseMode(ReleaseMode.release);
-        await _tonePlayer.play(UrlSource(url), volume: 1);
-      } else {
-        await _ringtone.play(
-          android: AndroidSounds.alarm,
-          ios: IosSounds.alarm,
-          looping: false,
-          volume: 1.0,
-          asAlarm: true,
-        );
-      }
+      await OrgCallSounds.playBuzzer(_tonePlayer, orgUrl: url, volume: 1);
       if (mounted) {
         bestieToast(context, 'Emergency buzzer',
             body: '${fromName ?? 'A participant'} sent an emergency alert.',

@@ -26,6 +26,7 @@ import 'branding.dart';
 import 'mobile_local_settings.dart';
 import 'mobile_appearance_providers.dart';
 import 'mobile_theme_palettes.dart';
+import 'org_call_sounds.dart';
 import 'telecaller_recording_setup.dart';
 
 const _foregroundNotificationsChannelId = 'foreground_notifications_silent';
@@ -98,6 +99,7 @@ void main() async {
   }
 
   await MobileLocalSettings.load();
+  await OrgCallSounds.warmCache();
 
   runApp(ProviderScope(
     overrides: [

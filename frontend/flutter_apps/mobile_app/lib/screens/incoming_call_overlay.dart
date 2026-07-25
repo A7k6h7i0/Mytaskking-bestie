@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io' show Platform;
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
@@ -11,7 +10,7 @@ import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../call_app.dart';
 import '../active_call_state.dart';
-import '../app_sounds.dart';
+import '../org_call_sounds.dart';
 import '../router.dart';
 import '../state.dart';
 import '../windows_workspace.dart';
@@ -298,13 +297,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
         await _customRingtone.setReleaseMode(ReleaseMode.release);
         await _customRingtone.play(UrlSource(url), volume: 1);
       } else {
-        await _ringtone.play(
-          android: AndroidSounds.alarm,
-          ios: IosSounds.alarm,
-          looping: false,
-          volume: 1,
-          asAlarm: true,
-        );
+        await OrgCallSounds.playBuzzer(_customRingtone, orgUrl: url);
       }
       if (mounted) {
         setState(() => _banner = {
@@ -717,15 +710,6 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
         await _customRingtone.play(UrlSource(url), volume: 1);
         return;
       }
-      if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-        await _customRingtone.stop();
-        await _customRingtone.setReleaseMode(ReleaseMode.loop);
-        await _customRingtone.play(
-          BytesSource(AppSounds.desktopRingtoneBytes()),
-          volume: 1,
-        );
-        return;
-      }
       await _ringtone.play(
         android: AndroidSounds.ringtone,
         ios: IosSounds.electronic,
@@ -754,14 +738,14 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     final type = meetingSlug != null ? 'meeting.invited' : 'call.incoming';
     try {
       await _loadOrgCallSounds();
+      final ringUrl = _ringingSoundUrl?.trim();
       await _nativeCallNotificationChannel.invokeMethod('startIncoming', {
         'type': type,
         if (callId != null) 'callId': callId,
         if (meetingSlug != null) 'meetingSlug': meetingSlug,
         'mode': mode,
         'fromName': fromName,
-        if (_ringingSoundUrl != null && _ringingSoundUrl!.isNotEmpty)
-          'ringingSoundUrl': _ringingSoundUrl,
+        if (ringUrl != null && ringUrl.isNotEmpty) 'ringingSoundUrl': ringUrl,
       });
     } catch (_) {/* best effort */}
   }

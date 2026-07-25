@@ -376,7 +376,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 icon: Icons.warning_amber_rounded,
                 label: _uploadingSound == 'emergencyBuzzerSoundUrl'
                     ? 'Uploading emergency buzzer MP3...'
-                    : 'Emergency buzzer sound: ${_buzzerSoundUrl == null ? 'default alarm' : 'custom MP3'}',
+                    : 'Emergency buzzer sound: ${_buzzerSoundUrl == null ? 'built-in MP3' : 'custom MP3'}',
                 onTap: () => _uploadCallSound(
                   key: 'emergencyBuzzerSoundUrl',
                   label: 'emergency buzzer sound',
@@ -388,7 +388,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 icon: Icons.music_note_rounded,
                 label: _uploadingSound == 'ringingSoundUrl'
                     ? 'Uploading ringing MP3...'
-                    : 'Ringing sound: ${_ringingSoundUrl == null ? 'device default' : 'custom MP3'}',
+                    : 'Ringing sound: ${_ringingSoundUrl == null ? 'device default (incoming)' : 'custom MP3'}',
                 onTap: () => _uploadCallSound(
                   key: 'ringingSoundUrl',
                   label: 'ringing sound',

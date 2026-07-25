@@ -96,13 +96,15 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
         location.startsWith('/login-activity') ||
         location.startsWith('/work-activity') ||
         location.startsWith('/ai-review') ||
-        location.startsWith('/subscription')) {
+        location.startsWith('/subscription') ||
+        location.startsWith('/more')) {
       return -1;
     }
     if (location == '/field/hr' ||
         location == '/field/manager' ||
         location == '/field/visits' ||
         location == '/field/gps' ||
+        location.startsWith('/field/export') ||
         location.startsWith('/marketing/orders') ||
         location.startsWith('/marketing/catalog') ||
         (location.startsWith('/marketing/outlets/') &&
@@ -111,6 +113,13 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
     }
     for (var i = 0; i < tabs.length; i++) {
       if (location == tabs[i].path) return i;
+    }
+    // On a shell body route that is not a tab for this role (e.g. manager on /field).
+    if (location.startsWith('/field') ||
+        location.startsWith('/marketing/') ||
+        location == '/dashboard' ||
+        location == '/settings') {
+      return -1;
     }
     return -1;
   }
@@ -174,9 +183,9 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
   }
 
   void _openMoreRoute(BuildContext context, String route) {
-    // Shell tabs keep using go (single active tab). Outside-shell screens
-    // use push so Android back returns instead of exiting the app.
-    const shellRoutes = {
+    // Routes inside [ShellRoute] must use go() so the URL (and tab highlight)
+    // updates. push() left the old tab active (e.g. Chat while on Field team).
+    const shellBodyRoutes = {
       '/dashboard',
       '/chat',
       '/telecaller',
@@ -184,11 +193,20 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
       '/tasks',
       '/attendance',
       '/meetings',
+      '/field',
+      '/field/route',
+      '/marketing/outlets',
+      '/marketing/shops',
+      '/settings',
       '/notifications',
       '/calendar',
       '/profile',
+      '/organizations',
+      '/admin-notes',
+      '/payments',
+      '/subscription',
     };
-    if (shellRoutes.contains(route)) {
+    if (shellBodyRoutes.contains(route)) {
       context.go(route);
     } else {
       context.push(route);

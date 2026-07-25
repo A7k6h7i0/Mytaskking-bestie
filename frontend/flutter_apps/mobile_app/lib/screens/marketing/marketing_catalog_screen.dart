@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../../state.dart';
+import 'field_form_dialogs.dart';
 import 'field_sub_scaffold.dart';
 
 /// Manager catalog — products, brands, categories.
@@ -60,6 +61,7 @@ class _MarketingCatalogScreenState extends ConsumerState<MarketingCatalogScreen>
 
   Future<void> _showProductDialog({Map<String, dynamic>? product}) async {
     final editing = product != null;
+    final c = BestieColors.of(context);
     final nameCtrl = TextEditingController(text: product?['name']?.toString() ?? '');
     final skuCtrl = TextEditingController(text: product?['sku']?.toString() ?? '');
     final ptrCtrl = TextEditingController(text: product?['ptr']?.toString() ?? '');
@@ -68,63 +70,52 @@ class _MarketingCatalogScreenState extends ConsumerState<MarketingCatalogScreen>
         product?['brandId']?.toString();
     String? categoryId = (product?['category'] as Map?)?['id']?.toString() ??
         product?['categoryId']?.toString();
-    final ok = await showDialog<bool>(
+    final ok = await showFieldFormDialogBuilder(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialog) => AlertDialog(
-          title: Text(editing ? 'Edit product' : 'Add product'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                    controller: nameCtrl,
-                    decoration: const InputDecoration(labelText: 'Name *')),
-                TextField(
-                    controller: skuCtrl,
-                    decoration: const InputDecoration(labelText: 'SKU')),
-                TextField(
-                    controller: ptrCtrl,
-                    decoration: const InputDecoration(labelText: 'PTR'),
-                    keyboardType: TextInputType.number),
-                TextField(
-                    controller: mrpCtrl,
-                    decoration: const InputDecoration(labelText: 'MRP'),
-                    keyboardType: TextInputType.number),
-                const SizedBox(height: 8),
-                DropdownButtonFormField<String?>(
-                  initialValue: brandId,
-                  decoration: const InputDecoration(labelText: 'Brand'),
-                  items: [
-                    const DropdownMenuItem(value: null, child: Text('None')),
-                    ..._brands.map((b) => DropdownMenuItem(
-                          value: b['id']?.toString(),
-                          child: Text(b['name']?.toString() ?? 'Brand'),
-                        )),
-                  ],
-                  onChanged: (v) => setDialog(() => brandId = v),
-                ),
-                DropdownButtonFormField<String?>(
-                  initialValue: categoryId,
-                  decoration: const InputDecoration(labelText: 'Category'),
-                  items: [
-                    const DropdownMenuItem(value: null, child: Text('None')),
-                    ..._categories.map((b) => DropdownMenuItem(
-                          value: b['id']?.toString(),
-                          child: Text(b['name']?.toString() ?? 'Category'),
-                        )),
-                  ],
-                  onChanged: (v) => setDialog(() => categoryId = v),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save')),
-          ],
+      title: editing ? 'Edit product' : 'Add product',
+      confirmLabel: 'Save',
+      buildFields: (ctx, setDialog) => [
+        fieldFormTextField(c, controller: nameCtrl, label: 'Name *'),
+        fieldFormTextField(c, controller: skuCtrl, label: 'SKU'),
+        fieldFormTextField(
+          c,
+          controller: ptrCtrl,
+          label: 'PTR',
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
         ),
-      ),
+        fieldFormTextField(
+          c,
+          controller: mrpCtrl,
+          label: 'MRP',
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        ),
+        fieldFormDropdown<String?>(
+          c,
+          value: brandId,
+          label: 'Brand',
+          items: [
+            const DropdownMenuItem(value: null, child: Text('None')),
+            ..._brands.map((b) => DropdownMenuItem(
+                  value: b['id']?.toString(),
+                  child: Text(b['name']?.toString() ?? 'Brand'),
+                )),
+          ],
+          onChanged: (v) => setDialog(() => brandId = v),
+        ),
+        fieldFormDropdown<String?>(
+          c,
+          value: categoryId,
+          label: 'Category',
+          items: [
+            const DropdownMenuItem(value: null, child: Text('None')),
+            ..._categories.map((b) => DropdownMenuItem(
+                  value: b['id']?.toString(),
+                  child: Text(b['name']?.toString() ?? 'Category'),
+                )),
+          ],
+          onChanged: (v) => setDialog(() => categoryId = v),
+        ),
+      ],
     );
     if (ok != true) {
       nameCtrl.dispose();

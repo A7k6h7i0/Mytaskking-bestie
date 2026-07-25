@@ -74,6 +74,8 @@ flutter:
   assets:
     - assets/icon.png
     - assets/video/call_record_guide.mp4
+    - assets/sounds/Ringing.mp3.mpeg
+    - assets/sounds/Buzzer.mp3.mpeg
 
 flutter_launcher_icons:
   android: true

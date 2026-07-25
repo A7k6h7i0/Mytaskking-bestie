@@ -6,6 +6,14 @@ import 'package:mytaskking_core/mytaskking_core.dart';
 import '../../state.dart';
 import 'field_offline_queue.dart';
 
+/// Parse API numbers that may arrive as int, double, or decimal string.
+double? parseFieldCoordinate(dynamic value) {
+  if (value == null) return null;
+  if (value is num) return value.toDouble();
+  if (value is String) return double.tryParse(value.trim());
+  return null;
+}
+
 /// Field visits, orders, and GPS pings — executives only.
 bool canActAsFieldExecutive(BestieUser? user) => user?.isExecutive ?? false;
 

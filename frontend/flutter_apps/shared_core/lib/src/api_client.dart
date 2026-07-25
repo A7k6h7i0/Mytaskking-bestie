@@ -135,7 +135,7 @@ class BestieApi {
       data: {
         if (tenantSlug != null && tenantSlug.trim().isNotEmpty)
           'tenantSlug': tenantSlug.trim(),
-        'userId': userId,
+        'userId': userId.trim(),
         'password': password,
         'loginSource': loginSource,
         if (selfieBase64 != null) 'selfieBase64': selfieBase64,
@@ -158,7 +158,7 @@ class BestieApi {
     final r = await dio.get(
       '/auth/login-requirements',
       queryParameters: {
-        'userId': userId,
+        'userId': userId.trim(),
         if (tenantSlug != null && tenantSlug.trim().isNotEmpty)
           'tenantSlug': tenantSlug.trim(),
       },

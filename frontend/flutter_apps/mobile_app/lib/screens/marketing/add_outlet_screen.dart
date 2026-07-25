@@ -166,18 +166,22 @@ class _AddOutletScreenState extends ConsumerState<AddOutletScreen> {
   @override
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
     return Scaffold(
       backgroundColor: c.surface,
+      resizeToAvoidBottomInset: true,
       appBar: AppBar(
         title: const Text('Add new outlet'),
         backgroundColor: c.surface,
         foregroundColor: c.text,
       ),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
-          children: [
+      body: SafeArea(
+        child: Form(
+          key: _formKey,
+          child: ListView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: EdgeInsets.fromLTRB(20, 12, 20, 24 + bottomInset),
+            children: [
             Text(
               'Fill in the shop details. Location is required so it shows on your route map.',
               style: TextStyle(color: c.textMuted, fontSize: 14, height: 1.4),
@@ -323,7 +327,8 @@ class _AddOutletScreenState extends ConsumerState<AddOutletScreen> {
                       style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
                     ),
             ),
-          ],
+            ],
+          ),
         ),
       ),
     );

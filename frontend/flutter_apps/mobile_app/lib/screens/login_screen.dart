@@ -57,10 +57,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     context.push('/register-organization');
   }
 
+  void _trimLoginFields() {
+    _tenantSlug.text = _tenantSlug.text.trim();
+    _userId.text = _userId.text.trim();
+  }
+
   Future<void> _submit() async {
     if (_loading) return;
-    final userId = _userId.text.trim();
-    final tenantSlug = _tenantSlug.text.trim();
+    _trimLoginFields();
+    final userId = _userId.text;
+    final tenantSlug = _tenantSlug.text;
     if (userId.isEmpty || _password.text.isEmpty) {
       setState(() => _error = 'Enter your User ID and password to continue.');
       return;
@@ -295,8 +301,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 controller: _tenantSlug,
                                 icon: Icons.business_outlined,
                                 textInputAction: TextInputAction.next,
-                                onSubmitted: (_) =>
-                                    FocusScope.of(context).nextFocus(),
+                                onSubmitted: (_) {
+                                  _tenantSlug.text = _tenantSlug.text.trim();
+                                  FocusScope.of(context).nextFocus();
+                                },
                               ),
                               BestieTextField(
                                 label: 'User ID',
@@ -304,8 +312,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 icon: Icons.person_outline,
                                 autofocus: true,
                                 textInputAction: TextInputAction.next,
-                                onSubmitted: (_) =>
-                                    _passwordFocus.requestFocus(),
+                                onSubmitted: (_) {
+                                  _userId.text = _userId.text.trim();
+                                  _passwordFocus.requestFocus();
+                                },
                               ),
                               if (_selfie != null) ...[
                                 const SizedBox(height: BestieTokens.s3),
@@ -556,7 +566,10 @@ class _DesktopLoginShellState extends State<_DesktopLoginShell>
                             controller: widget.tenantSlug,
                             icon: Icons.business_outlined,
                             textInputAction: TextInputAction.next,
-                            onSubmitted: (_) => FocusScope.of(context).nextFocus(),
+                            onSubmitted: (_) {
+                              widget.tenantSlug.text = widget.tenantSlug.text.trim();
+                              FocusScope.of(context).nextFocus();
+                            },
                           ),
                           const SizedBox(height: 16),
                           _DesktopLoginField(
@@ -566,7 +579,10 @@ class _DesktopLoginShellState extends State<_DesktopLoginShell>
                             hint: 'e.g. priya.k',
                             autofocus: true,
                             textInputAction: TextInputAction.next,
-                            onSubmitted: (_) => widget.passwordFocus.requestFocus(),
+                            onSubmitted: (_) {
+                              widget.userId.text = widget.userId.text.trim();
+                              widget.passwordFocus.requestFocus();
+                            },
                           ),
                           const SizedBox(height: 16),
                           _DesktopLoginField(

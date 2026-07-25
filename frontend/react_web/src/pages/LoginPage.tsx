@@ -54,10 +54,14 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
     const form = e.currentTarget as HTMLFormElement;
+    const trimmedUserId = userId.trim();
+    const trimmedTenantSlug = tenantSlug.trim();
+    setUserId(trimmedUserId);
+    setTenantSlug(trimmedTenantSlug);
     try {
       const { data } = await api.post('/auth/login', {
-        tenantSlug: tenantSlug.trim() || undefined,
-        userId,
+        tenantSlug: trimmedTenantSlug || undefined,
+        userId: trimmedUserId,
         password,
       });
       setSuccess(true);

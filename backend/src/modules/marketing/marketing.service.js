@@ -351,6 +351,16 @@ async function logGps(req, body) {
   });
 }
 
+function serializeGpsLog(row) {
+  return {
+    ...row,
+    latitude: row.latitude != null ? Number(row.latitude) : null,
+    longitude: row.longitude != null ? Number(row.longitude) : null,
+    accuracy: row.accuracy != null ? Number(row.accuracy) : null,
+    speed: row.speed != null ? Number(row.speed) : null,
+  };
+}
+
 async function listGps(req, query = {}) {
   const tid = tenantId(req);
   const { page, pageSize, skip, take } = parsePage(query);
@@ -364,7 +374,7 @@ async function listGps(req, query = {}) {
     ...(query.from ? { loggedAt: { gte: new Date(query.from) } } : {}),
     ...(query.to ? { loggedAt: { lte: new Date(query.to) } } : {}),
   };
-  const [total, items] = await prisma.$transaction([
+  const [total, rows] = await prisma.$transaction([
     prisma.fieldGpsLog.count({ where }),
     prisma.fieldGpsLog.findMany({
       where,
@@ -374,7 +384,7 @@ async function listGps(req, query = {}) {
       include: { user: { select: { id: true, name: true, userId: true } } },
     }),
   ]);
-  return paginate(items, total, page, pageSize);
+  return paginate(rows.map(serializeGpsLog), total, page, pageSize);
 }
 
 // ---- products ----

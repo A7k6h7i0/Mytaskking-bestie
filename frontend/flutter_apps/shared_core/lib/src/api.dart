@@ -1340,9 +1340,14 @@ extension BestieApiExt on BestieApi {
   Future<void> deleteMarketingBrand(String id) =>
       dio.delete('/marketing/brands/$id');
 
-  Future<Map<String, dynamic>> listFieldGps({String? userId, int page = 1}) =>
+  Future<Map<String, dynamic>> listFieldGps({
+    String? userId,
+    int page = 1,
+    int pageSize = 100,
+  }) =>
       get('/marketing/gps', query: {
         'page': page,
+        'pageSize': pageSize,
         if (userId != null) 'user_id': userId,
       });
 
