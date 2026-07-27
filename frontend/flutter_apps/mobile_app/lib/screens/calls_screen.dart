@@ -82,7 +82,7 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
       appBar: AppBar(
         elevation: 0,
         backgroundColor: c.surface,
-        foregroundColor: c.text,
+        foregroundColor: c.textMuted,
         automaticallyImplyLeading: canPop,
         leading: canPop
             ? IconButton(

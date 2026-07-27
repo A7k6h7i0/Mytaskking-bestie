@@ -400,7 +400,7 @@ class _MarketingOutletVisitScreenState
       appBar: AppBar(
         title: Text(outlet?['name']?.toString() ?? 'Outlet visit'),
         backgroundColor: c.surface,
-        foregroundColor: c.text,
+        foregroundColor: c.textMuted,
         actions: [
           if (canApproveMarketingOutlet(ref.read(authStoreProvider).user, outlet ?? const {}))
             IconButton(

@@ -249,7 +249,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
       appBar: AppBar(
         elevation: 0,
         backgroundColor: c.surface,
-        foregroundColor: c.text,
+        foregroundColor: c.textMuted,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
           tooltip: 'Back',
@@ -261,7 +261,10 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
             }
           },
         ),
-        title: const Text('Workday'),
+        title: Text(
+          'Workday',
+          style: TextStyle(color: c.textMuted),
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh_rounded),
@@ -358,7 +361,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
             const SizedBox(width: 6),
             Text("Today's wrap-up",
                 style: TextStyle(
-                  color: c.text,
+                  color: c.textMuted,
                   fontSize: 14,
                   fontWeight: BestieTokens.fwBold,
                 )),
@@ -387,7 +390,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
         const SizedBox(width: 8),
         Expanded(
             child:
-                Text(text, style: TextStyle(color: c.textSoft, fontSize: 13))),
+                Text(text, style: TextStyle(color: c.textMuted, fontSize: 13))),
       ]),
     );
   }
@@ -438,7 +441,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
               RichText(
                 text: TextSpan(
                   style: TextStyle(
-                      color: c.text,
+                      color: c.textMuted,
                       fontSize: 16,
                       fontWeight: BestieTokens.fwBold),
                   children: [
@@ -446,7 +449,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
                     TextSpan(
                       text: '$label streak',
                       style: TextStyle(
-                          color: c.textSoft,
+                          color: c.textMuted,
                           fontWeight: BestieTokens.fwSemibold,
                           fontSize: 13),
                     ),
@@ -491,11 +494,11 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
             minLines: 5,
             maxLines: 12,
             textCapitalization: TextCapitalization.sentences,
-            style: TextStyle(color: c.text, height: 1.45),
+            style: TextStyle(color: c.textMuted, height: 1.45),
             decoration: InputDecoration(
               hintText:
                   'Write today\'s plan in ≥ $_minWords words. Mention top priorities, dependencies, and what "done" looks like by end of day.',
-              hintStyle: TextStyle(color: c.textMuted),
+              hintStyle: TextStyle(color: c.textFaint),
               filled: true,
               fillColor: c.surface2,
               border: OutlineInputBorder(
@@ -550,7 +553,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
 
     return _SectionCard(
       icon: Icons.coffee_outlined,
-      iconColor: c.info,
+      iconColor: c.brand,
       title: 'Break',
       subtitle: onBreak
           ? 'On break since ${_formatTime(entry?['onBreakSince']?.toString())} — supervisor notified'
@@ -566,7 +569,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
             child: FilledButton.icon(
               onPressed: _busy ? null : _toggleBreak,
               style: FilledButton.styleFrom(
-                backgroundColor: onBreak ? c.success : c.info,
+                backgroundColor: onBreak ? c.brandStrong : c.brand,
                 padding: const EdgeInsets.symmetric(vertical: 14),
               ),
               icon: Icon(onBreak ? Icons.work_rounded : Icons.coffee_rounded,
@@ -595,7 +598,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
 
     return _SectionCard(
       icon: Icons.restaurant_rounded,
-      iconColor: c.warning,
+      iconColor: c.brand,
       title: 'Lunch break',
       subtitle: done
           ? 'Returned at ${_formatTime(entry?['lunchEndedAt']?.toString())}'
@@ -611,12 +614,12 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
             minLines: 1,
             maxLines: 3,
             textCapitalization: TextCapitalization.sentences,
-            style: TextStyle(color: c.text),
+            style: TextStyle(color: c.textMuted),
             decoration: InputDecoration(
               hintText: canEnd
                   ? 'Lunch wrap-up note (optional)'
                   : 'Anything blocking? (optional)',
-              hintStyle: TextStyle(color: c.textMuted),
+              hintStyle: TextStyle(color: c.textFaint),
               filled: true,
               fillColor: c.surface2,
               border: OutlineInputBorder(
@@ -635,7 +638,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
             child: FilledButton.icon(
               onPressed: _busy ? null : _toggleLunch,
               style: FilledButton.styleFrom(
-                backgroundColor: canEnd ? c.success : c.warning,
+                backgroundColor: canEnd ? c.brandStrong : c.brand,
                 padding: const EdgeInsets.symmetric(vertical: 14),
               ),
               icon: Icon(canEnd ? Icons.work_rounded : Icons.coffee_rounded,
@@ -662,7 +665,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
 
     return _SectionCard(
       icon: Icons.logout_rounded,
-      iconColor: c.danger,
+      iconColor: c.brand,
       title: 'Logout report',
       subtitle: checkedOut
           ? 'Logged out at ${_formatTime(entry?['checkOutAt']?.toString())}'
@@ -685,11 +688,11 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
             minLines: 5,
             maxLines: 12,
             textCapitalization: TextCapitalization.sentences,
-            style: TextStyle(color: c.text, height: 1.45),
+            style: TextStyle(color: c.textMuted, height: 1.45),
             decoration: InputDecoration(
               hintText:
                   'What did you ship today? Mention shipped, blocked, and rolled-over items in ≥ $_minWords words.',
-              hintStyle: TextStyle(color: c.textMuted),
+              hintStyle: TextStyle(color: c.textFaint),
               filled: true,
               fillColor: c.surface2,
               border: OutlineInputBorder(
@@ -714,7 +717,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
             FilledButton.icon(
               onPressed: _busy ? null : _checkOut,
               style: FilledButton.styleFrom(
-                backgroundColor: c.danger,
+                backgroundColor: c.brand,
                 padding:
                     const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
               ),
@@ -805,7 +808,7 @@ class _StatusCard extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: BestieTokens.fwBold,
-                  color: colors.text,
+                  color: colors.textMuted,
                   letterSpacing: BestieTokens.lsTight,
                 )),
           ]),
@@ -868,12 +871,12 @@ class _SectionCard extends StatelessWidget {
                           style: TextStyle(
                             fontWeight: BestieTokens.fwSemibold,
                             fontSize: 15,
-                            color: colors.text,
+                            color: colors.textMuted,
                             letterSpacing: BestieTokens.lsSnug,
                           )),
                       Text(subtitle,
                           style:
-                              TextStyle(color: colors.textMuted, fontSize: 12)),
+                              TextStyle(color: colors.textFaint, fontSize: 12)),
                     ]),
               ),
               if (done)
@@ -958,7 +961,7 @@ class _ReadOnlyEntry extends StatelessWidget {
             )),
         const SizedBox(height: 6),
         Text(text,
-            style: TextStyle(color: colors.text, height: 1.45, fontSize: 13.5)),
+            style: TextStyle(color: colors.textMuted, height: 1.45, fontSize: 13.5)),
       ]),
     );
   }

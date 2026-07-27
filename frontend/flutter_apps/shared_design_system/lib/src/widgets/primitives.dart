@@ -31,47 +31,67 @@ class BestieBadge extends StatelessWidget {
     this.small = true,
   });
 
-  Color _bg() {
+  Color _bg(BestieColors c) {
     if (variant == BestieVariant.outline) return Colors.transparent;
-    if (variant == BestieVariant.solid) return _solid(tone);
-    return _soft(tone);
+    if (variant == BestieVariant.solid) return _solid(tone, c);
+    return _soft(tone, c);
   }
-  Color _fg() {
+
+  Color _fg(BestieColors c) {
     if (variant == BestieVariant.solid) return BestieTokens.cTextInvert;
-    return _solid(tone);
+    return _solid(tone, c);
   }
-  static Color _solid(BestieTone t) {
+
+  static Color _solid(BestieTone t, BestieColors c) {
     switch (t) {
-      case BestieTone.brand:   return BestieTokens.cBrandStrong;
-      case BestieTone.success: return BestieTokens.cSuccess;
-      case BestieTone.warning: return BestieTokens.cWarning;
-      case BestieTone.danger:  return BestieTokens.cDanger;
-      case BestieTone.info:    return BestieTokens.cInfo;
-      case BestieTone.client:  return BestieTokens.cClient;
-      case BestieTone.accent:  return BestieTokens.cAccent;
-      default:                 return BestieTokens.cTextMuted;
+      case BestieTone.brand:
+        return c.brandStrong;
+      case BestieTone.success:
+        return c.success;
+      case BestieTone.warning:
+        return c.warning;
+      case BestieTone.danger:
+        return c.danger;
+      case BestieTone.info:
+        return c.info;
+      case BestieTone.client:
+        return c.client;
+      case BestieTone.accent:
+        return c.accent;
+      default:
+        return c.textMuted;
     }
   }
-  static Color _soft(BestieTone t) {
+
+  static Color _soft(BestieTone t, BestieColors c) {
     switch (t) {
-      case BestieTone.brand:   return BestieTokens.cBrandSoft;
-      case BestieTone.success: return const Color(0xFFD9F5E8);
-      case BestieTone.warning: return const Color(0xFFFDF1D6);
-      case BestieTone.danger:  return const Color(0xFFFDE2E2);
-      case BestieTone.info:    return const Color(0xFFD9EEFB);
-      case BestieTone.client:  return BestieTokens.cClientSoft;
-      case BestieTone.accent:  return const Color(0xFFECE5FF);
-      default:                 return BestieTokens.cSurface2;
+      case BestieTone.brand:
+        return c.brandSoft;
+      case BestieTone.success:
+        return c.successSoft;
+      case BestieTone.warning:
+        return c.warningSoft;
+      case BestieTone.danger:
+        return c.dangerSoft;
+      case BestieTone.info:
+        return c.infoSoft;
+      case BestieTone.client:
+        return c.clientSoft;
+      case BestieTone.accent:
+        return c.accentSoft;
+      default:
+        return c.surface2;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final fg = _fg();
+    final c = BestieColors.of(context);
+    final fg = _fg(c);
     return Container(
       padding: EdgeInsets.symmetric(horizontal: small ? 8 : 10, vertical: small ? 3 : 4),
       decoration: BoxDecoration(
-        color: _bg(),
+        color: _bg(c),
         borderRadius: BorderRadius.circular(BestieTokens.rPill),
         border: variant == BestieVariant.outline ? Border.all(color: fg) : null,
       ),
@@ -116,9 +136,10 @@ class BestieStatusBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
     final dotChild = BestieBadge(tone: _tone, dot: true, child: Text(status.toUpperCase()));
     if (!pulse) return dotChild;
-    return _wrapWithPulse(child: dotChild, color: BestieBadge._solid(_tone));
+    return _wrapWithPulse(child: dotChild, color: BestieBadge._solid(_tone, c));
   }
 }
 
@@ -163,7 +184,7 @@ class _BestieSpinnerState extends State<BestieSpinner> with SingleTickerProvider
 
   @override
   Widget build(BuildContext context) {
-    final color = widget.color ?? BestieTokens.cBrand;
+    final color = widget.color ?? BestieColors.of(context).brand;
     if (widget.variant == BestieSpinnerVariant.dots) {
       return SizedBox(
         width: widget.size, height: widget.size * 0.4,
@@ -257,7 +278,7 @@ class BestieProgressRing extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = color ?? BestieTokens.cBrand;
+    final c = color ?? BestieColors.of(context).brand;
     return SizedBox(
       width: size, height: size,
       child: Stack(alignment: Alignment.center, children: [
@@ -522,28 +543,54 @@ Future<bool> bestieConfirm(
   String cancelLabel = 'Cancel',
   bool dangerous = true,
 }) async {
+  final c = BestieColors.of(context);
+  final accent = dangerous ? c.danger : c.brand;
   final res = await showDialog<bool>(
     context: context,
-    builder: (_) => AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(BestieTokens.rMd)),
+    builder: (ctx) => AlertDialog(
+      backgroundColor: c.surface,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(BestieTokens.rMd),
+        side: BorderSide(color: c.borderSoft),
+      ),
       title: Row(
         children: [
           Icon(
             dangerous ? Icons.warning_rounded : Icons.help_outline_rounded,
-            color: dangerous ? BestieTokens.cDanger : BestieTokens.cBrand,
+            color: accent,
           ),
           const SizedBox(width: 10),
-          Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w700))),
+          Expanded(
+            child: Text(
+              title,
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: c.textMuted,
+                fontSize: 18,
+              ),
+            ),
+          ),
         ],
       ),
-      content: description != null ? Text(description) : null,
+      content: description != null
+          ? Text(
+              description,
+              style: TextStyle(color: c.textSoft, fontSize: 14, height: 1.4),
+            )
+          : null,
       actions: [
-        TextButton(onPressed: () => Navigator.of(_).pop(false), child: Text(cancelLabel)),
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(false),
+          style: TextButton.styleFrom(foregroundColor: c.textMuted),
+          child: Text(cancelLabel),
+        ),
         ElevatedButton(
           style: ElevatedButton.styleFrom(
-            backgroundColor: dangerous ? BestieTokens.cDanger : BestieTokens.cBrand,
+            backgroundColor: accent,
+            foregroundColor: Colors.white,
           ),
-          onPressed: () => Navigator.of(_).pop(true),
+          onPressed: () => Navigator.of(ctx).pop(true),
           child: Text(confirmLabel),
         ),
       ],

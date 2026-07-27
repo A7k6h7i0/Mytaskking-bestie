@@ -157,8 +157,11 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
           : AppBar(
               elevation: 0,
               backgroundColor: c.surface,
-              foregroundColor: c.text,
-              title: const Text('Tasks'),
+              foregroundColor: c.textMuted,
+              title: Text(
+                'Tasks',
+                style: TextStyle(color: c.textMuted),
+              ),
             ),
       body: RefreshIndicator(
         onRefresh: () async => ref.refresh(tasksKanbanProvider.future),
@@ -581,9 +584,9 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
     final assignerName = (createdBy?['name'] ?? '').toString().trim();
 
     final priorityColor = switch (priority) {
-      'urgent' => c.danger,
-      'high' => c.warning,
-      'medium' => c.info,
+      'urgent' => c.brandStrong,
+      'high' => c.brand,
+      'medium' => c.accent,
       _ => c.borderStrong,
     };
 
@@ -659,7 +662,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
                 style: TextStyle(
                   fontWeight: BestieTokens.fwSemibold,
                   fontSize: 15,
-                  color: c.text,
+                  color: c.textMuted,
                   height: 1.3,
                 ),
               ),
@@ -1122,21 +1125,35 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
           Row(children: [
             Expanded(
               child: OutlinedButton.icon(
-                icon: const Icon(Icons.calendar_today, size: 16),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: c.textMuted,
+                  side: BorderSide(color: c.borderStrong),
+                ),
+                icon: Icon(Icons.calendar_today, size: 16, color: c.textMuted),
                 onPressed: _pickDate,
-                label: Text(_due != null
-                    ? '${_due!.year}-${_due!.month.toString().padLeft(2, '0')}-${_due!.day.toString().padLeft(2, '0')}'
-                    : 'Pick a date'),
+                label: Text(
+                  _due != null
+                      ? '${_due!.year}-${_due!.month.toString().padLeft(2, '0')}-${_due!.day.toString().padLeft(2, '0')}'
+                      : 'Pick a date',
+                  style: TextStyle(color: c.textMuted),
+                ),
               ),
             ),
             const SizedBox(width: 8),
             Expanded(
               child: OutlinedButton.icon(
-                icon: const Icon(Icons.schedule, size: 16),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: c.textMuted,
+                  side: BorderSide(color: c.borderStrong),
+                ),
+                icon: Icon(Icons.schedule, size: 16, color: c.textMuted),
                 onPressed: _pickTime,
-                label: Text(_due != null
-                    ? '${_due!.hour.toString().padLeft(2, '0')}:${_due!.minute.toString().padLeft(2, '0')}'
-                    : 'Pick a time'),
+                label: Text(
+                  _due != null
+                      ? '${_due!.hour.toString().padLeft(2, '0')}:${_due!.minute.toString().padLeft(2, '0')}'
+                      : 'Pick a time',
+                  style: TextStyle(color: c.textMuted),
+                ),
               ),
             ),
           ]),
@@ -1145,7 +1162,7 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
               padding: const EdgeInsets.only(top: 6),
               child: Text(
                 'Pings 15 min, 5 min, and at the deadline — then every 30 min while overdue.',
-                style: TextStyle(color: c.textMuted, fontSize: 12),
+                style: TextStyle(color: c.textFaint, fontSize: 12),
               ),
             ),
           const SizedBox(height: BestieTokens.s3),
@@ -1158,15 +1175,23 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
                   color: c.textMuted)),
           const SizedBox(height: 6),
           OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: c.textMuted,
+              side: BorderSide(color: c.borderStrong),
+            ),
             icon: Icon(
               _scheduledAt == null
                   ? Icons.schedule_send_outlined
                   : Icons.schedule_send_rounded,
               size: 16,
+              color: c.textMuted,
             ),
-            label: Text(_scheduledAt == null
-                ? 'Send immediately (tap to schedule)'
-                : 'Delivers ${_fmt(_scheduledAt!)}'),
+            label: Text(
+              _scheduledAt == null
+                  ? 'Send immediately (tap to schedule)'
+                  : 'Delivers ${_fmt(_scheduledAt!)}',
+              style: TextStyle(color: c.textMuted),
+            ),
             onPressed: _pickScheduledAt,
           ),
           if (_scheduledAt != null) ...[
@@ -1175,11 +1200,12 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
               Expanded(
                 child: Text(
                   'Assignee won\'t see this task or get notified until then.',
-                  style: TextStyle(color: c.textMuted, fontSize: 12),
+                  style: TextStyle(color: c.textFaint, fontSize: 12),
                 ),
               ),
               TextButton(
                 onPressed: () => setState(() => _scheduledAt = null),
+                style: TextButton.styleFrom(foregroundColor: c.textMuted),
                 child: const Text('Clear'),
               ),
             ]),

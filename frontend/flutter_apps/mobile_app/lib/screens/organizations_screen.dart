@@ -309,7 +309,7 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
       appBar: AppBar(
         title: Text(isSales ? 'Registration requests' : 'Organisations'),
         backgroundColor: c.surface,
-        foregroundColor: c.text,
+        foregroundColor: c.textMuted,
       ),
       floatingActionButton: isSuper
           ? Padding(

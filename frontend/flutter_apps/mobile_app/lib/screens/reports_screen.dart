@@ -38,7 +38,7 @@ class ReportsScreen extends ConsumerWidget {
         appBar: AppBar(
           title: const Text('Reports'),
           backgroundColor: c.surface,
-          foregroundColor: c.text,
+          foregroundColor: c.textMuted,
           automaticallyImplyLeading: canPop,
           leading: canPop
               ? IconButton(

@@ -106,6 +106,14 @@ void main() async {
       authStoreProvider.overrideWithValue(auth),
       apiProvider.overrideWithValue(api),
       socketProvider.overrideWithValue(socket),
+      // Seed from prefs loaded above — never write these in initState (that
+      // re-dirties ProviderScope during its first mount → '!_dirty' crash).
+      themeModeProvider.overrideWith(
+        (ref) => MobileLocalSettings.themeMode.value,
+      ),
+      mobileColorThemeProvider.overrideWith(
+        (ref) => MobileLocalSettings.colorTheme.value,
+      ),
     ],
     child: const BestieApp(),
   ));
@@ -429,11 +437,8 @@ class _BestieAppState extends ConsumerState<BestieApp> {
   @override
   void initState() {
     super.initState();
-    // Align Riverpod with persisted appearance prefs before first frame.
-    ref.read(themeModeProvider.notifier).state =
-        MobileLocalSettings.themeMode.value;
-    ref.read(mobileColorThemeProvider.notifier).state =
-        MobileLocalSettings.colorTheme.value;
+    // Theme Riverpod state is seeded via ProviderScope overrides in main()
+    // (writing providers here during first mount causes '!_dirty' assertion).
     _wirePushDeepLinks();
     WidgetsBinding.instance
         .addPostFrameCallback((_) => _requestStartupPermissions());

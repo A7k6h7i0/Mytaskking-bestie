@@ -19,9 +19,8 @@ class BestieUserName extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Use theme-aware text color so the name stays readable in dark mode.
-    // Clients keep the brand-mandated red regardless of theme.
     final c = BestieColors.of(context);
+    // Clients use themed client color (lighter gray on Gray & White).
     final color = isClient ? c.client : (style?.color ?? c.text);
     final base = (style ?? const TextStyle()).copyWith(
       color: color,
@@ -40,13 +39,13 @@ class BestieUserName extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
           decoration: BoxDecoration(
-            color: BestieTokens.cClientSoft,
+            color: c.clientSoft,
             borderRadius: BorderRadius.circular(BestieTokens.rPill),
           ),
-          child: const Text(
+          child: Text(
             'CLIENT',
             style: TextStyle(
-              color: BestieTokens.cClient,
+              color: c.client,
               fontSize: 10,
               fontWeight: FontWeight.w700,
               letterSpacing: 0.4,

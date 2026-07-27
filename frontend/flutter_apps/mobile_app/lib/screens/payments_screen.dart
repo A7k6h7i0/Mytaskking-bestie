@@ -176,7 +176,7 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
       appBar: AppBar(
         title: const Text('Payments'),
         backgroundColor: c.surface,
-        foregroundColor: c.text,
+        foregroundColor: c.textMuted,
         actions: [
           IconButton(
             icon: const Icon(Icons.add_rounded),

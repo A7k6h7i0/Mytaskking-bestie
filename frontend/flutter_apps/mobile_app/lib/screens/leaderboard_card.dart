@@ -31,23 +31,25 @@ class _LeaderboardCardState extends ConsumerState<LeaderboardCard> {
 
   @override
   Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
     return Container(
       padding: const EdgeInsets.all(BestieTokens.s3),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
+        color: c.surface,
         borderRadius: BorderRadius.circular(BestieTokens.rMd),
-        border: Border.all(color: BestieTokens.cBorder),
+        border: Border.all(color: c.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            const Icon(Icons.emoji_events_outlined, size: 16),
+            Icon(Icons.emoji_events_outlined, size: 16, color: c.brand),
             const SizedBox(width: 6),
             Expanded(
                 child: Text(
               'Top performers · ${widget.sinceDays}d',
-              style: const TextStyle(fontWeight: FontWeight.w700),
+              style: TextStyle(
+                  fontWeight: FontWeight.w700, color: c.textMuted),
             )),
             const BestieBadge(
                 tone: BestieTone.success, dot: true, child: Text('Live')),
@@ -67,22 +69,21 @@ class _LeaderboardCardState extends ConsumerState<LeaderboardCard> {
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   child: Text(
                       'Could not load leaderboard: ${formatApiError(snap.error!)}',
-                      style: const TextStyle(
-                          color: BestieTokens.cDanger, fontSize: 12)),
+                      style: TextStyle(color: c.danger, fontSize: 12)),
                 );
               }
               final items = (snap.data?['items'] as List?)
                       ?.cast<Map<String, dynamic>>() ??
                   const [];
               if (items.isEmpty) {
-                return const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 16),
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
                   child: Text('No completed tasks in this window yet.',
-                      style: TextStyle(color: BestieTokens.cTextMuted)),
+                      style: TextStyle(color: c.textMuted)),
                 );
               }
               return Column(children: [
-                for (var i = 0; i < items.length; i++) _row(i, items[i]),
+                for (var i = 0; i < items.length; i++) _row(c, i, items[i]),
               ]);
             },
           ),
@@ -91,22 +92,22 @@ class _LeaderboardCardState extends ConsumerState<LeaderboardCard> {
     );
   }
 
-  Widget _row(int index, Map<String, dynamic> row) {
+  Widget _row(BestieColors c, int index, Map<String, dynamic> row) {
     final user = (row['user'] as Map?)?.cast<String, dynamic>() ?? const {};
     final avg = (row['avgScore'] as num?)?.toInt() ?? 0;
     final completed = (row['completed'] as num?)?.toInt() ?? 0;
     final onTimeRate = (row['onTimeRate'] as num?)?.toInt() ?? 0;
     final streak = (row['streak'] as num?)?.toInt() ?? 0;
     final tone = avg >= 80
-        ? BestieTokens.cSuccess
+        ? c.success
         : avg >= 50
-            ? BestieTokens.cWarning
-            : BestieTokens.cDanger;
+            ? c.warning
+            : c.danger;
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(children: [
-        SizedBox(width: 28, child: _rankBadge(index + 1)),
+        SizedBox(width: 28, child: _rankBadge(c, index + 1)),
         BestieAvatar(
           name: user['name'] ?? '?',
           imageUrl: user['avatarUrl'],
@@ -121,22 +122,23 @@ class _LeaderboardCardState extends ConsumerState<LeaderboardCard> {
               BestieUserName(
                 name: user['name'] ?? '',
                 isClient: user['isClient'] ?? false,
-                style:
-                    const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: c.textMuted),
               ),
               Row(children: [
                 Text('$completed tasks · $onTimeRate% on time',
-                    style: const TextStyle(
-                        color: BestieTokens.cTextMuted, fontSize: 11)),
+                    style: TextStyle(color: c.textMuted, fontSize: 11)),
                 if (streak > 0)
                   Padding(
                     padding: const EdgeInsets.only(left: 6),
                     child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      const Icon(Icons.local_fire_department,
-                          size: 11, color: Color(0xFFB45309)),
+                      Icon(Icons.local_fire_department,
+                          size: 11, color: c.warning),
                       Text(' $streak streak',
-                          style: const TextStyle(
-                              color: Color(0xFFB45309),
+                          style: TextStyle(
+                              color: c.warning,
                               fontSize: 11,
                               fontWeight: FontWeight.w700)),
                     ]),
@@ -150,24 +152,26 @@ class _LeaderboardCardState extends ConsumerState<LeaderboardCard> {
             size: 36,
             color: tone,
             label: Text('$avg',
-                style: const TextStyle(
-                    fontSize: 11, fontWeight: FontWeight.w800))),
+                style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: c.textMuted))),
       ]),
     );
   }
 
-  Widget _rankBadge(int place) {
+  Widget _rankBadge(BestieColors c, int place) {
     if (place > 3) {
       return Text('#$place',
-          style: const TextStyle(
+          style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w700,
-              color: BestieTokens.cTextMuted));
+              color: c.textMuted));
     }
-    final color = const [
-      Color(0xFFFACC15),
-      Color(0xFFCBD5E1),
-      Color(0xFFD97706)
+    final color = [
+      c.brandStrong,
+      c.brand,
+      c.accent,
     ][place - 1];
     return Container(
       width: 22,
@@ -175,7 +179,8 @@ class _LeaderboardCardState extends ConsumerState<LeaderboardCard> {
       decoration: BoxDecoration(color: color, shape: BoxShape.circle),
       alignment: Alignment.center,
       child: Text('$place',
-          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
+          style: const TextStyle(
+              fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white)),
     );
   }
 }

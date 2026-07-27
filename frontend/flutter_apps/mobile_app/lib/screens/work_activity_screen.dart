@@ -81,7 +81,11 @@ class _WorkActivityScreenState extends ConsumerState<WorkActivityScreen> {
     return Scaffold(
       backgroundColor: colors.surface,
       appBar: AppBar(
-        title: const Text('Work activity'),
+        foregroundColor: colors.textMuted,
+        title: Text(
+          'Work activity',
+          style: TextStyle(color: colors.textMuted),
+        ),
         actions: [
           IconButton(
             tooltip: 'Pick date',

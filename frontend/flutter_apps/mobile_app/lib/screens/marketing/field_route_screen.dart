@@ -192,7 +192,7 @@ class _FieldRouteScreenState extends ConsumerState<FieldRouteScreen> {
       appBar: AppBar(
         title: const Text('Route & map'),
         backgroundColor: c.surface,
-        foregroundColor: c.text,
+        foregroundColor: c.textMuted,
         actions: [
           IconButton(
             tooltip: 'Refresh',

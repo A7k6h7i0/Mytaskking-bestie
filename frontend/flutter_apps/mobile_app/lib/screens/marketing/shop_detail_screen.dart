@@ -139,7 +139,7 @@ class ShopDetailScreen extends StatelessWidget {
             expandedHeight: 240,
             pinned: true,
             backgroundColor: c.surface,
-            foregroundColor: c.text,
+            foregroundColor: c.textMuted,
             flexibleSpace: FlexibleSpaceBar(
               background: Stack(
                 fit: StackFit.expand,
@@ -171,9 +171,10 @@ class ShopDetailScreen extends StatelessWidget {
                       left: 16,
                       bottom: 16,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 5),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF1CA1EF),
+                          color: c.brand,
                           borderRadius: BorderRadius.circular(16),
                         ),
                         child: Text(

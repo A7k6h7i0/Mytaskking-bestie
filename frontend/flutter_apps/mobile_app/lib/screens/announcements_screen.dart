@@ -49,7 +49,7 @@ class _AnnouncementsScreenState extends ConsumerState<AnnouncementsScreen> {
       appBar: AppBar(
         elevation: 0,
         backgroundColor: c.surface,
-        foregroundColor: c.text,
+        foregroundColor: c.textMuted,
         title: const Text('Announcements'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),

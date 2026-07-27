@@ -16,20 +16,33 @@ class MarketingCatalogScreen extends ConsumerStatefulWidget {
       _MarketingCatalogScreenState();
 }
 
-class _MarketingCatalogScreenState extends ConsumerState<MarketingCatalogScreen> {
+class _MarketingCatalogScreenState extends ConsumerState<MarketingCatalogScreen>
+    with SingleTickerProviderStateMixin {
   List<Map<String, dynamic>> _products = const [];
   List<Map<String, dynamic>> _brands = const [];
   List<Map<String, dynamic>> _categories = const [];
   bool _loading = true;
+  late final TabController _tabs;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    _tabs = TabController(length: 3, vsync: this);
+    _load(showSpinner: true);
   }
 
-  Future<void> _load() async {
-    setState(() => _loading = true);
+  @override
+  void dispose() {
+    _tabs.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load({bool showSpinner = false}) async {
+    // Keep the current tab mounted on refresh — swapping to a spinner
+    // used to recreate the tab UI and jump back to Products.
+    if (showSpinner) {
+      setState(() => _loading = true);
+    }
     try {
       final api = ref.read(apiProvider);
       final productsResp = await api.listMarketingProducts();
@@ -62,96 +75,103 @@ class _MarketingCatalogScreenState extends ConsumerState<MarketingCatalogScreen>
   Future<void> _showProductDialog({Map<String, dynamic>? product}) async {
     final editing = product != null;
     final c = BestieColors.of(context);
-    final nameCtrl = TextEditingController(text: product?['name']?.toString() ?? '');
-    final skuCtrl = TextEditingController(text: product?['sku']?.toString() ?? '');
-    final ptrCtrl = TextEditingController(text: product?['ptr']?.toString() ?? '');
-    final mrpCtrl = TextEditingController(text: product?['mrp']?.toString() ?? '');
+    final nameCtrl =
+        TextEditingController(text: product?['name']?.toString() ?? '');
+    final skuCtrl =
+        TextEditingController(text: product?['sku']?.toString() ?? '');
+    final ptrCtrl =
+        TextEditingController(text: product?['ptr']?.toString() ?? '');
+    final mrpCtrl =
+        TextEditingController(text: product?['mrp']?.toString() ?? '');
     String? brandId = (product?['brand'] as Map?)?['id']?.toString() ??
         product?['brandId']?.toString();
     String? categoryId = (product?['category'] as Map?)?['id']?.toString() ??
         product?['categoryId']?.toString();
-    final ok = await showFieldFormDialogBuilder(
-      context: context,
-      title: editing ? 'Edit product' : 'Add product',
-      confirmLabel: 'Save',
-      buildFields: (ctx, setDialog) => [
-        fieldFormTextField(c, controller: nameCtrl, label: 'Name *'),
-        fieldFormTextField(c, controller: skuCtrl, label: 'SKU'),
-        fieldFormTextField(
-          c,
-          controller: ptrCtrl,
-          label: 'PTR',
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        ),
-        fieldFormTextField(
-          c,
-          controller: mrpCtrl,
-          label: 'MRP',
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        ),
-        fieldFormDropdown<String?>(
-          c,
-          value: brandId,
-          label: 'Brand',
-          items: [
-            const DropdownMenuItem(value: null, child: Text('None')),
-            ..._brands.map((b) => DropdownMenuItem(
-                  value: b['id']?.toString(),
-                  child: Text(b['name']?.toString() ?? 'Brand'),
-                )),
-          ],
-          onChanged: (v) => setDialog(() => brandId = v),
-        ),
-        fieldFormDropdown<String?>(
-          c,
-          value: categoryId,
-          label: 'Category',
-          items: [
-            const DropdownMenuItem(value: null, child: Text('None')),
-            ..._categories.map((b) => DropdownMenuItem(
-                  value: b['id']?.toString(),
-                  child: Text(b['name']?.toString() ?? 'Category'),
-                )),
-          ],
-          onChanged: (v) => setDialog(() => categoryId = v),
-        ),
-      ],
-    );
-    if (ok != true) {
-      nameCtrl.dispose();
-      skuCtrl.dispose();
-      ptrCtrl.dispose();
-      mrpCtrl.dispose();
-      return;
-    }
-    final payload = {
-      'name': nameCtrl.text.trim(),
-      if (skuCtrl.text.trim().isNotEmpty) 'sku': skuCtrl.text.trim(),
-      if (ptrCtrl.text.trim().isNotEmpty) 'ptr': double.tryParse(ptrCtrl.text.trim()),
-      if (mrpCtrl.text.trim().isNotEmpty) 'mrp': double.tryParse(mrpCtrl.text.trim()),
-      'brandId': brandId,
-      'categoryId': categoryId,
-    };
-    nameCtrl.dispose();
-    skuCtrl.dispose();
-    ptrCtrl.dispose();
-    mrpCtrl.dispose();
     try {
-      final api = ref.read(apiProvider);
-      if (editing) {
-        await api.updateMarketingProduct(product['id'].toString(), payload);
-      } else {
-        await api.createMarketingProduct(payload);
+      final ok = await showFieldFormDialogBuilder(
+        context: context,
+        title: editing ? 'Edit product' : 'Add product',
+        confirmLabel: 'Save',
+        buildFields: (ctx, setDialog) => [
+          fieldFormTextField(c, controller: nameCtrl, label: 'Name *'),
+          fieldFormTextField(c, controller: skuCtrl, label: 'SKU'),
+          fieldFormTextField(
+            c,
+            controller: ptrCtrl,
+            label: 'PTR',
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          ),
+          fieldFormTextField(
+            c,
+            controller: mrpCtrl,
+            label: 'MRP',
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          ),
+          fieldFormDropdown<String?>(
+            c,
+            value: brandId,
+            label: 'Brand',
+            items: [
+              const DropdownMenuItem(value: null, child: Text('None')),
+              ..._brands.map((b) => DropdownMenuItem(
+                    value: b['id']?.toString(),
+                    child: Text(b['name']?.toString() ?? 'Brand'),
+                  )),
+            ],
+            onChanged: (v) => setDialog(() => brandId = v),
+          ),
+          fieldFormDropdown<String?>(
+            c,
+            value: categoryId,
+            label: 'Category',
+            items: [
+              const DropdownMenuItem(value: null, child: Text('None')),
+              ..._categories.map((b) => DropdownMenuItem(
+                    value: b['id']?.toString(),
+                    child: Text(b['name']?.toString() ?? 'Category'),
+                  )),
+            ],
+            onChanged: (v) => setDialog(() => categoryId = v),
+          ),
+        ],
+      );
+      if (ok != true) return;
+      final payload = {
+        'name': nameCtrl.text.trim(),
+        if (skuCtrl.text.trim().isNotEmpty) 'sku': skuCtrl.text.trim(),
+        if (ptrCtrl.text.trim().isNotEmpty)
+          'ptr': double.tryParse(ptrCtrl.text.trim()),
+        if (mrpCtrl.text.trim().isNotEmpty)
+          'mrp': double.tryParse(mrpCtrl.text.trim()),
+        'brandId': brandId,
+        'categoryId': categoryId,
+      };
+      try {
+        final api = ref.read(apiProvider);
+        if (editing) {
+          await api.updateMarketingProduct(product['id'].toString(), payload);
+        } else {
+          await api.createMarketingProduct(payload);
+        }
+        await _load();
+        if (mounted) {
+          bestieToast(context, editing ? 'Product updated' : 'Product added',
+              kind: BestieToastKind.success);
+        }
+      } catch (e) {
+        if (mounted) {
+          bestieToast(context, 'Failed',
+              body: formatApiError(e), kind: BestieToastKind.error);
+        }
       }
-      await _load();
-      if (mounted) {
-        bestieToast(context, editing ? 'Product updated' : 'Product added',
-            kind: BestieToastKind.success);
-      }
-    } catch (e) {
-      if (mounted) {
-        bestieToast(context, 'Failed', body: formatApiError(e), kind: BestieToastKind.error);
-      }
+    } finally {
+      // Dialog route may still hold the fields for a frame after pop.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        nameCtrl.dispose();
+        skuCtrl.dispose();
+        ptrCtrl.dispose();
+        mrpCtrl.dispose();
+      });
     }
   }
 
@@ -159,14 +179,17 @@ class _MarketingCatalogScreenState extends ConsumerState<MarketingCatalogScreen>
     final name = product['name']?.toString() ?? 'product';
     if (!await _confirmDelete(name)) return;
     try {
-      await ref.read(apiProvider).deleteMarketingProduct(product['id'].toString());
+      await ref
+          .read(apiProvider)
+          .deleteMarketingProduct(product['id'].toString());
       await _load();
       if (mounted) {
         bestieToast(context, 'Product removed', kind: BestieToastKind.success);
       }
     } catch (e) {
       if (mounted) {
-        bestieToast(context, 'Delete failed', body: formatApiError(e), kind: BestieToastKind.error);
+        bestieToast(context, 'Delete failed',
+            body: formatApiError(e), kind: BestieToastKind.error);
       }
     }
   }
@@ -176,34 +199,23 @@ class _MarketingCatalogScreenState extends ConsumerState<MarketingCatalogScreen>
     Map<String, dynamic>? item,
     required Future<void> Function(String name) onSave,
   }) async {
-    final nameCtrl = TextEditingController(text: item?['name']?.toString() ?? '');
-    final ok = await showDialog<bool>(
+    final c = BestieColors.of(context);
+    final name = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: nameCtrl,
-          decoration: const InputDecoration(labelText: 'Name'),
-          textCapitalization: TextCapitalization.words,
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save')),
-        ],
+      builder: (ctx) => _CatalogNameDialog(
+        title: title,
+        initialName: item?['name']?.toString() ?? '',
+        titleColor: c.textMuted,
       ),
     );
-    if (ok != true || nameCtrl.text.trim().isEmpty) {
-      nameCtrl.dispose();
-      return;
-    }
-    final name = nameCtrl.text.trim();
-    nameCtrl.dispose();
+    if (name == null || name.isEmpty) return;
     try {
       await onSave(name);
       await _load();
     } catch (e) {
       if (mounted) {
-        bestieToast(context, 'Failed', body: formatApiError(e), kind: BestieToastKind.error);
+        bestieToast(context, 'Failed',
+            body: formatApiError(e), kind: BestieToastKind.error);
       }
     }
   }
@@ -219,12 +231,14 @@ class _MarketingCatalogScreenState extends ConsumerState<MarketingCatalogScreen>
       await onDelete(item['id'].toString());
       await _load();
       if (mounted) {
-        bestieToast(context, '${label[0].toUpperCase()}${label.substring(1)} removed',
+        bestieToast(
+            context, '${label[0].toUpperCase()}${label.substring(1)} removed',
             kind: BestieToastKind.success);
       }
     } catch (e) {
       if (mounted) {
-        bestieToast(context, 'Delete failed', body: formatApiError(e), kind: BestieToastKind.error);
+        bestieToast(context, 'Delete failed',
+            body: formatApiError(e), kind: BestieToastKind.error);
       }
     }
   }
@@ -232,11 +246,13 @@ class _MarketingCatalogScreenState extends ConsumerState<MarketingCatalogScreen>
   @override
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
-    final isManager = ref.watch(authStoreProvider).user?.isFieldManager ?? false;
+    final isManager =
+        ref.watch(authStoreProvider).user?.isFieldManager ?? false;
     if (!isManager) {
       return FieldSubScaffold(
         title: 'Catalog',
-        body: Center(child: Text('Managers only', style: TextStyle(color: c.textMuted))),
+        body: Center(
+            child: Text('Managers only', style: TextStyle(color: c.textMuted))),
       );
     }
     return FieldSubScaffold(
@@ -250,75 +266,141 @@ class _MarketingCatalogScreenState extends ConsumerState<MarketingCatalogScreen>
       ],
       body: _loading
           ? const Center(child: BestieSpinner())
-          : DefaultTabController(
-              length: 3,
-              child: Column(
-                children: [
-                  TabBar(
-                    labelColor: c.brand,
-                    tabs: const [
-                      Tab(text: 'Products'),
-                      Tab(text: 'Brands'),
-                      Tab(text: 'Categories'),
+          : Column(
+              children: [
+                TabBar(
+                  controller: _tabs,
+                  labelColor: c.brand,
+                  tabs: const [
+                    Tab(text: 'Products'),
+                    Tab(text: 'Brands'),
+                    Tab(text: 'Categories'),
+                  ],
+                ),
+                Expanded(
+                  child: TabBarView(
+                    controller: _tabs,
+                    children: [
+                      _ProductsTab(
+                        products: _products,
+                        onAdd: () => _showProductDialog(),
+                        onEdit: (p) => _showProductDialog(product: p),
+                        onDelete: _deleteProduct,
+                      ),
+                      _SimpleListTab(
+                        items: _brands,
+                        label: 'brand',
+                        onAdd: () => _showNameDialog(
+                          title: 'Add brand',
+                          onSave: (name) => ref
+                              .read(apiProvider)
+                              .createMarketingBrand({'name': name}),
+                        ),
+                        onEdit: (item) => _showNameDialog(
+                          title: 'Edit brand',
+                          item: item,
+                          onSave: (name) => ref
+                              .read(apiProvider)
+                              .updateMarketingBrand(
+                                  item['id'].toString(), {'name': name}),
+                        ),
+                        onDelete: (item) => _deleteNamedItem(
+                          item: item,
+                          label: 'brand',
+                          onDelete: ref.read(apiProvider).deleteMarketingBrand,
+                        ),
+                      ),
+                      _SimpleListTab(
+                        items: _categories,
+                        label: 'category',
+                        onAdd: () => _showNameDialog(
+                          title: 'Add category',
+                          onSave: (name) => ref
+                              .read(apiProvider)
+                              .createMarketingCategory({'name': name}),
+                        ),
+                        onEdit: (item) => _showNameDialog(
+                          title: 'Edit category',
+                          item: item,
+                          onSave: (name) => ref
+                              .read(apiProvider)
+                              .updateMarketingCategory(
+                                  item['id'].toString(), {'name': name}),
+                        ),
+                        onDelete: (item) => _deleteNamedItem(
+                          item: item,
+                          label: 'category',
+                          onDelete:
+                              ref.read(apiProvider).deleteMarketingCategory,
+                        ),
+                      ),
                     ],
                   ),
-                  Expanded(
-                    child: TabBarView(
-                      children: [
-                        _ProductsTab(
-                          products: _products,
-                          onAdd: () => _showProductDialog(),
-                          onEdit: (p) => _showProductDialog(product: p),
-                          onDelete: _deleteProduct,
-                        ),
-                        _SimpleListTab(
-                          items: _brands,
-                          label: 'brand',
-                          onAdd: () => _showNameDialog(
-                            title: 'Add brand',
-                            onSave: (name) =>
-                                ref.read(apiProvider).createMarketingBrand({'name': name}),
-                          ),
-                          onEdit: (item) => _showNameDialog(
-                            title: 'Edit brand',
-                            item: item,
-                            onSave: (name) => ref
-                                .read(apiProvider)
-                                .updateMarketingBrand(item['id'].toString(), {'name': name}),
-                          ),
-                          onDelete: (item) => _deleteNamedItem(
-                            item: item,
-                            label: 'brand',
-                            onDelete: ref.read(apiProvider).deleteMarketingBrand,
-                          ),
-                        ),
-                        _SimpleListTab(
-                          items: _categories,
-                          label: 'category',
-                          onAdd: () => _showNameDialog(
-                            title: 'Add category',
-                            onSave: (name) =>
-                                ref.read(apiProvider).createMarketingCategory({'name': name}),
-                          ),
-                          onEdit: (item) => _showNameDialog(
-                            title: 'Edit category',
-                            item: item,
-                            onSave: (name) => ref
-                                .read(apiProvider)
-                                .updateMarketingCategory(item['id'].toString(), {'name': name}),
-                          ),
-                          onDelete: (item) => _deleteNamedItem(
-                            item: item,
-                            label: 'category',
-                            onDelete: ref.read(apiProvider).deleteMarketingCategory,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
+    );
+  }
+}
+
+class _CatalogNameDialog extends StatefulWidget {
+  final String title;
+  final String initialName;
+  final Color titleColor;
+
+  const _CatalogNameDialog({
+    required this.title,
+    required this.initialName,
+    required this.titleColor,
+  });
+
+  @override
+  State<_CatalogNameDialog> createState() => _CatalogNameDialogState();
+}
+
+class _CatalogNameDialogState extends State<_CatalogNameDialog> {
+  late final TextEditingController _nameCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameCtrl = TextEditingController(text: widget.initialName);
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(
+        widget.title,
+        style: TextStyle(
+          color: widget.titleColor,
+          fontWeight: FontWeight.w700,
+          fontSize: 18,
+        ),
+      ),
+      content: TextField(
+        controller: _nameCtrl,
+        decoration: const InputDecoration(labelText: 'Name'),
+        textCapitalization: TextCapitalization.words,
+        autofocus: true,
+        onSubmitted: (_) => Navigator.pop(context, _nameCtrl.text.trim()),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _nameCtrl.text.trim()),
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 }
@@ -370,9 +452,12 @@ class _ProductsTab extends StatelessWidget {
     final c = BestieColors.of(context);
     return Scaffold(
       backgroundColor: Colors.transparent,
-      floatingActionButton: FloatingActionButton(onPressed: onAdd, child: const Icon(Icons.add)),
+      floatingActionButton: FloatingActionButton(
+          onPressed: onAdd, child: const Icon(Icons.add)),
       body: products.isEmpty
-          ? Center(child: Text('No products yet', style: TextStyle(color: c.textMuted)))
+          ? Center(
+              child:
+                  Text('No products yet', style: TextStyle(color: c.textMuted)))
           : ListView.separated(
               padding: const EdgeInsets.all(16),
               itemCount: products.length,
@@ -383,7 +468,8 @@ class _ProductsTab extends StatelessWidget {
                 final category = (p['category'] as Map?)?['name'];
                 return ListTile(
                   tileColor: c.surface2,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
                   title: Text(p['name']?.toString() ?? 'Product'),
                   subtitle: Text(
                     'PTR ${p['ptr'] ?? p['mrp'] ?? '—'}'
@@ -423,9 +509,12 @@ class _SimpleListTab extends StatelessWidget {
     final c = BestieColors.of(context);
     return Scaffold(
       backgroundColor: Colors.transparent,
-      floatingActionButton: FloatingActionButton(onPressed: onAdd, child: const Icon(Icons.add)),
+      floatingActionButton: FloatingActionButton(
+          onPressed: onAdd, child: const Icon(Icons.add)),
       body: items.isEmpty
-          ? Center(child: Text('No $label yet', style: TextStyle(color: c.textMuted)))
+          ? Center(
+              child:
+                  Text('No $label yet', style: TextStyle(color: c.textMuted)))
           : ListView.separated(
               padding: const EdgeInsets.all(16),
               itemCount: items.length,
@@ -434,7 +523,8 @@ class _SimpleListTab extends StatelessWidget {
                 final item = items[i];
                 return ListTile(
                   tileColor: c.surface2,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
                   title: Text(item['name']?.toString() ?? label),
                   trailing: _CatalogActions(
                     onEdit: () => onEdit(item),

@@ -282,7 +282,7 @@ class _ChatContactScreenState extends State<ChatContactScreen> {
       appBar: AppBar(
         elevation: 0,
         backgroundColor: colors.surface,
-        foregroundColor: colors.text,
+        foregroundColor: colors.textMuted,
         title: Text(widget.isDm ? 'Contact info' : 'Group info'),
       ),
       body: ListView(

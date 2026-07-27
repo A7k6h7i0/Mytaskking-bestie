@@ -33,7 +33,7 @@ class FieldSubScaffold extends StatelessWidget {
         backgroundColor: c.surface,
         appBar: AppBar(
           backgroundColor: c.surface,
-          foregroundColor: c.text,
+          foregroundColor: c.textMuted,
           leading: BackButton(
             onPressed: () => fieldGoBack(context, fallbackRoute: fallbackRoute),
           ),

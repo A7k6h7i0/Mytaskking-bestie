@@ -2339,7 +2339,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
             : AppBar(
                 elevation: 0,
                 backgroundColor: colors.surface,
-                foregroundColor: colors.text,
+                foregroundColor: colors.textMuted,
                 leading: IconButton(
                   icon: const Icon(Icons.arrow_back_rounded),
                   onPressed: () => _goBack(context),
@@ -2777,7 +2777,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                     setState(() => _showJumpToBottom = false);
                   },
                   backgroundColor: colors.surface,
-                  foregroundColor: colors.text,
+                  foregroundColor: colors.textMuted,
                   elevation: 4,
                   child: const Icon(Icons.keyboard_arrow_down_rounded),
                 ),

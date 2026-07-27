@@ -362,7 +362,7 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
       appBar: AppBar(
         elevation: 0,
         backgroundColor: c.surface,
-        foregroundColor: c.text,
+        foregroundColor: c.textMuted,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
           onPressed: () {

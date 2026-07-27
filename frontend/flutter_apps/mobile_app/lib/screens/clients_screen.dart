@@ -127,7 +127,7 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
       appBar: AppBar(
         elevation: 0,
         backgroundColor: c.surface,
-        foregroundColor: c.text,
+        foregroundColor: c.textMuted,
         title: const Text('Clients'),
         actions: [
           if (canCreate)

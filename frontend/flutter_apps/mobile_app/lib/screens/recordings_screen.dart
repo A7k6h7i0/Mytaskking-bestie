@@ -194,7 +194,7 @@ class _RecordingsScreenState extends ConsumerState<RecordingsScreen> {
       backgroundColor: c.surface,
       appBar: AppBar(
         backgroundColor: c.surface,
-        foregroundColor: c.text,
+        foregroundColor: c.textMuted,
         title: const Text('Recordings'),
       ),
       body: FutureBuilder<Map<String, dynamic>>(

@@ -104,6 +104,7 @@ class BestieColors {
     BestiePaletteExtension? override,
   }) {
     if (!isDark && override != null) {
+      final status = _statusFromPalette(override, isDark: false);
       return BestieColors._(
         isDark: false,
         bg: override.bg,
@@ -125,16 +126,16 @@ class BestieColors {
         brandStrong: override.brandStrong,
         accent: override.accent,
         accentSoft: override.accentSoft,
-        success: BestieTokens.cSuccess,
-        successSoft: BestieTokens.cSuccessSoft,
-        warning: BestieTokens.cWarning,
-        warningSoft: BestieTokens.cWarningSoft,
-        danger: BestieTokens.cDanger,
-        dangerSoft: BestieTokens.cDangerSoft,
-        info: BestieTokens.cInfo,
-        infoSoft: BestieTokens.cInfoSoft,
-        client: BestieTokens.cClient,
-        clientSoft: BestieTokens.cClientSoft,
+        success: status.success,
+        successSoft: status.successSoft,
+        warning: status.warning,
+        warningSoft: status.warningSoft,
+        danger: status.danger,
+        dangerSoft: status.dangerSoft,
+        info: status.info,
+        infoSoft: status.infoSoft,
+        client: status.client,
+        clientSoft: status.clientSoft,
         shadow1: BestieTokens.shadowSoft,
         shadow2: BestieTokens.shadow1,
         shadowPop: BestieTokens.shadowPop,
@@ -143,6 +144,20 @@ class BestieColors {
     if (isDark) {
       // Keep dark surfaces for readability, but honor the selected palette's
       // brand/accent so Orange Milk / Forest Slate still tint buttons & chips.
+      final status = override != null
+          ? _statusFromPalette(override, isDark: true)
+          : (
+              success: BestieTokens.cSuccess,
+              successSoft: BestieTokens.cSuccessSoftDark,
+              warning: BestieTokens.cWarning,
+              warningSoft: BestieTokens.cWarningSoftDark,
+              danger: BestieTokens.cDanger,
+              dangerSoft: BestieTokens.cDangerSoftDark,
+              info: BestieTokens.cInfo,
+              infoSoft: BestieTokens.cInfoSoftDark,
+              client: BestieTokens.cClient,
+              clientSoft: BestieTokens.cClientSoftDark,
+            );
       return BestieColors._(
         isDark: true,
         bg:           BestieTokens.cBgDark,
@@ -168,16 +183,16 @@ class BestieColors {
         accentSoft:   override != null
             ? override.accent.withValues(alpha: 0.18)
             : BestieTokens.cAccentSoftDark,
-        success:      BestieTokens.cSuccess,
-        successSoft:  BestieTokens.cSuccessSoftDark,
-        warning:      BestieTokens.cWarning,
-        warningSoft:  BestieTokens.cWarningSoftDark,
-        danger:       BestieTokens.cDanger,
-        dangerSoft:   BestieTokens.cDangerSoftDark,
-        info:         BestieTokens.cInfo,
-        infoSoft:     BestieTokens.cInfoSoftDark,
-        client:       BestieTokens.cClient,
-        clientSoft:   BestieTokens.cClientSoftDark,
+        success:      status.success,
+        successSoft:  status.successSoft,
+        warning:      status.warning,
+        warningSoft:  status.warningSoft,
+        danger:       status.danger,
+        dangerSoft:   status.dangerSoft,
+        info:         status.info,
+        infoSoft:     status.infoSoft,
+        client:       status.client,
+        clientSoft:   status.clientSoft,
         shadow1:      const [
           BoxShadow(color: Color(0x73000000), blurRadius: 2, offset: Offset(0, 1)),
         ],
@@ -226,4 +241,106 @@ class BestieColors {
       shadowPop:    BestieTokens.shadowPop,
     );
   }
+}
+
+/// Status / priority tones for themed palettes.
+///
+/// Default MyTaskKing Blue keeps classic green/amber/red/sky so existing
+/// screens stay familiar. Gray & White (and other custom palettes) remaps
+/// those roles into brand-family shades so yellow/blue accents don't clash
+/// with a monochrome or orange/forest look.
+({
+  Color success,
+  Color successSoft,
+  Color warning,
+  Color warningSoft,
+  Color danger,
+  Color dangerSoft,
+  Color info,
+  Color infoSoft,
+  Color client,
+  Color clientSoft,
+}) _statusFromPalette(BestiePaletteExtension palette, {required bool isDark}) {
+  // Keep the original semantic rainbow on the default blue theme.
+  if (palette.id == 'mytaskking_blue') {
+    return (
+      success: BestieTokens.cSuccess,
+      successSoft:
+          isDark ? BestieTokens.cSuccessSoftDark : BestieTokens.cSuccessSoft,
+      warning: BestieTokens.cWarning,
+      warningSoft:
+          isDark ? BestieTokens.cWarningSoftDark : BestieTokens.cWarningSoft,
+      danger: BestieTokens.cDanger,
+      dangerSoft:
+          isDark ? BestieTokens.cDangerSoftDark : BestieTokens.cDangerSoft,
+      info: BestieTokens.cInfo,
+      infoSoft: isDark ? BestieTokens.cInfoSoftDark : BestieTokens.cInfoSoft,
+      client: BestieTokens.cClient,
+      clientSoft:
+          isDark ? BestieTokens.cClientSoftDark : BestieTokens.cClientSoft,
+    );
+  }
+
+  final brand = palette.brand;
+  final brandSoft = isDark
+      ? brand.withValues(alpha: 0.22)
+      : palette.brandSoft;
+  final brandStrong = palette.brandStrong;
+  final accent = palette.accent;
+  final hsl = HSLColor.fromColor(brand);
+  final monochrome = hsl.saturation < 0.18;
+
+  if (monochrome) {
+    // Gray & White: every status role is a shade of brand — same family as
+    // Morning check-in's icon, with lightness steps for priority hierarchy.
+    final soft = isDark ? brand.withValues(alpha: 0.18) : brandSoft;
+    return (
+      success: brandStrong,
+      successSoft: soft,
+      warning: brand,
+      warningSoft: soft,
+      danger: brandStrong,
+      dangerSoft: soft,
+      info: accent,
+      infoSoft: soft,
+      client: palette.textMuted,
+      clientSoft: soft,
+    );
+  }
+
+  // Chromatic themes (Orange Milk / Forest Slate): blend classic semantics
+  // toward brand so chips stay readable but feel on-palette.
+  Color mix(Color semantic, double towardBrand) =>
+      Color.lerp(semantic, brand, towardBrand)!;
+  Color softMix(Color semanticSoft, double towardBrandSoft) => isDark
+      ? mix(semanticSoft, towardBrandSoft).withValues(alpha: 0.22)
+      : Color.lerp(semanticSoft, brandSoft, towardBrandSoft)!;
+
+  return (
+    success: mix(BestieTokens.cSuccess, 0.38),
+    successSoft: softMix(
+      isDark ? BestieTokens.cSuccessSoftDark : BestieTokens.cSuccessSoft,
+      0.45,
+    ),
+    warning: mix(BestieTokens.cWarning, 0.48),
+    warningSoft: softMix(
+      isDark ? BestieTokens.cWarningSoftDark : BestieTokens.cWarningSoft,
+      0.5,
+    ),
+    danger: mix(BestieTokens.cDanger, 0.32),
+    dangerSoft: softMix(
+      isDark ? BestieTokens.cDangerSoftDark : BestieTokens.cDangerSoft,
+      0.4,
+    ),
+    info: mix(BestieTokens.cInfo, 0.42),
+    infoSoft: softMix(
+      isDark ? BestieTokens.cInfoSoftDark : BestieTokens.cInfoSoft,
+      0.45,
+    ),
+    client: mix(BestieTokens.cClient, 0.4),
+    clientSoft: softMix(
+      isDark ? BestieTokens.cClientSoftDark : BestieTokens.cClientSoft,
+      0.45,
+    ),
+  );
 }

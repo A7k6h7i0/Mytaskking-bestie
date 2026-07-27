@@ -132,7 +132,7 @@ class _OutletLocationPickerState extends State<OutletLocationPicker> {
       appBar: AppBar(
         title: const Text('Pick shop location'),
         backgroundColor: c.surface,
-        foregroundColor: c.text,
+        foregroundColor: c.textMuted,
       ),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

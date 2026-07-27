@@ -368,219 +368,255 @@ class _MarketingShopSearchScreenState
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
     final bottomClearance = shellNavClearance(context);
+    final user = ref.watch(authStoreProvider).user;
+    final isManagerOnly = user?.isFieldManager == true &&
+        !canActAsFieldExecutive(user);
+
     return Scaffold(
-      backgroundColor: c.bg,
+      backgroundColor: c.surface,
       appBar: AppBar(
         title: const Text('Shop search'),
         backgroundColor: c.surface,
-        foregroundColor: c.text,
+        foregroundColor: c.textMuted,
       ),
-      body: Column(
-        children: [
-          Material(
-            color: c.surface,
-            elevation: 0,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    ref.watch(authStoreProvider).user?.isFieldManager == true &&
-                            !canActAsFieldExecutive(ref.watch(authStoreProvider).user)
-                        ? 'Find shops to add as outlets for your team. You will assign an executive when saving.'
-                        : 'Find shops to add as outlets. Type or tap Voice search.',
-                    style: TextStyle(color: c.textMuted, fontSize: 13),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _query,
-                    focusNode: _queryFocus,
-                    textCapitalization: TextCapitalization.words,
-                    decoration: InputDecoration(
-                      labelText: 'Shop type',
-                      hintText: 'e.g. Plywood, Medical store',
-                      filled: true,
-                      fillColor: c.surface2,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final cols = _gridColumns(constraints.maxWidth);
+          return CustomScrollView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            slivers: [
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        isManagerOnly
+                            ? 'Find shops to add as outlets for your team. You will assign an executive when saving.'
+                            : 'Find shops to add as outlets. Type or tap Voice search.',
+                        style: TextStyle(color: c.textMuted, fontSize: 13),
                       ),
-                    ),
-                    onSubmitted: (_) => _search(),
-                  ),
-                  if (_queryFocus.hasFocus && _querySuggestions.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    _SuggestionStrip(
-                      colors: c,
-                      label: 'Shop type suggestions',
-                      items: _querySuggestions,
-                      onSelect: (s) => _applySuggestion(_query, s),
-                    ),
-                  ],
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _area,
-                    focusNode: _areaFocus,
-                    textCapitalization: TextCapitalization.words,
-                    decoration: InputDecoration(
-                      labelText: 'Area (optional)',
-                      hintText: 'e.g. Kukatpally, Hyderabad',
-                      filled: true,
-                      fillColor: c.surface2,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
-                    onSubmitted: (_) => _search(),
-                  ),
-                  if (_areaFocus.hasFocus && _areaSuggestions.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    _SuggestionStrip(
-                      colors: c,
-                      label: 'Area suggestions',
-                      items: _areaSuggestions,
-                      onSelect: (s) => _applySuggestion(_area, s),
-                    ),
-                  ],
-                  const SizedBox(height: 10),
-                  FilledButton.icon(
-                    onPressed: _loading ? null : _search,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: c.brand,
-                      minimumSize: const Size.fromHeight(48),
-                    ),
-                    icon: _loading
-                        ? SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: c.surface),
-                          )
-                        : const Icon(Icons.search_rounded),
-                    label: Text(_loading ? 'Searching…' : 'Search shops'),
-                  ),
-                  const SizedBox(height: 8),
-                  OutlinedButton.icon(
-                    onPressed: _loading
-                        ? null
-                        : _isListening
-                            ? _finishVoiceSearch
-                            : _startVoiceSearch,
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(48),
-                      foregroundColor: _isListening ? c.success : c.brand,
-                      side: BorderSide(
-                        color: _isListening ? c.success : c.brand,
-                        width: 1.5,
-                      ),
-                    ),
-                    icon: Icon(_isListening ? Icons.check_rounded : Icons.mic_rounded),
-                    label: Text(_isListening ? 'Done speaking' : 'Voice search'),
-                  ),
-                  if (_isListening || _voiceText.isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: _isListening ? c.successSoft : c.surface2,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: _isListening
-                              ? c.success.withValues(alpha: 0.4)
-                              : c.borderSoft,
-                        ),
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(
-                            _isListening ? Icons.mic_rounded : Icons.record_voice_over_outlined,
-                            size: 20,
-                            color: _isListening ? c.success : c.textMuted,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              _isListening
-                                  ? (_voiceText.isEmpty
-                                      ? (_voiceHint ?? 'Listening…')
-                                      : _voiceText)
-                                  : 'Heard: $_voiceText',
-                              style: TextStyle(color: c.text, fontSize: 13, height: 1.35),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-              child: Text(_error!, style: TextStyle(color: c.danger, fontSize: 13)),
-            ),
-          if (_correctionHint != null && _error == null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.spellcheck_rounded, size: 18, color: c.info),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _correctionHint!,
-                      style: TextStyle(color: c.textMuted, fontSize: 13, height: 1.35),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          Expanded(
-            child: _loading
-                ? const Center(child: BestieSpinner())
-                : _results.isEmpty
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Text(
-                            'Search or use voice to find shops',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: c.textMuted),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _query,
+                        focusNode: _queryFocus,
+                        textCapitalization: TextCapitalization.words,
+                        decoration: InputDecoration(
+                          labelText: 'Shop type',
+                          hintText: 'e.g. Plywood, Medical store',
+                          filled: true,
+                          fillColor: c.surface2,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
                           ),
                         ),
-                      )
-                    : LayoutBuilder(
-                        builder: (context, constraints) {
-                          final cols = _gridColumns(constraints.maxWidth);
-                          if (cols == 1) {
-                            return ListView.separated(
-                              padding: EdgeInsets.fromLTRB(16, 12, 16, bottomClearance),
-                              itemCount: _results.length,
-                              separatorBuilder: (_, __) => const SizedBox(height: 16),
-                              itemBuilder: (_, i) => _cardAt(i),
-                            );
-                          }
-                          return GridView.builder(
-                            padding: EdgeInsets.fromLTRB(16, 12, 16, bottomClearance),
-                            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: cols,
-                              crossAxisSpacing: 16,
-                              mainAxisSpacing: 16,
-                              mainAxisExtent: 460,
-                            ),
-                            itemCount: _results.length,
-                            itemBuilder: (_, i) => _cardAt(i),
-                          );
-                        },
+                        onSubmitted: (_) => _search(),
                       ),
-          ),
-        ],
+                      if (_queryFocus.hasFocus &&
+                          _querySuggestions.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        _SuggestionStrip(
+                          colors: c,
+                          label: 'Shop type suggestions',
+                          items: _querySuggestions,
+                          onSelect: (s) => _applySuggestion(_query, s),
+                        ),
+                      ],
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _area,
+                        focusNode: _areaFocus,
+                        textCapitalization: TextCapitalization.words,
+                        decoration: InputDecoration(
+                          labelText: 'Area (optional)',
+                          hintText: 'e.g. Kukatpally, Hyderabad',
+                          filled: true,
+                          fillColor: c.surface2,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                        onSubmitted: (_) => _search(),
+                      ),
+                      if (_areaFocus.hasFocus &&
+                          _areaSuggestions.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        _SuggestionStrip(
+                          colors: c,
+                          label: 'Area suggestions',
+                          items: _areaSuggestions,
+                          onSelect: (s) => _applySuggestion(_area, s),
+                        ),
+                      ],
+                      const SizedBox(height: 10),
+                      FilledButton.icon(
+                        onPressed: _loading ? null : _search,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: c.brand,
+                          minimumSize: const Size.fromHeight(48),
+                        ),
+                        icon: _loading
+                            ? SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2, color: c.surface),
+                              )
+                            : const Icon(Icons.search_rounded),
+                        label:
+                            Text(_loading ? 'Searching…' : 'Search shops'),
+                      ),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: _loading
+                            ? null
+                            : _isListening
+                                ? _finishVoiceSearch
+                                : _startVoiceSearch,
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size.fromHeight(48),
+                          foregroundColor:
+                              _isListening ? c.success : c.brand,
+                          side: BorderSide(
+                            color: _isListening ? c.success : c.brand,
+                            width: 1.5,
+                          ),
+                        ),
+                        icon: Icon(_isListening
+                            ? Icons.check_rounded
+                            : Icons.mic_rounded),
+                        label: Text(
+                            _isListening ? 'Done speaking' : 'Voice search'),
+                      ),
+                      if (_isListening || _voiceText.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 10),
+                          decoration: BoxDecoration(
+                            color:
+                                _isListening ? c.successSoft : c.surface2,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: _isListening
+                                  ? c.success.withValues(alpha: 0.4)
+                                  : c.borderSoft,
+                            ),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(
+                                _isListening
+                                    ? Icons.mic_rounded
+                                    : Icons.record_voice_over_outlined,
+                                size: 20,
+                                color:
+                                    _isListening ? c.success : c.textMuted,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  _isListening
+                                      ? (_voiceText.isEmpty
+                                          ? (_voiceHint ?? 'Listening…')
+                                          : _voiceText)
+                                      : 'Heard: $_voiceText',
+                                  style: TextStyle(
+                                      color: c.text,
+                                      fontSize: 13,
+                                      height: 1.35),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                      if (_error != null) ...[
+                        const SizedBox(height: 12),
+                        Text(_error!,
+                            style:
+                                TextStyle(color: c.danger, fontSize: 13)),
+                      ],
+                      if (_correctionHint != null && _error == null) ...[
+                        const SizedBox(height: 12),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.spellcheck_rounded,
+                                size: 18, color: c.info),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _correctionHint!,
+                                style: TextStyle(
+                                    color: c.textMuted,
+                                    fontSize: 13,
+                                    height: 1.35),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              if (_loading)
+                const SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Center(child: BestieSpinner()),
+                )
+              else if (_results.isEmpty)
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        'Search or use voice to find shops',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: c.textMuted),
+                      ),
+                    ),
+                  ),
+                )
+              else if (cols == 1)
+                SliverPadding(
+                  padding:
+                      EdgeInsets.fromLTRB(16, 4, 16, bottomClearance),
+                  sliver: SliverList.separated(
+                    itemCount: _results.length,
+                    separatorBuilder: (_, __) =>
+                        const SizedBox(height: 16),
+                    itemBuilder: (_, i) => _cardAt(i),
+                  ),
+                )
+              else
+                SliverPadding(
+                  padding:
+                      EdgeInsets.fromLTRB(16, 4, 16, bottomClearance),
+                  sliver: SliverGrid(
+                    gridDelegate:
+                        SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: cols,
+                      crossAxisSpacing: 16,
+                      mainAxisSpacing: 16,
+                      mainAxisExtent: 460,
+                    ),
+                    delegate: SliverChildBuilderDelegate(
+                      (_, i) => _cardAt(i),
+                      childCount: _results.length,
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
       ),
     );
   }

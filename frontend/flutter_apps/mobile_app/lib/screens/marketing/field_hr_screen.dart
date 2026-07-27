@@ -140,7 +140,7 @@ class _FieldHrScreenState extends ConsumerState<FieldHrScreen>
           leading: BackButton(onPressed: () => fieldGoBack(context)),
           title: const Text('Field HR'),
           backgroundColor: c.surface,
-          foregroundColor: c.text,
+          foregroundColor: c.textMuted,
           elevation: 0,
           scrolledUnderElevation: 0.5,
           bottom: TabBar(

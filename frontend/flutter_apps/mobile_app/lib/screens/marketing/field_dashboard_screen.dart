@@ -95,7 +95,7 @@ class _FieldDashboardScreenState extends ConsumerState<FieldDashboardScreen>
       appBar: AppBar(
         title: Text(isManager ? 'Field team' : 'Field dashboard'),
         backgroundColor: c.surface,
-        foregroundColor: c.text,
+        foregroundColor: c.textMuted,
         actions: [
           IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded)),
         ],

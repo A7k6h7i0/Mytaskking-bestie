@@ -264,7 +264,7 @@ class _OrganizationRegistrationWizardState
       appBar: AppBar(
         title: const Text('Register organisation'),
         backgroundColor: c.surface,
-        foregroundColor: c.text,
+        foregroundColor: c.textMuted,
         leading: _submitted
             ? null
             : IconButton(

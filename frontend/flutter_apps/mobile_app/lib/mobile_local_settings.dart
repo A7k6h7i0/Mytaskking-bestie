@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'mobile_theme_palettes.dart';
 
 const _kThemeMode = 'mobile.theme.mode';
+const _kThemeModeDefaultLightMigrated = 'mobile.theme.mode.default_light_v1';
 const _kColorTheme = 'mobile.theme.palette';
 const _kOverridesPrefix = 'mobile.theme.overrides.';
 const _kAdminPrimary = 'mobile.theme.admin_primary';
@@ -15,9 +16,9 @@ class MobileLocalSettings {
   MobileLocalSettings._();
 
   static final ValueNotifier<core.ThemeMode> themeMode =
-      ValueNotifier<core.ThemeMode>(core.ThemeMode.system);
+      ValueNotifier<core.ThemeMode>(core.ThemeMode.light);
   static final ValueNotifier<MobileThemeId> colorTheme =
-      ValueNotifier<MobileThemeId>(MobileThemeId.mytaskkingBlue);
+      ValueNotifier<MobileThemeId>(MobileThemeId.grayWhite);
   static final ValueNotifier<Map<MobileThemeId, Map<String, int>>>
       themeColorOverrides =
       ValueNotifier<Map<MobileThemeId, Map<String, int>>>({});
@@ -35,11 +36,23 @@ class MobileLocalSettings {
   static Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     final modeRaw = prefs.getString(_kThemeMode);
-    themeMode.value = switch (modeRaw) {
-      'light' => core.ThemeMode.light,
-      'dark' => core.ThemeMode.dark,
-      _ => core.ThemeMode.system,
-    };
+    // Product default is Light. One-time migrate installs that still have the
+    // old Auto/system default; later explicit Auto choices are kept.
+    final migrated = prefs.getBool(_kThemeModeDefaultLightMigrated) == true;
+    if (!migrated && (modeRaw == null || modeRaw == 'system')) {
+      themeMode.value = core.ThemeMode.light;
+      await prefs.setString(_kThemeMode, 'light');
+      await prefs.setBool(_kThemeModeDefaultLightMigrated, true);
+    } else {
+      themeMode.value = switch (modeRaw) {
+        'dark' => core.ThemeMode.dark,
+        'system' => core.ThemeMode.system,
+        _ => core.ThemeMode.light,
+      };
+      if (!migrated) {
+        await prefs.setBool(_kThemeModeDefaultLightMigrated, true);
+      }
+    }
     colorTheme.value =
         MobileThemeId.fromStorage(prefs.getString(_kColorTheme));
 

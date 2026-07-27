@@ -106,7 +106,7 @@ class _DeletedChatsScreenState extends ConsumerState<DeletedChatsScreen> {
       appBar: AppBar(
         elevation: 0,
         backgroundColor: c.surface,
-        foregroundColor: c.text,
+        foregroundColor: c.textMuted,
         title: const Text('Deleted chats'),
       ),
       body: Column(

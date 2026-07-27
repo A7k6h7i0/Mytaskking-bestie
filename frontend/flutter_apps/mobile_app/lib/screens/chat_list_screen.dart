@@ -487,37 +487,15 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
   Future<void> _editOrgName(BuildContext context, WidgetRef ref) async {
     final branding = await ref.read(orgBrandingProvider.future);
     if (!context.mounted) return;
-    final controller = TextEditingController(text: branding.name);
     final c = BestieColors.of(context);
     final saved = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: c.surface,
-        title: const Text('Organization name'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'MyTaskKing',
-            labelText: 'Display name',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final v = controller.text.trim();
-              if (v.isNotEmpty) Navigator.pop(ctx, v);
-            },
-            child: const Text('Save'),
-          ),
-        ],
+      builder: (ctx) => _OrgNameDialog(
+        initialName: branding.name,
+        titleColor: c.textMuted,
+        surfaceColor: c.surface,
       ),
     );
-    controller.dispose();
     if (saved == null || !context.mounted) return;
     try {
       await ref.read(apiProvider).setSetting(
@@ -933,14 +911,14 @@ class _Section extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
           child: Row(children: [
-            Icon(icon, size: 14, color: c.textMuted),
+            Icon(icon, size: 14, color: c.textFaint),
             const SizedBox(width: 6),
             Text(
               title.toUpperCase(),
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: BestieTokens.fwBold,
-                color: c.textMuted,
+                color: c.textFaint,
                 letterSpacing: BestieTokens.lsEyebrow,
               ),
             ),
@@ -955,7 +933,7 @@ class _Section extends StatelessWidget {
                 child: Text('$count',
                     style: TextStyle(
                       fontSize: 10,
-                      color: c.textSoft,
+                      color: c.textMuted,
                       fontWeight: BestieTokens.fwBold,
                     )),
               ),
@@ -1194,7 +1172,7 @@ class _ChatTile extends ConsumerWidget {
                               fontSize: 15,
                               fontWeight:
                                   unread ? FontWeight.w700 : FontWeight.w600,
-                              color: c.text,
+                              color: c.textMuted,
                             ),
                           ),
                         ),
@@ -1382,6 +1360,79 @@ class _EmptyState extends StatelessWidget {
               icon: const Icon(Icons.edit_outlined, size: 16),
               label: const Text('Start a chat'),
             ),
+    );
+  }
+}
+
+/// Owns its [TextEditingController] so dispose happens after the dialog
+/// route (and TextField) have fully unmounted — avoids `_dependents.isEmpty`.
+class _OrgNameDialog extends StatefulWidget {
+  final String initialName;
+  final Color titleColor;
+  final Color surfaceColor;
+
+  const _OrgNameDialog({
+    required this.initialName,
+    required this.titleColor,
+    required this.surfaceColor,
+  });
+
+  @override
+  State<_OrgNameDialog> createState() => _OrgNameDialogState();
+}
+
+class _OrgNameDialogState extends State<_OrgNameDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialName);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final v = _controller.text.trim();
+    if (v.isNotEmpty) Navigator.pop(context, v);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: widget.surfaceColor,
+      title: Text(
+        'Organization name',
+        style: TextStyle(
+          color: widget.titleColor,
+          fontWeight: FontWeight.w700,
+          fontSize: 18,
+        ),
+      ),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        decoration: const InputDecoration(
+          hintText: 'MyTaskKing',
+          labelText: 'Display name',
+        ),
+        textCapitalization: TextCapitalization.words,
+        onSubmitted: (_) => _save(),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _save,
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 }

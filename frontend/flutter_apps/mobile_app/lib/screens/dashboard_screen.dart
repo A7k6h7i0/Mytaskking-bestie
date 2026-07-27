@@ -40,7 +40,7 @@ class DashboardScreen extends ConsumerWidget {
             context,
             BestieEmptyState(
               icon: Icons.error_outline,
-              iconColor: BestieTokens.cDanger,
+              iconColor: BestieColors.of(context).danger,
               title: 'Couldn\'t load',
               description: formatApiError(e),
             ),
@@ -89,7 +89,7 @@ class DashboardScreen extends ConsumerWidget {
                 112 + MediaQuery.of(context).padding.bottom,
               ),
               children: [
-                _greeting(user, attendanceData),
+                _greeting(context, user, attendanceData),
                 for (final s in sections) ...[
                   const SizedBox(height: BestieTokens.s3),
                   s,
@@ -121,7 +121,9 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  Widget _greeting(dynamic user, Map<String, dynamic>? attendance) {
+  Widget _greeting(
+      BuildContext context, dynamic user, Map<String, dynamic>? attendance) {
+    final c = BestieColors.of(context);
     return Row(children: [
       BestieAvatar(
           name: user?.name ?? '—',
@@ -135,20 +137,21 @@ class DashboardScreen extends ConsumerWidget {
           children: [
             Row(children: [
               Text(_greetingPrefix(),
-                  style: const TextStyle(
-                      color: BestieTokens.cTextMuted, fontSize: 12)),
+                  style: TextStyle(color: c.textMuted, fontSize: 12)),
               const SizedBox(width: 6),
-              _workingHoursPill(attendance),
+              _workingHoursPill(context, attendance),
             ]),
             BestieUserName(
                 name: user?.name ?? 'Friend',
                 isClient: user?.isClient ?? false,
-                style:
-                    const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+                style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: c.textMuted)),
           ],
         ),
       ),
-      const PulseDot(color: BestieTokens.cSuccess),
+      PulseDot(color: c.success),
     ]);
   }
 
@@ -167,8 +170,10 @@ class DashboardScreen extends ConsumerWidget {
   /// (e.g. "On the clock · 3h 12m") so the workday rhythm is always visible
   /// at a glance. Renders nothing when the user hasn't checked in yet or has
   /// already clocked out for the day.
-  Widget _workingHoursPill(Map<String, dynamic>? attendance) {
+  Widget _workingHoursPill(
+      BuildContext context, Map<String, dynamic>? attendance) {
     if (attendance == null) return const SizedBox.shrink();
+    final c = BestieColors.of(context);
     final entry = (attendance['entry'] as Map?)?.cast<String, dynamic>();
     final checkInIso = entry?['checkInAt']?.toString();
     final checkOutIso = entry?['checkOutAt']?.toString();
@@ -184,7 +189,7 @@ class DashboardScreen extends ConsumerWidget {
     final h = dur.inHours;
     final m = dur.inMinutes.remainder(60);
     final label = '${h}h ${m}m';
-    final color = live ? BestieTokens.cSuccess : BestieTokens.cTextMuted;
+    final color = live ? c.success : c.textMuted;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
@@ -235,7 +240,7 @@ class DashboardScreen extends ConsumerWidget {
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [colors.brand, BestieTokens.cAccent],
+              colors: [colors.brand, colors.brandStrong],
             ),
             borderRadius: BorderRadius.circular(BestieTokens.rMd),
           ),
@@ -307,23 +312,24 @@ class DashboardScreen extends ConsumerWidget {
   Widget _todayTasksCard(
       BuildContext context, List<Map<String, dynamic>> tasks) {
     final now = DateTime.now();
+    final c = BestieColors.of(context);
     return Container(
       padding: const EdgeInsets.all(BestieTokens.s3),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
+        color: c.surface,
         borderRadius: BorderRadius.circular(BestieTokens.rMd),
-        border: Border.all(color: BestieTokens.cBorder),
+        border: Border.all(color: c.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            const Icon(Icons.today_rounded,
-                size: 18, color: BestieTokens.cWarning),
+            Icon(Icons.today_rounded, size: 18, color: c.warning),
             const SizedBox(width: 6),
-            const Expanded(
+            Expanded(
               child: Text('Due today & overdue',
-                  style: TextStyle(fontWeight: FontWeight.w700)),
+                  style: TextStyle(
+                      fontWeight: FontWeight.w700, color: c.textMuted)),
             ),
             TextButton(
               onPressed: () => context.go('/tasks'),
@@ -331,6 +337,7 @@ class DashboardScreen extends ConsumerWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 visualDensity: VisualDensity.compact,
                 minimumSize: const Size(0, 28),
+                foregroundColor: c.textMuted,
               ),
               child: const Text('See all'),
             ),
@@ -353,9 +360,7 @@ class DashboardScreen extends ConsumerWidget {
                       width: 8,
                       height: 8,
                       decoration: BoxDecoration(
-                        color: overdue
-                            ? BestieTokens.cDanger
-                            : BestieTokens.cWarning,
+                        color: overdue ? c.danger : c.warning,
                         shape: BoxShape.circle,
                       ),
                     ),
@@ -365,8 +370,10 @@ class DashboardScreen extends ConsumerWidget {
                         '${t['title'] ?? ''}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w600, fontSize: 13),
+                        style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                            color: c.textMuted),
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -375,9 +382,7 @@ class DashboardScreen extends ConsumerWidget {
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
-                        color: overdue
-                            ? BestieTokens.cDanger
-                            : BestieTokens.cTextMuted,
+                        color: overdue ? c.danger : c.textMuted,
                       ),
                     ),
                   ]),
@@ -388,9 +393,9 @@ class DashboardScreen extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.only(top: 2),
               child: Text('+${tasks.length - 3} more',
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 11,
-                      color: BestieTokens.cTextMuted,
+                      color: c.textMuted,
                       fontWeight: FontWeight.w600)),
             ),
         ],
@@ -406,9 +411,9 @@ class DashboardScreen extends ConsumerWidget {
       return Container(
         padding: const EdgeInsets.all(BestieTokens.s3),
         decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface,
+          color: colors.surface,
           borderRadius: BorderRadius.circular(BestieTokens.rMd),
-          border: Border.all(color: BestieTokens.cBorder),
+          border: Border.all(color: colors.border),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -428,17 +433,20 @@ class DashboardScreen extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(label,
-                    style: const TextStyle(
-                        color: BestieTokens.cTextMuted, fontSize: 11)),
+                    style: TextStyle(color: colors.textMuted, fontSize: 11)),
                 if (n != null)
                   AnimatedCounter(
                       value: n,
-                      style: const TextStyle(
-                          fontSize: 22, fontWeight: FontWeight.w700))
+                      style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w700,
+                          color: colors.textMuted))
                 else
                   Text('${v ?? '—'}',
-                      style: const TextStyle(
-                          fontSize: 22, fontWeight: FontWeight.w700)),
+                      style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w700,
+                          color: colors.textMuted)),
               ],
             ),
           ],
@@ -450,15 +458,12 @@ class DashboardScreen extends ConsumerWidget {
       return [
         tile(Icons.people_outline, 'Employees', c['employees'], colors.brand),
         tile(Icons.manage_accounts_outlined, 'Clients', c['clients'],
-            BestieTokens.cClient),
+            colors.client),
         tile(Icons.task_alt_outlined, 'Tasks open', c['tasksOpen'],
-            BestieTokens.cWarning),
-        tile(Icons.bolt, 'Done · 7d', c['tasksDoneThisWeek'],
-            BestieTokens.cSuccess),
-        tile(Icons.call_outlined, 'Calls today', c['callsToday'],
-            BestieTokens.cInfo),
-        tile(Icons.podcasts, 'Active calls', c['activeCalls'],
-            BestieTokens.cAccent),
+            colors.warning),
+        tile(Icons.bolt, 'Done · 7d', c['tasksDoneThisWeek'], colors.success),
+        tile(Icons.call_outlined, 'Calls today', c['callsToday'], colors.info),
+        tile(Icons.podcasts, 'Active calls', c['activeCalls'], colors.accent),
       ];
     }
     if (isClient) {
@@ -466,18 +471,17 @@ class DashboardScreen extends ConsumerWidget {
         tile(
             Icons.chat_bubble_outline, 'Channels', c['channels'], colors.brand),
         tile(Icons.notifications_none, 'Unread', c['unreadNotifs'],
-            BestieTokens.cWarning),
+            colors.warning),
       ];
     }
     return [
       tile(Icons.task_alt_outlined, 'Open tasks', c['myOpenTasks'],
-          BestieTokens.cWarning),
+          colors.warning),
       tile(Icons.check_circle_outline, 'Done · 7d', c['myDoneThisWeek'],
-          BestieTokens.cSuccess),
+          colors.success),
       tile(Icons.chat_bubble_outline, 'Channels', c['activeChannels'],
           colors.brand),
-      tile(Icons.notifications_none, 'Unread', c['unreadNotifs'],
-          BestieTokens.cInfo),
+      tile(Icons.notifications_none, 'Unread', c['unreadNotifs'], colors.info),
     ];
   }
 
@@ -519,9 +523,9 @@ class DashboardScreen extends ConsumerWidget {
     return Container(
       padding: const EdgeInsets.all(BestieTokens.s3),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(BestieTokens.rMd),
-        border: Border.all(color: BestieTokens.cBorder),
+        border: Border.all(color: colors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -529,8 +533,9 @@ class DashboardScreen extends ConsumerWidget {
           Row(children: [
             Icon(Icons.show_chart_rounded, size: 18, color: colors.brand),
             const SizedBox(width: 6),
-            const Text('Your week',
-                style: TextStyle(fontWeight: FontWeight.w700)),
+            Text('Your week',
+                style: TextStyle(
+                    fontWeight: FontWeight.w700, color: colors.textMuted)),
             const Spacer(),
             Text('${(pct * 100).round()}%',
                 style: TextStyle(
@@ -540,11 +545,11 @@ class DashboardScreen extends ConsumerWidget {
           ]),
           const SizedBox(height: 10),
           Row(children: [
-            _statSpark('Shipped', '$done', BestieTokens.cSuccess),
+            _statSpark(colors, 'Shipped', '$done', colors.success),
             const SizedBox(width: 24),
-            _statSpark('Open', '$open', BestieTokens.cWarning),
+            _statSpark(colors, 'Open', '$open', colors.warning),
             const SizedBox(width: 24),
-            _statSpark('Total', '$total', colors.brand),
+            _statSpark(colors, 'Total', '$total', colors.brand),
           ]),
           const SizedBox(height: 12),
           // Brand-tinted progress bar showing this-week completion ratio.
@@ -553,7 +558,7 @@ class DashboardScreen extends ConsumerWidget {
             child: LinearProgressIndicator(
               value: pct,
               minHeight: 6,
-              backgroundColor: BestieTokens.cBorder,
+              backgroundColor: colors.border,
               valueColor: AlwaysStoppedAnimation(colors.brand),
             ),
           ),
@@ -562,7 +567,8 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  Widget _statSpark(String label, String value, Color color) {
+  Widget _statSpark(
+      BestieColors colors, String label, String value, Color color) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -570,9 +576,9 @@ class DashboardScreen extends ConsumerWidget {
             style: TextStyle(
                 fontSize: 20, fontWeight: FontWeight.w800, color: color)),
         Text(label,
-            style: const TextStyle(
+            style: TextStyle(
                 fontSize: 11,
-                color: BestieTokens.cTextMuted,
+                color: colors.textMuted,
                 fontWeight: FontWeight.w600)),
       ],
     );
@@ -600,26 +606,26 @@ class DashboardScreen extends ConsumerWidget {
     return Container(
       padding: const EdgeInsets.all(BestieTokens.s3),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(BestieTokens.rMd),
-        border: Border.all(color: BestieTokens.cBorder),
+        border: Border.all(color: colors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            const Icon(Icons.videocam_rounded,
-                size: 18, color: BestieTokens.cSuccess),
+            Icon(Icons.videocam_rounded, size: 18, color: colors.success),
             const SizedBox(width: 6),
-            const Expanded(
+            Expanded(
               child: Text('Live meetings',
-                  style: TextStyle(fontWeight: FontWeight.w700)),
+                  style: TextStyle(
+                      fontWeight: FontWeight.w700, color: colors.textMuted)),
             ),
-            const PulseDot(color: BestieTokens.cSuccess, size: 8),
+            PulseDot(color: colors.success, size: 8),
             const SizedBox(width: 6),
             Text('${live.length}',
-                style: const TextStyle(
-                    color: BestieTokens.cTextMuted,
+                style: TextStyle(
+                    color: colors.textMuted,
                     fontSize: 12,
                     fontWeight: FontWeight.w600)),
           ]),
@@ -635,7 +641,7 @@ class DashboardScreen extends ConsumerWidget {
                     width: 32,
                     height: 32,
                     decoration: BoxDecoration(
-                      color: BestieTokens.cSuccess.withOpacity(0.14),
+                      color: colors.success.withOpacity(0.14),
                       borderRadius: BorderRadius.circular(BestieTokens.rMd),
                     ),
                     child: Icon(
@@ -643,7 +649,7 @@ class DashboardScreen extends ConsumerWidget {
                           ? Icons.call_rounded
                           : Icons.videocam_rounded,
                       size: 18,
-                      color: BestieTokens.cSuccess,
+                      color: colors.success,
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -655,13 +661,15 @@ class DashboardScreen extends ConsumerWidget {
                           '${m['name'] ?? 'Untitled meeting'}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w600, fontSize: 13),
+                          style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                              color: colors.textMuted),
                         ),
                         Text(
                           '${(m['_count']?['participants'] ?? 0)} participants',
-                          style: const TextStyle(
-                              color: BestieTokens.cTextMuted, fontSize: 11),
+                          style: TextStyle(
+                              color: colors.textMuted, fontSize: 11),
                         ),
                       ],
                     ),
@@ -687,9 +695,9 @@ class DashboardScreen extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.only(top: 2),
               child: Text('+${live.length - 3} more',
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 11,
-                      color: BestieTokens.cTextMuted,
+                      color: colors.textMuted,
                       fontWeight: FontWeight.w600)),
             ),
         ],
@@ -702,26 +710,29 @@ class DashboardScreen extends ConsumerWidget {
     return Container(
       padding: const EdgeInsets.all(BestieTokens.s3),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(BestieTokens.rMd),
-        border: Border.all(color: BestieTokens.cBorder),
+        border: Border.all(color: colors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            const Expanded(
+            Expanded(
                 child: Text('Recent activity',
-                    style: TextStyle(fontWeight: FontWeight.w700))),
+                    style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: colors.textMuted))),
             BestieBadge(
                 tone: BestieTone.success, dot: true, child: const Text('Live')),
           ]),
-          const Divider(),
+          Divider(color: colors.borderSoft),
           if (items.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 12),
-              child: Text('Quiet so far — activity will land here in realtime.',
-                  style: TextStyle(color: BestieTokens.cTextMuted)),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Text(
+                  'Quiet so far — activity will land here in realtime.',
+                  style: TextStyle(color: colors.textMuted)),
             )
           else
             ...items.take(6).map((a) {
@@ -740,12 +751,14 @@ class DashboardScreen extends ConsumerWidget {
                       BestieUserName(
                         name: actor?['name'] ?? 'System',
                         isClient: actor?['isClient'] ?? false,
-                        style: const TextStyle(
-                            fontSize: 13, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: colors.textMuted),
                       ),
                       Text('${a['kind']}',
-                          style: const TextStyle(
-                              color: BestieTokens.cTextMuted, fontSize: 12)),
+                          style: TextStyle(
+                              color: colors.textMuted, fontSize: 12)),
                     ]),
                   ),
                 ]),

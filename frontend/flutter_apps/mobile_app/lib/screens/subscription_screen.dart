@@ -163,7 +163,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen>
       appBar: AppBar(
         title: const Text('Subscription'),
         backgroundColor: c.surface,
-        foregroundColor: c.text,
+        foregroundColor: c.textMuted,
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())

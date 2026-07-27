@@ -41,15 +41,18 @@ final orgBrandingProvider = FutureProvider<OrgBranding>((ref) async {
     final parsed = parseBrandHex(primaryColor);
     final onDefaultPalette =
         MobileLocalSettings.colorTheme.value == MobileThemeId.mytaskkingBlue;
+    // Defer ValueNotifier updates so we don't mark BestieApp dirty while it
+    // is already rebuilding from this FutureProvider completing.
     if (parsed != null &&
         onDefaultPalette &&
         MobileLocalSettings.adminPrimaryColor.value != parsed.toARGB32()) {
-      // Fire-and-forget; avoid await in provider to reduce rebuild churn.
-      MobileLocalSettings.setAdminPrimaryColor(parsed.toARGB32());
+      Future.microtask(
+        () => MobileLocalSettings.setAdminPrimaryColor(parsed.toARGB32()),
+      );
     } else if ((primaryColor == null || primaryColor.trim().isEmpty) &&
         onDefaultPalette &&
         MobileLocalSettings.adminPrimaryColor.value != null) {
-      MobileLocalSettings.setAdminPrimaryColor(null);
+      Future.microtask(() => MobileLocalSettings.setAdminPrimaryColor(null));
     }
     return OrgBranding(
       name: name.isEmpty ? 'MyTaskKing' : name,

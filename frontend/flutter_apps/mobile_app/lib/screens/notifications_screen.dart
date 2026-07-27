@@ -48,7 +48,11 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
       appBar: AppBar(
         elevation: 0,
         backgroundColor: Theme.of(context).colorScheme.surface,
-        title: const Text('Notifications'),
+        foregroundColor: BestieColors.of(context).textMuted,
+        title: Text(
+          'Notifications',
+          style: TextStyle(color: BestieColors.of(context).textMuted),
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.bedtime_outlined),

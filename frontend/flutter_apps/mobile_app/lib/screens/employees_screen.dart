@@ -147,7 +147,7 @@ class _EmployeesScreenState extends ConsumerState<EmployeesScreen> {
       appBar: AppBar(
         elevation: 0,
         backgroundColor: c.surface,
-        foregroundColor: c.text,
+        foregroundColor: c.textMuted,
         title: const Text('Employees'),
         actions: [
           if (canManage)

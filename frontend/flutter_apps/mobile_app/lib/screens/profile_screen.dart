@@ -192,14 +192,19 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final c = BestieColors.of(context);
     final user = ref.watch(authStoreProvider).user;
     final sessions = ref.watch(mySessionsProvider);
 
     return Scaffold(
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: Theme.of(context).colorScheme.surface,
-        title: const Text('Profile'),
+        backgroundColor: c.surface,
+        foregroundColor: c.textMuted,
+        title: Text(
+          'Profile',
+          style: TextStyle(color: c.textMuted),
+        ),
       ),
       body: ListView(children: [
         // ----- identity card -----
@@ -230,13 +235,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     BestieUserName(
                       name: user?.name ?? '—',
                       isClient: user?.isClient ?? false,
-                      style: const TextStyle(
-                          fontSize: 20, fontWeight: FontWeight.w700),
+                      style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                          color: c.textMuted),
                     ),
                     const SizedBox(height: 4),
                     Text(user?.userId ?? '',
-                        style: const TextStyle(
-                            color: BestieTokens.cTextMuted, fontSize: 12)),
+                        style: TextStyle(
+                            color: c.textMuted, fontSize: 12)),
                     const SizedBox(height: 6),
                     BestieBadge(
                       tone: user?.isClient == true
@@ -256,17 +263,20 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   height: 24,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Icon(Icons.add_a_photo_outlined),
-          title: const Text('Change profile photo'),
-          subtitle: const Text('Choose an image and crop before upload'),
+              : Icon(Icons.add_a_photo_outlined, color: c.textMuted),
+          title: Text('Change profile photo',
+              style: TextStyle(color: c.textMuted)),
+          subtitle: Text('Choose an image and crop before upload',
+              style: TextStyle(color: c.textFaint)),
           onTap: _uploadingAvatar ? null : _pickAvatar,
         ),
         if (user?.avatarUrl != null && user!.avatarUrl!.isNotEmpty)
           ListTile(
-            leading: const Icon(Icons.delete_outline_rounded, color: BestieTokens.cDanger),
-            title: const Text('Remove profile photo',
-                style: TextStyle(color: BestieTokens.cDanger)),
-            subtitle: const Text('Go back to the default avatar'),
+            leading: Icon(Icons.delete_outline_rounded, color: c.danger),
+            title: Text('Remove profile photo',
+                style: TextStyle(color: c.danger)),
+            subtitle: Text('Go back to the default avatar',
+                style: TextStyle(color: c.textFaint)),
             onTap: _uploadingAvatar ? null : _removeAvatar,
           ),
 
@@ -277,14 +287,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   height: 24,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Icon(Icons.phone_outlined),
-          title: const Text('Calling phone number'),
+              : Icon(Icons.phone_outlined, color: c.textMuted),
+          title: Text('Calling phone number',
+              style: TextStyle(color: c.textMuted)),
           subtitle: Text(
             (user?.phone?.isNotEmpty == true)
                 ? user!.phone!
                 : 'Add this to make telecaller calls work',
+            style: TextStyle(color: c.textFaint),
           ),
-          trailing: const Icon(Icons.edit_outlined),
+          trailing: Icon(Icons.edit_outlined, color: c.textMuted),
           onTap: _savingPhone ? null : _editPhone,
         ),
 
@@ -295,18 +307,34 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         _section(context, 'Status', [
           ListTile(
             leading: Icon(Icons.radio_button_checked_rounded,
-                color: _availabilityColor(_availability)),
-            title: const Text('Availability'),
-            subtitle:
-                const Text('Callers will hear this status before calling.'),
+                color: _availabilityColor(c, _availability)),
+            title: Text('Availability',
+                style: TextStyle(color: c.textMuted)),
+            subtitle: Text('Callers will hear this status before calling.',
+                style: TextStyle(color: c.textFaint)),
             trailing: DropdownButton<String>(
               value: _availability,
               underline: const SizedBox.shrink(),
-              items: const [
-                DropdownMenuItem(value: 'ACTIVE', child: Text('Available')),
-                DropdownMenuItem(value: 'BUSY', child: Text('Busy')),
-                DropdownMenuItem(value: 'LUNCH', child: Text('Lunch time')),
-                DropdownMenuItem(value: 'LEAVE', child: Text('Leave')),
+              style: TextStyle(color: c.textMuted, fontSize: 14),
+              dropdownColor: c.surface,
+              iconEnabledColor: c.textMuted,
+              items: [
+                DropdownMenuItem(
+                    value: 'ACTIVE',
+                    child: Text('Available',
+                        style: TextStyle(color: c.textMuted))),
+                DropdownMenuItem(
+                    value: 'BUSY',
+                    child:
+                        Text('Busy', style: TextStyle(color: c.textMuted))),
+                DropdownMenuItem(
+                    value: 'LUNCH',
+                    child: Text('Lunch time',
+                        style: TextStyle(color: c.textMuted))),
+                DropdownMenuItem(
+                    value: 'LEAVE',
+                    child:
+                        Text('Leave', style: TextStyle(color: c.textMuted))),
               ],
               onChanged: (value) {
                 if (value != null) _setAvailability(value);
@@ -324,8 +352,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Icon(Icons.text_fields_rounded,
-                    color: BestieColors.of(context).textMuted),
+                Icon(Icons.text_fields_rounded, color: c.textMuted),
                 const SizedBox(width: 16),
                 Expanded(
                   flex: 2,
@@ -333,8 +360,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text('Text size',
-                          style: TextStyle(fontWeight: FontWeight.w500)),
+                      Text('Text size',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w500,
+                              color: c.textMuted)),
                       Text(
                         switch (ref.watch(fontScaleProvider)) {
                           <= 0.9 => 'Compact',
@@ -343,7 +372,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           _ => 'Default',
                         },
                         style: TextStyle(
-                          color: BestieColors.of(context).textMuted,
+                          color: c.textMuted,
                           fontSize: 12,
                         ),
                       ),
@@ -356,6 +385,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     min: 0.85,
                     max: 1.4,
                     divisions: 11,
+                    activeColor: c.brand,
+                    inactiveColor: c.brandSoft,
                     value: ref.watch(fontScaleProvider),
                     onChanged: (v) =>
                         ref.read(fontScaleProvider.notifier).state = v,
@@ -365,12 +396,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             ),
           ),
           SwitchListTile(
-            secondary: const Icon(Icons.animation_rounded),
-            title: const Text('Reduce motion'),
-            subtitle: const Text(
+            secondary: Icon(Icons.animation_rounded, color: c.textMuted),
+            title: Text('Reduce motion',
+                style: TextStyle(color: c.textMuted)),
+            subtitle: Text(
               'Skip page-transition animations and decorative motion.',
-              style: TextStyle(color: BestieTokens.cTextMuted, fontSize: 12),
+              style: TextStyle(color: c.textFaint, fontSize: 12),
             ),
+            activeThumbColor: Colors.white,
+            activeTrackColor: c.brand,
             value: ref.watch(reduceMotionProvider),
             onChanged: (v) => ref.read(reduceMotionProvider.notifier).state = v,
           ),
@@ -383,7 +417,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 padding: EdgeInsets.all(16), child: BestieSpinner()),
             error: (e, _) => ListTile(
                 title: Text('Couldn\'t load: ${formatApiError(e)}',
-                    style: const TextStyle(color: BestieTokens.cDanger))),
+                    style: TextStyle(color: c.danger))),
             data: (items) {
               final active = items
                   .where((s) =>
@@ -394,16 +428,20 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 ListTile(
                   leading: Icon(
                     _isMobile(s) ? Icons.smartphone : Icons.computer,
-                    color: BestieTokens.cTextSoft,
+                    color: c.textSoft,
                   ),
-                  title: Text(s['device'] ??
-                      s['userAgent']?.toString().split(' ').last ??
-                      'Unknown device'),
+                  title: Text(
+                    s['device'] ??
+                        s['userAgent']?.toString().split(' ').last ??
+                        'Unknown device',
+                    style: TextStyle(color: c.textMuted),
+                  ),
                   subtitle: Text(
-                      '${s['platform'] ?? 'web'} · ${s['ip'] ?? 'unknown ip'}'),
+                      '${s['platform'] ?? 'web'} · ${s['ip'] ?? 'unknown ip'}',
+                      style: TextStyle(color: c.textFaint)),
                   trailing: (s['status'] == 'ACTIVE')
                       ? IconButton(
-                          icon: const Icon(Icons.close),
+                          icon: Icon(Icons.close, color: c.textMuted),
                           tooltip: 'Revoke',
                           onPressed: () async {
                             try {
@@ -420,9 +458,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 ),
               if (active.length > 1)
                 ListTile(
-                  leading:
-                      const Icon(Icons.logout, color: BestieTokens.cDanger),
-                  title: const Text('Sign out everywhere else'),
+                  leading: Icon(Icons.logout, color: c.danger),
+                  title: Text('Sign out everywhere else',
+                      style: TextStyle(color: c.danger)),
                   onTap: () async {
                     final ok = await bestieConfirm(context,
                         title: 'Sign out of all other devices?',
@@ -456,8 +494,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         Padding(
           padding: const EdgeInsets.all(BestieTokens.s4),
           child: OutlinedButton.icon(
-            style:
-                OutlinedButton.styleFrom(foregroundColor: BestieTokens.cDanger),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: c.danger,
+              side: BorderSide(color: c.danger),
+            ),
             icon: const Icon(Icons.logout),
             label: const Text('Sign out'),
             onPressed: () async {
@@ -471,14 +511,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
 
   Widget _section(BuildContext context, String title, List<Widget> children) {
+    final c = BestieColors.of(context);
     return Padding(
       padding:
           const EdgeInsets.symmetric(horizontal: BestieTokens.s3, vertical: 6),
       child: Container(
         decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface,
+          color: c.surface,
           borderRadius: BorderRadius.circular(BestieTokens.rMd),
-          border: Border.all(color: BestieTokens.cBorder),
+          border: Border.all(color: c.border),
         ),
         child:
             Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -486,10 +527,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
             child: Text(
               title.toUpperCase(),
-              style: const TextStyle(
+              style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
-                  color: BestieTokens.cTextMuted,
+                  color: c.textMuted,
                   letterSpacing: 0.5),
             ),
           ),
@@ -500,12 +541,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     );
   }
 
-  Color _availabilityColor(String s) => switch (s) {
-        'ACTIVE' => BestieTokens.cSuccess,
-        'BUSY' => BestieTokens.cDanger,
-        'LUNCH' => BestieTokens.cWarning,
-        'LEAVE' => BestieTokens.cAccent,
-        _ => BestieTokens.cTextMuted,
+  Color _availabilityColor(BestieColors c, String s) => switch (s) {
+        'ACTIVE' => c.success,
+        'BUSY' => c.danger,
+        'LUNCH' => c.warning,
+        'LEAVE' => c.accent,
+        _ => c.textMuted,
       };
 
   bool _isMobile(Map<String, dynamic> s) {

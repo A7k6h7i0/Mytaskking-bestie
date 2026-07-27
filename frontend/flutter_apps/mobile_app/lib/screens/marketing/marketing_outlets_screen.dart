@@ -180,7 +180,7 @@ class _MarketingOutletsScreenState extends ConsumerState<MarketingOutletsScreen>
       appBar: AppBar(
         title: const Text('Outlets'),
         backgroundColor: c.surface,
-        foregroundColor: c.text,
+        foregroundColor: c.textMuted,
       ),
       floatingActionButton: Padding(
         padding: EdgeInsets.only(bottom: bottomClearance - 24),

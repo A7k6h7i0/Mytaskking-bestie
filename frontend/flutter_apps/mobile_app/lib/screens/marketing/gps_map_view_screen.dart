@@ -43,7 +43,7 @@ class GpsMapViewScreen extends StatelessWidget {
       appBar: AppBar(
         title: Text(title),
         backgroundColor: c.surface,
-        foregroundColor: c.text,
+        foregroundColor: c.textMuted,
       ),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

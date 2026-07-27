@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
 enum MobileThemeId {
-  mytaskkingBlue('mytaskking_blue', 'MyTaskKing Blue', 'Default'),
-  orangeMilk('orange_milk', 'Orange Milk', 'Theme 2'),
-  forestSlate('forest_slate', 'Forest Slate', 'Theme 3'),
-  grayWhite('gray_white', 'Gray & White', 'Theme 4');
+  grayWhite('gray_white', 'Gray & White', 'Default'),
+  mytaskkingBlue('mytaskking_blue', 'MyTaskKing Blue', 'Theme 2'),
+  orangeMilk('orange_milk', 'Orange Milk', 'Theme 3'),
+  forestSlate('forest_slate', 'Forest Slate', 'Theme 4');
 
   const MobileThemeId(this.storageKey, this.title, this.subtitle);
   final String storageKey;
@@ -16,7 +16,7 @@ enum MobileThemeId {
     for (final id in MobileThemeId.values) {
       if (id.storageKey == raw) return id;
     }
-    return MobileThemeId.mytaskkingBlue;
+    return MobileThemeId.grayWhite;
   }
 }
 
@@ -198,34 +198,36 @@ class MobileThemePalettes {
     border: Color(0xFFE0E0E0),
     borderSoft: Color(0xFFEBEBEB),
     borderStrong: Color(0xFFBDBDBD),
-    text: Color(0xFF212121),
-    textSoft: Color(0xFF424242),
-    textMuted: Color(0xFF757575),
-    textFaint: Color(0xFF9E9E9E),
-    brand: Color(0xFF525252),
-    brandSoft: Color(0xFFEEEEEE),
-    brandStrong: Color(0xFF262626),
-    accent: Color(0xFF737373),
-    accentSoft: Color(0xFFF5F5F5),
+    // Lighter copy app-wide — avoid near-black headings/body on this theme.
+    text: Color(0xFF757575),
+    textSoft: Color(0xFF8A8A8A),
+    textMuted: Color(0xFF9E9E9E),
+    textFaint: Color(0xFFBDBDBD),
+    // Mid-light fill so button labels stay white and readable.
+    brand: Color(0xFFBEBEBE),
+    brandSoft: Color(0xFFF5F5F5),
+    brandStrong: Color(0xFFA8A8A8),
+    accent: Color(0xFFCACACA),
+    accentSoft: Color(0xFFF7F7F7),
     backdropTop: Color(0xFFFFFFFF),
     backdropMid: Color(0xFFF7F7F7),
     backdropBottom: Color(0xFFEFEFEF),
-    backdropDot: Color(0xFF525252),
+    backdropDot: Color(0xFFBEBEBE),
     panelBorder: Color(0xFFE0E0E0),
     panelGradientStart: Color(0xE0FFFFFF),
     panelGradientEnd: Color(0xDBFAFAFA),
     sidebarGradientStart: Color(0xFFFFFFFF),
     sidebarGradientEnd: Color(0xFFF5F5F5),
-    sidebarActiveStart: Color(0xFF262626),
-    sidebarActiveEnd: Color(0xFF525252),
-    logoGradientStart: Color(0xFF212121),
-    logoGradientEnd: Color(0xFF616161),
+    sidebarActiveStart: Color(0xFFA8A8A8),
+    sidebarActiveEnd: Color(0xFFBEBEBE),
+    logoGradientStart: Color(0xFFA8A8A8),
+    logoGradientEnd: Color(0xFFD6D6D6),
     previewGradient: LinearGradient(
       begin: Alignment.topCenter,
       end: Alignment.bottomCenter,
       colors: [
-        Color(0xFF424242),
-        Color(0xFF757575),
+        Color(0xFFA8A8A8),
+        Color(0xFFCACACA),
         Color(0xFFE0E0E0),
         Color(0xFFFFFFFF),
       ],
@@ -235,17 +237,19 @@ class MobileThemePalettes {
 
   static ThemeData applyTo(ThemeData base, BestiePaletteExtension palette) {
     final isDark = base.brightness == Brightness.dark;
+    // Always white labels on brand buttons (Gray & White included).
+    const onBrand = Colors.white;
     final themed = base.copyWith(
       extensions: [palette],
       colorScheme: base.colorScheme.copyWith(
         primary: palette.brand,
-        onPrimary: Colors.white,
+        onPrimary: onBrand,
         primaryContainer: isDark
             ? palette.brand.withValues(alpha: 0.22)
             : palette.brandSoft,
         onPrimaryContainer: palette.brandStrong,
         secondary: palette.accent,
-        onSecondary: Colors.white,
+        onSecondary: onBrand,
         secondaryContainer: isDark
             ? palette.accent.withValues(alpha: 0.18)
             : palette.accentSoft,
@@ -268,13 +272,13 @@ class MobileThemePalettes {
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: palette.brand,
-          foregroundColor: Colors.white,
+          foregroundColor: onBrand,
         ),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           backgroundColor: palette.brand,
-          foregroundColor: Colors.white,
+          foregroundColor: onBrand,
         ),
       ),
       textButtonTheme: TextButtonThemeData(
@@ -282,14 +286,17 @@ class MobileThemePalettes {
       ),
       floatingActionButtonTheme: base.floatingActionButtonTheme.copyWith(
         backgroundColor: palette.brand,
-        foregroundColor: Colors.white,
+        foregroundColor: onBrand,
       ),
-      progressIndicatorTheme:
-          base.progressIndicatorTheme.copyWith(color: palette.brand),
+      progressIndicatorTheme: base.progressIndicatorTheme.copyWith(
+        color: palette.brand,
+        linearTrackColor: palette.brandSoft,
+        circularTrackColor: palette.brand.withValues(alpha: 0.18),
+      ),
       switchTheme: SwitchThemeData(
         thumbColor: WidgetStateProperty.resolveWith(
           (s) => s.contains(WidgetState.selected)
-              ? Colors.white
+              ? onBrand
               : (isDark ? Colors.white70 : palette.surface),
         ),
         trackColor: WidgetStateProperty.resolveWith(
@@ -304,14 +311,26 @@ class MobileThemePalettes {
         fillColor: WidgetStateProperty.resolveWith(
           (s) => s.contains(WidgetState.selected) ? palette.brand : null,
         ),
+        checkColor: WidgetStatePropertyAll(onBrand),
       ),
     );
     if (isDark) return themed;
+    // Gray & White: lighter app-bar titles (match Tasks / Workday). Other
+    // themes keep primary text for contrast on colored brand UIs.
+    final appBarFg =
+        palette.id == 'gray_white' ? palette.textMuted : palette.text;
     return themed.copyWith(
       scaffoldBackgroundColor: Colors.transparent,
       appBarTheme: base.appBarTheme.copyWith(
         backgroundColor: palette.surface.withValues(alpha: 0.78),
-        foregroundColor: palette.text,
+        foregroundColor: appBarFg,
+        titleTextStyle: TextStyle(
+          color: appBarFg,
+          fontSize: 20,
+          fontWeight: FontWeight.w600,
+        ),
+        iconTheme: IconThemeData(color: appBarFg),
+        actionsIconTheme: IconThemeData(color: appBarFg),
       ),
       cardTheme: base.cardTheme.copyWith(color: palette.surface),
       inputDecorationTheme: base.inputDecorationTheme.copyWith(

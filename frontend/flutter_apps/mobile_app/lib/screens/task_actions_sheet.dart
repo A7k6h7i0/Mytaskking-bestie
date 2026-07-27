@@ -96,11 +96,12 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
           child: Center(child: BestieSpinner()));
     }
     if (_err != null || _task == null) {
+      final c = BestieColors.of(context);
       return Padding(
         padding: const EdgeInsets.all(BestieTokens.s5),
         child: BestieEmptyState(
           icon: Icons.error_outline,
-          iconColor: BestieTokens.cDanger,
+          iconColor: c.danger,
           title: 'Couldn\'t load task',
           description: _err,
         ),
@@ -237,12 +238,12 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
-                      BestieTokens.cSuccess.withOpacity(0.12),
+                      c.success.withOpacity(0.12),
                       Colors.transparent
                     ],
                   ),
                   border:
-                      Border.all(color: BestieTokens.cSuccess.withOpacity(0.3)),
+                      Border.all(color: c.success.withOpacity(0.3)),
                   borderRadius: BorderRadius.circular(BestieTokens.rMd),
                 ),
                 child: Row(children: [
@@ -250,10 +251,10 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
                     value: myScore / 100,
                     size: 64,
                     color: myScore >= 80
-                        ? BestieTokens.cSuccess
+                        ? c.success
                         : myScore >= 50
-                            ? BestieTokens.cWarning
-                            : BestieTokens.cDanger,
+                            ? c.warning
+                            : c.danger,
                     label: Text('$myScore',
                         style: const TextStyle(
                             fontSize: 16, fontWeight: FontWeight.w800)),
@@ -267,8 +268,8 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
                           style: TextStyle(fontWeight: FontWeight.w700)),
                       if (scoreReason != null)
                         Text(scoreReason,
-                            style: const TextStyle(
-                                color: BestieTokens.cTextMuted, fontSize: 12)),
+                            style: TextStyle(
+                                color: c.textMuted, fontSize: 12)),
                     ],
                   )),
                 ]),
@@ -285,6 +286,7 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
   }
 
   Widget _actionsFor(String? state) {
+    final c = BestieColors.of(context);
     switch (state) {
       case 'PENDING':
         return Column(children: [
@@ -294,7 +296,7 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
                 icon: const Icon(Icons.close),
                 label: const Text('Decline'),
                 style: OutlinedButton.styleFrom(
-                    foregroundColor: BestieTokens.cDanger),
+                    foregroundColor: c.danger),
                 onPressed: _busy
                     ? null
                     : () => _act(
@@ -326,7 +328,7 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
             label: 'Mark complete',
             icon: Icons.check_circle,
             loading: _busy,
-            color: BestieTokens.cSuccess,
+            color: c.success,
             onPressed: _completeWithReport,
           ),
           const SizedBox(height: 8),
@@ -723,7 +725,7 @@ class _CompletionReportSheetState extends State<_CompletionReportSheet> {
           BestiePrimaryButton(
             label: 'Complete task',
             icon: Icons.check_circle,
-            color: BestieTokens.cSuccess,
+            color: BestieColors.of(context).success,
             onPressed: canSubmit
                 ? () => Navigator.pop(
                       context,

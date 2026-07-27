@@ -173,7 +173,7 @@ class _AddOutletScreenState extends ConsumerState<AddOutletScreen> {
       appBar: AppBar(
         title: const Text('Add new outlet'),
         backgroundColor: c.surface,
-        foregroundColor: c.text,
+        foregroundColor: c.textMuted,
       ),
       body: SafeArea(
         child: Form(

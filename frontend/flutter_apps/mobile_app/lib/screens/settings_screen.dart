@@ -258,7 +258,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         appBar: AppBar(
           elevation: 0,
           backgroundColor: c.surface,
-          foregroundColor: c.text,
+          foregroundColor: c.textMuted,
           automaticallyImplyLeading: canPop,
           leading: canPop
               ? IconButton(

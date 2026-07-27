@@ -21,7 +21,7 @@ class SessionsScreen extends ConsumerWidget {
       appBar: AppBar(
         elevation: 0,
         backgroundColor: c.surface,
-        foregroundColor: c.text,
+        foregroundColor: c.textMuted,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
           tooltip: 'Back',

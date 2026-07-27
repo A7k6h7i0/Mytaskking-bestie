@@ -143,9 +143,10 @@ class ShopListingCard extends StatelessWidget {
                           right: 12,
                           child: Container(
                             constraints: const BoxConstraints(maxWidth: 200),
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 4),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF1CA1EF),
+                              color: c.brand,
                               borderRadius: BorderRadius.circular(16),
                             ),
                             child: Text(
@@ -165,15 +166,19 @@ class ShopListingCard extends StatelessWidget {
                           top: 12,
                           left: 12,
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.55),
+                              color: c.brand,
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Text(
                               dist,
                               style: const TextStyle(
-                                  color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
                         ),
