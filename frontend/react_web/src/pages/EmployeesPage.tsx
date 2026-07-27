@@ -9,6 +9,8 @@ import { useAuthStore } from '@/store/auth';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { PhoneInput } from '@/components/ui/PhoneInput';
+import { DEFAULT_PHONE_DIAL, phoneValueFromFields } from '@/lib/phone';
 import './people.css';
 
 const EMPLOYEE_DESIGNATIONS = [
@@ -32,12 +34,14 @@ export default function EmployeesPage() {
   const [draftName, setDraftName] = useState('');
   const [draftTitle, setDraftTitle] = useState('');
   const [form, setForm] = useState({ userId: '', password: '', name: '', role: 'EMPLOYEE', customTitle: '', email: '', supervisorIds: [] as string[] });
+  const [phoneDial, setPhoneDial] = useState(DEFAULT_PHONE_DIAL);
+  const [phoneNational, setPhoneNational] = useState('');
   const canCustomizeEmployeeName = user?.role === 'SUPER_ADMIN';
   const isPlatformSuperAdmin =
     user?.role === 'SUPER_ADMIN' &&
     (!user?.tenant?.slug || user.tenant.slug === 'default' || user.tenant.slug === '');
   const canManageEmployees =
-    user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN' || user?.role === 'MANAGER';
+    user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
   const viewerCanCallAdmins = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
   const passwordTooShort = form.password.length > 0 && form.password.length < 8;
   const selectedDesignation = useCustomDesignation || (form.customTitle && !EMPLOYEE_DESIGNATIONS.includes(form.customTitle)) ? 'CUSTOM' : form.customTitle;
@@ -48,12 +52,20 @@ export default function EmployeesPage() {
   });
 
   const createMut = useMutation({
-    mutationFn: async () => (await api.post('/employees', form)).data,
+    mutationFn: async () => {
+      const phone = phoneValueFromFields({ dialCode: phoneDial, national: phoneNational });
+      return (await api.post('/employees', {
+        ...form,
+        ...(phone ? { phone } : {}),
+      })).data;
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['employees'] });
       setShowNew(false);
       setUseCustomDesignation(false);
       setForm({ userId: '', password: '', name: '', role: 'EMPLOYEE', customTitle: '', email: '', supervisorIds: [] });
+      setPhoneDial(DEFAULT_PHONE_DIAL);
+      setPhoneNational('');
       toast.success('Employee created');
     },
     onError: (err: any) => {
@@ -182,6 +194,13 @@ export default function EmployeesPage() {
             <Input label="Custom designation (optional)" hint="Examples: Flutter Developer, MD, Director" value={form.customTitle} onChange={(e) => setForm({ ...form, customTitle: e.target.value })} />
           )}
           <Input label="Email (optional)" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+          <PhoneInput
+            label="Phone (optional)"
+            national={phoneNational}
+            dialCode={phoneDial}
+            onNationalChange={setPhoneNational}
+            onDialCodeChange={setPhoneDial}
+          />
           <label className="pp__role">
             <span>Access role</span>
             <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>

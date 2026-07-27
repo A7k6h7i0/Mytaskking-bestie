@@ -6,6 +6,8 @@ import { api } from '@/services/api';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { PhoneInput } from '@/components/ui/PhoneInput';
+import { DEFAULT_PHONE_DIAL, phoneValueFromFields, validatePhoneFields } from '@/lib/phone';
 import { UserName } from '@/components/ui/UserName';
 import { StatusBadge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -24,6 +26,8 @@ export default function ClientsPage() {
   const [form, setForm] = useState({
     userId: '', password: '', name: '', clientCompany: '', email: '', accessEndsAt: '',
   });
+  const [phoneDial, setPhoneDial] = useState(DEFAULT_PHONE_DIAL);
+  const [phoneNational, setPhoneNational] = useState('');
   const { confirm, ConfirmRenderer } = useConfirm();
 
   const { data, isLoading } = useQuery<{ items: any[] }>({
@@ -32,11 +36,22 @@ export default function ClientsPage() {
   });
 
   const createMut = useMutation({
-    mutationFn: async () => (await api.post('/clients', form)).data,
+    mutationFn: async () => {
+      const phone = phoneValueFromFields({ dialCode: phoneDial, national: phoneNational });
+      if (phoneNational.trim() && !phone) {
+        throw new Error(validatePhoneFields({ dialCode: phoneDial, national: phoneNational }) || 'Invalid phone');
+      }
+      return (await api.post('/clients', {
+        ...form,
+        ...(phone ? { phone } : {}),
+      })).data;
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['clients'] });
       setShowNew(false);
       setForm({ userId: '', password: '', name: '', clientCompany: '', email: '', accessEndsAt: '' });
+      setPhoneDial(DEFAULT_PHONE_DIAL);
+      setPhoneNational('');
       toast.success('Client added');
     },
     onError: () => toast.error('Could not create client'),
@@ -98,6 +113,13 @@ export default function ClientsPage() {
           <Input label="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           <Input label="Client company" value={form.clientCompany} onChange={(e) => setForm({ ...form, clientCompany: e.target.value })} />
           <Input label="Email (optional)" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+          <PhoneInput
+            label="Phone (optional)"
+            national={phoneNational}
+            dialCode={phoneDial}
+            onNationalChange={setPhoneNational}
+            onDialCodeChange={setPhoneDial}
+          />
           <Input label="Access ends at" type="date" value={form.accessEndsAt} onChange={(e) => setForm({ ...form, accessEndsAt: e.target.value })} />
           <div className="pp__create-actions">
             <Button variant="ghost" onClick={() => setShowNew(false)}>Cancel</Button>

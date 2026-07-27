@@ -3,8 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
-
-import '../state.dart';
+import 'package:mytaskking_core/mytaskking_core.dart';
 
 /// Client directory — external users who have at least one client channel.
 /// Tapping a client opens (or creates) the client channel with them.
@@ -252,6 +251,8 @@ class _CreateClientSheetState extends State<_CreateClientSheet> {
   final _company = TextEditingController();
   final _email = TextEditingController();
   final _phone = TextEditingController();
+  final _phoneKey = GlobalKey<BestiePhoneInputState>();
+  String? _phoneError;
   DateTime? _accessEndsAt;
   bool _saving = false;
 
@@ -291,6 +292,16 @@ class _CreateClientSheetState extends State<_CreateClientSheet> {
     }
 
     setState(() => _saving = true);
+    final phoneValidation = _phoneKey.currentState?.validate();
+    final phoneValue = _phoneKey.currentState?.buildValue();
+    if (phoneValidation != null) {
+      setState(() {
+        _saving = false;
+        _phoneError = phoneValidation;
+      });
+      bestieToast(context, phoneValidation, kind: BestieToastKind.warning);
+      return;
+    }
     try {
       await widget.ref.read(apiProvider).createClient({
         'userId': userId,
@@ -299,7 +310,7 @@ class _CreateClientSheetState extends State<_CreateClientSheet> {
         if (_company.text.trim().isNotEmpty)
           'clientCompany': _company.text.trim(),
         if (_email.text.trim().isNotEmpty) 'email': _email.text.trim(),
-        if (_phone.text.trim().isNotEmpty) 'phone': _phone.text.trim(),
+        if (phoneValue != null) 'phone': phoneValue,
         if (_accessEndsAt != null)
           'accessEndsAt': _accessEndsAt!.toIso8601String(),
       });
@@ -356,10 +367,11 @@ class _CreateClientSheetState extends State<_CreateClientSheet> {
                 keyboardType: TextInputType.emailAddress,
               ),
               const SizedBox(height: 10),
-              _ClientField(
-                controller: _phone,
+              BestiePhoneInput(
+                key: _phoneKey,
+                nationalController: _phone,
                 label: 'Phone',
-                keyboardType: TextInputType.phone,
+                errorText: _phoneError,
               ),
               const SizedBox(height: 10),
               OutlinedButton.icon(

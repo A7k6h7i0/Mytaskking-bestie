@@ -4,6 +4,7 @@ const { Router } = require('express');
 const Joi = require('joi');
 const asyncHandler = require('../../utils/asyncHandler');
 const validate = require('../../middleware/validate');
+const { joiPhone } = require('../../utils/phone');
 const { authLimiter } = require('../../middleware/rateLimit');
 const { requireAuth } = require('../../middleware/auth');
 const authService = require('./auth.service');
@@ -117,7 +118,7 @@ router.patch(
   validate({
     body: Joi.object({
       avatarUrl: Joi.string().uri().allow('', null),
-      phone: Joi.string().allow('', null),
+      phone: joiPhone(),
     }).or('avatarUrl', 'phone'),
   }),
   asyncHandler(async (req, res) => {
@@ -164,7 +165,7 @@ router.post(
   validate({
     body: Joi.object({
       email: Joi.string().trim().email().required(),
-      phone: Joi.string().trim().min(10).max(20).required(),
+      phone: joiPhone({ required: true }),
       purpose: Joi.string().valid('org_register').default('org_register'),
     }),
   }),

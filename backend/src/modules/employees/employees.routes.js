@@ -3,6 +3,7 @@
 const { Router } = require('express');
 const Joi = require('joi');
 const validate = require('../../middleware/validate');
+const { joiPhone } = require('../../utils/phone');
 const asyncHandler = require('../../utils/asyncHandler');
 const { requireAuth, requireAdmin, requireInternal, requireRole } = require('../../middleware/auth');
 const service = require('./employees.service');
@@ -46,7 +47,7 @@ router.get(
   asyncHandler(async (req, res) => res.json(await service.getById(req, req.params.id)))
 );
 
-const requirePeopleAdmin = requireRole('SUPER_ADMIN', 'ADMIN', 'MANAGER');
+const requirePeopleAdmin = requireRole('SUPER_ADMIN', 'ADMIN');
 
 router.post(
   '/',
@@ -59,7 +60,7 @@ router.post(
       role: EmployeeRole.required(),
       customTitle: Joi.string().max(120).allow('', null),
       email: Joi.string().email().allow('', null),
-      phone: Joi.string().allow('', null),
+      phone: joiPhone(),
       avatarUrl: Joi.string().uri().allow('', null),
       departmentId: Joi.string().allow('', null),
       supervisorIds: Joi.array().items(Joi.string()).default([]),
@@ -82,7 +83,7 @@ router.patch(
       role: EmployeeRole,
       customTitle: Joi.string().max(120).allow('', null),
       email: Joi.string().email().allow('', null),
-      phone: Joi.string().allow('', null),
+      phone: joiPhone(),
       avatarUrl: Joi.string().uri().allow('', null),
       departmentId: Joi.string().allow('', null),
       password: Joi.string().min(8).max(200),

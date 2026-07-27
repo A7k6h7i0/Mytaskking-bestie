@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
+import 'package:mytaskking_core/mytaskking_core.dart';
 
 import '../state.dart';
 
@@ -59,6 +60,8 @@ class _OrganizationRegistrationWizardState
   final _adminPassword = TextEditingController();
   final _adminEmail = TextEditingController();
   final _adminPhone = TextEditingController();
+  final _adminPhoneKey = GlobalKey<BestiePhoneInputState>();
+  String? _adminPhoneError;
   final _govtId1Number = TextEditingController();
   final _govtId2Number = TextEditingController();
   String _govtId1Type = 'AADHAAR';
@@ -227,7 +230,7 @@ class _OrganizationRegistrationWizardState
         'adminUserId': _adminUserId.text.trim(),
         'adminPassword': _adminPassword.text,
         'adminEmail': _adminEmail.text.trim(),
-        'adminPhone': _adminPhone.text.trim(),
+        'adminPhone': _adminPhoneKey.currentState?.buildValue(required: true) ?? '',
         'govtId1Type': _govtId1Type,
         'govtId1Number': _govtId1Number.text.trim(),
         'govtId1ImageUrl': _id1Url,
@@ -350,7 +353,13 @@ class _OrganizationRegistrationWizardState
               _field(_adminUserId, 'Admin user ID'),
               _field(_adminPassword, 'Admin password', obscure: true),
               _field(_adminEmail, 'Admin email'),
-              _field(_adminPhone, 'Phone number', keyboard: TextInputType.phone),
+              BestiePhoneInput(
+                key: _adminPhoneKey,
+                nationalController: _adminPhone,
+                label: 'Phone number',
+                required: true,
+                errorText: _adminPhoneError,
+              ),
             ],
             if (_step == 1) ...[
               _idBlock(
@@ -419,13 +428,16 @@ class _OrganizationRegistrationWizardState
   Future<void> _onNext() async {
     if (_step == 0) {
       final email = _adminEmail.text.trim();
-      final phone = _adminPhone.text.trim();
+      final phoneError = _adminPhoneKey.currentState?.validate(required: true);
+      final phone = _adminPhoneKey.currentState?.buildValue(required: true);
       if (_name.text.trim().isEmpty ||
           _slug.text.trim().length < 2 ||
           _adminPassword.text.length < 8 ||
           !email.contains('@') ||
-          phone.length < 10) {
-        bestieToast(context, 'Fill all fields (valid email & 10-digit phone)',
+          phoneError != null ||
+          phone == null) {
+        setState(() => _adminPhoneError = phoneError);
+        bestieToast(context, 'Fill all fields (valid email & phone)',
             kind: BestieToastKind.warning);
         return;
       }

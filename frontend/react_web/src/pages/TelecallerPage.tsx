@@ -5,6 +5,8 @@ import { api } from '@/services/api';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { PhoneInput } from '@/components/ui/PhoneInput';
+import { DEFAULT_PHONE_DIAL, phoneValueFromFields, validatePhoneFields } from '@/lib/phone';
 import { toast } from '@/components/Toast';
 import { useAuthStore } from '@/store/auth';
 import './telecaller.css';
@@ -52,12 +54,13 @@ export default function TelecallerPage() {
   });
   const [form, setForm] = useState({
     name: '',
-    phone: '',
     company: '',
     email: '',
     source: '',
     notes: '',
   });
+  const [phoneDial, setPhoneDial] = useState(DEFAULT_PHONE_DIAL);
+  const [phoneNational, setPhoneNational] = useState('');
 
   const { data } = useQuery<{ items: Lead[] }>({
     queryKey: ['telecaller.leads', q],
@@ -79,9 +82,17 @@ export default function TelecallerPage() {
 
   const createMut = useMutation({
     mutationFn: async () => {
+      const phone = phoneValueFromFields({
+        dialCode: phoneDial,
+        national: phoneNational,
+        required: true,
+      });
+      if (!phone) {
+        throw new Error(validatePhoneFields({ dialCode: phoneDial, national: phoneNational, required: true }) || 'Invalid phone');
+      }
       const payload = {
         name: form.name.trim(),
-        phone: form.phone.trim(),
+        phone,
         company: form.company.trim() || null,
         email: form.email.trim() || null,
         status: 'NEW',
@@ -94,7 +105,9 @@ export default function TelecallerPage() {
       toast.success('Lead created');
       setShowCreate(false);
       setSelected(lead);
-      setForm({ name: '', phone: '', company: '', email: '', source: '', notes: '' });
+      setForm({ name: '', company: '', email: '', source: '', notes: '' });
+      setPhoneDial(DEFAULT_PHONE_DIAL);
+      setPhoneNational('');
       qc.invalidateQueries({ queryKey: ['telecaller.leads'] });
     },
     onError: (err: any) => {
@@ -205,8 +218,9 @@ export default function TelecallerPage() {
 
   function submitLead(e: FormEvent) {
     e.preventDefault();
-    if (!form.name.trim() || !form.phone.trim()) {
-      toast.error('Name and phone are required');
+    const phoneError = validatePhoneFields({ dialCode: phoneDial, national: phoneNational, required: true });
+    if (!form.name.trim() || phoneError) {
+      toast.error(phoneError || 'Name and phone are required');
       return;
     }
     createMut.mutate();
@@ -327,7 +341,14 @@ export default function TelecallerPage() {
             </header>
             <div className="tc__form-grid">
               <Input label="Lead name *" value={form.name} onChange={(e) => updateForm('name', e.target.value)} autoFocus />
-              <Input label="Phone *" value={form.phone} onChange={(e) => updateForm('phone', e.target.value)} />
+              <PhoneInput
+                label="Phone *"
+                required
+                national={phoneNational}
+                dialCode={phoneDial}
+                onNationalChange={setPhoneNational}
+                onDialCodeChange={setPhoneDial}
+              />
               <Input label="Company" value={form.company} onChange={(e) => updateForm('company', e.target.value)} />
               <Input label="Email" type="email" value={form.email} onChange={(e) => updateForm('email', e.target.value)} />
               <Input label="Source" value={form.source} onChange={(e) => updateForm('source', e.target.value)} />

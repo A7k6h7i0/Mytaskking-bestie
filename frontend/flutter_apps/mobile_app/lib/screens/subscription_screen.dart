@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
+import 'package:mytaskking_core/mytaskking_core.dart';
 
 import '../state.dart';
 import '../utils/payment_checkout.dart';
@@ -28,6 +29,9 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen>
   late final TextEditingController _adminName;
   late final TextEditingController _adminEmail;
   late final TextEditingController _adminPhone;
+  final _adminPhoneKey = GlobalKey<BestiePhoneInputState>();
+  String? _adminPhoneStored;
+  String? _adminPhoneError;
   late final TextEditingController _newPassword;
 
   @override
@@ -67,8 +71,9 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen>
     _adminName.text = admin?['name']?.toString() ?? '';
     _adminEmail.text =
         reg?['adminEmail']?.toString() ?? admin?['email']?.toString() ?? '';
-    _adminPhone.text =
-        reg?['adminPhone']?.toString() ?? admin?['phone']?.toString() ?? '';
+    _adminPhoneStored =
+        reg?['adminPhone']?.toString() ?? admin?['phone']?.toString();
+    _adminPhone.clear();
   }
 
   Future<void> _load({bool showSpinner = true}) async {
@@ -107,12 +112,22 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen>
   Future<void> _saveDetails() async {
     if (_saving) return;
     setState(() => _saving = true);
+    final phoneValue = _adminPhoneKey.currentState?.buildValue(required: true);
+    final phoneValidation = _adminPhoneKey.currentState?.validate(required: true);
+    if (phoneValidation != null || phoneValue == null) {
+      setState(() {
+        _saving = false;
+        _adminPhoneError = phoneValidation ?? 'Enter a valid phone number';
+      });
+      bestieToast(context, _adminPhoneError!, kind: BestieToastKind.warning);
+      return;
+    }
     try {
       final data = <String, dynamic>{
         'name': _name.text.trim(),
         'adminName': _adminName.text.trim(),
         'adminEmail': _adminEmail.text.trim(),
-        'adminPhone': _adminPhone.text.trim(),
+        'adminPhone': phoneValue,
       };
       if (_newPassword.text.isNotEmpty) {
         data['adminPassword'] = _newPassword.text;
@@ -233,8 +248,14 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen>
                       _field(_name, 'Company name'),
                       _field(_adminName, 'Admin name'),
                       _field(_adminEmail, 'Admin email'),
-                      _field(_adminPhone, 'Admin phone',
-                          keyboard: TextInputType.phone),
+                      BestiePhoneInput(
+                        key: _adminPhoneKey,
+                        nationalController: _adminPhone,
+                        initialStoredPhone: _adminPhoneStored,
+                        label: 'Admin phone',
+                        required: true,
+                        errorText: _adminPhoneError,
+                      ),
                       _field(_newPassword, 'New password (optional)',
                           obscure: true),
                       const SizedBox(height: 8),

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
+import 'package:mytaskking_core/mytaskking_core.dart';
 
 import '../../state.dart';
 import 'field_helpers.dart';
@@ -20,6 +21,8 @@ class AddOutletScreen extends ConsumerStatefulWidget {
 class _AddOutletScreenState extends ConsumerState<AddOutletScreen> {
   final _nameCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
+  final _phoneKey = GlobalKey<BestiePhoneInputState>();
+  String? _phoneError;
   final _formKey = GlobalKey<FormState>();
 
   LatLng? _location;
@@ -123,6 +126,16 @@ class _AddOutletScreenState extends ConsumerState<AddOutletScreen> {
     }
 
     setState(() => _busy = true);
+    final phoneValue = _phoneKey.currentState?.buildValue();
+    final phoneValidation = _phoneKey.currentState?.validate();
+    if (phoneValidation != null) {
+      setState(() {
+        _busy = false;
+        _phoneError = phoneValidation;
+      });
+      bestieToast(context, phoneValidation, kind: BestieToastKind.warning);
+      return;
+    }
     try {
       String? address;
       String? city;
@@ -142,7 +155,7 @@ class _AddOutletScreenState extends ConsumerState<AddOutletScreen> {
 
       await ref.read(apiProvider).createMarketingOutlet({
         'name': _nameCtrl.text.trim(),
-        if (_phoneCtrl.text.trim().isNotEmpty) 'phone': _phoneCtrl.text.trim(),
+        if (phoneValue != null) 'phone': phoneValue,
         'latitude': _location!.latitude,
         'longitude': _location!.longitude,
         if (address != null && address.isNotEmpty) 'address': address,
@@ -209,19 +222,10 @@ class _AddOutletScreenState extends ConsumerState<AddOutletScreen> {
             Text('Phone (optional)',
                 style: TextStyle(fontWeight: FontWeight.w700, color: c.text)),
             const SizedBox(height: 8),
-            TextFormField(
-              controller: _phoneCtrl,
-              keyboardType: TextInputType.phone,
-              decoration: InputDecoration(
-                hintText: '10-digit mobile number',
-                filled: true,
-                fillColor: c.surface2,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(BestieTokens.rMd),
-                  borderSide: BorderSide.none,
-                ),
-                prefixIcon: Icon(Icons.phone_outlined, color: c.textMuted),
-              ),
+            BestiePhoneInput(
+              key: _phoneKey,
+              nationalController: _phoneCtrl,
+              errorText: _phoneError,
             ),
             if (_mustAssignExecutive) ...[
               const SizedBox(height: 24),

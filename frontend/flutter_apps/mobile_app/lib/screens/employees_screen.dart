@@ -3,8 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
-
-import '../state.dart';
+import 'package:mytaskking_core/mytaskking_core.dart';
 
 /// Employee directory — searchable list of teammates with a tap-to-DM action.
 /// Backed by `GET /employees?q=`.
@@ -139,7 +138,7 @@ class _EmployeesScreenState extends ConsumerState<EmployeesScreen> {
     final c = BestieColors.of(context);
     final me = ref.watch(authStoreProvider).user;
     final canManage = me != null &&
-        const {'SUPER_ADMIN', 'ADMIN', 'MANAGER'}.contains(me.role);
+        const {'SUPER_ADMIN', 'ADMIN'}.contains(me.role);
     final list = _items.where((u) => u['id'] != me?.id).toList();
 
     return Scaffold(
@@ -290,6 +289,8 @@ class _EmployeeFormDialogState extends ConsumerState<_EmployeeFormDialog> {
   late final TextEditingController _customTitle;
   late final TextEditingController _email;
   late final TextEditingController _phone;
+  final _phoneKey = GlobalKey<BestiePhoneInputState>();
+  String? _phoneError;
   late final TextEditingController _avatarUrl;
   late final Set<String> _supervisorIds;
   late String _role;
@@ -310,7 +311,7 @@ class _EmployeeFormDialogState extends ConsumerState<_EmployeeFormDialog> {
     _customTitle =
         TextEditingController(text: employee?['customTitle']?.toString());
     _email = TextEditingController(text: employee?['email']?.toString());
-    _phone = TextEditingController(text: employee?['phone']?.toString());
+    _phone = TextEditingController();
     _avatarUrl =
         TextEditingController(text: employee?['avatarUrl']?.toString());
     _supervisorIds = ((employee?['supervisors'] as List?) ?? const [])
@@ -359,7 +360,18 @@ class _EmployeeFormDialogState extends ConsumerState<_EmployeeFormDialog> {
     setState(() {
       _saving = true;
       _error = null;
+      _phoneError = null;
     });
+    final phoneValue = _phoneKey.currentState?.buildValue();
+    final phoneValidation = _phoneKey.currentState?.validate();
+    if (phoneValidation != null) {
+      setState(() {
+        _saving = false;
+        _phoneError = phoneValidation;
+        _error = phoneValidation;
+      });
+      return;
+    }
     final data = <String, dynamic>{
       'userId': _userId.text.trim(),
       'name': _name.text.trim(),
@@ -367,7 +379,7 @@ class _EmployeeFormDialogState extends ConsumerState<_EmployeeFormDialog> {
       'status': _status,
       'customTitle': _optional(_customTitle),
       'email': _optional(_email),
-      'phone': _optional(_phone),
+      if (phoneValue != null) 'phone': phoneValue,
       'avatarUrl': _optional(_avatarUrl),
       'supervisorIds': _supervisorIds.toList(),
       if (_password.text.isNotEmpty) 'password': _password.text,
@@ -457,10 +469,12 @@ class _EmployeeFormDialogState extends ConsumerState<_EmployeeFormDialog> {
               textInputAction: TextInputAction.next,
             ),
             const SizedBox(height: 12),
-            TextField(
-              controller: _phone,
-              decoration: _decoration('Phone'),
-              keyboardType: TextInputType.phone,
+            BestiePhoneInput(
+              key: _phoneKey,
+              nationalController: _phone,
+              initialStoredPhone: widget.employee?['phone']?.toString(),
+              label: 'Phone',
+              errorText: _phoneError,
             ),
             const SizedBox(height: 12),
             TextField(

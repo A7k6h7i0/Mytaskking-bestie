@@ -2,6 +2,7 @@
 
 const prisma = require('../../database/prisma');
 const { NotFound, Forbidden, BadRequest } = require('../../utils/errors');
+const { normalizePhoneValue } = require('../../utils/phone');
 const {
   tenantId,
   isManager,
@@ -14,6 +15,13 @@ const {
   parsePage,
   paginate,
 } = require('./marketing.helpers');
+
+function optionalPhone(raw) {
+  if (raw == null || String(raw).trim() === '') return null;
+  const normalized = normalizePhoneValue(raw);
+  if (!normalized) throw BadRequest('Enter a valid mobile number with country code');
+  return normalized;
+}
 const { getFieldSettings } = require('./marketing.settings');
 
 // ---- outlets ----
@@ -77,7 +85,7 @@ async function createOutlet(req, body) {
       name: body.name.trim(),
       code: body.code || null,
       ownerName: body.owner_name || body.ownerName || null,
-      phone: body.phone || null,
+      phone: optionalPhone(body.phone),
       email: body.email || null,
       address: body.address || null,
       city: body.city || null,
@@ -150,7 +158,9 @@ async function updateOutlet(req, id, body) {
     photoUrls: 'photoUrls',
   };
   for (const [k, field] of Object.entries(map)) {
-    if (body[k] !== undefined) data[field] = body[k];
+    if (body[k] !== undefined) {
+      data[field] = field === 'phone' ? optionalPhone(body[k]) : body[k];
+    }
   }
   return prisma.marketingOutlet.update({ where: { id }, data });
 }
@@ -620,7 +630,7 @@ async function createDistributor(req, body) {
     data: {
       tenantId: tenantId(req),
       name: body.name.trim(),
-      phone: body.phone || null,
+      phone: optionalPhone(body.phone),
       email: body.email || null,
       address: body.address || null,
     },

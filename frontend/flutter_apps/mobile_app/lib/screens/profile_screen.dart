@@ -565,33 +565,53 @@ class _PhoneNumberDialog extends StatefulWidget {
 }
 
 class _PhoneNumberDialogState extends State<_PhoneNumberDialog> {
-  late final TextEditingController _controller;
+  late final TextEditingController _national;
+  final _phoneKey = GlobalKey<core.BestiePhoneInputState>();
+  String? _error;
 
   @override
   void initState() {
     super.initState();
-    _controller = TextEditingController(text: widget.initialPhone);
+    _national = TextEditingController();
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _national.dispose();
     super.dispose();
+  }
+
+  void _save() {
+    final error = _phoneKey.currentState?.validate();
+    if (error != null) {
+      setState(() => _error = error);
+      return;
+    }
+    final value = _phoneKey.currentState?.buildValue();
+    Navigator.pop(context, value ?? '');
   }
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Calling phone number'),
-      content: TextField(
-        controller: _controller,
-        keyboardType: TextInputType.phone,
-        autofocus: true,
-        decoration: const InputDecoration(
-          labelText: 'Phone number',
-          hintText: '+91 98765 43210',
-          helperText: 'Used as your agent number for telecaller calls.',
-        ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          core.BestiePhoneInput(
+            key: _phoneKey,
+            nationalController: _national,
+            initialStoredPhone: widget.initialPhone,
+            label: 'Phone number',
+            errorText: _error,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Used as your agent number for telecaller calls.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
       ),
       actions: [
         TextButton(
@@ -599,7 +619,7 @@ class _PhoneNumberDialogState extends State<_PhoneNumberDialog> {
           child: const Text('Cancel'),
         ),
         FilledButton(
-          onPressed: () => Navigator.pop(context, _controller.text.trim()),
+          onPressed: _save,
           child: const Text('Save'),
         ),
       ],

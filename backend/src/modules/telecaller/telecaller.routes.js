@@ -5,6 +5,7 @@ const Joi = require('joi');
 const multer = require('multer');
 const asyncHandler = require('../../utils/asyncHandler');
 const validate = require('../../middleware/validate');
+const { joiPhone } = require('../../utils/phone');
 const { requireAuth, requireRole } = require('../../middleware/auth');
 const service = require('./telecaller.service');
 const dailyReport = require('../../services/telecallerDailyReport');
@@ -64,7 +65,7 @@ router.post(
   validate({
     body: Joi.object({
       name: Joi.string().min(1).max(120).required(),
-      phone: Joi.string().min(6).max(32).required(),
+      phone: joiPhone({ required: true }),
       company: Joi.string().max(160).allow('', null),
       email: Joi.string().email().allow('', null),
       status: Joi.string().valid('NEW', 'CONTACTED', 'INTERESTED', 'FOLLOWUP', 'WON', 'LOST'),
@@ -92,7 +93,7 @@ router.post(
       source: Joi.string().allow('', null),
       records: Joi.array().items(Joi.object({
         name: Joi.string().min(1).max(120).required(),
-        phone: Joi.string().min(6).max(32).required(),
+        phone: joiPhone({ required: true }),
         company: Joi.string().max(160).allow('', null),
         email: Joi.string().email().allow('', null),
         source: Joi.string().allow('', null),
@@ -123,7 +124,7 @@ router.patch(
   validate({
     body: Joi.object({
       name: Joi.string().min(1).max(120),
-      phone: Joi.string().min(6).max(32),
+      phone: joiPhone(),
       company: Joi.string().max(160).allow('', null),
       email: Joi.string().email().allow('', null),
       status: Joi.string().valid('NEW', 'CONTACTED', 'INTERESTED', 'FOLLOWUP', 'WON', 'LOST'),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
+import 'package:mytaskking_core/mytaskking_core.dart';
 
 import '../state.dart';
 import 'shell_screen.dart';
@@ -822,6 +823,9 @@ class _EditOrganizationSheetState extends State<_EditOrganizationSheet> {
   late final TextEditingController _adminName;
   late final TextEditingController _adminEmail;
   late final TextEditingController _adminPhone;
+  final _adminPhoneKey = GlobalKey<BestiePhoneInputState>();
+  String? _adminPhoneStored;
+  String? _adminPhoneError;
   late final TextEditingController _adminPassword;
   DateTime? _trialEndsAt;
   DateTime? _paidUntil;
@@ -836,8 +840,8 @@ class _EditOrganizationSheetState extends State<_EditOrganizationSheet> {
     _adminName = TextEditingController();
     _adminEmail =
         TextEditingController(text: reg?['adminEmail']?.toString() ?? '');
-    _adminPhone =
-        TextEditingController(text: reg?['adminPhone']?.toString() ?? '');
+    _adminPhone = TextEditingController();
+    _adminPhoneStored = reg?['adminPhone']?.toString();
     _adminPassword = TextEditingController();
     _trialEndsAt = _parseDate(sub?['trialEndsAt']);
     _paidUntil = _parseDate(sub?['paidUntil']);
@@ -881,11 +885,20 @@ class _EditOrganizationSheetState extends State<_EditOrganizationSheet> {
   Future<void> _save() async {
     if (_saving) return;
     setState(() => _saving = true);
+    final phoneValue = _adminPhoneKey.currentState?.buildValue();
+    final phoneValidation = _adminPhoneKey.currentState?.validate();
+    if (phoneValidation != null) {
+      setState(() {
+        _saving = false;
+        _adminPhoneError = phoneValidation;
+      });
+      return;
+    }
     try {
       final regData = <String, dynamic>{
         'name': _name.text.trim(),
         'adminEmail': _adminEmail.text.trim(),
-        'adminPhone': _adminPhone.text.trim(),
+        if (phoneValue != null) 'adminPhone': phoneValue,
       };
       if (_adminName.text.trim().isNotEmpty) {
         regData['adminName'] = _adminName.text.trim();
@@ -953,9 +966,14 @@ class _EditOrganizationSheetState extends State<_EditOrganizationSheet> {
             TextField(
                 controller: _adminEmail,
                 decoration: const InputDecoration(labelText: 'Admin email')),
-            TextField(
-                controller: _adminPhone,
-                decoration: const InputDecoration(labelText: 'Admin phone')),
+            BestiePhoneInput(
+              key: _adminPhoneKey,
+              nationalController: _adminPhone,
+              initialStoredPhone: _adminPhoneStored,
+              label: 'Admin phone',
+              errorText: _adminPhoneError,
+            ),
+            const SizedBox(height: 12),
             TextField(
                 controller: _adminPassword,
                 obscureText: true,

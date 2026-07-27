@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
+import 'package:mytaskking_core/mytaskking_core.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../state.dart';
@@ -1184,35 +1185,6 @@ class _DesktopTelecallerLayoutState extends State<_DesktopTelecallerLayout> {
   }
 }
 
-/// Normalize/validate lead phones.
-/// Accepts: +917076119520, 07076119520, 7076119520 (and general E.164).
-String? normalizeLeadPhone(String raw) {
-  final trimmed = raw.trim().replaceAll(RegExp(r'[\s\-().]'), '');
-  if (trimmed.isEmpty) return null;
-  final hasPlus = trimmed.startsWith('+');
-  final digits = trimmed.replaceAll(RegExp(r'[^\d]'), '');
-  if (digits.length < 8 || digits.length > 15) return null;
-
-  // India 10-digit mobile (6–9…): 7076119520
-  if (digits.length == 10 && RegExp(r'^[6-9]\d{9}$').hasMatch(digits)) {
-    return digits;
-  }
-  // Leading trunk 0: 07076119520 → 7076119520
-  if (digits.length == 11 && digits.startsWith('0')) {
-    final rest = digits.substring(1);
-    if (RegExp(r'^[6-9]\d{9}$').hasMatch(rest)) return rest;
-  }
-  // +91 / 91 prefix: +917076119520 → +917076119520
-  if (digits.length == 12 && digits.startsWith('91')) {
-    final rest = digits.substring(2);
-    if (RegExp(r'^[6-9]\d{9}$').hasMatch(rest)) return '+91$rest';
-  }
-  if (hasPlus && digits.length >= 8 && digits.length <= 15) {
-    return '+$digits';
-  }
-  if (digits.length >= 8 && digits.length <= 15) return digits;
-  return null;
-}
 
 class _CreateLeadSheet extends StatefulWidget {
   const _CreateLeadSheet({
@@ -1230,6 +1202,8 @@ class _CreateLeadSheet extends StatefulWidget {
 class _CreateLeadSheetState extends State<_CreateLeadSheet> {
   final _name = TextEditingController();
   final _phone = TextEditingController();
+  final _phoneKey = GlobalKey<BestiePhoneInputState>();
+  String? _phoneError;
   final _company = TextEditingController();
   final _email = TextEditingController();
   final _source = TextEditingController();
@@ -1277,16 +1251,18 @@ class _CreateLeadSheetState extends State<_CreateLeadSheet> {
 
   Future<void> _save() async {
     final name = _name.text.trim();
-    final phone = normalizeLeadPhone(_phone.text);
+    final phone = _phoneKey.currentState?.buildValue(required: true);
+    final phoneValidation = _phoneKey.currentState?.validate(required: true);
     if (name.isEmpty) {
       bestieToast(context, 'Name is required', kind: BestieToastKind.warning);
       return;
     }
-    if (phone == null) {
+    if (phoneValidation != null || phone == null) {
+      setState(() => _phoneError = phoneValidation ?? 'Enter a valid phone number');
       bestieToast(
         context,
         'Enter a valid phone number',
-        body: 'Examples: +917076119520, 07076119520, 7076119520',
+        body: phoneValidation ?? 'Select country code and enter the mobile number',
         kind: BestieToastKind.warning,
       );
       return;
@@ -1335,18 +1311,14 @@ class _CreateLeadSheetState extends State<_CreateLeadSheet> {
             children: [
               _LeadField(controller: _name, label: 'Lead name *'),
               const SizedBox(height: 10),
-              _LeadField(
-                controller: _phone,
+              BestiePhoneInput(
+                key: _phoneKey,
+                nationalController: _phone,
                 label: 'Phone *',
-                keyboardType: TextInputType.phone,
+                required: true,
+                errorText: _phoneError,
               ),
-              Padding(
-                padding: const EdgeInsets.only(top: 4, bottom: 6),
-                child: Text(
-                  'Accepts +917076119520 · 07076119520 · 7076119520',
-                  style: TextStyle(fontSize: 11, color: c.textMuted),
-                ),
-              ),
+              const SizedBox(height: 10),
               if (widget.canAssignTelecaller) ...[
                 Text(
                   'Assign to telecaller',

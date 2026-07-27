@@ -6,6 +6,11 @@ const exotel = require('../../services/exotel');
 const config = require('../../config');
 const tenant = require('../../services/tenant');
 const { NotFound, BadRequest, Forbidden } = require('../../utils/errors');
+const {
+  normalizePhoneNumber,
+  normalizeLeadPhone,
+  normalizePhoneValue,
+} = require('../../utils/phone');
 
 const CALL_OUTCOMES = new Set([
   'REACHABLE',
@@ -17,37 +22,6 @@ const CALL_OUTCOMES = new Set([
   'WRONG_NUMBER',
   'NOT_INTERESTED',
 ]);
-
-function normalizePhoneNumber(value) {
-  return String(value || '').trim().replace(/[^\d+]/g, '');
-}
-
-/**
- * Accept +917076119520, 07076119520, 7076119520 and general E.164-ish numbers.
- * Returns normalized string or null if invalid.
- */
-function normalizeLeadPhone(value) {
-  const trimmed = String(value || '')
-    .trim()
-    .replace(/[\s\-().]/g, '');
-  if (!trimmed) return null;
-  const hasPlus = trimmed.startsWith('+');
-  const digits = trimmed.replace(/[^\d]/g, '');
-  if (digits.length < 8 || digits.length > 15) return null;
-
-  if (digits.length === 10 && /^[6-9]\d{9}$/.test(digits)) return digits;
-  if (digits.length === 11 && digits.startsWith('0')) {
-    const rest = digits.slice(1);
-    if (/^[6-9]\d{9}$/.test(rest)) return rest;
-  }
-  if (digits.length === 12 && digits.startsWith('91')) {
-    const rest = digits.slice(2);
-    if (/^[6-9]\d{9}$/.test(rest)) return `+91${rest}`;
-  }
-  if (hasPlus && digits.length >= 8 && digits.length <= 15) return `+${digits}`;
-  if (digits.length >= 8 && digits.length <= 15) return digits;
-  return null;
-}
 
 function leadStatusForOutcome(outcome, currentStatus) {
   if (outcome === 'REACHABLE') return currentStatus === 'NEW' ? 'CONTACTED' : currentStatus;
@@ -206,15 +180,19 @@ async function parseLeadUpload(file) {
   }
 
   const cleaned = records
-    .map((record) => ({
-      name: String(record.name || '').trim(),
-      phone: String(record.phone || '').trim(),
-      company: record.company ? String(record.company).trim() : null,
-      email: record.email ? String(record.email).trim() : null,
-      source: record.source ? String(record.source).trim() : null,
-      notes: record.notes ? String(record.notes).trim() : null,
-    }))
-    .filter((record) => record.name && record.phone);
+    .map((record) => {
+      const phone = normalizeLeadPhone(String(record.phone || '').trim());
+      if (!phone) return null;
+      return {
+        name: String(record.name || '').trim(),
+        phone,
+        company: record.company ? String(record.company).trim() : null,
+        email: record.email ? String(record.email).trim() : null,
+        source: record.source ? String(record.source).trim() : null,
+        notes: record.notes ? String(record.notes).trim() : null,
+      };
+    })
+    .filter(Boolean);
 
   if (!cleaned.length) {
     throw BadRequest('No valid leads found. Expected columns: name, phone, company, email, notes');

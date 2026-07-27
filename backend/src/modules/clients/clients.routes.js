@@ -4,6 +4,7 @@ const { Router } = require('express');
 const Joi = require('joi');
 const asyncHandler = require('../../utils/asyncHandler');
 const validate = require('../../middleware/validate');
+const { joiPhone } = require('../../utils/phone');
 const { requireAuth, requireAdmin, requireRole } = require('../../middleware/auth');
 const service = require('./clients.service');
 const audit = require('../../services/audit');
@@ -39,7 +40,7 @@ router.post(
       name: Joi.string().min(1).max(120).required(),
       clientCompany: Joi.string().max(160).allow('', null),
       email: Joi.string().email().allow('', null),
-      phone: Joi.string().allow('', null),
+      phone: joiPhone(),
       avatarUrl: Joi.string().uri().allow('', null),
       accessStartsAt: Joi.date().iso().optional(),
       accessEndsAt: Joi.date().iso().optional(),
@@ -66,7 +67,7 @@ router.patch(
       name: Joi.string().min(1).max(120),
       clientCompany: Joi.string().max(160).allow('', null),
       email: Joi.string().email().allow('', null),
-      phone: Joi.string().allow('', null),
+      phone: joiPhone(),
       avatarUrl: Joi.string().uri().allow('', null),
       password: Joi.string().min(8).max(200),
       accessStartsAt: Joi.date().iso(),

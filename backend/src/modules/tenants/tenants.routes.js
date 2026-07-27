@@ -5,6 +5,7 @@ const Joi = require('joi');
 const multer = require('multer');
 const asyncHandler = require('../../utils/asyncHandler');
 const validate = require('../../middleware/validate');
+const { joiPhone } = require('../../utils/phone');
 const { requireAuth } = require('../../middleware/auth');
 const { authLimiter } = require('../../middleware/rateLimit');
 const service = require('./tenants.service');
@@ -83,7 +84,7 @@ const registerBodySchema = Joi.object({
   adminUserId: Joi.string().trim().min(2).max(64).required(),
   adminPassword: Joi.string().min(8).max(200).required(),
   adminEmail: Joi.string().trim().email().required(),
-  adminPhone: Joi.string().trim().min(10).max(20).required(),
+  adminPhone: joiPhone({ required: true }),
   govtId1Type: govtIdSchema.required(),
   govtId1Number: Joi.string().trim().min(4).max(32).required(),
   govtId1ImageUrl: Joi.string().uri().allow('', null),
@@ -159,7 +160,7 @@ router.patch(
       name: Joi.string().trim().min(2).max(120),
       adminName: Joi.string().trim().min(1).max(120),
       adminEmail: Joi.string().trim().email(),
-      adminPhone: Joi.string().trim().min(10).max(20),
+      adminPhone: joiPhone(),
       adminPassword: Joi.string().min(8).max(200),
     }),
   }),
@@ -276,7 +277,7 @@ router.patch(
       name: Joi.string().trim().min(2).max(120),
       adminName: Joi.string().trim().min(1).max(120),
       adminEmail: Joi.string().trim().email(),
-      adminPhone: Joi.string().trim().min(10).max(20),
+      adminPhone: joiPhone(),
       adminPassword: Joi.string().min(8).max(200),
     }),
   }),
