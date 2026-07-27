@@ -12,6 +12,7 @@ const {
   parsePage,
   paginate,
 } = require('./marketing.helpers');
+const { assertVisitGeofence } = require('./marketing.geofence');
 
 const userSelect = { id: true, name: true, userId: true };
 
@@ -407,6 +408,22 @@ async function syncBatch(req, body = {}) {
           where: { tenantId: tid, userId, notes: { contains: offlineId } },
         });
         if (dup) continue;
+      }
+      const outletId = v.outlet_id || v.outletId;
+      const outlet = outletId
+        ? await tx.marketingOutlet.findFirst({ where: { id: outletId, tenantId: tid } })
+        : null;
+      if (!outlet) continue;
+      try {
+        await assertVisitGeofence(
+          req,
+          outlet,
+          v.latitude ?? v.check_in_lat ?? null,
+          v.longitude ?? v.check_in_lng ?? null,
+          false
+        );
+      } catch {
+        continue;
       }
       await tx.fieldVisit.create({
         data: {

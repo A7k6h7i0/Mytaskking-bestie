@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,6 +8,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
+import '../../services/device_integrity_service.dart';
 import '../../state.dart';
 import '../blink_selfie_capture.dart';
 import '../front_selfie_capture.dart';
@@ -97,6 +99,7 @@ class _MarketingOutletVisitScreenState
   }
 
   Future<Position> _currentPosition() async {
+    await DeviceIntegrityService.assertLocationTrust();
     final enabled = await Geolocator.isLocationServiceEnabled();
     if (!enabled) throw 'Turn on location to start a field visit.';
     var permission = await Geolocator.checkPermission();
@@ -107,12 +110,21 @@ class _MarketingOutletVisitScreenState
         permission == LocationPermission.deniedForever) {
       throw 'Location permission is required for field visits.';
     }
-    return Geolocator.getCurrentPosition(
+    final position = await Geolocator.getCurrentPosition(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.high,
         timeLimit: Duration(seconds: 15),
       ),
     );
+    return assertRealPosition(position);
+  }
+
+  bool _canQueueVisitOffline(Object error) {
+    if (error is! DioException) return false;
+    return error.type == DioExceptionType.connectionError ||
+        error.type == DioExceptionType.connectionTimeout ||
+        error.type == DioExceptionType.sendTimeout ||
+        error.type == DioExceptionType.receiveTimeout;
   }
 
   Future<String> _uploadSelfie(Uint8List bytes) async {
@@ -277,7 +289,8 @@ class _MarketingOutletVisitScreenState
 
         if (!mounted) return;
         setState(() => _activeVisit = Map<String, dynamic>.from(visit as Map));
-      } catch (_) {
+      } catch (e) {
+        if (!_canQueueVisitOffline(e)) rethrow;
         await FieldOfflineQueue.enqueueVisit({
           'offlineId': offlineId,
           'outletId': widget.outletId,

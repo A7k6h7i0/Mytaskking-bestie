@@ -34,6 +34,8 @@ import 'screens/organizations_screen.dart';
 import 'screens/organization_registration_screen.dart';
 import 'screens/subscription_screen.dart';
 import 'screens/admin_notes_screen.dart';
+import 'screens/report_problem_screen.dart';
+import 'screens/support_issues_screen.dart';
 import 'screens/payments_screen.dart';
 import 'screens/deleted_chats_screen.dart';
 import 'screens/marketing/field_dashboard_screen.dart';
@@ -147,6 +149,12 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
           path: '/announcements',
           builder: (_, __) => const AnnouncementsScreen()),
+      GoRoute(
+          path: '/report-problem',
+          builder: (_, __) => const ReportProblemScreen()),
+      GoRoute(
+          path: '/support-issues',
+          builder: (_, __) => const SupportIssuesScreen()),
       GoRoute(path: '/saved', builder: (_, __) => const SavedScreen()),
       GoRoute(path: '/sessions', builder: (_, __) => const SessionsScreen()),
       GoRoute(

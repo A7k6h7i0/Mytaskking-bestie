@@ -23,6 +23,7 @@ function optionalPhone(raw) {
   return normalized;
 }
 const { getFieldSettings } = require('./marketing.settings');
+const { assertVisitGeofence } = require('./marketing.geofence');
 
 // ---- outlets ----
 
@@ -220,6 +221,11 @@ async function startVisit(req, body) {
     );
   }
 
+  const checkLat = body.latitude ?? body.check_in_lat ?? null;
+  const checkLng = body.longitude ?? body.check_in_lng ?? null;
+  const managerOverride = !!(body.manager_override || body.managerOverride);
+  await assertVisitGeofence(req, outlet, checkLat, checkLng, managerOverride);
+
   return prisma.fieldVisit.create({
     data: {
       tenantId: tenantId(req),
@@ -227,8 +233,8 @@ async function startVisit(req, body) {
       outletId,
       planId: body.plan_id || body.planId || null,
       checkInAt: new Date(),
-      checkInLat: body.latitude ?? body.check_in_lat ?? null,
-      checkInLng: body.longitude ?? body.check_in_lng ?? null,
+      checkInLat: checkLat,
+      checkInLng: checkLng,
       selfieUrl: body.selfie_url || body.selfieUrl || 'auto-detected',
       status: 'in_progress',
     },

@@ -28,6 +28,7 @@ import 'mobile_appearance_providers.dart';
 import 'mobile_theme_palettes.dart';
 import 'org_call_sounds.dart';
 import 'telecaller_recording_setup.dart';
+import 'services/device_integrity_gate.dart';
 
 const _foregroundNotificationsChannelId = 'foreground_notifications_silent';
 const _notificationReplyActionId = 'bestie.reply';
@@ -115,7 +116,7 @@ void main() async {
         (ref) => MobileLocalSettings.colorTheme.value,
       ),
     ],
-    child: const BestieApp(),
+    child: const DeviceIntegrityGate(child: BestieApp()),
   ));
 }
 

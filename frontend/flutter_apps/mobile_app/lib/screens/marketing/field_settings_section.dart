@@ -19,6 +19,8 @@ class _FieldSettingsSectionState extends ConsumerState<FieldSettingsSection> {
   bool _outletApprovalRequired = true;
   int _gpsInterval = 120;
   int _autoVisitMinutes = 0;
+  bool _geofenceEnabled = true;
+  int _geofenceMeters = 100;
   bool _loading = true;
   bool _saving = false;
 
@@ -39,6 +41,8 @@ class _FieldSettingsSectionState extends ConsumerState<FieldSettingsSection> {
         _gpsInterval = (s['gpsIntervalMovingSeconds'] as num?)?.toInt() ?? 120;
         _autoVisitMinutes =
             (s['autoVisitDurationMinutes'] as num?)?.toInt() ?? 0;
+        _geofenceEnabled = s['geofenceEnabled'] != false;
+        _geofenceMeters = (s['geofenceThresholdMeters'] as num?)?.toInt() ?? 100;
         _loading = false;
       });
     } catch (_) {
@@ -115,6 +119,44 @@ class _FieldSettingsSectionState extends ConsumerState<FieldSettingsSection> {
                   _save('outletCreationApprovalRequired', v);
                 },
         ),
+        SwitchListTile(
+          title: Text('Visit geofence', style: TextStyle(color: c.text)),
+          subtitle: Text(
+            _geofenceEnabled
+                ? 'Check-in must be within $_geofenceMeters m of outlet GPS'
+                : 'Off — GPS recorded but distance not enforced',
+            style: TextStyle(color: c.textMuted, fontSize: 12),
+          ),
+          value: _geofenceEnabled,
+          onChanged: _saving
+              ? null
+              : (v) {
+                  setState(() => _geofenceEnabled = v);
+                  _save('geofenceEnabled', v);
+                },
+        ),
+        if (_geofenceEnabled)
+          ListTile(
+            title: Text('Geofence radius', style: TextStyle(color: c.text)),
+            subtitle: Text('Maximum distance from outlet to check in',
+                style: TextStyle(color: c.textMuted, fontSize: 12)),
+            trailing: DropdownButton<int>(
+              value: _geofenceMeters,
+              items: const [
+                DropdownMenuItem(value: 50, child: Text('50 m')),
+                DropdownMenuItem(value: 100, child: Text('100 m')),
+                DropdownMenuItem(value: 200, child: Text('200 m')),
+                DropdownMenuItem(value: 500, child: Text('500 m')),
+              ],
+              onChanged: _saving
+                  ? null
+                  : (v) {
+                      if (v == null) return;
+                      setState(() => _geofenceMeters = v);
+                      _save('geofenceThresholdMeters', v);
+                    },
+            ),
+          ),
         ListTile(
           title: Text('GPS ping interval', style: TextStyle(color: c.text)),
           subtitle: Text('Every $_gpsInterval seconds during active visit',

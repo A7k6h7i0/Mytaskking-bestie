@@ -2,7 +2,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   LayoutDashboard, MessageSquare, KanbanSquare, Users, UserCog, Phone, Headphones, Settings, LogOut, LogIn, Hash,
-  Activity, Calendar, Bookmark, Search, BarChart3, ShieldCheck, Zap, Video, Flag, KeyRound, Radio, PhoneIncoming, PhoneCall, Minimize2, Menu, FileText, Disc3, Building2, Trash2, BrainCircuit, CreditCard, type LucideIcon,
+  Activity, Calendar, Bookmark, Search, BarChart3, ShieldCheck, Zap, Video, Flag, KeyRound, Radio, PhoneIncoming, PhoneCall, Minimize2, Menu, FileText, Disc3, Building2, Trash2, BrainCircuit, CreditCard, LifeBuoy, type LucideIcon,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuthStore } from '@/store/auth';
@@ -53,6 +53,7 @@ const NAV: NavItem[] = [
   { to: '/deleted-chats', label: 'Deleted chats', icon: Trash2 },
   { to: '/organizations', label: 'Organisations', icon: Building2, platformOnly: true },
   { to: '/payments', label: 'Payments', icon: CreditCard, platformOnly: true },
+  { to: '/support-issues', label: 'Support inbox', icon: LifeBuoy, platformOnly: true },
   { to: '/telecaller', label: 'Telecaller', icon: Headphones },
   { to: '/saved', label: 'Saved', icon: Bookmark },
   { to: '/field-visits', label: 'Field visits', icon: Radio },
@@ -73,10 +74,10 @@ const NAV: NavItem[] = [
 const ALLOWED: Record<string, string[]> = {
   SUPER_ADMIN: NAV.map((n) => n.to),
   ADMIN: NAV.filter((n) => !n.platformOnly).map((n) => n.to),
-  MANAGER: ['/dashboard', '/chat', '/channels', '/tasks', '/reports', '/calendar', '/calls', '/meetings', '/saved', '/field-visits', '/employees', '/clients', '/sessions'],
-  PROJECT_COORDINATOR_MANAGER: ['/dashboard', '/chat', '/channels', '/tasks', '/reports', '/calendar', '/calls', '/meetings', '/saved', '/field-visits', '/employees', '/sessions'],
-  EMPLOYEE: ['/dashboard', '/chat', '/channels', '/tasks', '/reports', '/calendar', '/calls', '/meetings', '/saved', '/employees', '/sessions'],
-  TELECALLER: ['/dashboard', '/telecaller', '/chat', '/reports', '/calendar', '/saved', '/employees', '/sessions'],
+  MANAGER: ['/dashboard', '/chat', '/channels', '/tasks', '/reports', '/calendar', '/calls', '/meetings', '/saved', '/field-visits', '/employees', '/clients', '/sessions', '/support-issues'],
+  PROJECT_COORDINATOR_MANAGER: ['/dashboard', '/chat', '/channels', '/tasks', '/reports', '/calendar', '/calls', '/meetings', '/saved', '/field-visits', '/employees', '/sessions', '/support-issues'],
+  EMPLOYEE: ['/dashboard', '/chat', '/channels', '/tasks', '/reports', '/calendar', '/calls', '/meetings', '/saved', '/employees', '/sessions', '/support-issues'],
+  TELECALLER: ['/dashboard', '/telecaller', '/chat', '/reports', '/calendar', '/saved', '/employees', '/sessions', '/support-issues'],
   CLIENT: ['/dashboard', '/channels', '/saved', '/sessions'],
 };
 

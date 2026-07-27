@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:geolocator/geolocator.dart';
 import 'package:mytaskking_core/mytaskking_core.dart';
 
+import '../../services/device_integrity_service.dart';
 import 'field_offline_queue.dart';
 
 /// Logs GPS pings to `/marketing/gps` while a field visit is active.
@@ -35,6 +36,7 @@ class FieldGpsTracker {
     final api = _api;
     if (api == null) return;
     try {
+      await DeviceIntegrityService.assertLocationTrust();
       var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
@@ -43,10 +45,12 @@ class FieldGpsTracker {
           permission == LocationPermission.deniedForever) {
         return;
       }
-      final pos = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.medium,
-          timeLimit: Duration(seconds: 12),
+      final pos = await assertRealPosition(
+        await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.medium,
+            timeLimit: Duration(seconds: 12),
+          ),
         ),
       );
       final payload = {

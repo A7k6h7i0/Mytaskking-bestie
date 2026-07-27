@@ -9,6 +9,8 @@ const DEFAULTS = {
   outletCreationApprovalRequired: true,
   gpsIntervalMovingSeconds: 120,
   autoVisitDurationMinutes: 0,
+  geofenceEnabled: true,
+  geofenceThresholdMeters: 100,
 };
 
 const KEYS = Object.keys(DEFAULTS);

@@ -702,6 +702,63 @@ extension BestieApiExt on BestieApi {
     return r.data as Map<String, dynamic>;
   }
 
+  Future<Map<String, dynamic>> supportTicketMeta() => get('/support-tickets/meta');
+
+  Future<Map<String, dynamic>> createSupportTicket({
+    required String issueType,
+    required String description,
+  }) =>
+      post('/support-tickets', body: {
+        'issueType': issueType,
+        'description': description,
+      });
+
+  Future<Map<String, dynamic>> checkSupportTicketStatus({
+    required String ticketNumber,
+  }) =>
+      get('/support-tickets/check-status', query: {
+        'ticketNumber': ticketNumber,
+      });
+
+  Future<List<Map<String, dynamic>>> listMySupportTickets() => get(
+        '/support-tickets/mine',
+      ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
+
+  Future<List<Map<String, dynamic>>> listSupportTicketsAdmin() => get(
+        '/support-tickets/admin',
+      ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
+
+  Future<List<Map<String, dynamic>>> listSupportTicketsAssigned() => get(
+        '/support-tickets/assigned',
+      ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
+
+  Future<List<Map<String, dynamic>>> listSupportTicketAssignees({String? q}) =>
+      get('/support-tickets/assignees', query: {
+        if (q != null && q.isNotEmpty) 'q': q,
+      }).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
+
+  Future<Map<String, dynamic>> assignSupportTicket(
+    String id, {
+    required String assigneeId,
+  }) async {
+    final r = await dio.patch('/support-tickets/$id/assign', data: {
+      'assigneeId': assigneeId,
+    });
+    return r.data as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> updateSupportTicketStatus(
+    String id, {
+    required String status,
+    String? resolutionNotes,
+  }) async {
+    final r = await dio.patch('/support-tickets/$id/status', data: {
+      'status': status,
+      if (resolutionNotes != null) 'resolutionNotes': resolutionNotes,
+    });
+    return r.data as Map<String, dynamic>;
+  }
+
   Future<Map<String, dynamic>> updateTenant(
     String id,
     Map<String, dynamic> data,

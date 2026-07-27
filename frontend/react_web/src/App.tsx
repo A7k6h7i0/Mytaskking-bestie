@@ -30,6 +30,8 @@ import LoginActivityPage from '@/pages/LoginActivityPage';
 import FlagsPage from '@/pages/FlagsPage';
 import OrganizationsPage from '@/pages/OrganizationsPage';
 import PaymentsPage from '@/pages/PaymentsPage';
+import ReportProblemPage from '@/pages/ReportProblemPage';
+import SupportIssuesPage from '@/pages/SupportIssuesPage';
 import PermissionsPage from '@/pages/PermissionsPage';
 import DeletedChatsPage from '@/pages/DeletedChatsPage';
 import { ToastHost } from '@/components/Toast';
@@ -95,6 +97,15 @@ export default function App() {
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/saved" element={<SavedPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/report-problem" element={<ReportProblemPage />} />
+          <Route
+            path="/support-issues"
+            element={
+              <RoleGate allow={['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'PROJECT_COORDINATOR_MANAGER', 'EMPLOYEE', 'TELECALLER', 'EXECUTIVE', 'SALES_HEAD']}>
+                <SupportIssuesPage />
+              </RoleGate>
+            }
+          />
           <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/meetings" element={<MeetingsPage />} />
           <Route

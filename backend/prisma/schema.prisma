@@ -85,6 +85,9 @@ model User {
   announcements   Announcement[]     @relation("AnnouncementAuthor")
   adminNotesAuthored AdminNote[]       @relation("AdminNoteAuthor")
   adminNotesReviewed AdminNote[]       @relation("AdminNoteReviewer")
+  supportTicketsReported SupportTicket[] @relation("SupportTicketReporter")
+  supportTicketsAssigned SupportTicket[] @relation("SupportTicketAssignee")
+  supportTicketsAssignedBy SupportTicket[] @relation("SupportTicketAssignedBy")
   registrationReviews TenantRegistration[] @relation("RegistrationReviewer")
   marketingOutletsAssigned MarketingOutlet[] @relation("MarketingOutletAssignee")
   marketingOutletsCreated  MarketingOutlet[] @relation("MarketingOutletCreator")
@@ -1048,6 +1051,51 @@ model AdminNote {
 
   @@index([status])
   @@index([tenantId])
+}
+
+enum SupportTicketStatus {
+  OPEN
+  ASSIGNED
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum SupportIssueType {
+  APP_CRASH
+  LOGIN_ACCESS
+  CALLS_MEETINGS
+  CHAT_MESSAGES
+  TASKS_REPORTS
+  BILLING_SUBSCRIPTION
+  OTHER
+}
+
+model SupportTicket {
+  id              String              @id @default(cuid())
+  ticketNumber    String              @unique
+  reporterId      String
+  reporter        User                @relation("SupportTicketReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  reporterEmail   String
+  reporterName    String
+  tenantId        String
+  issueType       SupportIssueType
+  description     String
+  status          SupportTicketStatus @default(OPEN)
+  assigneeId      String?
+  assignee        User?               @relation("SupportTicketAssignee", fields: [assigneeId], references: [id])
+  assignedById    String?
+  assignedBy      User?               @relation("SupportTicketAssignedBy", fields: [assignedById], references: [id])
+  assignedAt      DateTime?
+  resolutionNotes String?
+  resolvedAt      DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@index([status])
+  @@index([tenantId])
+  @@index([assigneeId])
+  @@index([reporterId])
 }
 
 // ---------------------------------------------------------------------------

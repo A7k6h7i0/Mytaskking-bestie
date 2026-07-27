@@ -306,6 +306,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 label: 'Payments (plans)',
                 onTap: () => _openRoute(context, '/payments'),
               ),
+              _SettingTile(
+                colors: c,
+                icon: Icons.support_agent_outlined,
+                label: 'Support inbox',
+                onTap: () => _openRoute(context, '/support-issues'),
+              ),
             ],
             if (!(user?.isSalesHead ?? false)) ...[
             _SectionLabel('Workspace', colors: c),
@@ -440,6 +446,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
             ],
             _SectionLabel('Security', colors: c),
+            _SettingTile(
+              colors: c,
+              icon: Icons.report_problem_outlined,
+              label: 'Report a problem',
+              onTap: () => _openRoute(context, '/report-problem'),
+            ),
+            if (user?.isPlatformSuperAdmin == true)
+              _SettingTile(
+                colors: c,
+                icon: Icons.support_agent_outlined,
+                label: 'Support inbox',
+                onTap: () => _openRoute(context, '/support-issues'),
+              ),
+            if (!(user?.isClient ?? false) &&
+                user?.isPlatformSuperAdmin != true)
+              _SettingTile(
+                colors: c,
+                icon: Icons.assignment_outlined,
+                label: 'Issues',
+                onTap: () => _openRoute(context, '/support-issues'),
+              ),
             _SettingTile(
               colors: c,
               icon: Icons.devices_outlined,

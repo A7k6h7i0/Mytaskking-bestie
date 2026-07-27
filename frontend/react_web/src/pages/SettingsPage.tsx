@@ -1,16 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { toast } from '@/components/Toast';
 import { useAuthStore } from '@/store/auth';
 import './settings.css';
+import './support-tickets.css';
 
 export default function SettingsPage() {
   const user = useAuthStore((s) => s.user)!;
   const qc = useQueryClient();
   const isAdmin = user.role === 'SUPER_ADMIN' || user.role === 'ADMIN';
+  const isSuper = user.role === 'SUPER_ADMIN';
+  const isClient = user.role === 'CLIENT';
   const [passwords, setPasswords] = useState({
     currentPassword: '',
     newPassword: '',
@@ -109,6 +113,16 @@ export default function SettingsPage() {
       {!isAdmin && (
         <div className="st__note">You can view settings here. Only admins can change them.</div>
       )}
+
+      <section className="st__section">
+        <h2>Support</h2>
+        <p className="st__subtle">Report a platform issue or check the status of an existing ticket.</p>
+        <div className="stt__settings-links">
+          <Link to="/report-problem">Report a problem</Link>
+          {isSuper && <Link to="/support-issues">Support inbox</Link>}
+          {!isClient && !isSuper && <Link to="/support-issues">Issues</Link>}
+        </div>
+      </section>
 
       <section className="st__section">
         <h2>Change password</h2>
