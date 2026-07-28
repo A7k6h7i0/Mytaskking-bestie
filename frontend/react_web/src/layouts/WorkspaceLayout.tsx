@@ -86,7 +86,7 @@ const NAV: NavItem[] = [
 
 // Per-role visibility. Anything not listed is hidden for that role.
 const ALLOWED: Record<string, string[]> = {
-  SUPER_ADMIN: NAV.filter((n) => n.to !== '/request-leave').map((n) => n.to),
+  SUPER_ADMIN: NAV.filter((n) => n.to !== '/request-leave' && n.to !== '/report-problem').map((n) => n.to),
   ADMIN: NAV.filter((n) => !n.platformOnly && n.to !== '/request-leave').map((n) => n.to),
   MANAGER: ['/dashboard', '/chat', '/channels', '/tasks', '/reports', '/calendar', '/calls', '/meetings', '/saved', '/field-visits', '/employees', '/clients', '/sessions', '/request-leave', '/report-problem'],
   PROJECT_COORDINATOR_MANAGER: ['/dashboard', '/chat', '/channels', '/tasks', '/reports', '/calendar', '/calls', '/meetings', '/saved', '/field-visits', '/employees', '/sessions', '/request-leave', '/report-problem'],

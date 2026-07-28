@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
+import 'package:mytaskking_core/mytaskking_core.dart';
 
 import '../state.dart';
 
@@ -14,8 +15,6 @@ class SupportIssuesScreen extends ConsumerStatefulWidget {
 }
 
 class _SupportIssuesScreenState extends ConsumerState<SupportIssuesScreen> {
-  static const _assigneeStatusValues = {'IN_PROGRESS', 'RESOLVED', 'CLOSED'};
-
   List<Map<String, dynamic>> _items = const [];
   List<Map<String, dynamic>> _statuses = const [];
   bool _loading = true;
@@ -199,25 +198,22 @@ class _SupportIssuesScreenState extends ConsumerState<SupportIssuesScreen> {
   }
 
   bool _userCanUpdate(Map<String, dynamic> ticket) {
-    if (_isSuperAdmin) return true;
-    final status = ticket['status']?.toString() ?? 'OPEN';
-    if (status == 'CLOSED') return false;
-    final me = ref.read(authStoreProvider).user?.id;
-    if (me == null) return false;
-    return _assigneeIds(ticket).contains(me);
+    return assigneeCanUpdateIssueStatus(
+      isSuperAdmin: _isSuperAdmin,
+      ticketStatus: ticket['status']?.toString() ?? 'OPEN',
+      assigneeIds: _assigneeIds(ticket),
+      userId: ref.read(authStoreProvider).user?.id,
+    );
   }
 
   List<Map<String, dynamic>> _statusOptionsForUser(bool isSuper) {
     if (isSuper) return _statuses;
-    return _statuses
-        .where((s) => _assigneeStatusValues.contains(s['value']?.toString()))
-        .toList();
+    return assigneeStatusOptions(_statuses);
   }
 
   String _defaultStatusForUser(String current, bool isSuper) {
     if (isSuper) return current;
-    if (_assigneeStatusValues.contains(current)) return current;
-    return 'IN_PROGRESS';
+    return defaultAssigneeStatus(current);
   }
 
   Future<void> _updateStatus(Map<String, dynamic> ticket, {required bool isSuper}) async {

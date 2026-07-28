@@ -446,12 +446,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
             ],
             _SectionLabel('Security', colors: c),
-            _SettingTile(
-              colors: c,
-              icon: Icons.report_problem_outlined,
-              label: 'Report a problem',
-              onTap: () => _openRoute(context, '/report-problem'),
-            ),
+            if (user?.canReportProblem == true)
+              _SettingTile(
+                colors: c,
+                icon: Icons.report_problem_outlined,
+                label: 'Report a problem',
+                onTap: () => _openRoute(context, '/report-problem'),
+              ),
             if (user?.isPlatformSuperAdmin == true)
               _SettingTile(
                 colors: c,

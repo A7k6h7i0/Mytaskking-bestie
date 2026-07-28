@@ -37,6 +37,9 @@ class BestieUser {
       role != 'ADMIN' &&
       (tenantSlug == null || tenantSlug == 'default' || tenantSlug!.isEmpty);
 
+  /// Org users report problems; platform super admin uses Support inbox instead.
+  bool get canReportProblem => !isClient && !isPlatformSuperAdmin;
+
   bool get isSalesHead =>
       role == 'SALES_HEAD' &&
       (tenantSlug == null || tenantSlug == 'default' || tenantSlug!.isEmpty);

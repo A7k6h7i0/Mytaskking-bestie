@@ -5,7 +5,6 @@ import 'package:mytaskking_core/mytaskking_core.dart';
 
 import '../state.dart';
 import 'shell_screen.dart';
-import '../utils/subscription_status.dart';
 import '../widgets/document_image_viewer.dart';
 
 /// Platform super-admin screen — create and manage customer organisations.
@@ -316,10 +315,10 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
           ? Padding(
               padding: EdgeInsets.only(bottom: bottomClearance - 24),
               child: FloatingActionButton.extended(
-                onPressed: _showCreateSheet,
-                icon: const Icon(Icons.add_business_rounded),
-                label: const Text('Add organisation'),
-              ),
+        onPressed: _showCreateSheet,
+        icon: const Icon(Icons.add_business_rounded),
+        label: const Text('Add organisation'),
+      ),
             )
           : null,
       body: Column(
@@ -415,9 +414,9 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
                                 textAlign: TextAlign.center,
                                 style:
                                     TextStyle(color: c.textMuted, height: 1.4),
-                              ),
-                            ],
-                          )
+                          ),
+                        ],
+                      )
                     : ListView.separated(
                         padding: EdgeInsets.fromLTRB(
                           16,
@@ -519,9 +518,9 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
                                 if (sub != null)
                                   Text(
                                     subscriptionStatusLabel(sub),
-                                    style: TextStyle(
-                                        color: c.textMuted, fontSize: 13),
-                                  ),
+                                  style: TextStyle(
+                                      color: c.textMuted, fontSize: 13),
+                                ),
                                 const SizedBox(height: 10),
                                 Align(
                                   alignment: Alignment.centerRight,
@@ -547,10 +546,10 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
                                           spacing: 8,
                                           children: [
                                             TextButton(
-                                              onPressed: () => _setStatus(
-                                                org['id'].toString(),
-                                                active ? 'SUSPENDED' : 'ACTIVE',
-                                              ),
+                                    onPressed: () => _setStatus(
+                                      org['id'].toString(),
+                                      active ? 'SUSPENDED' : 'ACTIVE',
+                                    ),
                                               child: Text(active
                                                   ? 'Suspend'
                                                   : 'Activate'),
@@ -565,7 +564,7 @@ class _OrganizationsScreenState extends ConsumerState<OrganizationsScreen> {
                                                         color: c.danger)),
                                               ),
                                           ],
-                                        ),
+                                  ),
                                 ),
                               ],
                             ),
@@ -1011,7 +1010,7 @@ class _EditOrganizationSheetState extends State<_EditOrganizationSheet> {
                   : const Text('Save changes'),
             ),
           ],
-        ),
+                      ),
       ),
     );
   }

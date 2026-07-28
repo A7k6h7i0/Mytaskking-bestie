@@ -29,3 +29,20 @@ export function isDefaultTenantSupportAssignee(user: User | null | undefined): b
 export function canAccessSupportIssues(user: User | null | undefined): boolean {
   return isPlatformSuperAdmin(user) || isDefaultTenantSupportAssignee(user);
 }
+
+export function canReportProblem(user: User | null | undefined): boolean {
+  if (!user || user.isClient) return false;
+  return !isPlatformSuperAdmin(user);
+}
+
+export function assigneeCanUpdateIssueStatus(options: {
+  isSuperAdmin: boolean;
+  ticketStatus: string;
+  assigneeIds: string[];
+  userId?: string;
+}): boolean {
+  if (options.isSuperAdmin) return true;
+  if (options.ticketStatus === 'CLOSED') return false;
+  if (!options.userId) return false;
+  return options.assigneeIds.includes(options.userId);
+}

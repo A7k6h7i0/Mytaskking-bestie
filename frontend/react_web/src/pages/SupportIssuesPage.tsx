@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/Input';
 import { toast } from '@/components/Toast';
 import { useAuthStore } from '@/store/auth';
 import {
+  assigneeCanUpdateIssueStatus,
   assigneeStatusOptions,
   defaultAssigneeStatus,
   isPlatformSuperAdmin,
@@ -122,9 +123,12 @@ export default function SupportIssuesPage() {
   }
 
   function userCanUpdate(t: Ticket) {
-    if (isSuper) return true;
-    if (isClosed(t.status)) return false;
-    return (t.assigneeIds ?? []).includes(user.id);
+    return assigneeCanUpdateIssueStatus({
+      isSuperAdmin: isSuper,
+      ticketStatus: t.status,
+      assigneeIds: t.assigneeIds ?? [],
+      userId: user.id,
+    });
   }
 
   function openStatusModal(t: Ticket) {

@@ -44,6 +44,17 @@ h1 {
   color: #dc2626;
 }
 
+.notice {
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #ecfdf5;
+  border: 1px solid #86efac;
+  color: #166534;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
 .plans {
   display: grid;
   gap: 10px;

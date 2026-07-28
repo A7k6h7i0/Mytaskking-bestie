@@ -5,6 +5,7 @@ const prisma = require('../database/prisma');
 const logger = require('../utils/logger');
 const { BadRequest, NotFound } = require('../utils/errors');
 const billingPlans = require('./billingPlans.service');
+const { isActivePaidSubscription, activePaidPlanMessage } = require('../utils/subscription');
 
 async function listPlans() {
   return billingPlans.listPlans({ activeOnly: true });
@@ -30,6 +31,16 @@ async function createRazorpayOrder(tenantId, { planId, planMonths } = {}) {
     include: { registration: true },
   });
   if (!tenant) throw NotFound('Organisation not found');
+
+  const current = await ensureSubscription(tenantId);
+  const currentFull = await prisma.tenantSubscription.findUnique({
+    where: { tenantId },
+    include: { billingPlan: true },
+  });
+  if (isActivePaidSubscription(currentFull || current)) {
+    throw BadRequest(activePaidPlanMessage(currentFull || current));
+  }
+
   const plan = await billingPlans.resolvePlan({ planId, planMonths });
   const keyId = process.env.RAZORPAY_KEY_ID;
   const keySecret = process.env.RAZORPAY_KEY_SECRET;

@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/Input';
 import { toast } from '@/components/Toast';
 import { useAuthStore } from '@/store/auth';
 import {
+  canReportProblem,
   isDefaultTenantSupportAssignee,
   isPlatformSuperAdmin,
 } from '@/utils/supportAccess';
@@ -123,7 +124,7 @@ export default function SettingsPage() {
         <h2>Support</h2>
         <p className="st__subtle">Report a platform issue or check the status of an existing ticket.</p>
         <div className="stt__settings-links">
-          <Link to="/report-problem">Report a problem</Link>
+          {canReportProblem(user) && <Link to="/report-problem">Report a problem</Link>}
           {isSuper && <Link to="/support-issues">Support inbox</Link>}
           {isAssignee && <Link to="/support-issues">Issues</Link>}
         </div>

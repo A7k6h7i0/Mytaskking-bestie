@@ -18,6 +18,37 @@ export async function fetchPlans(): Promise<Plan[]> {
   return data.items || [];
 }
 
+export async function fetchSubscriptionStatus(tenantId: string) {
+  const res = await fetch(`${API}/billing/status/${tenantId}`);
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.subscription as
+    | {
+        status?: string;
+        paidUntil?: string | null;
+        planMonths?: number;
+        billingPlan?: { label?: string };
+      }
+    | null;
+}
+
+export function activePaidPlanMessage(
+  sub: {
+    status?: string;
+    paidUntil?: string | null;
+    planMonths?: number;
+    billingPlan?: { label?: string };
+  } | null,
+) {
+  if (!sub || sub.status !== 'PAID') return null;
+  if (sub.paidUntil && new Date(sub.paidUntil) <= new Date()) return null;
+  const plan = sub.billingPlan?.label || `${sub.planMonths || ''} month plan`.trim();
+  const until = sub.paidUntil ? sub.paidUntil.slice(0, 10) : '';
+  return until
+    ? `You are already on the ${plan} plan (active until ${until}).`
+    : `You are already on the ${plan} plan.`;
+}
+
 export async function createOrder(
   tenantId: string,
   options: { planId?: string; planMonths?: number },
@@ -28,7 +59,14 @@ export async function createOrder(
     body: JSON.stringify({ tenantId, ...options }),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.message || data.error || 'Order failed');
+  if (!res.ok) {
+    const msg =
+      data?.error?.message ||
+      data?.message ||
+      data?.error ||
+      'Order failed';
+    throw new Error(typeof msg === 'string' ? msg : 'Order failed');
+  }
   return data;
 }
 

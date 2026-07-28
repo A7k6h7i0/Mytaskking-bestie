@@ -7,7 +7,6 @@ import 'package:mytaskking_core/mytaskking_core.dart';
 
 import '../state.dart';
 import '../utils/payment_checkout.dart';
-import '../utils/subscription_status.dart';
 
 /// Organisation admin — account details, subscription status, and payment.
 class SubscriptionScreen extends ConsumerStatefulWidget {
@@ -152,6 +151,26 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen>
   Future<void> _payNow(String planId) async {
     final tenantId = _tenantId;
     if (tenantId == null) return;
+
+    final sub = (_account?['subscription'] as Map?)?.cast<String, dynamic>();
+    if (isActivePaidPlan(sub)) {
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Active plan'),
+          content: Text(activePaidPlanMessage(sub)),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     final launched = await launchPaymentCheckout(
       context,
       tenantId: tenantId,
@@ -172,6 +191,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen>
     final c = BestieColors.of(context);
     final sub = (_account?['subscription'] as Map?)?.cast<String, dynamic>();
     final statusLabel = subscriptionStatusLabel(sub);
+    final hasActivePlan = isActivePaidPlan(sub);
 
     return Scaffold(
       backgroundColor: c.surface,
@@ -210,27 +230,47 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen>
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: c.brandSoft,
+                          color: hasActivePlan ? c.successSoft : c.brandSoft,
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: c.borderSoft),
+                          border: Border.all(
+                            color: hasActivePlan ? c.success : c.borderSoft,
+                          ),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Account status',
-                                style: TextStyle(
-                                    color: c.textMuted,
-                                    fontWeight: FontWeight.w600)),
-                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                Icon(
+                                  hasActivePlan
+                                      ? Icons.verified_rounded
+                                      : Icons.info_outline_rounded,
+                                  color: hasActivePlan ? c.success : c.brand,
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  hasActivePlan ? 'Active plan' : 'Account status',
+                                  style: TextStyle(
+                                    color: hasActivePlan ? c.success : c.textMuted,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
                             Text(
-                              statusLabel,
+                              hasActivePlan
+                                  ? activePaidPlanMessage(sub)
+                                  : statusLabel,
                               style: TextStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w700,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
                                 color: c.text,
+                                height: 1.4,
                               ),
                             ),
-                            if (_account?['slug'] != null) ...[
+                            if (!hasActivePlan && _account?['slug'] != null) ...[
                               const SizedBox(height: 8),
                               Text(
                                 'Login slug: ${_account!['slug']}',
@@ -312,11 +352,14 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen>
                                   ),
                                   const SizedBox(height: 12),
                                   FilledButton(
-                                    onPressed:
-                                        id.isEmpty ? null : () => _payNow(id),
+                                    onPressed: id.isEmpty || hasActivePlan
+                                        ? null
+                                        : () => _payNow(id),
                                     style: FilledButton.styleFrom(
                                         backgroundColor: c.brand),
-                                    child: const Text('Pay now'),
+                                    child: Text(
+                                      hasActivePlan ? 'Plan active' : 'Pay now',
+                                    ),
                                   ),
                                 ],
                               ),

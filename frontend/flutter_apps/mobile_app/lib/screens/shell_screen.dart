@@ -355,7 +355,7 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
       _MoreEntry(
           Icons.settings_outlined, 'Settings', '/settings', c.textSoft, true),
       _MoreEntry(Icons.report_problem_outlined, 'Report a problem',
-          '/report-problem', c.warning, !isClient),
+          '/report-problem', c.warning, user?.canReportProblem ?? false),
     ].where((e) => e.visible).toList();
   }
 

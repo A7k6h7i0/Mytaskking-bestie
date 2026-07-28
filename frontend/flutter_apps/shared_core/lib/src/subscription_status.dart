@@ -5,6 +5,29 @@ String formatSubscriptionDate(dynamic value) {
   return raw.replaceFirst('T', ' ').split('.').first;
 }
 
+bool isActivePaidPlan(Map<String, dynamic>? sub) {
+  if (sub == null) return false;
+  if (sub['status']?.toString() != 'PAID') return false;
+  final untilRaw = sub['paidUntil'];
+  if (untilRaw == null) return true;
+  final until = DateTime.tryParse(untilRaw.toString());
+  if (until == null) return true;
+  return until.isAfter(DateTime.now());
+}
+
+String activePaidPlanMessage(Map<String, dynamic>? sub) {
+  if (sub == null) return 'You already have an active plan.';
+  final plan = sub['planLabel']?.toString() ??
+      (sub['planMonths'] != null
+          ? '${sub['planMonths']} month plan'
+          : 'paid plan');
+  final until = formatSubscriptionDate(sub['paidUntil']);
+  if (until.isEmpty) {
+    return 'You are already on the $plan plan.';
+  }
+  return 'You are already on the $plan plan (active until $until).';
+}
+
 String subscriptionStatusLabel(Map<String, dynamic>? sub) {
   if (sub == null) return 'No subscription';
   final status = (sub['status'] ?? 'NONE').toString();

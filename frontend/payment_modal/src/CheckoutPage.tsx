@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
+  activePaidPlanMessage,
   createOrder,
   fetchPlans,
+  fetchSubscriptionStatus,
   openRazorpayCheckout,
   verifyPayment,
   type Plan,
@@ -25,6 +27,7 @@ export default function CheckoutPage() {
   const [selectedId, setSelectedId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activePlanNotice, setActivePlanNotice] = useState<string | null>(null);
 
   useEffect(() => {
     fetchPlans()
@@ -35,6 +38,13 @@ export default function CheckoutPage() {
       .catch((e) => setError(e.message));
   }, [planParam]);
 
+  useEffect(() => {
+    if (!tenantId) return;
+    fetchSubscriptionStatus(tenantId)
+      .then((sub) => setActivePlanNotice(activePaidPlanMessage(sub)))
+      .catch(() => setActivePlanNotice(null));
+  }, [tenantId]);
+
   const selectedPlan = useMemo(
     () => plans.find((p) => p.id === selectedId),
     [plans, selectedId],
@@ -43,6 +53,10 @@ export default function CheckoutPage() {
   async function payNow() {
     if (!tenantId) {
       setError('Missing tenantId in URL');
+      return;
+    }
+    if (activePlanNotice) {
+      setError(activePlanNotice);
       return;
     }
     if (!selectedPlan) {
@@ -86,6 +100,7 @@ export default function CheckoutPage() {
       <div className="card">
         <h1>MyTaskKing subscription</h1>
         <p className="muted">Choose a plan for your organisation. All prices in INR.</p>
+        {activePlanNotice && <p className="notice">{activePlanNotice}</p>}
         {!tenantId && <p className="error">Add ?tenantId=... to the URL from the app.</p>}
         <div className="plans">
           {plans.map((plan) => (
@@ -107,8 +122,8 @@ export default function CheckoutPage() {
           </p>
         )}
         {error && <p className="error">{error}</p>}
-        <button type="button" className="primary" disabled={loading || !tenantId || !selectedPlan} onClick={payNow}>
-          {loading ? 'Opening checkout…' : 'Pay now'}
+        <button type="button" className="primary" disabled={loading || !tenantId || !selectedPlan || !!activePlanNotice} onClick={payNow}>
+          {activePlanNotice ? 'Plan already active' : loading ? 'Opening checkout…' : 'Pay now'}
         </button>
       </div>
     </div>
