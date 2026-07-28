@@ -9,7 +9,15 @@
 .rl__form label { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-xs); font-weight: 600; color: var(--c-text-muted); }
 .rl__form input, .rl__form select, .rl__form textarea {
   border: 1px solid var(--c-border); border-radius: var(--r-md); padding: 8px 10px;
-  background: var(--c-bg); color: inherit; font-size: var(--fs-sm);
+  background: var(--c-bg); color: var(--c-text); font-size: var(--fs-sm);
+}
+.rl__form input[type="date"],
+.rl__form input[type="time"] {
+  color-scheme: light dark;
+}
+html.theme-dark .rl__form input[type="date"]::-webkit-calendar-picker-indicator,
+html.theme-dark .rl__form input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
 }
 .rl__full { grid-column: 1 / -1; }
 .rl__form button {

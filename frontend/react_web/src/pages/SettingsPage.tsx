@@ -6,6 +6,10 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { toast } from '@/components/Toast';
 import { useAuthStore } from '@/store/auth';
+import {
+  isDefaultTenantSupportAssignee,
+  isPlatformSuperAdmin,
+} from '@/utils/supportAccess';
 import './settings.css';
 import './support-tickets.css';
 
@@ -13,7 +17,8 @@ export default function SettingsPage() {
   const user = useAuthStore((s) => s.user)!;
   const qc = useQueryClient();
   const isAdmin = user.role === 'SUPER_ADMIN' || user.role === 'ADMIN';
-  const isSuper = user.role === 'SUPER_ADMIN';
+  const isSuper = isPlatformSuperAdmin(user);
+  const isAssignee = isDefaultTenantSupportAssignee(user);
   const isClient = user.role === 'CLIENT';
   const [passwords, setPasswords] = useState({
     currentPassword: '',
@@ -120,7 +125,7 @@ export default function SettingsPage() {
         <div className="stt__settings-links">
           <Link to="/report-problem">Report a problem</Link>
           {isSuper && <Link to="/support-issues">Support inbox</Link>}
-          {!isClient && !isSuper && <Link to="/support-issues">Issues</Link>}
+          {isAssignee && <Link to="/support-issues">Issues</Link>}
         </div>
       </section>
 

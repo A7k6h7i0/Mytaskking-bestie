@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../state.dart';
+import '../widgets/bestie_picker_theme.dart';
 
 class RequestLeaveScreen extends ConsumerStatefulWidget {
   const RequestLeaveScreen({super.key});
@@ -62,9 +63,9 @@ class _RequestLeaveScreenState extends ConsumerState<RequestLeaveScreen> {
       '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 
   Future<void> _pickDate({required bool isFrom}) async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: isFrom ? _fromDate : (_toDate ?? _fromDate),
+    final picked = await bestiePickDate(
+      context,
+      initial: isFrom ? _fromDate : (_toDate ?? _fromDate),
       firstDate: DateTime(2024),
       lastDate: DateTime.now().add(const Duration(days: 365)),
     );
@@ -82,8 +83,8 @@ class _RequestLeaveScreenState extends ConsumerState<RequestLeaveScreen> {
   }
 
   Future<void> _pickTime({required bool start}) async {
-    final picked = await showTimePicker(
-      context: context,
+    final picked = await bestiePickTime(
+      context,
       initialTime: start
           ? (_startTime ?? const TimeOfDay(hour: 9, minute: 0))
           : (_endTime ?? const TimeOfDay(hour: 13, minute: 0)),
@@ -164,6 +165,18 @@ class _RequestLeaveScreenState extends ConsumerState<RequestLeaveScreen> {
   @override
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
+    final role = ref.watch(authStoreProvider).user?.role ?? '';
+    if (role == 'ADMIN' || role == 'SUPER_ADMIN') {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Request a leave')),
+        body: BestieEmptyState(
+          icon: Icons.admin_panel_settings_outlined,
+          title: 'Admins review leave only',
+          description:
+              'Organisation admins approve employee leave under More → Leave requests.',
+        ),
+      );
+    }
     final needsTime = _leaveType == 'HALF_DAY' || _leaveType == 'PERMISSION';
 
     return Scaffold(
@@ -194,14 +207,22 @@ class _RequestLeaveScreenState extends ConsumerState<RequestLeaveScreen> {
           const SizedBox(height: 12),
           OutlinedButton.icon(
             onPressed: () => _pickDate(isFrom: true),
-            icon: const Icon(Icons.event_outlined, size: 18),
+            icon: Icon(Icons.event_outlined, size: 18, color: c.text),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: c.text,
+              side: BorderSide(color: c.border),
+            ),
             label: Text('From ${_dateKey(_fromDate)}'),
           ),
           if (_leaveType == 'FULL_DAY') ...[
             const SizedBox(height: 8),
             OutlinedButton.icon(
               onPressed: () => _pickDate(isFrom: false),
-              icon: const Icon(Icons.event_outlined, size: 18),
+              icon: Icon(Icons.event_outlined, size: 18, color: c.text),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: c.text,
+                side: BorderSide(color: c.border),
+              ),
               label: Text(
                 _toDate != null
                     ? 'To ${_dateKey(_toDate!)}'
@@ -213,7 +234,11 @@ class _RequestLeaveScreenState extends ConsumerState<RequestLeaveScreen> {
             const SizedBox(height: 8),
             OutlinedButton.icon(
               onPressed: () => _pickDate(isFrom: false),
-              icon: const Icon(Icons.date_range_outlined, size: 18),
+              icon: Icon(Icons.date_range_outlined, size: 18, color: c.text),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: c.text,
+                side: BorderSide(color: c.border),
+              ),
               label: Text(
                 _toDate != null
                     ? 'End date ${_dateKey(_toDate!)}'
@@ -228,6 +253,10 @@ class _RequestLeaveScreenState extends ConsumerState<RequestLeaveScreen> {
                 Expanded(
                   child: OutlinedButton(
                     onPressed: () => _pickTime(start: true),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: c.text,
+                      side: BorderSide(color: c.border),
+                    ),
                     child: Text(
                       _startTime != null
                           ? 'Start ${_timeKey(_startTime!)}'
@@ -239,6 +268,10 @@ class _RequestLeaveScreenState extends ConsumerState<RequestLeaveScreen> {
                 Expanded(
                   child: OutlinedButton(
                     onPressed: () => _pickTime(start: false),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: c.text,
+                      side: BorderSide(color: c.border),
+                    ),
                     child: Text(
                       _endTime != null
                           ? 'End ${_timeKey(_endTime!)}'

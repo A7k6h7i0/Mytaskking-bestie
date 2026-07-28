@@ -30,6 +30,13 @@ class BestieUser {
       role == 'SUPER_ADMIN' &&
       (tenantSlug == null || tenantSlug == 'default' || tenantSlug!.isEmpty);
 
+  /// Default-tenant employees who can be assigned platform support tickets.
+  bool get isDefaultTenantSupportAssignee =>
+      !isClient &&
+      role != 'SUPER_ADMIN' &&
+      role != 'ADMIN' &&
+      (tenantSlug == null || tenantSlug == 'default' || tenantSlug!.isEmpty);
+
   bool get isSalesHead =>
       role == 'SALES_HEAD' &&
       (tenantSlug == null || tenantSlug == 'default' || tenantSlug!.isEmpty);

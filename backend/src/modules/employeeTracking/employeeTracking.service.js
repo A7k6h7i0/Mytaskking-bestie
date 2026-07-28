@@ -250,6 +250,9 @@ async function liveLocations(req) {
 
 async function createLeave(req, body) {
   if (!isInternalEmployee(req.user)) throw Forbidden('Employees only');
+  if (req.user.role === 'ADMIN' || req.user.role === 'SUPER_ADMIN') {
+    throw Forbidden('Organisation admins cannot submit leave requests');
+  }
   const leaveType = body.leaveType || body.leave_type;
   if (!['FULL_DAY', 'HALF_DAY', 'PERMISSION'].includes(leaveType)) {
     throw BadRequest('Invalid leave type');

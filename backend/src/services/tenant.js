@@ -28,6 +28,14 @@ function isPlatformStaff(user) {
   return isPlatformSuperAdmin(user) || isSalesHead(user);
 }
 
+/** Default-tenant internal employees who may be assigned platform support tickets. */
+function isDefaultTenantSupportAssignee(user) {
+  if (!user || user.isClient) return false;
+  if (user.role === 'SUPER_ADMIN' || user.role === 'ADMIN') return false;
+  if (!MULTI_TENANT) return true;
+  return userTenantId(user) === DEFAULT_TENANT_ID;
+}
+
 /** Resolved tenant for any authenticated user. */
 function userTenantId(user) {
   if (!MULTI_TENANT) return null;
@@ -321,6 +329,7 @@ module.exports = {
   isPlatformSuperAdmin,
   isSalesHead,
   isPlatformStaff,
+  isDefaultTenantSupportAssignee,
   userTenantId,
   isOrgAdmin,
   canAdministerTenant,

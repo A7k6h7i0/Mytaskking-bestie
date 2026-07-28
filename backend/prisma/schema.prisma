@@ -88,6 +88,7 @@ model User {
   supportTicketsReported SupportTicket[] @relation("SupportTicketReporter")
   supportTicketsAssigned SupportTicket[] @relation("SupportTicketAssignee")
   supportTicketsAssignedBy SupportTicket[] @relation("SupportTicketAssignedBy")
+  supportTicketAssignments SupportTicketAssignee[] @relation("SupportTicketAssigneeMember")
   registrationReviews TenantRegistration[] @relation("RegistrationReviewer")
   marketingOutletsAssigned MarketingOutlet[] @relation("MarketingOutletAssignee")
   marketingOutletsCreated  MarketingOutlet[] @relation("MarketingOutletCreator")
@@ -1093,11 +1094,26 @@ model SupportTicket {
   resolvedAt      DateTime?
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
+  assignees       SupportTicketAssignee[]
 
   @@index([status])
   @@index([tenantId])
   @@index([assigneeId])
   @@index([reporterId])
+}
+
+model SupportTicketAssignee {
+  id           String        @id @default(cuid())
+  ticketId     String
+  ticket       SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User          @relation("SupportTicketAssigneeMember", fields: [userId], references: [id], onDelete: Cascade)
+  assignedAt   DateTime      @default(now())
+  assignedById String?
+
+  @@unique([ticketId, userId])
+  @@index([ticketId])
+  @@index([userId])
 }
 
 // ---------------------------------------------------------------------------

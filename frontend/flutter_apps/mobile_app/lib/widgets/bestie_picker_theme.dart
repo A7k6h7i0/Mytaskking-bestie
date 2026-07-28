@@ -107,6 +107,19 @@ Future<({DateTime? value, bool cancelled})> bestiePickScheduledDateTime(
   return (value: picked, cancelled: false);
 }
 
+/// Theme-aware time-only picker. Returns null if cancelled.
+Future<TimeOfDay?> bestiePickTime(
+  BuildContext context, {
+  required TimeOfDay initialTime,
+}) {
+  return showTimePicker(
+    context: context,
+    useRootNavigator: true,
+    initialTime: initialTime,
+    builder: _bestiePickerBuilder,
+  );
+}
+
 /// Theme-aware date-only picker. Returns null if cancelled.
 Future<DateTime?> bestiePickDate(
   BuildContext context, {

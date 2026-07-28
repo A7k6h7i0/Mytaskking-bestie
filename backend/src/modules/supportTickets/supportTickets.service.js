@@ -22,6 +22,9 @@ const STATUS_LABELS = {
   CLOSED: 'Closed',
 };
 
+/** Platform team assignees may only set these statuses (not Super Admin). */
+const ASSIGNEE_ALLOWED_STATUSES = new Set(['IN_PROGRESS', 'RESOLVED', 'CLOSED']);
+
 const userSelect = {
   id: true,
   name: true,
@@ -31,13 +34,54 @@ const userSelect = {
   tenantId: true,
 };
 
+const ticketInclude = {
+  reporter: { select: userSelect },
+  assignee: { select: userSelect },
+  assignedBy: { select: userSelect },
+  assignees: {
+    include: { user: { select: userSelect } },
+    orderBy: { assignedAt: 'asc' },
+  },
+};
+
+function mapAssignees(ticket) {
+  if (ticket.assignees?.length) {
+    return ticket.assignees.map((row) => ({
+      id: row.user.id,
+      name: row.user.name,
+      email: row.user.email,
+      role: row.user.role,
+      userId: row.user.userId,
+      assignedAt: row.assignedAt,
+    }));
+  }
+  if (ticket.assignee) {
+    return [
+      {
+        id: ticket.assignee.id,
+        name: ticket.assignee.name,
+        email: ticket.assignee.email,
+        role: ticket.assignee.role,
+        userId: ticket.assignee.userId,
+        assignedAt: ticket.assignedAt,
+      },
+    ];
+  }
+  return [];
+}
+
 function serialize(ticket, { redactAssignment = false } = {}) {
+  const assignees = mapAssignees(ticket);
+  const { assignees: _rows, ...rest } = ticket;
   const out = {
-    ...ticket,
+    ...rest,
     issueTypeLabel: ISSUE_TYPE_LABELS[ticket.issueType] || ticket.issueType,
     statusLabel: STATUS_LABELS[ticket.status] || ticket.status,
   };
-  if (redactAssignment) {
+  if (!redactAssignment) {
+    out.assignees = assignees;
+    out.assigneeIds = assignees.map((a) => a.id);
+  } else {
     delete out.assignee;
     delete out.assigneeId;
     delete out.assignedBy;
@@ -107,11 +151,7 @@ async function create(req, { issueType, description }) {
       issueType,
       description: description.trim(),
     },
-    include: {
-      reporter: { select: userSelect },
-      assignee: { select: userSelect },
-      assignedBy: { select: userSelect },
-    },
+    include: ticketInclude,
   });
 
   await notifySuperAdmins({ io: req.app?.get('io'), ticket });
@@ -142,11 +182,7 @@ async function checkStatus(req, { ticketNumber }) {
   const normalizedNumber = ticketNumber.trim().toUpperCase();
   const ticket = await prisma.supportTicket.findUnique({
     where: { ticketNumber: normalizedNumber },
-    include: {
-      reporter: { select: userSelect },
-      assignee: { select: userSelect },
-      assignedBy: { select: userSelect },
-    },
+    include: ticketInclude,
   });
   if (!ticket) throw NotFound('Issue not found');
 
@@ -162,26 +198,23 @@ async function listAdmin(req) {
   if (!tenant.isPlatformSuperAdmin(req.user)) throw Forbidden('Super admin only');
   const items = await prisma.supportTicket.findMany({
     orderBy: { createdAt: 'desc' },
-    include: {
-      reporter: { select: userSelect },
-      assignee: { select: userSelect },
-      assignedBy: { select: userSelect },
-    },
+    include: ticketInclude,
   });
-  return items.map(serialize);
+  return items.map((t) => serialize(t));
 }
 
 async function listAssigned(req) {
+  if (!tenant.isDefaultTenantSupportAssignee(req.user)) {
+    throw Forbidden('Platform team members only');
+  }
   const items = await prisma.supportTicket.findMany({
-    where: { assigneeId: req.user.id },
-    orderBy: { updatedAt: 'desc' },
-    include: {
-      reporter: { select: userSelect },
-      assignee: { select: userSelect },
-      assignedBy: { select: userSelect },
+    where: {
+      assignees: { some: { userId: req.user.id } },
     },
+    orderBy: { updatedAt: 'desc' },
+    include: ticketInclude,
   });
-  return items.map(serialize);
+  return items.map((t) => serialize(t));
 }
 
 async function listAssignees(req, { q }) {
@@ -204,7 +237,7 @@ async function listAssignees(req, { q }) {
   const items = await prisma.user.findMany({
     where,
     orderBy: { name: 'asc' },
-    take: 50,
+    take: q ? 50 : 200,
     select: {
       id: true,
       name: true,
@@ -218,50 +251,98 @@ async function listAssignees(req, { q }) {
   return items;
 }
 
-async function assign(req, id, { assigneeId }) {
+async function validateAssigneeIds(assigneeIds) {
+  const ids = [...new Set((assigneeIds || []).filter(Boolean))];
+  if (!ids.length) return [];
+
+  const users = await prisma.user.findMany({
+    where: { id: { in: ids } },
+  });
+  if (users.length !== ids.length) throw BadRequest('One or more employees not found');
+
+  for (const assignee of users) {
+    if (assignee.isClient || assignee.status !== 'ACTIVE') {
+      throw BadRequest('Choose active employees only');
+    }
+    if (assignee.role === 'SUPER_ADMIN') {
+      throw BadRequest('Cannot assign to super admin');
+    }
+    if ((assignee.tenantId || tenant.DEFAULT_TENANT_ID) !== tenant.DEFAULT_TENANT_ID) {
+      throw BadRequest('Support issues can only be assigned to platform team members');
+    }
+  }
+  return ids;
+}
+
+async function assign(req, id, { assigneeIds }) {
   if (!tenant.isPlatformSuperAdmin(req.user)) throw Forbidden('Super admin only');
-  const existing = await prisma.supportTicket.findUnique({ where: { id } });
-  if (!existing) throw NotFound('Issue not found');
-
-  const assignee = await prisma.user.findUnique({ where: { id: assigneeId } });
-  if (!assignee || assignee.isClient || assignee.status !== 'ACTIVE') {
-    throw BadRequest('Choose an active employee');
-  }
-  if (assignee.role === 'SUPER_ADMIN') {
-    throw BadRequest('Cannot assign to super admin');
-  }
-  if ((assignee.tenantId || tenant.DEFAULT_TENANT_ID) !== tenant.DEFAULT_TENANT_ID) {
-    throw BadRequest('Support issues can only be assigned to platform team members');
-  }
-
-  const ticket = await prisma.supportTicket.update({
+  const existing = await prisma.supportTicket.findUnique({
     where: { id },
-    data: {
-      assigneeId,
-      assignedById: req.user.id,
-      assignedAt: new Date(),
-      status: existing.status === 'OPEN' ? 'ASSIGNED' : existing.status,
-    },
-    include: {
-      reporter: { select: userSelect },
-      assignee: { select: userSelect },
-      assignedBy: { select: userSelect },
-    },
+    include: { assignees: { select: { userId: true } } },
+  });
+  if (!existing) throw NotFound('Issue not found');
+  if (existing.status === 'CLOSED') {
+    throw BadRequest('Cannot change assignees on a closed ticket');
+  }
+
+  const ids = await validateAssigneeIds(assigneeIds);
+  const previousIds = new Set(existing.assignees.map((row) => row.userId));
+  const newlyAdded = ids.filter((userId) => !previousIds.has(userId));
+
+  const ticket = await prisma.$transaction(async (tx) => {
+    await tx.supportTicketAssignee.deleteMany({ where: { ticketId: id } });
+    if (ids.length) {
+      await tx.supportTicketAssignee.createMany({
+        data: ids.map((userId) => ({
+          ticketId: id,
+          userId,
+          assignedById: req.user.id,
+        })),
+      });
+    }
+    return tx.supportTicket.update({
+      where: { id },
+      data: {
+        assigneeId: ids[0] || null,
+        assignedById: ids.length ? req.user.id : null,
+        assignedAt: ids.length ? new Date() : null,
+        status:
+          ids.length && existing.status === 'OPEN'
+            ? 'ASSIGNED'
+            : !ids.length && existing.status === 'ASSIGNED'
+              ? 'OPEN'
+              : existing.status,
+      },
+      include: ticketInclude,
+    });
   });
 
-  const notifications = require('../notifications/notifications.service');
-  await notifications
-    .notify({
-      userId: assigneeId,
-      kind: 'SYSTEM',
-      title: 'Support issue assigned',
-      body: `${ticket.ticketNumber} — ${ISSUE_TYPE_LABELS[ticket.issueType] || ticket.issueType}`,
-      data: { ticketId: ticket.id, ticketNumber: ticket.ticketNumber },
-      io: req.app?.get('io'),
-    })
-    .catch(() => null);
+  if (newlyAdded.length) {
+    const notifications = require('../notifications/notifications.service');
+    await Promise.all(
+      newlyAdded.map((userId) =>
+        notifications
+          .notify({
+            userId,
+            kind: 'SYSTEM',
+            title: 'Support issue assigned',
+            body: `${ticket.ticketNumber} — ${ISSUE_TYPE_LABELS[ticket.issueType] || ticket.issueType}`,
+            data: { ticketId: ticket.id, ticketNumber: ticket.ticketNumber },
+            io: req.app?.get('io'),
+          })
+          .catch(() => null)
+      )
+    );
+  }
 
   return serialize(ticket);
+}
+
+async function isActiveAssignee(ticketId, userId) {
+  const row = await prisma.supportTicketAssignee.findUnique({
+    where: { ticketId_userId: { ticketId, userId } },
+  });
+  return !!row;
 }
 
 async function updateStatus(req, id, { status, resolutionNotes }) {
@@ -269,8 +350,21 @@ async function updateStatus(req, id, { status, resolutionNotes }) {
   if (!existing) throw NotFound('Issue not found');
 
   const isSuper = tenant.isPlatformSuperAdmin(req.user);
-  const isAssignee = existing.assigneeId === req.user.id;
-  if (!isSuper && !isAssignee) throw Forbidden('Not allowed to update this issue');
+  const isAssignee =
+    tenant.isDefaultTenantSupportAssignee(req.user) &&
+    (await isActiveAssignee(id, req.user.id));
+  if (!isSuper && !isAssignee) {
+    throw Forbidden('Not allowed to update this issue');
+  }
+
+  if (!isSuper && isAssignee) {
+    if (existing.status === 'CLOSED') {
+      throw BadRequest('Closed issues cannot be updated');
+    }
+    if (!ASSIGNEE_ALLOWED_STATUSES.has(status)) {
+      throw BadRequest('Employees can only set status to In progress, Resolved, or Closed');
+    }
+  }
 
   const data = { status };
   if (resolutionNotes !== undefined) {
@@ -283,11 +377,7 @@ async function updateStatus(req, id, { status, resolutionNotes }) {
   const ticket = await prisma.supportTicket.update({
     where: { id },
     data,
-    include: {
-      reporter: { select: userSelect },
-      assignee: { select: userSelect },
-      assignedBy: { select: userSelect },
-    },
+    include: ticketInclude,
   });
 
   return serialize(ticket);

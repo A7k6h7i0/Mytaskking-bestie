@@ -93,8 +93,9 @@ class BestiePhoneInputState extends State<BestiePhoneInput> {
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              constraints: const BoxConstraints(minWidth: 118, maxWidth: 150),
+            SizedBox(
+              width: 84,
+              child: Container(
               decoration: BoxDecoration(
                 color: c.surface2,
                 borderRadius: BorderRadius.circular(BestieTokens.rMd),
@@ -102,12 +103,12 @@ class BestiePhoneInputState extends State<BestiePhoneInput> {
                   color: widget.errorText != null ? c.danger : c.border,
                 ),
               ),
-              padding: const EdgeInsets.symmetric(horizontal: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 6),
               child: DropdownButtonHideUnderline(
                 child: DropdownButton<String>(
                   value: _dialCode,
                   isExpanded: true,
-                  icon: Icon(Icons.expand_more_rounded, color: c.textMuted, size: 18),
+                  icon: Icon(Icons.expand_more_rounded, color: c.textMuted, size: 16),
                   items: phoneCountries
                       .map(
                         (entry) => DropdownMenuItem(
@@ -130,6 +131,7 @@ class BestiePhoneInputState extends State<BestiePhoneInput> {
                 ),
               ),
             ),
+            ),
             const SizedBox(width: 8),
             Expanded(
               child: TextField(
@@ -144,7 +146,6 @@ class BestiePhoneInputState extends State<BestiePhoneInput> {
                   hintText: '${country.min}-digit number',
                   filled: true,
                   fillColor: c.surface2,
-                  errorText: widget.errorText,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(BestieTokens.rMd),
                     borderSide: BorderSide(color: c.border),

@@ -739,10 +739,10 @@ extension BestieApiExt on BestieApi {
 
   Future<Map<String, dynamic>> assignSupportTicket(
     String id, {
-    required String assigneeId,
+    required List<String> assigneeIds,
   }) async {
     final r = await dio.patch('/support-tickets/$id/assign', data: {
-      'assigneeId': assigneeId,
+      'assigneeIds': assigneeIds,
     });
     return r.data as Map<String, dynamic>;
   }

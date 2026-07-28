@@ -296,12 +296,18 @@ String formatApiError(Object err) {
     // 1. Server-provided structured error wins: `{ error: { message } }`.
     final body = err.response?.data;
     if (body is Map && body['error'] is Map) {
-      final m = (body['error']['message'] as String?);
+      final errMap = body['error'] as Map;
+      final details = errMap['details'];
+      if (details is List && details.isNotEmpty) {
+        final first = details.first?.toString().trim();
+        if (first != null && first.isNotEmpty) return first;
+      }
+      final m = (errMap['message'] as String?);
       if (m != null && m.isNotEmpty) {
         if (m.startsWith('Route ') && m.endsWith(' not found')) {
           return 'This feature needs the latest server update. Please restart or deploy the backend and try again.';
         }
-        return m;
+        if (m != 'Validation failed') return m;
       }
     }
     // 2. Plain-string body (some routes return `{"message":"..."}`).

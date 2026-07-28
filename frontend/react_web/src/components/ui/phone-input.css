@@ -16,18 +16,19 @@
 }
 
 .bpi__country {
-  min-width: 96px;
-  max-width: 120px;
+  flex: 0 0 auto;
+  width: 4.75rem;
   border: 1px solid var(--border, #dbe3ef);
   border-radius: 10px;
   background: var(--surface-2, #f8fafc);
   color: var(--text, #0f172a);
-  padding: 10px 8px;
+  padding: 10px 6px;
   font-weight: 600;
 }
 
 .bpi__number {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
   border: 1px solid var(--border, #dbe3ef);
   border-radius: 10px;
   background: var(--surface-2, #f8fafc);

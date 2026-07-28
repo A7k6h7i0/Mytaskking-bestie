@@ -96,6 +96,7 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
         location.startsWith('/login-activity') ||
         location.startsWith('/request-leave') ||
         location.startsWith('/leave-approvals') ||
+        location.startsWith('/report-problem') ||
         location.startsWith('/work-activity') ||
         location.startsWith('/ai-review') ||
         location.startsWith('/subscription') ||
@@ -328,7 +329,7 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
       _MoreEntry(Icons.login_rounded, 'Login activity', '/login-activity',
           c.info, isAdmin),
       _MoreEntry(Icons.event_busy_outlined, 'Request a leave', '/request-leave',
-          c.warning, !isClient),
+          c.warning, !isClient && !isAdmin),
       _MoreEntry(Icons.fact_check_outlined, 'Leave requests',
           '/leave-approvals', c.brand, isAdmin),
       _MoreEntry(Icons.monitor_heart_outlined, 'Work activity',
@@ -353,6 +354,8 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
           c.brandStrong, true),
       _MoreEntry(
           Icons.settings_outlined, 'Settings', '/settings', c.textSoft, true),
+      _MoreEntry(Icons.report_problem_outlined, 'Report a problem',
+          '/report-problem', c.warning, !isClient),
     ].where((e) => e.visible).toList();
   }
 

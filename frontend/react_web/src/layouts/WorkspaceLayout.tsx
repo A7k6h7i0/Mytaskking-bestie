@@ -2,7 +2,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   LayoutDashboard, MessageSquare, KanbanSquare, Users, UserCog, Phone, Headphones, Settings, LogOut, LogIn, Hash,
-  Activity, Calendar, Bookmark, Search, BarChart3, ShieldCheck, Zap, Video, Flag, KeyRound, Radio, PhoneIncoming, PhoneCall, Minimize2, Menu, FileText, Disc3, Building2, Trash2, BrainCircuit, CreditCard, LifeBuoy, CalendarOff, ClipboardCheck, type LucideIcon,
+  Activity, Calendar, Bookmark, Search, BarChart3, ShieldCheck, Zap, Video, Flag, KeyRound, Radio, PhoneIncoming, PhoneCall, Minimize2, Menu, FileText, Disc3, Building2, Trash2, BrainCircuit, CreditCard, LifeBuoy, CalendarOff, ClipboardCheck, CircleAlert, type LucideIcon,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuthStore } from '@/store/auth';
@@ -21,9 +21,19 @@ import { toast } from '@/components/Toast';
 import { useEffect, useState } from 'react';
 import { PageTransition } from '@/components/PageTransition';
 import { Logo } from '@/components/Logo';
+import {
+  isDefaultTenantSupportAssignee,
+  isPlatformSuperAdmin,
+} from '@/utils/supportAccess';
 import './workspace-layout.css';
 
-type NavItem = { to: string; label: string; icon: LucideIcon; platformOnly?: boolean };
+type NavItem = {
+  to: string;
+  label: string;
+  icon: LucideIcon;
+  platformOnly?: boolean;
+  defaultTenantAssigneeOnly?: boolean;
+};
 type ChatMessageEvent = {
   id: string;
   channelId: string;
@@ -54,6 +64,7 @@ const NAV: NavItem[] = [
   { to: '/organizations', label: 'Organisations', icon: Building2, platformOnly: true },
   { to: '/payments', label: 'Payments', icon: CreditCard, platformOnly: true },
   { to: '/support-issues', label: 'Support inbox', icon: LifeBuoy, platformOnly: true },
+  { to: '/support-issues', label: 'Issues', icon: LifeBuoy, defaultTenantAssigneeOnly: true },
   { to: '/telecaller', label: 'Telecaller', icon: Headphones },
   { to: '/saved', label: 'Saved', icon: Bookmark },
   { to: '/field-visits', label: 'Field visits', icon: Radio },
@@ -69,18 +80,19 @@ const NAV: NavItem[] = [
   { to: '/flags', label: 'Feature flags', icon: Flag },
   { to: '/permissions', label: 'Permissions', icon: KeyRound },
   { to: '/sessions', label: 'My sessions', icon: ShieldCheck },
+  { to: '/report-problem', label: 'Report a problem', icon: CircleAlert },
   { to: '/settings', label: 'Settings', icon: Settings },
 ];
 
 // Per-role visibility. Anything not listed is hidden for that role.
 const ALLOWED: Record<string, string[]> = {
-  SUPER_ADMIN: NAV.map((n) => n.to),
-  ADMIN: NAV.filter((n) => !n.platformOnly).map((n) => n.to),
-  MANAGER: ['/dashboard', '/chat', '/channels', '/tasks', '/reports', '/calendar', '/calls', '/meetings', '/saved', '/field-visits', '/employees', '/clients', '/sessions', '/support-issues', '/request-leave'],
-  PROJECT_COORDINATOR_MANAGER: ['/dashboard', '/chat', '/channels', '/tasks', '/reports', '/calendar', '/calls', '/meetings', '/saved', '/field-visits', '/employees', '/sessions', '/support-issues', '/request-leave'],
-  EMPLOYEE: ['/dashboard', '/chat', '/channels', '/tasks', '/reports', '/calendar', '/calls', '/meetings', '/saved', '/employees', '/sessions', '/support-issues', '/request-leave'],
-  TELECALLER: ['/dashboard', '/telecaller', '/chat', '/reports', '/calendar', '/saved', '/employees', '/sessions', '/support-issues', '/request-leave'],
-  CLIENT: ['/dashboard', '/channels', '/saved', '/sessions'],
+  SUPER_ADMIN: NAV.filter((n) => n.to !== '/request-leave').map((n) => n.to),
+  ADMIN: NAV.filter((n) => !n.platformOnly && n.to !== '/request-leave').map((n) => n.to),
+  MANAGER: ['/dashboard', '/chat', '/channels', '/tasks', '/reports', '/calendar', '/calls', '/meetings', '/saved', '/field-visits', '/employees', '/clients', '/sessions', '/request-leave', '/report-problem'],
+  PROJECT_COORDINATOR_MANAGER: ['/dashboard', '/chat', '/channels', '/tasks', '/reports', '/calendar', '/calls', '/meetings', '/saved', '/field-visits', '/employees', '/sessions', '/request-leave', '/report-problem'],
+  EMPLOYEE: ['/dashboard', '/chat', '/channels', '/tasks', '/reports', '/calendar', '/calls', '/meetings', '/saved', '/employees', '/sessions', '/request-leave', '/report-problem'],
+  TELECALLER: ['/dashboard', '/telecaller', '/chat', '/reports', '/calendar', '/saved', '/employees', '/sessions', '/request-leave', '/report-problem'],
+  CLIENT: ['/dashboard', '/channels', '/saved', '/sessions', '/report-problem'],
 };
 
 export default function WorkspaceLayout() {
@@ -186,7 +198,11 @@ export default function WorkspaceLayout() {
 
   if (!user) return null;
   const allowed = ALLOWED[user.role] || [];
-  const nav = NAV.filter((n) => allowed.includes(n.to));
+  const nav = NAV.filter((n) => {
+    if (n.platformOnly) return isPlatformSuperAdmin(user);
+    if (n.defaultTenantAssigneeOnly) return isDefaultTenantSupportAssignee(user);
+    return allowed.includes(n.to);
+  });
   const activeNav = nav.find((n) => location.pathname === n.to || location.pathname.startsWith(`${n.to}/`));
 
   function answerPendingCall() {

@@ -14,6 +14,8 @@ class SupportIssuesScreen extends ConsumerStatefulWidget {
 }
 
 class _SupportIssuesScreenState extends ConsumerState<SupportIssuesScreen> {
+  static const _assigneeStatusValues = {'IN_PROGRESS', 'RESOLVED', 'CLOSED'};
+
   List<Map<String, dynamic>> _items = const [];
   List<Map<String, dynamic>> _statuses = const [];
   bool _loading = true;
@@ -54,9 +56,10 @@ class _SupportIssuesScreenState extends ConsumerState<SupportIssuesScreen> {
     }
   }
 
-  Future<void> _assign(String ticketId) async {
+  Future<void> _assign(String ticketId, {List<String> initialIds = const []}) async {
     final searchCtrl = TextEditingController();
     List<Map<String, dynamic>> assignees = const [];
+    final selected = Set<String>.from(initialIds);
 
     Future<void> search(String q) async {
       assignees = await ref.read(apiProvider).listSupportTicketAssignees(q: q);
@@ -65,77 +68,101 @@ class _SupportIssuesScreenState extends ConsumerState<SupportIssuesScreen> {
     await search('');
 
     if (!mounted) return;
-    final picked = await showDialog<Map<String, dynamic>>(
+    final saved = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('Assign to employee'),
-          content: SizedBox(
-            width: 360,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: searchCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Search by name or email',
-                    border: OutlineInputBorder(),
+        builder: (ctx, setDialogState) {
+          final hasExisting = initialIds.isNotEmpty;
+          return AlertDialog(
+            title: Text(hasExisting ? 'Edit assigns' : 'Assign employees'),
+            content: SizedBox(
+              width: 360,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Select platform team members. Unchecked people lose access to this issue.',
+                    style: TextStyle(
+                      color: BestieColors.of(ctx).textMuted,
+                      fontSize: 13,
+                    ),
                   ),
-                  onSubmitted: (v) async {
-                    await search(v.trim());
-                    setDialogState(() {});
-                  },
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  height: 240,
-                  child: ListView.builder(
-                    itemCount: assignees.length,
-                    itemBuilder: (_, i) {
-                      final u = assignees[i];
-                      final tenantName =
-                          (u['tenant'] as Map?)?['name']?.toString();
-                      return ListTile(
-                        title: Text(u['name']?.toString() ?? ''),
-                        subtitle: Text(
-                          [
-                            u['email']?.toString(),
-                            if (tenantName != null) tenantName,
-                          ].whereType<String>().join(' · '),
-                        ),
-                        onTap: () => Navigator.pop(ctx, u),
-                      );
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: searchCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Search by name or email',
+                      border: OutlineInputBorder(),
+                    ),
+                    onSubmitted: (v) async {
+                      await search(v.trim());
+                      setDialogState(() {});
                     },
                   ),
-                ),
-              ],
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    height: 280,
+                    child: ListView.builder(
+                      itemCount: assignees.length,
+                      itemBuilder: (_, i) {
+                        final u = assignees[i];
+                        final id = u['id']?.toString() ?? '';
+                        final tenantName =
+                            (u['tenant'] as Map?)?['name']?.toString();
+                        return CheckboxListTile(
+                          value: selected.contains(id),
+                          onChanged: (v) {
+                            setDialogState(() {
+                              if (v == true) {
+                                selected.add(id);
+                              } else {
+                                selected.remove(id);
+                              }
+                            });
+                          },
+                          title: Text(u['name']?.toString() ?? ''),
+                          subtitle: Text(
+                            [
+                              u['email']?.toString(),
+                              if (tenantName != null) tenantName,
+                            ].whereType<String>().join(' · '),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-            TextButton(
-              onPressed: () async {
-                await search(searchCtrl.text.trim());
-                setDialogState(() {});
-              },
-              child: const Text('Search'),
-            ),
-          ],
-        ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+              TextButton(
+                onPressed: () async {
+                  await search(searchCtrl.text.trim());
+                  setDialogState(() {});
+                },
+                child: const Text('Search'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Save'),
+              ),
+            ],
+          );
+        },
       ),
     );
     searchCtrl.dispose();
-    if (picked == null || !mounted) return;
+    if (saved != true || !mounted) return;
 
     try {
       await ref.read(apiProvider).assignSupportTicket(
             ticketId,
-            assigneeId: picked['id'].toString(),
+            assigneeIds: selected.toList(),
           );
       await _load();
       if (mounted) {
-        bestieToast(context, 'Issue assigned',
-            body: picked['name']?.toString(), kind: BestieToastKind.success);
+        bestieToast(context, 'Assignees updated', kind: BestieToastKind.success);
       }
     } catch (e) {
       if (mounted) {
@@ -145,11 +172,63 @@ class _SupportIssuesScreenState extends ConsumerState<SupportIssuesScreen> {
     }
   }
 
-  Future<void> _updateStatus(Map<String, dynamic> ticket) async {
+  List<String> _assigneeIds(Map<String, dynamic> ticket) {
+    final ids = ticket['assigneeIds'];
+    if (ids is List) return ids.map((e) => e.toString()).toList();
+    final assignees = ticket['assignees'];
+    if (assignees is List) {
+      return assignees
+          .map((a) => (a as Map)['id']?.toString())
+          .whereType<String>()
+          .toList();
+    }
+    final single = ticket['assigneeId']?.toString();
+    return single != null ? [single] : [];
+  }
+
+  String _assigneeNames(Map<String, dynamic> ticket) {
+    final assignees = ticket['assignees'];
+    if (assignees is List && assignees.isNotEmpty) {
+      return assignees
+          .map((a) => (a as Map)['name']?.toString() ?? '')
+          .where((n) => n.isNotEmpty)
+          .join(', ');
+    }
+    final assignee = ticket['assignee'] as Map?;
+    return assignee?['name']?.toString() ?? '';
+  }
+
+  bool _userCanUpdate(Map<String, dynamic> ticket) {
+    if (_isSuperAdmin) return true;
+    final status = ticket['status']?.toString() ?? 'OPEN';
+    if (status == 'CLOSED') return false;
+    final me = ref.read(authStoreProvider).user?.id;
+    if (me == null) return false;
+    return _assigneeIds(ticket).contains(me);
+  }
+
+  List<Map<String, dynamic>> _statusOptionsForUser(bool isSuper) {
+    if (isSuper) return _statuses;
+    return _statuses
+        .where((s) => _assigneeStatusValues.contains(s['value']?.toString()))
+        .toList();
+  }
+
+  String _defaultStatusForUser(String current, bool isSuper) {
+    if (isSuper) return current;
+    if (_assigneeStatusValues.contains(current)) return current;
+    return 'IN_PROGRESS';
+  }
+
+  Future<void> _updateStatus(Map<String, dynamic> ticket, {required bool isSuper}) async {
     final notesCtrl = TextEditingController(
       text: ticket['resolutionNotes']?.toString() ?? '',
     );
-    String status = ticket['status']?.toString() ?? 'OPEN';
+    final options = _statusOptionsForUser(isSuper);
+    String status = _defaultStatusForUser(
+      ticket['status']?.toString() ?? 'OPEN',
+      isSuper,
+    );
     final c = BestieColors.of(context);
 
     final ok = await showDialog<bool>(
@@ -166,7 +245,7 @@ class _SupportIssuesScreenState extends ConsumerState<SupportIssuesScreen> {
                   labelText: 'Status',
                   border: OutlineInputBorder(),
                 ),
-                items: _statuses
+                items: options
                     .map(
                       (s) => DropdownMenuItem<String>(
                         value: s['value']?.toString(),
@@ -235,9 +314,24 @@ class _SupportIssuesScreenState extends ConsumerState<SupportIssuesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isSuper = ref.watch(authStoreProvider).user?.isPlatformSuperAdmin ?? false;
+    final user = ref.watch(authStoreProvider).user;
+    final isSuper = user?.isPlatformSuperAdmin ?? false;
+    final isAssignee = user?.isDefaultTenantSupportAssignee ?? false;
     final c = BestieColors.of(context);
     final canPop = context.canPop();
+
+    if (!isSuper && !isAssignee) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Issues')),
+        body: BestieEmptyState(
+          icon: Icons.lock_outline_rounded,
+          title: 'Not available',
+          description: isSuper
+              ? 'Support inbox is for platform super admin only.'
+              : 'Issues are only for default organisation support team members.',
+        ),
+      );
+    }
 
     return Scaffold(
       backgroundColor: c.surface,
@@ -275,7 +369,7 @@ class _SupportIssuesScreenState extends ConsumerState<SupportIssuesScreen> {
                         final t = _items[i];
                         final status = t['status']?.toString() ?? 'OPEN';
                         final reporter = t['reporter'] as Map?;
-                        final assignee = t['assignee'] as Map?;
+                        final names = _assigneeNames(t);
                         return Card(
                           child: InkWell(
                             onTap: () => _showDetail(t, isSuper),
@@ -313,9 +407,9 @@ class _SupportIssuesScreenState extends ConsumerState<SupportIssuesScreen> {
                                         fontSize: 13,
                                       ),
                                     ),
-                                  if (assignee != null)
+                                  if (names.isNotEmpty)
                                     Text(
-                                      'Assignee: ${assignee['name']}',
+                                      'Assigned: $names',
                                       style: TextStyle(
                                         color: c.textMuted,
                                         fontSize: 13,
@@ -339,6 +433,11 @@ class _SupportIssuesScreenState extends ConsumerState<SupportIssuesScreen> {
 
   Future<void> _showDetail(Map<String, dynamic> ticket, bool isSuper) async {
     final c = BestieColors.of(context);
+    final status = ticket['status']?.toString() ?? 'OPEN';
+    final closed = status == 'CLOSED';
+    final assigneeIds = _assigneeIds(ticket);
+    final canUpdate = _userCanUpdate(ticket);
+
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -355,22 +454,38 @@ class _SupportIssuesScreenState extends ConsumerState<SupportIssuesScreen> {
               ),
               const SizedBox(height: 8),
               Text(ticket['description']?.toString() ?? ''),
+              if (assigneeIds.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Assigned: ${_assigneeNames(ticket)}',
+                  style: TextStyle(color: c.textMuted, fontSize: 13),
+                ),
+              ],
               const SizedBox(height: 16),
               if (isSuper)
                 FilledButton(
-                  onPressed: () {
-                    Navigator.pop(ctx);
-                    _assign(ticket['id'].toString());
-                  },
+                  onPressed: closed
+                      ? null
+                      : () {
+                          Navigator.pop(ctx);
+                          _assign(
+                            ticket['id'].toString(),
+                            initialIds: assigneeIds,
+                          );
+                        },
                   style: FilledButton.styleFrom(backgroundColor: c.brand),
-                  child: const Text('Assign employee'),
+                  child: Text(
+                    assigneeIds.isNotEmpty
+                        ? 'Edit assigns'
+                        : 'Assign employees',
+                  ),
                 ),
-              if (!isSuper || ticket['assigneeId'] != null) ...[
+              if (canUpdate) ...[
                 const SizedBox(height: 8),
                 OutlinedButton(
                   onPressed: () {
                     Navigator.pop(ctx);
-                    _updateStatus(ticket);
+                    _updateStatus(ticket, isSuper: isSuper);
                   },
                   child: const Text('Update status'),
                 ),

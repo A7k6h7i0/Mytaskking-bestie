@@ -121,7 +121,7 @@ router.patch(
   requireAuth,
   validate({
     body: Joi.object({
-      assigneeId: Joi.string().required(),
+      assigneeIds: Joi.array().items(Joi.string()).required(),
     }),
   }),
   asyncHandler(async (req, res) => {

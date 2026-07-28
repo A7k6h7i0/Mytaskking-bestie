@@ -459,8 +459,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 label: 'Support inbox',
                 onTap: () => _openRoute(context, '/support-issues'),
               ),
-            if (!(user?.isClient ?? false) &&
-                user?.isPlatformSuperAdmin != true)
+            if (user?.isDefaultTenantSupportAssignee == true)
               _SettingTile(
                 colors: c,
                 icon: Icons.assignment_outlined,

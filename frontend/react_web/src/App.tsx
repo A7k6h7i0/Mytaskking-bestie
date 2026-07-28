@@ -41,6 +41,7 @@ import { toast } from '@/components/Toast';
 import { CommandPalette } from '@/components/CommandPalette';
 import { ShortcutsOverlay } from '@/components/ShortcutsOverlay';
 import { onForegroundPush, registerWebPush } from '@/services/firebaseMessaging';
+import { canAccessSupportIssues } from '@/utils/supportAccess';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.accessToken);
@@ -52,6 +53,12 @@ function RoleGate({ allow, children }: { allow: string[]; children: React.ReactN
   const user = useAuthStore((s) => s.user);
   if (!user) return <Navigate to="/login" replace />;
   if (!allow.includes(user.role)) return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
+}
+
+function SupportIssuesGate({ children }: { children: React.ReactNode }) {
+  const user = useAuthStore((s) => s.user);
+  if (!canAccessSupportIssues(user)) return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
 }
 
@@ -103,9 +110,9 @@ export default function App() {
           <Route
             path="/support-issues"
             element={
-              <RoleGate allow={['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'PROJECT_COORDINATOR_MANAGER', 'EMPLOYEE', 'TELECALLER', 'EXECUTIVE', 'SALES_HEAD']}>
+              <SupportIssuesGate>
                 <SupportIssuesPage />
-              </RoleGate>
+              </SupportIssuesGate>
             }
           />
           <Route path="/sessions" element={<SessionsPage />} />
@@ -156,7 +163,7 @@ export default function App() {
           />
           <Route
             path="/request-leave"
-            element={<RoleGate allow={['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'PROJECT_COORDINATOR_MANAGER', 'EMPLOYEE', 'TELECALLER', 'EXECUTIVE', 'SALES_HEAD']}><RequestLeavePage /></RoleGate>}
+            element={<RoleGate allow={['MANAGER', 'PROJECT_COORDINATOR_MANAGER', 'EMPLOYEE', 'TELECALLER', 'EXECUTIVE', 'SALES_HEAD']}><RequestLeavePage /></RoleGate>}
           />
           <Route
             path="/leave-approvals"

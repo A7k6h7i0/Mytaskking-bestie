@@ -61,6 +61,12 @@ class _OrganizationRegistrationWizardState
   final _adminEmail = TextEditingController();
   final _adminPhone = TextEditingController();
   final _adminPhoneKey = GlobalKey<BestiePhoneInputState>();
+  String? _nameError;
+  String? _slugError;
+  String? _adminNameError;
+  String? _adminUserIdError;
+  String? _adminPasswordError;
+  String? _adminEmailError;
   String? _adminPhoneError;
   final _govtId1Number = TextEditingController();
   final _govtId2Number = TextEditingController();
@@ -341,24 +347,37 @@ class _OrganizationRegistrationWizardState
                 style: TextStyle(color: c.textMuted)),
             const SizedBox(height: 16),
             if (_step == 0) ...[
-              _field(_name, 'Company name', onChanged: (v) {
+              _field(_name, 'Company name', errorText: _nameError, onChanged: (v) {
+                if (_nameError != null) setState(() => _nameError = null);
                 if (!_slugTouched) {
                   _slug.text = _slugFromName(v);
                 }
               }),
-              _field(_slug, 'Organisation ID (login slug)', onChanged: (_) {
+              _field(_slug, 'Organisation ID (login slug)', errorText: _slugError, onChanged: (_) {
                 _slugTouched = true;
+                if (_slugError != null) setState(() => _slugError = null);
               }),
-              _field(_adminName, 'Admin full name'),
-              _field(_adminUserId, 'Admin user ID'),
-              _field(_adminPassword, 'Admin password', obscure: true),
-              _field(_adminEmail, 'Admin email'),
+              _field(_adminName, 'Admin full name', errorText: _adminNameError, onChanged: (_) {
+                if (_adminNameError != null) setState(() => _adminNameError = null);
+              }),
+              _field(_adminUserId, 'Admin user ID', errorText: _adminUserIdError, onChanged: (_) {
+                if (_adminUserIdError != null) setState(() => _adminUserIdError = null);
+              }),
+              _field(_adminPassword, 'Admin password', obscure: true, errorText: _adminPasswordError, onChanged: (_) {
+                if (_adminPasswordError != null) setState(() => _adminPasswordError = null);
+              }),
+              _field(_adminEmail, 'Admin email', errorText: _adminEmailError, keyboard: TextInputType.emailAddress, onChanged: (_) {
+                if (_adminEmailError != null) setState(() => _adminEmailError = null);
+              }),
               BestiePhoneInput(
                 key: _adminPhoneKey,
                 nationalController: _adminPhone,
                 label: 'Phone number',
                 required: true,
                 errorText: _adminPhoneError,
+                onChanged: () {
+                  if (_adminPhoneError != null) setState(() => _adminPhoneError = null);
+                },
               ),
             ],
             if (_step == 1) ...[
@@ -425,22 +444,81 @@ class _OrganizationRegistrationWizardState
     );
   }
 
+  bool _validateStep0() {
+    String? nameError;
+    String? slugError;
+    String? adminNameError;
+    String? adminUserIdError;
+    String? adminPasswordError;
+    String? adminEmailError;
+
+    final name = _name.text.trim();
+    if (name.isEmpty) {
+      nameError = 'Company name is required';
+    }
+
+    final slug = _slug.text.trim();
+    if (slug.isEmpty) {
+      slugError = 'Organisation ID is required';
+    } else if (slug.length < 2) {
+      slugError = 'Organisation ID must be at least 2 characters';
+    }
+
+    if (_adminName.text.trim().isEmpty) {
+      adminNameError = 'Admin full name is required';
+    }
+
+    final userId = _adminUserId.text.trim();
+    if (userId.isEmpty) {
+      adminUserIdError = 'Admin user ID is required';
+    } else if (userId.length < 2) {
+      adminUserIdError = 'Admin user ID must be at least 2 characters';
+    }
+
+    final password = _adminPassword.text;
+    if (password.isEmpty) {
+      adminPasswordError = 'Password is required';
+    } else if (password.length < 8) {
+      adminPasswordError =
+          'Password must be at least 8 characters (currently ${password.length})';
+    }
+
+    final email = _adminEmail.text.trim();
+    if (email.isEmpty) {
+      adminEmailError = 'Email is required';
+    } else if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email)) {
+      adminEmailError = 'Enter a valid email address';
+    }
+
+    final phoneError = _adminPhoneKey.currentState?.validate(required: true);
+
+    setState(() {
+      _nameError = nameError;
+      _slugError = slugError;
+      _adminNameError = adminNameError;
+      _adminUserIdError = adminUserIdError;
+      _adminPasswordError = adminPasswordError;
+      _adminEmailError = adminEmailError;
+      _adminPhoneError = phoneError;
+    });
+
+    final firstError = nameError ??
+        slugError ??
+        adminNameError ??
+        adminUserIdError ??
+        adminPasswordError ??
+        adminEmailError ??
+        phoneError;
+    if (firstError != null) {
+      bestieToast(context, firstError, kind: BestieToastKind.warning);
+      return false;
+    }
+    return true;
+  }
+
   Future<void> _onNext() async {
     if (_step == 0) {
-      final email = _adminEmail.text.trim();
-      final phoneError = _adminPhoneKey.currentState?.validate(required: true);
-      final phone = _adminPhoneKey.currentState?.buildValue(required: true);
-      if (_name.text.trim().isEmpty ||
-          _slug.text.trim().length < 2 ||
-          _adminPassword.text.length < 8 ||
-          !email.contains('@') ||
-          phoneError != null ||
-          phone == null) {
-        setState(() => _adminPhoneError = phoneError);
-        bestieToast(context, 'Fill all fields (valid email & phone)',
-            kind: BestieToastKind.warning);
-        return;
-      }
+      if (!_validateStep0()) return;
       setState(() => _step = 1);
       return;
     }
@@ -452,6 +530,7 @@ class _OrganizationRegistrationWizardState
     String label, {
     bool obscure = false,
     TextInputType? keyboard,
+    String? errorText,
     ValueChanged<String>? onChanged,
   }) {
     return Padding(
@@ -461,7 +540,7 @@ class _OrganizationRegistrationWizardState
         obscureText: obscure,
         keyboardType: keyboard,
         onChanged: onChanged,
-        decoration: InputDecoration(labelText: label),
+        decoration: InputDecoration(labelText: label, errorText: errorText),
       ),
     );
   }

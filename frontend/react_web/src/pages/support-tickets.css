@@ -197,6 +197,38 @@
   gap: 12px;
 }
 
+.stt__modal--wide {
+  width: min(560px, 100%);
+}
+
+.stt__assignee-list--checks {
+  max-height: 320px;
+}
+
+.stt__assignee-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid var(--border, #2a3142);
+  border-radius: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.stt__assignee-check input {
+  margin-top: 3px;
+}
+
+.stt__assignee-check strong {
+  display: block;
+}
+
+.stt__assignee-check span span {
+  display: block;
+  color: var(--text-muted, #8b95a8);
+  font-size: 13px;
+}
+
 .stt__assignee-list {
   display: flex;
   flex-direction: column;
