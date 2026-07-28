@@ -298,6 +298,31 @@ async function listLeaves(req, query = {}) {
     ...(!isAdmin || query.mine === 'true' ? { userId: req.user.id } : {}),
     ...(query.user_id && isAdmin ? { userId: query.user_id } : {}),
   };
+
+  const q = String(query.q || '').trim();
+  if (q && isAdmin) {
+    where.user = {
+      OR: [
+        { name: { contains: q, mode: 'insensitive' } },
+        { email: { contains: q, mode: 'insensitive' } },
+        { userId: { contains: q, mode: 'insensitive' } },
+      ],
+    };
+  }
+
+  const date = String(query.date || '').trim();
+  if (date && /^\d{4}-\d{2}-\d{2}$/.test(date) && isAdmin) {
+    where.AND = [
+      { fromDate: { lte: date } },
+      {
+        OR: [
+          { AND: [{ toDate: null }, { fromDate: date }] },
+          { toDate: { gte: date } },
+        ],
+      },
+    ];
+  }
+
   const items = await prisma.orgLeave.findMany({
     where,
     orderBy: { createdAt: 'desc' },

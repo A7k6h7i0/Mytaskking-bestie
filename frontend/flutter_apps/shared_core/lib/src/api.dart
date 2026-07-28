@@ -1535,11 +1535,15 @@ extension BestieApiExt on BestieApi {
     String? status,
     bool mine = false,
     String? userId,
+    String? q,
+    String? date,
   }) async {
     final r = await get('/employee-tracking/leaves', query: {
       if (status != null) 'status': status,
       if (mine) 'mine': 'true',
       if (userId != null) 'user_id': userId,
+      if (q != null && q.trim().isNotEmpty) 'q': q.trim(),
+      if (date != null && date.trim().isNotEmpty) 'date': date.trim(),
     });
     return List<Map<String, dynamic>>.from(r['items'] ?? const []);
   }
