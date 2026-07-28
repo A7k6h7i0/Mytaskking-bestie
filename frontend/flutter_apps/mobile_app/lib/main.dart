@@ -29,6 +29,7 @@ import 'mobile_theme_palettes.dart';
 import 'org_call_sounds.dart';
 import 'telecaller_recording_setup.dart';
 import 'services/device_integrity_gate.dart';
+import 'services/employee_gps_lifecycle.dart';
 
 const _foregroundNotificationsChannelId = 'foreground_notifications_silent';
 const _notificationReplyActionId = 'bestie.reply';
@@ -706,10 +707,12 @@ class _BestieAppState extends ConsumerState<BestieApp> {
                             data: MediaQuery.of(ctx).copyWith(
                               textScaler: TextScaler.linear(fontScale),
                             ),
-                            child: IncomingCallOverlay(
-                              child: OngoingCallBar(
-                                child: ConnectivityBanner(
-                                  child: child ?? const SizedBox.shrink(),
+                            child: EmployeeGpsLifecycle(
+                              child: IncomingCallOverlay(
+                                child: OngoingCallBar(
+                                  child: ConnectivityBanner(
+                                    child: child ?? const SizedBox.shrink(),
+                                  ),
                                 ),
                               ),
                             ),

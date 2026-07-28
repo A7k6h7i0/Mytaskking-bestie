@@ -2,9 +2,12 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../state.dart';
+import 'live_locations_map_screen.dart';
+import 'marketing/gps_map_view_screen.dart';
 
 final loginActivityProvider = FutureProvider.autoDispose
     .family<Map<String, dynamic>, _LoginActivityQuery>((ref, query) async {
@@ -14,6 +17,17 @@ final loginActivityProvider = FutureProvider.autoDispose
     to: query.to,
     pageSize: 100,
   );
+});
+
+final employeeTrackingSettingsProvider =
+    FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
+  return ref.watch(apiProvider).employeeTrackingSettings();
+});
+
+final employeeLiveLocationsProvider =
+    FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+  final resp = await ref.watch(apiProvider).employeeLiveLocations();
+  return List<Map<String, dynamic>>.from(resp['items'] ?? const []);
 });
 
 class _LoginActivityQuery {
@@ -40,6 +54,16 @@ class LoginActivityScreen extends ConsumerStatefulWidget {
 class _LoginActivityScreenState extends ConsumerState<LoginActivityScreen> {
   late DateTime _from = DateTime.now().subtract(const Duration(days: 6));
   late DateTime _to = DateTime.now();
+  bool _savingSettings = false;
+
+  static const _intervalOptions = <int, String>{
+    120: '2 min',
+    300: '5 min',
+    600: '10 min',
+    900: '15 min',
+    1800: '30 min',
+    3600: '1 hour',
+  };
 
   DateTime _startOfDay(DateTime d) => DateTime(d.year, d.month, d.day);
   DateTime _endOfDay(DateTime d) =>
@@ -108,12 +132,56 @@ class _LoginActivityScreenState extends ConsumerState<LoginActivityScreen> {
 
   String _two(int n) => n.toString().padLeft(2, '0');
 
+  Future<void> _saveTrackingSettings({
+    bool? gpsEnabled,
+    int? gpsIntervalSeconds,
+  }) async {
+    setState(() => _savingSettings = true);
+    try {
+      await ref.read(apiProvider).updateEmployeeTrackingSettings({
+        if (gpsEnabled != null) 'gpsEnabled': gpsEnabled,
+        if (gpsIntervalSeconds != null)
+          'gpsIntervalSeconds': gpsIntervalSeconds,
+      });
+      ref.invalidate(employeeTrackingSettingsProvider);
+      if (mounted) {
+        bestieToast(context, 'Tracking settings saved',
+            kind: BestieToastKind.success);
+      }
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not save settings',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    } finally {
+      if (mounted) setState(() => _savingSettings = false);
+    }
+  }
+
+  void _openSessionMap(Map<String, dynamic> row, Map<String, dynamic> user) {
+    final lat = row['latitude'];
+    final lng = row['longitude'];
+    if (lat == null || lng == null) return;
+    GpsMapViewScreen.open(
+      context,
+      point: LatLng((lat as num).toDouble(), (lng as num).toDouble()),
+      title: user['name']?.toString() ?? 'Login location',
+      subtitle: row['address']?.toString(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = BestieColors.of(context);
     final role = ref.watch(authStoreProvider).user?.role ?? '';
     final canViewEvidence = role == 'SUPER_ADMIN' || role == 'ADMIN';
     final activity = ref.watch(loginActivityProvider(_query));
+    final settings = canViewEvidence
+        ? ref.watch(employeeTrackingSettingsProvider)
+        : const AsyncValue<Map<String, dynamic>>.data({});
+    final live = canViewEvidence
+        ? ref.watch(employeeLiveLocationsProvider)
+        : const AsyncValue<List<Map<String, dynamic>>>.data([]);
 
     return Scaffold(
       backgroundColor: colors.surface,
@@ -160,6 +228,98 @@ class _LoginActivityScreenState extends ConsumerState<LoginActivityScreen> {
             ),
           ),
           const SizedBox(height: 8),
+          if (canViewEvidence)
+            settings.when(
+              loading: () => const SizedBox.shrink(),
+              error: (_, __) => const SizedBox.shrink(),
+              data: (s) {
+                final enabled = s['gpsEnabled'] != false;
+                final interval =
+                    (s['gpsIntervalSeconds'] as num?)?.toInt() ?? 300;
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: colors.bgSoft,
+                      borderRadius: BorderRadius.circular(BestieTokens.rMd),
+                      border: Border.all(color: colors.border),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Employee GPS tracking',
+                            style: TextStyle(
+                                fontWeight: FontWeight.w800, color: colors.text)),
+                        const SizedBox(height: 4),
+                        Text(
+                          'All internal employees are tracked at this interval. Pauses during approved leave.',
+                          style:
+                              TextStyle(color: colors.textMuted, fontSize: 12),
+                        ),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Enable tracking'),
+                          value: enabled,
+                          onChanged: _savingSettings
+                              ? null
+                              : (v) => _saveTrackingSettings(gpsEnabled: v),
+                        ),
+                        InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'GPS interval',
+                          ),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<int>(
+                              isExpanded: true,
+                              value: _intervalOptions.containsKey(interval)
+                                  ? interval
+                                  : 300,
+                              items: _intervalOptions.entries
+                                  .map((e) => DropdownMenuItem(
+                                        value: e.key,
+                                        child: Text(e.value),
+                                      ))
+                                  .toList(),
+                              onChanged: _savingSettings
+                                  ? null
+                                  : (v) {
+                                      if (v != null) {
+                                        _saveTrackingSettings(
+                                            gpsIntervalSeconds: v);
+                                      }
+                                    },
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          if (canViewEvidence)
+            live.when(
+              loading: () => const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: LinearProgressIndicator(),
+              ),
+              error: (_, __) => const SizedBox.shrink(),
+              data: (items) {
+                if (items.isEmpty) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: OutlinedButton.icon(
+                    onPressed: () => LiveLocationsMapScreen.open(
+                      context,
+                      items: items,
+                    ),
+                    icon: const Icon(Icons.map_outlined),
+                    label: Text('View live map (${items.length})'),
+                  ),
+                );
+              },
+            ),
           Expanded(
             child: activity.when(
               loading: () => const Center(child: BestieSpinner()),
@@ -275,6 +435,21 @@ class _LoginActivityScreenState extends ConsumerState<LoginActivityScreen> {
                                         ? '${row['latitude']}, ${row['longitude']}'
                                         : 'Not captured'),
                               ),
+                              if (row['latitude'] != null &&
+                                  row['longitude'] != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: Align(
+                                    alignment: Alignment.centerRight,
+                                    child: TextButton.icon(
+                                      onPressed: () =>
+                                          _openSessionMap(row, user),
+                                      icon: const Icon(Icons.map_outlined,
+                                          size: 16),
+                                      label: const Text('View on map'),
+                                    ),
+                                  ),
+                                ),
                               Padding(
                                 padding: const EdgeInsets.only(top: 8),
                                 child: Row(

@@ -96,6 +96,8 @@ model User {
   fieldOrders              FieldOrder[]
   fieldExpenses            FieldExpense[]
   fieldLeaves              FieldLeave[]
+  orgLeaves                OrgLeave[]
+  employeeGpsLogs          EmployeeGpsLog[]
   fieldIncidents           FieldIncident[]
   fieldRatings             FieldRating[]
   fieldRoutesAssigned      FieldRoute[]      @relation("FieldRouteAssignee")
@@ -1756,6 +1758,57 @@ model FieldLeave {
 
   @@index([tenantId])
   @@index([tenantId, userId])
+}
+
+enum OrgLeaveType {
+  FULL_DAY
+  HALF_DAY
+  PERMISSION
+}
+
+enum OrgLeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model OrgLeave {
+  id              String          @id @default(cuid())
+  tenantId        String
+  userId          String
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leaveType       OrgLeaveType
+  fromDate        String
+  toDate          String?
+  startTime       String?
+  endTime         String?
+  permissionHours Float?
+  description     String
+  status          OrgLeaveStatus  @default(PENDING)
+  approvedById    String?
+  approvedAt      DateTime?
+  rejectionReason String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, userId])
+  @@index([tenantId, status])
+}
+
+model EmployeeGpsLog {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  latitude  Decimal  @db.Decimal(10, 7)
+  longitude Decimal  @db.Decimal(10, 7)
+  accuracy  Float?
+  loggedAt  DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, userId])
+  @@index([tenantId, loggedAt])
 }
 
 model FieldHoliday {

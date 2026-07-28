@@ -146,6 +146,8 @@ class _ReportProblemScreenState extends ConsumerState<ReportProblemScreen>
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
     final canPop = context.canPop();
+    final showAssignee =
+        ref.watch(authStoreProvider).user?.isPlatformSuperAdmin ?? false;
 
     return Scaffold(
       backgroundColor: c.surface,
@@ -192,6 +194,7 @@ class _ReportProblemScreenState extends ConsumerState<ReportProblemScreen>
                   selectedTicketNumber: _selectedTicketNumber,
                   checking: _checking,
                   ticket: _checkedTicket,
+                  showAssignee: showAssignee,
                   onTicketChanged: (v) =>
                       setState(() => _selectedTicketNumber = v),
                   onCheck: _checkStatus,
@@ -314,6 +317,7 @@ class _CheckStatusTab extends StatelessWidget {
   final String? selectedTicketNumber;
   final bool checking;
   final Map<String, dynamic>? ticket;
+  final bool showAssignee;
   final ValueChanged<String?> onTicketChanged;
   final VoidCallback onCheck;
   final Future<void> Function(String) onCopy;
@@ -324,6 +328,7 @@ class _CheckStatusTab extends StatelessWidget {
     required this.selectedTicketNumber,
     required this.checking,
     required this.ticket,
+    required this.showAssignee,
     required this.onTicketChanged,
     required this.onCheck,
     required this.onCopy,
@@ -386,7 +391,11 @@ class _CheckStatusTab extends StatelessWidget {
         ),
         if (ticket != null) ...[
           const SizedBox(height: 24),
-          _TicketStatusCard(ticket: ticket!, colors: colors),
+          _TicketStatusCard(
+            ticket: ticket!,
+            colors: colors,
+            showAssignee: showAssignee,
+          ),
         ],
       ],
     );
@@ -473,8 +482,13 @@ class _ReferenceListTile extends StatelessWidget {
 class _TicketStatusCard extends StatelessWidget {
   final Map<String, dynamic> ticket;
   final BestieColors colors;
+  final bool showAssignee;
 
-  const _TicketStatusCard({required this.ticket, required this.colors});
+  const _TicketStatusCard({
+    required this.ticket,
+    required this.colors,
+    this.showAssignee = false,
+  });
 
   BestieTone _toneForStatus(String status) {
     switch (status) {
@@ -516,7 +530,7 @@ class _TicketStatusCard extends StatelessWidget {
             const SizedBox(height: 12),
             _Row(label: 'Type', value: ticket['issueTypeLabel']?.toString()),
             _Row(label: 'Reported', value: _formatDate(ticket['createdAt'])),
-            if (ticket['assignee'] != null)
+            if (showAssignee && ticket['assignee'] != null)
               _Row(
                 label: 'Assigned to',
                 value: (ticket['assignee'] as Map)['name']?.toString(),

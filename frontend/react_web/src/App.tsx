@@ -27,6 +27,8 @@ import RecordingsPage from '@/pages/RecordingsPage';
 import AiReviewPage from '@/pages/AiReviewPage';
 import TalkTimePage from '@/pages/TalkTimePage';
 import LoginActivityPage from '@/pages/LoginActivityPage';
+import RequestLeavePage from '@/pages/RequestLeavePage';
+import LeaveApprovalsPage from '@/pages/LeaveApprovalsPage';
 import FlagsPage from '@/pages/FlagsPage';
 import OrganizationsPage from '@/pages/OrganizationsPage';
 import PaymentsPage from '@/pages/PaymentsPage';
@@ -151,6 +153,14 @@ export default function App() {
           <Route
             path="/login-activity"
             element={<RoleGate allow={['SUPER_ADMIN', 'ADMIN']}><LoginActivityPage /></RoleGate>}
+          />
+          <Route
+            path="/request-leave"
+            element={<RoleGate allow={['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'PROJECT_COORDINATOR_MANAGER', 'EMPLOYEE', 'TELECALLER', 'EXECUTIVE', 'SALES_HEAD']}><RequestLeavePage /></RoleGate>}
+          />
+          <Route
+            path="/leave-approvals"
+            element={<RoleGate allow={['SUPER_ADMIN', 'ADMIN']}><LeaveApprovalsPage /></RoleGate>}
           />
           <Route
             path="/telecaller"

@@ -31,12 +31,20 @@ const userSelect = {
   tenantId: true,
 };
 
-function serialize(ticket) {
-  return {
+function serialize(ticket, { redactAssignment = false } = {}) {
+  const out = {
     ...ticket,
     issueTypeLabel: ISSUE_TYPE_LABELS[ticket.issueType] || ticket.issueType,
     statusLabel: STATUS_LABELS[ticket.status] || ticket.status,
   };
+  if (redactAssignment) {
+    delete out.assignee;
+    delete out.assigneeId;
+    delete out.assignedBy;
+    delete out.assignedById;
+    delete out.assignedAt;
+  }
+  return out;
 }
 
 async function generateTicketNumber() {
@@ -146,7 +154,8 @@ async function checkStatus(req, { ticketNumber }) {
     throw Forbidden('You can only check your own issues');
   }
 
-  return serialize(ticket);
+  const redactAssignment = !tenant.isPlatformSuperAdmin(req.user);
+  return serialize(ticket, { redactAssignment });
 }
 
 async function listAdmin(req) {
@@ -178,6 +187,7 @@ async function listAssigned(req) {
 async function listAssignees(req, { q }) {
   if (!tenant.isPlatformSuperAdmin(req.user)) throw Forbidden('Super admin only');
   const where = {
+    tenantId: tenant.DEFAULT_TENANT_ID,
     isClient: false,
     status: 'ACTIVE',
     role: { not: 'SUPER_ADMIN' },
@@ -219,6 +229,9 @@ async function assign(req, id, { assigneeId }) {
   }
   if (assignee.role === 'SUPER_ADMIN') {
     throw BadRequest('Cannot assign to super admin');
+  }
+  if ((assignee.tenantId || tenant.DEFAULT_TENANT_ID) !== tenant.DEFAULT_TENANT_ID) {
+    throw BadRequest('Support issues can only be assigned to platform team members');
   }
 
   const ticket = await prisma.supportTicket.update({

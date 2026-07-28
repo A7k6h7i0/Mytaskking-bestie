@@ -94,6 +94,8 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
         location.startsWith('/clients') ||
         location.startsWith('/recordings') ||
         location.startsWith('/login-activity') ||
+        location.startsWith('/request-leave') ||
+        location.startsWith('/leave-approvals') ||
         location.startsWith('/work-activity') ||
         location.startsWith('/ai-review') ||
         location.startsWith('/subscription') ||
@@ -325,6 +327,10 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
           '/recordings', c.accent, isAdmin),
       _MoreEntry(Icons.login_rounded, 'Login activity', '/login-activity',
           c.info, isAdmin),
+      _MoreEntry(Icons.event_busy_outlined, 'Request a leave', '/request-leave',
+          c.warning, !isClient),
+      _MoreEntry(Icons.fact_check_outlined, 'Leave requests',
+          '/leave-approvals', c.brand, isAdmin),
       _MoreEntry(Icons.monitor_heart_outlined, 'Work activity',
           '/work-activity', c.brand, isAdmin),
       _MoreEntry(Icons.psychology_outlined, 'AI Review', '/ai-review',

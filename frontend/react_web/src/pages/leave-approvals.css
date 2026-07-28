@@ -1,0 +1,16 @@
+.la-approvals { padding: 24px; max-width: 720px; margin: 0 auto; }
+.la-approvals h1 { font-size: var(--fs-2xl); font-weight: 800; }
+.la-approvals header p { color: var(--c-text-muted); margin: 4px 0 20px; }
+.la-approvals__empty { color: var(--c-text-muted); padding: 24px 0; }
+.la-approvals__card {
+  border: 1px solid var(--c-border); border-radius: var(--r-md);
+  padding: 14px 16px; margin-bottom: 12px; background: var(--c-surface);
+}
+.la-approvals__user { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.la-approvals__user span { display: block; font-size: var(--fs-xs); color: var(--c-text-muted); }
+.la-approvals__dates { font-size: var(--fs-sm); color: var(--c-text-soft); margin: 0 0 8px; }
+.la-approvals__actions { display: flex; gap: 8px; margin-top: 12px; }
+.la-approvals__reject, .la-approvals__approve {
+  flex: 1; border-radius: var(--r-md); padding: 9px 12px; font-weight: 700; cursor: pointer; border: 1px solid var(--c-border);
+}
+.la-approvals__approve { background: var(--c-brand); color: #fff; border-color: transparent; }

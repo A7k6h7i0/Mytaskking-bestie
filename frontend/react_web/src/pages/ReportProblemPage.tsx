@@ -4,6 +4,7 @@ import { Copy } from 'lucide-react';
 import { api } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { toast } from '@/components/Toast';
+import { useAuthStore } from '@/store/auth';
 import './support-tickets.css';
 
 type IssueType = { value: string; label: string };
@@ -24,6 +25,8 @@ async function copyText(value: string) {
 }
 
 export default function ReportProblemPage() {
+  const user = useAuthStore((s) => s.user);
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const qc = useQueryClient();
   const [tab, setTab] = useState<'report' | 'status'>('report');
   const [issueType, setIssueType] = useState('');
@@ -209,7 +212,7 @@ export default function ReportProblemPage() {
                 </span>
               </div>
               <p>{statusMut.data.issueTypeLabel}</p>
-              {statusMut.data.assignee?.name && (
+              {isSuperAdmin && statusMut.data.assignee?.name && (
                 <p className="stt__subtle">Assigned to: {statusMut.data.assignee.name}</p>
               )}
               {statusMut.data.resolutionNotes && (

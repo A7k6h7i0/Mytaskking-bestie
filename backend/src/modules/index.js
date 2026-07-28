@@ -47,6 +47,7 @@ const emergency = require('./emergency/emergency.routes');
 const workActivity = require('./workActivity/workActivity.routes');
 const marketing = require('./marketing/marketing.routes');
 const supportTickets = require('./supportTickets/supportTickets.routes');
+const employeeTracking = require('./employeeTracking/employeeTracking.routes');
 
 module.exports = function buildRouter() {
   const router = Router();
@@ -91,6 +92,7 @@ module.exports = function buildRouter() {
   router.use('/work-activity', workActivity);
   router.use('/marketing', marketing);
   router.use('/support-tickets', supportTickets);
+  router.use('/employee-tracking', employeeTracking);
 
   // openapi serves /openapi.json + /docs at the root of /api/v1
   router.use('/', openapi);

@@ -1494,6 +1494,71 @@ extension BestieApiExt on BestieApi {
 
   Future<Map<String, dynamic>> fieldSyncBatch(Map<String, dynamic> body) =>
       post('/marketing/sync/batch', body: body);
+
+  // ---- employee tracking (org-wide GPS + leaves) ----
+  Future<Map<String, dynamic>> employeeTrackingSettings() =>
+      get('/employee-tracking/settings');
+
+  Future<Map<String, dynamic>> updateEmployeeTrackingSettings(
+    Map<String, dynamic> body,
+  ) async {
+    final r = await dio.patch('/employee-tracking/settings', data: body);
+    return Map<String, dynamic>.from(r.data as Map);
+  }
+
+  Future<Map<String, dynamic>> employeeTrackingState() =>
+      get('/employee-tracking/me/state');
+
+  Future<Map<String, dynamic>> logEmployeeGps(Map<String, dynamic> body) =>
+      post('/employee-tracking/gps', body: body);
+
+  Future<Map<String, dynamic>> listEmployeeGps({
+    String? userId,
+    DateTime? from,
+    DateTime? to,
+    int limit = 100,
+  }) =>
+      get('/employee-tracking/gps', query: {
+        if (userId != null) 'user_id': userId,
+        if (from != null) 'from': from.toUtc().toIso8601String(),
+        if (to != null) 'to': to.toUtc().toIso8601String(),
+        'limit': limit,
+      });
+
+  Future<Map<String, dynamic>> employeeLiveLocations() =>
+      get('/employee-tracking/live');
+
+  Future<Map<String, dynamic>> createOrgLeave(Map<String, dynamic> body) =>
+      post('/employee-tracking/leaves', body: body);
+
+  Future<List<Map<String, dynamic>>> listOrgLeaves({
+    String? status,
+    bool mine = false,
+    String? userId,
+  }) async {
+    final r = await get('/employee-tracking/leaves', query: {
+      if (status != null) 'status': status,
+      if (mine) 'mine': 'true',
+      if (userId != null) 'user_id': userId,
+    });
+    return List<Map<String, dynamic>>.from(r['items'] ?? const []);
+  }
+
+  Future<Map<String, dynamic>> approveOrgLeave(String id) async {
+    final r = await dio.patch('/employee-tracking/leaves/$id/approve');
+    return Map<String, dynamic>.from(r.data as Map);
+  }
+
+  Future<Map<String, dynamic>> rejectOrgLeave(
+    String id, {
+    String? reason,
+  }) async {
+    final r = await dio.patch(
+      '/employee-tracking/leaves/$id/reject',
+      data: {if (reason != null) 'reason': reason},
+    );
+    return Map<String, dynamic>.from(r.data as Map);
+  }
 }
 
 // BestieApi already exposes `get(path, query:)` and `post(path, body:)`

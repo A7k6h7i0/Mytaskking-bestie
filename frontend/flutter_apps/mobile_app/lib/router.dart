@@ -28,6 +28,8 @@ import 'screens/task_detail_screen.dart';
 import 'screens/reports_screen.dart';
 import 'screens/recordings_screen.dart';
 import 'screens/login_activity_screen.dart';
+import 'screens/request_leave_screen.dart';
+import 'screens/leave_approvals_screen.dart';
 import 'screens/work_activity_screen.dart';
 import 'screens/ai_review_screen.dart';
 import 'screens/organizations_screen.dart';
@@ -166,6 +168,12 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
           path: '/login-activity',
           builder: (_, __) => const LoginActivityScreen()),
+      GoRoute(
+          path: '/request-leave',
+          builder: (_, __) => const RequestLeaveScreen()),
+      GoRoute(
+          path: '/leave-approvals',
+          builder: (_, __) => const LeaveApprovalsScreen()),
       GoRoute(
           path: '/work-activity',
           builder: (_, __) => const WorkActivityScreen()),

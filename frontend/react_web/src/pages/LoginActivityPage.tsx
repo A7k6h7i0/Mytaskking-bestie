@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
-import { LogIn, Download, Monitor, Smartphone, Laptop, Globe } from 'lucide-react';
+import { LogIn, Download, Monitor, Smartphone, Laptop, Globe, MapPin } from 'lucide-react';
 import { api } from '@/services/api';
 import { useAuthStore } from '@/store/auth';
 import { Avatar } from '@/components/ui/Avatar';
@@ -29,6 +29,29 @@ type ActivityRow = {
 };
 
 type ActivityResp = { total: number; page: number; pageSize: number; items: ActivityRow[] };
+
+type LiveRow = {
+  userId: string;
+  user: { name: string };
+  latitude: number;
+  longitude: number;
+  loggedAt: string;
+  source?: string;
+};
+
+type TrackingSettings = {
+  gpsEnabled: boolean;
+  gpsIntervalSeconds: number;
+};
+
+const INTERVAL_OPTIONS = [
+  { value: 120, label: '2 min' },
+  { value: 300, label: '5 min' },
+  { value: 600, label: '10 min' },
+  { value: 900, label: '15 min' },
+  { value: 1800, label: '30 min' },
+  { value: 3600, label: '1 hour' },
+];
 
 function isoDay(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -59,8 +82,22 @@ function sessionDuration(r: ActivityRow): string {
   return `${h}h ${m}m`;
 }
 
+function osmEmbedUrl(points: Array<{ lat: number; lng: number }>): string {
+  if (!points.length) return '';
+  const lats = points.map((p) => p.lat);
+  const lngs = points.map((p) => p.lng);
+  const pad = 0.02;
+  const minLat = Math.min(...lats) - pad;
+  const maxLat = Math.max(...lats) + pad;
+  const minLng = Math.min(...lngs) - pad;
+  const maxLng = Math.max(...lngs) + pad;
+  const first = points[0];
+  return `https://www.openstreetmap.org/export/embed.html?bbox=${minLng}%2C${minLat}%2C${maxLng}%2C${maxLat}&layer=mapnik&marker=${first.lat}%2C${first.lng}`;
+}
+
 export default function LoginActivityPage() {
   const canViewEvidence = useAuthStore((s) => ['SUPER_ADMIN', 'ADMIN'].includes(s.user?.role || ''));
+  const qc = useQueryClient();
   const [from, setFrom] = useState(() => isoDay(new Date(Date.now() - 6 * 86400000)));
   const [to, setTo] = useState(() => isoDay(new Date()));
 
@@ -72,7 +109,33 @@ export default function LoginActivityPage() {
       })).data,
   });
 
+  const { data: settings } = useQuery<TrackingSettings>({
+    queryKey: ['employee-tracking.settings'],
+    queryFn: async () => (await api.get('/employee-tracking/settings')).data,
+    enabled: canViewEvidence,
+  });
+
+  const { data: liveData } = useQuery<{ items: LiveRow[] }>({
+    queryKey: ['employee-tracking.live'],
+    queryFn: async () => (await api.get('/employee-tracking/live')).data,
+    enabled: canViewEvidence,
+    refetchInterval: 60_000,
+  });
+
+  const saveSettings = useMutation({
+    mutationFn: (body: Partial<TrackingSettings>) =>
+      api.patch('/employee-tracking/settings', body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['employee-tracking.settings'] });
+    },
+  });
+
   const items = useMemo(() => data?.items ?? [], [data?.items]);
+  const liveItems = liveData?.items ?? [];
+  const livePoints = liveItems
+    .filter((r) => r.latitude != null && r.longitude != null)
+    .map((r) => ({ lat: r.latitude, lng: r.longitude }));
+  const mapUrl = osmEmbedUrl(livePoints);
 
   function exportCsv() {
     if (!items.length) return;
@@ -124,6 +187,62 @@ export default function LoginActivityPage() {
         </div>
       </header>
 
+      {canViewEvidence && settings && (
+        <section className="la__settings">
+          <h2>Employee GPS tracking</h2>
+          <p>All internal employees are tracked at this interval. Pauses during approved leave.</p>
+          <label className="la__toggle">
+            <input
+              type="checkbox"
+              checked={settings.gpsEnabled !== false}
+              onChange={(e) => saveSettings.mutate({ gpsEnabled: e.target.checked })}
+            />
+            Enable tracking
+          </label>
+          <label>
+            GPS interval
+            <select
+              value={settings.gpsIntervalSeconds ?? 300}
+              onChange={(e) =>
+                saveSettings.mutate({ gpsIntervalSeconds: Number(e.target.value) })
+              }
+            >
+              {INTERVAL_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </label>
+        </section>
+      )}
+
+      {canViewEvidence && liveItems.length > 0 && (
+        <section className="la__live">
+          <div className="la__panel-head">
+            <span><MapPin size={15} /> Live locations ({liveItems.length})</span>
+          </div>
+          {mapUrl && (
+            <iframe title="Live employee map" className="la__map" src={mapUrl} loading="lazy" />
+          )}
+          <ul className="la__live-list">
+            {liveItems.map((r) => (
+              <li key={r.userId}>
+                <strong>{r.user.name}</strong>
+                <span>{dayjs(r.loggedAt).format('MMM D, HH:mm')}</span>
+                {r.latitude != null && r.longitude != null && (
+                  <a
+                    href={`https://www.openstreetmap.org/?mlat=${r.latitude}&mlon=${r.longitude}#map=16/${r.latitude}/${r.longitude}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    View on map
+                  </a>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <section className="la__panel">
         <div className="la__panel-head">
           <span><LogIn size={15} /> Sessions</span>
@@ -159,6 +278,19 @@ export default function LoginActivityPage() {
                 {canViewEvidence && (
                   <span className="la__location" title={r.address || undefined}>
                     {r.address || (r.latitude != null && r.longitude != null ? `${r.latitude.toFixed(5)}, ${r.longitude.toFixed(5)}` : 'Not captured')}
+                    {r.latitude != null && r.longitude != null && (
+                      <>
+                        {' '}
+                        <a
+                          className="la__map-link"
+                          href={`https://www.openstreetmap.org/?mlat=${r.latitude}&mlon=${r.longitude}#map=16/${r.latitude}/${r.longitude}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Map
+                        </a>
+                      </>
+                    )}
                   </span>
                 )}
                 {canViewEvidence && (

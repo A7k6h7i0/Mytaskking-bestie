@@ -1,0 +1,25 @@
+.rl { padding: 24px; max-width: 640px; margin: 0 auto; }
+.rl__head h1 { font-size: var(--fs-2xl); font-weight: 800; }
+.rl__head p { color: var(--c-text-muted); margin-top: 4px; margin-bottom: 20px; }
+.rl__form {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+  background: var(--c-surface); border: 1px solid var(--c-border);
+  border-radius: var(--r-md); padding: 16px; margin-bottom: 24px;
+}
+.rl__form label { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-xs); font-weight: 600; color: var(--c-text-muted); }
+.rl__form input, .rl__form select, .rl__form textarea {
+  border: 1px solid var(--c-border); border-radius: var(--r-md); padding: 8px 10px;
+  background: var(--c-bg); color: inherit; font-size: var(--fs-sm);
+}
+.rl__full { grid-column: 1 / -1; }
+.rl__form button {
+  grid-column: 1 / -1; background: var(--c-brand); color: #fff; border: none;
+  border-radius: var(--r-md); padding: 10px 14px; font-weight: 700; cursor: pointer;
+}
+.rl__list h2 { font-size: var(--fs-lg); margin-bottom: 10px; }
+.rl__empty { color: var(--c-text-muted); }
+.rl__card {
+  border: 1px solid var(--c-border); border-radius: var(--r-md); padding: 12px 14px;
+  margin-bottom: 10px; display: flex; flex-direction: column; gap: 4px;
+}
+.rl__card p { margin: 4px 0 0; color: var(--c-text-soft); font-size: var(--fs-sm); }

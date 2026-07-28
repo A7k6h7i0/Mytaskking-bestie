@@ -3039,8 +3039,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
         _tonePlayer,
         orgUrl: _ringingSoundUrl,
         releaseMode: ReleaseMode.loop,
-        volume: ringVolume,
-      );
+          volume: ringVolume,
+        );
       _startOutgoingRingTimeout();
     } catch (_) {}
   }
@@ -7161,15 +7161,15 @@ class _CallScreenState extends ConsumerState<CallScreen>
         mainAxisSize: MainAxisSize.min,
         children: [
           const Icon(Icons.front_hand_rounded, color: Color(0xFFFBBF24), size: 18),
-          const SizedBox(width: 8),
-          Flexible(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 13,
+        const SizedBox(width: 8),
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 13,
                 fontWeight: FontWeight.w600,
               ),
             ),
