@@ -139,9 +139,9 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
     });
     try {
       final items = await ref.read(apiProvider).listLeads(
-            q: _search.text.isEmpty ? null : _search.text,
-            status: _status == null || _status == 'ALL' ? null : _status,
-          );
+        q: _search.text.isEmpty ? null : _search.text,
+        status: _status == null || _status == 'ALL' ? null : _status,
+      );
       if (!mounted) return;
       setState(() {
         _leads = items;
@@ -514,23 +514,23 @@ class _TelecallerScreenState extends ConsumerState<TelecallerScreen>
                                 trailing: Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      GestureDetector(
-                                        onTap: () => _showStatusSheet(l),
-                                        child: BestieBadge(
-                                          tone: _toneFor(st),
-                                          child: Text(st),
-                                        ),
-                                      ),
+                                  GestureDetector(
+                                    onTap: () => _showStatusSheet(l),
+                                    child: BestieBadge(
+                                      tone: _toneFor(st),
+                                      child: Text(st),
+                                    ),
+                                  ),
                                       if (canCallLeads) ...[
-                                        const SizedBox(width: 4),
-                                        IconButton(
+                                  const SizedBox(width: 4),
+                                  IconButton(
                                           icon: Icon(Icons.call_rounded,
                                               color: c.success),
-                                          tooltip: 'Call',
-                                          onPressed: () => _call(l),
-                                        ),
+                                    tooltip: 'Call',
+                                    onPressed: () => _call(l),
+                                  ),
                                       ],
-                                    ]),
+                                ]),
                                 onTap: canCallLeads
                                     ? () => _call(l)
                                     : () => _showStatusSheet(l),

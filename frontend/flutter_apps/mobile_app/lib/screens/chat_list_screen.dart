@@ -971,7 +971,10 @@ class _ChatTile extends ConsumerWidget {
     // lights up an unread badge. (The old `lastReadAt == null` check did,
     // which made your own "Hii" look like an incoming unread message.)
     final unreadCount = (channel['unreadCount'] as num?)?.toInt() ?? 0;
+    final unreadMentionCount =
+        (channel['unreadMentionCount'] as num?)?.toInt() ?? 0;
     final unread = unreadCount > 0;
+    final hasUnreadMention = unreadMentionCount > 0 && kind != 'DM';
     final isClient = channel['isClientChannel'] == true || kind == 'CLIENT';
 
     // Build display name. For DMs prefer the *other* member's name.
@@ -1241,15 +1244,25 @@ class _ChatTile extends ConsumerWidget {
                         shape: BoxShape.circle,
                       ),
                       alignment: Alignment.center,
-                      child: Text(
-                        unreadCount > 9 ? '9+' : '$unreadCount',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 11,
-                          fontWeight: BestieTokens.fwBold,
-                          height: 1,
-                        ),
-                      ),
+                      child: hasUnreadMention
+                          ? Text(
+                              '@',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: BestieTokens.fwBold,
+                                height: 1,
+                              ),
+                            )
+                          : Text(
+                              unreadCount > 9 ? '9+' : '$unreadCount',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: BestieTokens.fwBold,
+                                height: 1,
+                              ),
+                            ),
                     ),
                   ] else if (muted) ...[
                     const SizedBox(height: 6),

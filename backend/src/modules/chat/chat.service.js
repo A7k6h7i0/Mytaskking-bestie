@@ -162,30 +162,7 @@ async function sendMessage({ channelId, user, body, kind = 'TEXT', attachmentIds
   return message;
 }
 
-function findMentionTargets({ body, members, authorId }) {
-  const source = String(body || '').toLowerCase();
-  if (!source.includes('@')) return [];
-  // Broadcast mentions — @everyone / @here / @channel notify every member
-  // (except the author). We don't distinguish online vs offline for @here
-  // server-side; the client decides whether to suppress for muted channels.
-  const isBroadcast = /(^|\s)@(everyone|here|channel)\b/.test(source);
-  if (isBroadcast) {
-    return (members || [])
-      .map((m) => m.user)
-      .filter((p) => p && p.id !== authorId);
-  }
-  const picks = [];
-  for (const member of members || []) {
-    const person = member.user;
-    if (!person || person.id === authorId) continue;
-    const nameKey = `@${String(person.name || '').trim().toLowerCase()}`;
-    const userIdKey = `@${String(person.userId || '').trim().toLowerCase()}`;
-    if ((person.userId && source.includes(userIdKey)) || (person.name && source.includes(nameKey))) {
-      picks.push(person);
-    }
-  }
-  return Array.from(new Map(picks.map((item) => [item.id, item])).values());
-}
+const { findMentionTargets } = require('../../utils/mentions');
 
 async function listThread({ rootId, user, limit = 100 }) {
   const root = await prisma.message.findUnique({

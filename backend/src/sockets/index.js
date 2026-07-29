@@ -198,17 +198,50 @@ module.exports = function initSockets(server) {
       }).catch(() => {});
     });
 
+    function normalizeCameraEnabled(enabled) {
+      const cameraOff =
+        enabled === false || enabled === 'false' || enabled === 0 || enabled === '0';
+      return !cameraOff;
+    }
+
     // Mid-call voice → video upgrade so remotes flip UI (not only decode tracks).
     socket.on('call.videoEnabled', ({ callId, enabled, agoraUid }) => {
       if (!callId) return;
-      // Explicit false = camera off (peers show profile DP). Undefined stays on
-      // for older clients that only emit the upgrade event without a flag.
-      const cameraOff =
-        enabled === false || enabled === 'false' || enabled === 0 || enabled === '0';
       fanoutToCallParticipants(callId, 'call.videoEnabled', {
         callId,
         userId,
-        enabled: !cameraOff,
+        enabled: normalizeCameraEnabled(enabled),
+        agoraUid: Number(agoraUid) > 0 ? Number(agoraUid) : null,
+      }).catch(() => {});
+    });
+
+    async function fanoutToMeetingParticipants(meetingSlug, event, payload) {
+      if (!meetingSlug) return;
+      const room = await prisma.meetingRoom.findUnique({
+        where: { slug: meetingSlug },
+        select: { id: true, endedAt: true },
+      });
+      if (!room || room.endedAt) return;
+      const parts = await prisma.meetingRoomParticipant.findMany({
+        where: {
+          roomId: room.id,
+          userId: { not: null },
+          joinedVia: { in: ['INTERNAL', 'GUEST'] },
+        },
+        select: { userId: true },
+      });
+      for (const p of parts) {
+        if (!p.userId || p.userId === userId) continue;
+        io.to(`user:${p.userId}`).emit(event, payload);
+      }
+    }
+
+    socket.on('meeting.videoEnabled', ({ meetingSlug, enabled, agoraUid }) => {
+      if (!meetingSlug) return;
+      fanoutToMeetingParticipants(meetingSlug, 'meeting.videoEnabled', {
+        meetingSlug,
+        userId,
+        enabled: normalizeCameraEnabled(enabled),
         agoraUid: Number(agoraUid) > 0 ? Number(agoraUid) : null,
       }).catch(() => {});
     });

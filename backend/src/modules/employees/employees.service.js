@@ -136,6 +136,7 @@ async function create(req, input, createdById) {
         name: input.name,
         email: input.email || null,
         phone: input.phone || null,
+        gender: input.gender || null,
         avatarUrl: input.avatarUrl || null,
         departmentId: input.departmentId || null,
         isClient: false,
@@ -194,6 +195,8 @@ async function update(req, id, input) {
   if (input.role === 'SALES_HEAD') data.tenantId = tenant.DEFAULT_TENANT_ID;
   if (input.password) data.passwordHash = await hashPassword(input.password);
   delete data.password;
+  if (data.gender === '') data.gender = null;
+  if (data.avatarUrl === '') data.avatarUrl = null;
   const supervisorIds = data.supervisorIds;
   delete data.supervisorIds;
 

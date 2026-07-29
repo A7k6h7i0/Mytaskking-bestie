@@ -73,6 +73,12 @@ router.delete(
   })
 );
 
+router.delete('/:id', asyncHandler(async (req, res) => {
+  const c = await service.deleteGroup(req.params.id, req.user);
+  audit.record({ kind: 'channel.archived', entity: 'channel', entityId: req.params.id, payload: { deletedByCreator: true }, req });
+  res.json(c);
+}));
+
 router.post('/:id/pin', requireAdmin, asyncHandler(async (req, res) => res.json(await service.pin(req.params.id, true))));
 router.post('/:id/unpin', requireAdmin, asyncHandler(async (req, res) => res.json(await service.pin(req.params.id, false))));
 router.post('/:id/archive', requireAdmin, asyncHandler(async (req, res) => {

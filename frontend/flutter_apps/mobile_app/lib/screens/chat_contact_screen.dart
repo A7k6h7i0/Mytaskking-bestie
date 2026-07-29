@@ -28,6 +28,10 @@ class ChatContactScreen extends StatefulWidget {
   final Future<String?> Function()? onPickGroupIcon;
   final Future<void> Function()? onRemoveGroupIcon;
   final Future<void> Function(String name)? onRenameGroup;
+  final bool canManageMembers;
+  final VoidCallback? onAddMember;
+  final Future<void> Function(String memberId, String memberName)? onRemoveMember;
+  final Future<void> Function()? onDeleteGroup;
 
   const ChatContactScreen({
     super.key,
@@ -52,6 +56,10 @@ class ChatContactScreen extends StatefulWidget {
     this.onPickGroupIcon,
     this.onRemoveGroupIcon,
     this.onRenameGroup,
+    this.canManageMembers = false,
+    this.onAddMember,
+    this.onRemoveMember,
+    this.onDeleteGroup,
   });
 
   @override
@@ -497,18 +505,85 @@ class _ChatContactScreenState extends State<ChatContactScreen> {
             _section(colors, [
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                child: Text(
-                  '${widget.members.length} MEMBERS',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: BestieTokens.fwBold,
-                    color: colors.textMuted,
-                    letterSpacing: BestieTokens.lsEyebrow,
-                  ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${widget.members.length} MEMBERS',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: BestieTokens.fwBold,
+                          color: colors.textMuted,
+                          letterSpacing: BestieTokens.lsEyebrow,
+                        ),
+                      ),
+                    ),
+                    if (widget.canManageMembers && widget.onAddMember != null)
+                      TextButton.icon(
+                        onPressed: widget.onAddMember,
+                        icon: Icon(Icons.person_add_alt_1_rounded,
+                            size: 18, color: colors.brand),
+                        label: Text(
+                          'Add',
+                          style: TextStyle(
+                            color: colors.brand,
+                            fontWeight: BestieTokens.fwSemibold,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
               for (final m in widget.members)
-                _MemberRow(member: m, colors: colors),
+                _MemberRow(
+                  member: m,
+                  colors: colors,
+                  canRemove: widget.canManageMembers && widget.onRemoveMember != null,
+                  onRemove: widget.onRemoveMember,
+                ),
+            ]),
+          ],
+          if (!widget.isDm && widget.canManageMembers && widget.onDeleteGroup != null) ...[
+            const SizedBox(height: 8),
+            _section(colors, [
+              ListTile(
+                leading: Icon(Icons.delete_forever_outlined, color: colors.danger),
+                title: Text(
+                  'Delete group',
+                  style: TextStyle(
+                    color: colors.danger,
+                    fontWeight: BestieTokens.fwSemibold,
+                  ),
+                ),
+                subtitle: const Text('Removes this group for everyone'),
+                onTap: () async {
+                  final ok = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('Delete group?'),
+                      content: const Text(
+                        'This group will be removed for all members. '
+                        'This cannot be undone.',
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: const Text('Cancel'),
+                        ),
+                        FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: colors.danger,
+                          ),
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: const Text('Delete'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (ok != true || !context.mounted) return;
+                  await widget.onDeleteGroup!();
+                },
+              ),
             ]),
           ],
         ],
@@ -569,8 +644,15 @@ class _ActionChip extends StatelessWidget {
 class _MemberRow extends StatelessWidget {
   final Map<String, dynamic> member;
   final BestieColors colors;
+  final bool canRemove;
+  final Future<void> Function(String memberId, String memberName)? onRemove;
 
-  const _MemberRow({required this.member, required this.colors});
+  const _MemberRow({
+    required this.member,
+    required this.colors,
+    this.canRemove = false,
+    this.onRemove,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -578,6 +660,7 @@ class _MemberRow extends StatelessWidget {
     final name = (u['name'] ?? '—').toString();
     final isClient = u['isClient'] == true;
     final avatar = u['avatarUrl']?.toString();
+    final userId = u['id']?.toString() ?? member['userId']?.toString() ?? '';
     return ListTile(
       leading: GestureDetector(
         onTap: () {
@@ -607,6 +690,35 @@ class _MemberRow extends StatelessWidget {
         (u['role'] ?? '').toString().replaceAll('_', ' ').toLowerCase(),
         style: TextStyle(color: colors.textMuted, fontSize: 12),
       ),
+      trailing: canRemove && userId.isNotEmpty && onRemove != null
+          ? IconButton(
+              icon: Icon(Icons.person_remove_outlined, color: colors.danger),
+              tooltip: 'Remove member',
+              onPressed: () async {
+                final ok = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Remove member?'),
+                    content: Text('Remove $name from this group?'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: const Text('Cancel'),
+                      ),
+                      FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: colors.danger,
+                        ),
+                        onPressed: () => Navigator.pop(ctx, true),
+                        child: const Text('Remove'),
+                      ),
+                    ],
+                  ),
+                );
+                if (ok == true) await onRemove!(userId, name);
+              },
+            )
+          : null,
     );
   }
 }

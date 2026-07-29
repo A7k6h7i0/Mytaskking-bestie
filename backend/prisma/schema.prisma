@@ -42,6 +42,7 @@ model User {
   name            String
   email           String?
   phone           String?
+  gender          String?
   avatarUrl       String?
   departmentId    String?
   department      Department? @relation(fields: [departmentId], references: [id])

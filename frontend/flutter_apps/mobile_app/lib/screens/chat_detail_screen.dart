@@ -25,6 +25,7 @@ import '../chat_media_saver.dart';
 import '../state.dart';
 import '../windows_workspace.dart';
 import 'call_screen.dart';
+import '../widgets/group_chat_helpers.dart';
 import '../widgets/profile_avatar_viewer.dart';
 import 'chat_contact_screen.dart';
 import 'chat_media_library.dart';
@@ -164,6 +165,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
   DateTime? _myLastReadAt;
   String? _unreadBoundaryId;
   int _unreadAtOpen = 0;
+  int? _mentionPickerAtIndex;
+  bool _mentionPickerOpen = false;
   bool _boundaryComputed = false;
 
   // Typing-indicator state. We track which remote users are mid-typing
@@ -335,13 +338,28 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     }
   }
 
+  void _closeMentionPickerIfOpen() {
+    if (!_mentionPickerOpen) return;
+    final nav = Navigator.of(context);
+    if (nav.canPop()) nav.pop();
+    _mentionPickerOpen = false;
+    _mentionPickerAtIndex = null;
+  }
+
   /// Throttle outgoing typing events so we don't spam the socket on every
   /// keystroke. We emit at most one event every 2 s while the user is still
   /// typing, then a final emit with `typing: false` once they pause.
   void _onComposerChanged() {
     if (_composer.text.isEmpty) {
       _emitTyping(false);
+      _mentionPickerAtIndex = null;
+      _closeMentionPickerIfOpen();
       return;
+    }
+    if (_mentionPickerOpen && _activeMentionQuery() == null) {
+      _closeMentionPickerIfOpen();
+    } else if (!_mentionPickerOpen) {
+      unawaited(_maybeOpenMentionPicker());
     }
     final now = DateTime.now();
     if (_lastTypingEmit == null ||
@@ -1318,6 +1336,145 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     return role == 'OWNER' || role == 'ADMIN' || role == 'MODERATOR';
   }
 
+  bool get _canManageGroupMembers {
+    if (_channel == null) return false;
+    final kind = (_channel!['kind'] ?? '').toString();
+    if (kind == 'DM') return false;
+    final me = ref.read(authStoreProvider).user;
+    if (me == null) return false;
+    if (_viewerIsAdmin) return true;
+    if (_channel!['createdById']?.toString() == me.id) return true;
+    final members =
+        (_channel!['members'] as List?)?.cast<Map<String, dynamic>>() ??
+            const [];
+    Map<String, dynamic>? myMember;
+    for (final m in members) {
+      if (m['userId']?.toString() == me.id) {
+        myMember = m;
+        break;
+      }
+    }
+    if (myMember == null) return false;
+    final role =
+        (myMember['memberRole'] ?? myMember['role'] ?? '').toString().toUpperCase();
+    return role == 'OWNER' || role == 'ADMIN' || myMember['role'] == 'owner' ||
+        myMember['role'] == 'admin';
+  }
+
+  bool get _isGroupChat {
+    final kind = (_channel?['kind'] ?? '').toString();
+    return kind != 'DM' && kind.isNotEmpty;
+  }
+
+  Future<void> _addGroupMembers() async {
+    if (!_canManageGroupMembers || _channel == null) return;
+    final members =
+        (_channel!['members'] as List?)?.cast<Map<String, dynamic>>() ??
+            const [];
+    final existing = members
+        .map((m) => m['userId']?.toString())
+        .whereType<String>()
+        .toSet();
+    final picked = await showAddGroupMemberPicker(
+      context,
+      fetchEmployees: (q) => ref.read(apiProvider).listEmployees(
+            q: q.trim().isEmpty ? null : q.trim(),
+            forChat: true,
+            pageSize: 200,
+          ),
+      excludeUserIds: existing,
+    );
+    if (picked == null || picked.isEmpty || !mounted) return;
+    try {
+      final fresh = await ref
+          .read(apiProvider)
+          .addChannelMembers(widget.channelId, picked);
+      if (!mounted) return;
+      setState(() => _channel = fresh);
+      ref.invalidate(channelsProvider);
+      bestieToast(context, 'Members added', kind: BestieToastKind.success);
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not add members',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    }
+  }
+
+  Future<void> _removeGroupMember(String memberId, String memberName) async {
+    if (!_canManageGroupMembers) return;
+    try {
+      final result = await ref
+          .read(apiProvider)
+          .removeChannelMember(widget.channelId, memberId);
+      if (!mounted) return;
+      if (result['left'] == true) {
+        ref.invalidate(channelsProvider);
+        context.go('/chat');
+        return;
+      }
+      final fresh = await ref.read(apiProvider).getChannel(widget.channelId);
+      if (!mounted) return;
+      setState(() => _channel = fresh);
+      ref.invalidate(channelsProvider);
+      bestieToast(context, '$memberName removed', kind: BestieToastKind.success);
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not remove member',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    }
+  }
+
+  Future<void> _deleteGroup() async {
+    if (!_canManageGroupMembers) return;
+    try {
+      await ref.read(apiProvider).deleteChannel(widget.channelId);
+      if (!mounted) return;
+      ref.invalidate(channelsProvider);
+      Navigator.of(context).pop();
+      context.go('/chat');
+      bestieToast(context, 'Group deleted', kind: BestieToastKind.success);
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not delete group',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    }
+  }
+
+  Future<void> _maybeOpenMentionPicker() async {
+    if (!_isGroupChat || _mentionPickerOpen) return;
+    final query = _activeMentionQuery();
+    if (query == null) {
+      _mentionPickerAtIndex = null;
+      return;
+    }
+    final selection = _composer.selection;
+    if (!selection.isValid || !selection.isCollapsed) return;
+    final atIndex =
+        _composer.text.substring(0, selection.start).lastIndexOf('@');
+    if (atIndex < 0) return;
+    if (_mentionPickerAtIndex == atIndex) return;
+    _mentionPickerAtIndex = atIndex;
+    _mentionPickerOpen = true;
+    final members =
+        (_channel?['members'] as List?)?.cast<Map<String, dynamic>>() ??
+            const [];
+    final me = ref.read(authStoreProvider).user;
+    final picked = await showGroupMentionPicker(
+      context,
+      members: members,
+      currentUserId: me?.id,
+      filterQuery: query,
+      composer: _composer,
+      keepOpen: () => _activeMentionQuery() != null,
+    );
+    _mentionPickerOpen = false;
+    if (!mounted || picked == null) return;
+    _applyMention(picked);
+  }
+
   Future<String?> _pickGroupIconFile() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.image,
@@ -1590,105 +1747,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     return fragment;
   }
 
-  Widget _mentionSuggestions(BestieColors c) {
-    final query = _activeMentionQuery();
-    if (query == null) return const SizedBox.shrink();
-    final members =
-        (_channel?['members'] as List?)?.cast<Map<String, dynamic>>() ??
-            const [];
-    final me = ref.read(authStoreProvider).user;
-    final q = query.toLowerCase();
-    // Broadcast mentions surface first when the query is empty or matches.
-    final broadcast = <Map<String, dynamic>>[
-      {
-        'name': 'everyone',
-        '_broadcast': true,
-        '_desc': 'Notify the whole channel'
-      },
-      {
-        'name': 'here',
-        '_broadcast': true,
-        '_desc': 'Notify members who are active'
-      },
-    ].where((b) => q.isEmpty || (b['name'] as String).startsWith(q)).toList();
-    final matches = [
-      ...broadcast,
-      ...members
-          .map((m) => (m['user'] as Map?)?.cast<String, dynamic>())
-          .whereType<Map<String, dynamic>>()
-          .where((u) {
-        if (me?.id != null && u['id'] == me!.id) return false;
-        final name = (u['name'] ?? '').toString().toLowerCase();
-        return q.isEmpty || name.contains(q);
-      }).take(5),
-    ];
-    if (matches.isEmpty) return const SizedBox.shrink();
-    return Container(
-      constraints: const BoxConstraints(maxHeight: 200),
-      decoration: BoxDecoration(
-        color: c.surface,
-        border: Border(top: BorderSide(color: c.border)),
-      ),
-      child: ListView.builder(
-        shrinkWrap: true,
-        itemCount: matches.length,
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        itemBuilder: (_, i) {
-          final u = matches[i];
-          final isBroadcast = u['_broadcast'] == true;
-          return InkWell(
-            onTap: () => _applyMention(u),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              child: Row(children: [
-                if (isBroadcast)
-                  CircleAvatar(
-                    radius: 14,
-                    backgroundColor: c.brandSoft,
-                    child: Icon(Icons.campaign_rounded,
-                        size: 16, color: c.brandStrong),
-                  )
-                else
-                  BestieAvatar(
-                    name: u['name']?.toString() ?? '?',
-                    imageUrl: u['avatarUrl']?.toString(),
-                    isClient: u['isClient'] ?? false,
-                    size: 28,
-                  ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: isBroadcast
-                      ? Text('@${u['name']}',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: c.text,
-                            fontWeight: BestieTokens.fwBold,
-                          ))
-                      : BestieUserName(
-                          name: u['name']?.toString() ?? '',
-                          isClient: u['isClient'] ?? false,
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: c.text,
-                            fontWeight: BestieTokens.fwSemibold,
-                          ),
-                        ),
-                ),
-                Text(
-                  isBroadcast
-                      ? (u['_desc'] ?? '').toString()
-                      : (u['role'] ?? '').toString().replaceAll('_', ' '),
-                  style: TextStyle(fontSize: 10, color: c.textMuted),
-                ),
-              ]),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  /// Tap-handler for the suggestion list. Substitutes the `@fragment` at the
+  /// Tap-handler for the mention picker. Substitutes the `@fragment` at the
   /// cursor with `@Name ` (trailing space) and bumps the cursor past it so
   /// the user can continue typing immediately.
   void _applyMention(Map<String, dynamic> user) {
@@ -1707,6 +1766,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
         offset: atIndex + replacement.length,
       ),
     );
+    _mentionPickerAtIndex = null;
     setState(() {});
   }
 
@@ -2123,6 +2183,11 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
           onRemoveGroupIcon:
               !isDm && _canEditGroupPhoto ? _removeGroupIcon : null,
           onRenameGroup: !isDm && _canEditGroupPhoto ? _renameGroup : null,
+          canManageMembers: !isDm && _canManageGroupMembers,
+          onAddMember: !isDm && _canManageGroupMembers ? _addGroupMembers : null,
+          onRemoveMember:
+              !isDm && _canManageGroupMembers ? _removeGroupMember : null,
+          onDeleteGroup: !isDm && _canManageGroupMembers ? _deleteGroup : null,
           onVoiceCall: isDm
               ? () {
                   Navigator.of(context).pop();
@@ -2675,7 +2740,11 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                             viewerId: me?.id,
                           ) as Widget,
                         _ => _MessageBubble(
-                            message: m, author: author, mine: mine),
+                            message: m,
+                            author: author,
+                            mine: mine,
+                            highlightMentions: _isGroupChat,
+                          ),
                       };
 
                       // "N new messages" unread divider — rendered above the
@@ -2709,9 +2778,6 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
           // the messages list when it appears/disappears.
           if (_typing.isNotEmpty)
             _TypingIndicator(typing: _typing.values.toList(), colors: colors),
-          // @mention autocomplete — pops above the composer when the user is
-          // mid-typing an @handle. Replaces the @-fragment with @Name on tap.
-          _mentionSuggestions(colors),
           // Smart reply chips — surface 3 quick canned replies when the last
           // message is from someone else and the user hasn't started typing.
           if (_replyingTo == null) _smartReplies(colors, me),
@@ -3598,8 +3664,13 @@ class _MessageBubble extends ConsumerWidget {
   final Map<String, dynamic> message;
   final Map<String, dynamic> author;
   final bool mine;
-  const _MessageBubble(
-      {required this.message, required this.author, required this.mine});
+  final bool highlightMentions;
+  const _MessageBubble({
+    required this.message,
+    required this.author,
+    required this.mine,
+    this.highlightMentions = false,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -3808,9 +3879,19 @@ class _MessageBubble extends ConsumerWidget {
                 else if (body.isNotEmpty) ...[
                   Padding(
                     padding: const EdgeInsets.fromLTRB(6, 2, 6, 2),
-                    child: Text(body,
-                        style:
-                            TextStyle(color: fg, fontSize: 14, height: 1.35)),
+                    child: highlightMentions
+                        ? MentionText(
+                            text: body,
+                            style: TextStyle(
+                              color: fg,
+                              fontSize: 14,
+                              height: 1.35,
+                            ),
+                            mentionColor: mine ? c.brandStrong : c.brand,
+                          )
+                        : Text(body,
+                            style: TextStyle(
+                                color: fg, fontSize: 14, height: 1.35)),
                   ),
                   // OG link preview — silent if the message has no URL or
                   // the unfurl came back empty.

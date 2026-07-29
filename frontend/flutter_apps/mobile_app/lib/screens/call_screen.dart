@@ -257,6 +257,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
   bool get _videoEnabled => _CallSession.videoEnabled;
   set _videoEnabled(bool v) => _CallSession.videoEnabled = v;
   bool get _routeWantsVideo => widget.mode.toLowerCase() == 'video';
+  bool get _isVoiceMeeting =>
+      widget.meetingSlug != null && !_routeWantsVideo;
   Set<int> get _remoteUids => _CallSession.remoteUids;
   Map<int, String> get _remoteNames => _CallSession.remoteNames;
   Map<int, bool> get _remoteMuted => _CallSession.remoteMuted;
@@ -341,7 +343,14 @@ class _CallScreenState extends ConsumerState<CallScreen>
   static const _kSpeakingBorderColor = BestieTokens.cBrand300;
   static const _kParticipantTileBg = Color(0xFF3E444A);
 
-  bool get _isVideo => _videoEnabled;
+  bool get _isVideo => _isVoiceMeeting ? false : _videoEnabled;
+  /// Local camera publishing + preview (distinct from "video call" layout mode).
+  bool get _isLocalCameraOn =>
+      !_isVoiceMeeting && !_cameraOff && (_videoEnabled || _routeWantsVideo);
+  IconData get _cameraToggleIcon => _isLocalCameraOn
+      ? Icons.videocam_rounded
+      : Icons.videocam_off_rounded;
+  bool _cameraToggleInFlight = false;
   bool get _isCallInitiator {
     final call = (_callMeta?['call'] as Map?)?.cast<String, dynamic>();
     return call?['initiatorId'] == ref.read(authStoreProvider).user?.id;
@@ -662,6 +671,18 @@ class _CallScreenState extends ConsumerState<CallScreen>
         enriched['fromUserId'] = data['from'];
       }
       _handleCallSignalPayload(enriched);
+    }));
+    _callUnsubs.add(rt.onAny('meeting.videoEnabled', ([data]) {
+      if (data is! Map) return;
+      if (data['meetingSlug']?.toString() != slug) return;
+      _handleCallSignalPayload({
+        'meetingSlug': slug,
+        'type': 'videoEnabled',
+        'enabled': data['enabled'],
+        'userId': data['userId'],
+        'agoraUid': data['agoraUid'],
+        'fromUserId': data['userId'],
+      });
     }));
     _callUnsubs.add(rt.onAny('meeting.ended', ([data]) {
       if (data is! Map) return;
@@ -1765,6 +1786,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       return;
     }
     if (type == 'videoEnabled') {
+      if (_isVoiceMeeting) return;
       final fromId =
           payload['fromUserId']?.toString() ?? payload['userId']?.toString();
       final me = ref.read(authStoreProvider).user;
@@ -1841,6 +1863,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   Future<void> _ensureRemoteVideoSubscribed(int uid) async {
+    if (_isVoiceMeeting) return;
     final engine = _engine;
     if (engine == null) return;
     try {
@@ -2117,6 +2140,16 @@ class _CallScreenState extends ConsumerState<CallScreen>
   /// Voice 1:1 must stay on the avatar stage. Grid only when SFU (or
   /// participant maps) clearly show 2+ remote people — never because one
   /// peer was counted twice as uid + sock.
+  /// Corner self-view (WhatsApp-style PiP). Only for 1:1 video — meetings and
+  /// multi-party grids already include a local tile labeled "You".
+  bool get _showSelfViewPiP {
+    if (!_isVideo || !_joined || _remoteUids.isEmpty) return false;
+    if (_isMeeting) return false;
+    return _remoteUids.length <= 1 &&
+        _mediasoupLiveRemotePeerCount <= 1 &&
+        _distinctRemoteUserCount <= 1;
+  }
+
   bool get _useWhatsAppParticipantGrid {
     if (_isMeeting) return true;
     if (_isVideo) {
@@ -2880,7 +2913,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
         final on = state == RemoteVideoState.remoteVideoStateDecoding;
         if (!off && !on) return;
         setState(() => _remoteVideoMuted[remoteUid] = off);
-        if (on && !_videoEnabled) {
+        if (on && !_videoEnabled && !_isVoiceMeeting) {
           _upgradeToVideoUi(remoteUid: remoteUid);
         }
       },
@@ -3708,15 +3741,27 @@ class _CallScreenState extends ConsumerState<CallScreen>
       for (final track in stream.getAudioTracks()) {
         track.enabled = true;
       }
-      for (final track in stream.getVideoTracks()) {
-        track.enabled = true;
+      if (!_isVoiceMeeting) {
+        for (final track in stream.getVideoTracks()) {
+          track.enabled = true;
+        }
       }
       unawaited(session.enableRemotePlayback());
       unawaited(_reassertAudio());
       final uid = _CallSession.socketIdToUid[socketId];
       if (kind == 'video' && stream.getVideoTracks().isNotEmpty) {
-        // Clear "camera off" and flip voice → video UI on this device.
         final targetUid = uid ?? _CallSession.socketIdToUid[socketId];
+        if (_isVoiceMeeting) {
+          for (final track in stream.getVideoTracks()) {
+            track.enabled = false;
+          }
+          if (targetUid != null) {
+            _remoteVideoMuted[targetUid] = true;
+          }
+          if (mounted) setState(() {});
+          return;
+        }
+        // Clear "camera off" and flip voice → video UI on this device.
         if (targetUid != null) {
           _remoteVideoMuted[targetUid] = false;
         }
@@ -3737,6 +3782,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       _CallSession._ping();
     };
     session.onRemoteScreenShare = (socketId, stream) {
+      if (_isVoiceMeeting) return;
       if (!mounted) return;
       final uid = _CallSession.socketIdToUid[socketId] ??
           _resolveRemoteUid(
@@ -3853,6 +3899,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   Widget? _buildLocalVideoWidget() {
+    if (!_isLocalCameraOn) return null;
     if (_CallSession.useMediasoup) {
       final stream = _mediasoupStreamForUid(null, local: true);
       if (stream == null || stream.getVideoTracks().isEmpty) {
@@ -3883,8 +3930,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
     if (stream == null) return true;
     final videos = stream.getVideoTracks();
     if (videos.isEmpty) return true;
-    // Paused/muted producer often leaves tracks present but black.
-    return videos.every((t) => t.muted == true);
+    // Paused/muted/disabled producer often leaves tracks present but black.
+    return videos.every((t) => t.muted == true || !t.enabled);
   }
 
   Widget? _buildRemoteVideoWidget(int uid) {
@@ -4083,6 +4130,18 @@ class _CallScreenState extends ConsumerState<CallScreen>
       video: _routeWantsVideo,
       joinToken: tokenResp['joinToken']?.toString(),
     );
+    if (_isVoiceMeeting) {
+      _videoEnabled = false;
+      _cameraOff = true;
+      _CallSession.videoEnabled = false;
+      await session.setCameraEnabled(false);
+    } else if (_routeWantsVideo) {
+      _videoEnabled = true;
+      _cameraOff = false;
+      _CallSession.videoEnabled = true;
+      _CallSession.cameraOff = false;
+      await session.setCameraEnabled(true);
+    }
 
     if (mounted) {
       final ice = session.iceSummary;
@@ -4217,10 +4276,77 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   Future<void> _toggleCamera() async {
-    if (_CallSession.useMediasoup) {
-      final session = _CallSession.mediasoup;
-      if (session == null) return;
-      if (!_videoEnabled) {
+    await _setLocalCameraEnabled(!_isLocalCameraOn);
+  }
+
+  Future<void> _setLocalCameraEnabled(bool enabled) async {
+    if (_isVoiceMeeting || _cameraToggleInFlight) return;
+    if (enabled == _isLocalCameraOn) return;
+
+    _cameraToggleInFlight = true;
+    try {
+      if (_CallSession.useMediasoup) {
+        final session = _CallSession.mediasoup;
+        if (session == null || !session.joined) {
+          if (mounted) {
+            bestieToast(
+              context,
+              'Not connected yet',
+              body: 'Camera controls are available once the meeting connects.',
+              kind: BestieToastKind.info,
+            );
+          }
+          return;
+        }
+        if (enabled) {
+          final status = await Permission.camera.request();
+          if (status != PermissionStatus.granted &&
+              status != PermissionStatus.limited) {
+            if (mounted) {
+              bestieToast(
+                context,
+                'Camera permission needed',
+                body: 'Enable camera permission to turn on video.',
+                kind: BestieToastKind.warning,
+              );
+            }
+            return;
+          }
+          if (mounted) {
+            setState(() {
+              _videoEnabled = true;
+              _cameraOff = false;
+              _CallSession.videoEnabled = true;
+              _CallSession.cameraOff = false;
+            });
+          } else {
+            _videoEnabled = true;
+            _cameraOff = false;
+            _CallSession.videoEnabled = true;
+            _CallSession.cameraOff = false;
+          }
+          await session.setCameraEnabled(true);
+          unawaited(_stopProximity());
+        } else {
+          if (mounted) {
+            setState(() {
+              _cameraOff = true;
+              _CallSession.cameraOff = true;
+            });
+          } else {
+            _cameraOff = true;
+            _CallSession.cameraOff = true;
+          }
+          await session.setCameraEnabled(false);
+        }
+        _emitCameraStateToPeers(enabled: enabled);
+        if (mounted) setState(() {});
+        return;
+      }
+
+      final engine = _engine;
+      if (engine == null) return;
+      if (enabled) {
         final status = await Permission.camera.request();
         if (status != PermissionStatus.granted &&
             status != PermissionStatus.limited) {
@@ -4234,74 +4360,60 @@ class _CallScreenState extends ConsumerState<CallScreen>
           }
           return;
         }
-        setState(() {
-          _videoEnabled = true;
-          _cameraOff = false;
-          _CallSession.videoEnabled = true;
-        });
-        session.setCameraEnabled(true);
-        _emitVideoUpgrade(enabled: true);
-        unawaited(_stopProximity());
-        return;
-      }
-      setState(() => _cameraOff = !_cameraOff);
-      session.setCameraEnabled(!_cameraOff);
-      _emitVideoUpgrade(enabled: !_cameraOff);
-      return;
-    }
-    final engine = _engine;
-    if (engine == null) return;
-    if (!_videoEnabled) {
-      final status = await Permission.camera.request();
-      if (status != PermissionStatus.granted &&
-          status != PermissionStatus.limited) {
-        if (mounted) {
-          bestieToast(
-            context,
-            'Camera permission needed',
-            body: 'Enable camera permission to turn on video.',
-            kind: BestieToastKind.warning,
-          );
+        try {
+          await engine.enableVideo();
+          await engine.startPreview();
+          await engine.muteLocalVideoStream(false);
+          await engine.updateChannelMediaOptions(const ChannelMediaOptions(
+            publishCameraTrack: true,
+            autoSubscribeVideo: true,
+          ));
+          if (mounted) {
+            setState(() {
+              _videoEnabled = true;
+              _cameraOff = false;
+              _CallSession.videoEnabled = true;
+              _CallSession.cameraOff = false;
+            });
+          }
+          unawaited(_stopProximity());
+        } catch (e) {
+          if (mounted) {
+            bestieToast(
+              context,
+              'Could not start video',
+              body: e.toString(),
+              kind: BestieToastKind.error,
+            );
+          }
+          return;
         }
-        return;
-      }
-      try {
-        await engine.enableVideo();
-        await engine.startPreview();
+      } else {
+        if (mounted) {
+          setState(() {
+            _cameraOff = true;
+            _CallSession.cameraOff = true;
+          });
+        } else {
+          _cameraOff = true;
+          _CallSession.cameraOff = true;
+        }
+        await engine.muteLocalVideoStream(true);
         await engine.updateChannelMediaOptions(const ChannelMediaOptions(
-          publishCameraTrack: true,
+          publishCameraTrack: false,
           autoSubscribeVideo: true,
         ));
-        setState(() {
-          _videoEnabled = true;
-          _cameraOff = false;
-          _CallSession.videoEnabled = true;
-        });
-        _emitVideoUpgrade(enabled: true);
-        unawaited(_stopProximity());
-      } catch (e) {
-        if (mounted) {
-          bestieToast(
-            context,
-            'Could not start video',
-            body: e.toString(),
-            kind: BestieToastKind.error,
-          );
-        }
       }
-      return;
+      _emitCameraStateToPeers(enabled: enabled);
+      if (mounted) setState(() {});
+    } finally {
+      _cameraToggleInFlight = false;
     }
-    setState(() => _cameraOff = !_cameraOff);
-    await engine.muteLocalVideoStream(_cameraOff);
-    await engine.updateChannelMediaOptions(ChannelMediaOptions(
-      publishCameraTrack: !_cameraOff,
-      autoSubscribeVideo: true,
-    ));
-    _emitVideoUpgrade(enabled: !_cameraOff);
   }
 
-  /// Tell peers to flip from voice UI to video UI (they also see remote tracks).
-  void _emitVideoUpgrade({required bool enabled}) {
+  /// Tell peers the local camera is on/off (server fan-out + direct signal).
+  void _emitCameraStateToPeers({required bool enabled}) {
+    if (_isVoiceMeeting) return;
     final meId = ref.read(authStoreProvider).user?.id;
     final agoraUid = _CallSession.myUid;
     _broadcastCallSignal({
@@ -4310,18 +4422,26 @@ class _CallScreenState extends ConsumerState<CallScreen>
       'agoraUid': agoraUid,
       'fromUserId': meId,
     });
+    final rt = ref.read(realtimeProvider);
     final callId = widget.callId;
     if (callId != null) {
-      final rt = ref.read(realtimeProvider);
       rt.emit('call.videoEnabled', {
         'callId': callId,
         'enabled': enabled,
         'agoraUid': agoraUid,
       });
     }
+    final meetingSlug = widget.meetingSlug;
+    if (meetingSlug != null && meetingSlug.isNotEmpty) {
+      rt.emit('meeting.videoEnabled', {
+        'meetingSlug': meetingSlug,
+        'enabled': enabled,
+        'agoraUid': agoraUid,
+      });
+    }
   }
-
   void _upgradeToVideoUi({int? remoteUid}) {
+    if (_isVoiceMeeting) return;
     if (!mounted) return;
     setState(() {
       _videoEnabled = true;
@@ -4494,6 +4614,17 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   Future<void> _toggleShare() async {
+    if (_isVoiceMeeting) {
+      if (mounted) {
+        bestieToast(
+          context,
+          'Screen share unavailable',
+          body: 'Voice meetings are audio only.',
+          kind: BestieToastKind.info,
+        );
+      }
+      return;
+    }
     if (!_kScreenShareUiEnabled) return;
     if (!_hasLiveMediaEngine) return;
     if (!_joined) {
@@ -4537,7 +4668,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
           publishScreenCaptureVideo: false,
           publishScreenCaptureAudio: false,
           publishScreenTrack: false,
-          publishCameraTrack: _isVideo && !_cameraOff,
+          publishCameraTrack: _isLocalCameraOn,
         ));
         setState(() => _sharing = false);
         _emitScreenShareState(active: false);
@@ -4570,7 +4701,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
           publishScreenCaptureVideo: true,
           publishScreenCaptureAudio: false,
           publishScreenTrack: true,
-          publishCameraTrack: _isVideo && !_cameraOff,
+          publishCameraTrack: _isLocalCameraOn,
           clientRoleType: ClientRoleType.clientRoleBroadcaster,
           autoSubscribeVideo: true,
         ));
@@ -4581,7 +4712,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
           publishScreenCaptureVideo: true,
             publishScreenCaptureAudio: false,
           publishScreenTrack: true,
-          publishCameraTrack: _isVideo && !_cameraOff,
+          publishCameraTrack: _isLocalCameraOn,
           clientRoleType: ClientRoleType.clientRoleBroadcaster,
           autoSubscribeVideo: true,
         ));
@@ -5077,9 +5208,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
                     ),
                   ),
 
-                // Self-view PiP once the other person joins (full-screen self while ringing).
+                // Self-view PiP for 1:1 video only (meetings use grid tile "You").
                 // Camera off → profile DP (not a black preview sink).
-                if (_isVideo && _joined && _remoteUids.isNotEmpty)
+                if (_showSelfViewPiP)
                   Positioned(
                     right: 14,
                     top: topInset + 64,
@@ -5100,7 +5231,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
                             ),
                           ],
                         ),
-                        child: _cameraOff
+                        child: !_isLocalCameraOn
                             ? Stack(
                                 fit: StackFit.expand,
                                 children: [
@@ -7020,7 +7151,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
                   stream: remoteStream,
                 ),
               ),
-              if (_joined && !_cameraOff)
+              if (_joined && _isLocalCameraOn)
                 Positioned(
                   right: 14,
                   top: MediaQuery.paddingOf(context).top + 64,
@@ -7033,7 +7164,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
         }
       }
       // Outgoing / waiting: show local camera full-screen (WhatsApp-style).
-      if (_isVideo && _hasLiveMediaEngine && _joined && !_cameraOff) {
+      if (_isVideo && _hasLiveMediaEngine && _joined && _isLocalCameraOn) {
         return Stack(
           fit: StackFit.expand,
           children: [
@@ -7542,12 +7673,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }) {
     final remoteOff =
         !isLocal && (videoMuted || _isRemoteVideoOff(agoraUid));
-    final localOff = isLocal && (_cameraOff || videoMuted);
+    final localOff = isLocal && (!_isLocalCameraOn || videoMuted);
     final showVideo = forVideo &&
         !remoteOff &&
         !localOff &&
         _hasLiveMediaEngine &&
-        ((!isLocal && agoraUid != null) || (isLocal && !_cameraOff));
+        ((!isLocal && agoraUid != null) || (isLocal && _isLocalCameraOn));
     final resolvedImageUrl = imageUrl ??
         (isLocal
             ? ref.read(authStoreProvider).user?.avatarUrl
@@ -8031,7 +8162,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
         }
         await engine.enableLocalAudio(true);
         await engine.muteLocalAudioStream(_muted);
-        if (_isVideo) await engine.muteLocalVideoStream(_cameraOff);
+        if (_isLocalCameraOn) {
+          await engine.muteLocalVideoStream(false);
+        } else {
+          await engine.muteLocalVideoStream(true);
+        }
         await _reassertAudio();
       }
     } catch (_) {/* best-effort */}
@@ -8510,9 +8645,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
                     child: Transform.translate(
                       offset: Offset(compact ? 4 : 6, 0),
                       child: CallUiBottomActionButton(
-                        icon: (!_videoEnabled || _cameraOff)
-                            ? Icons.videocam_off_outlined
-                            : Icons.videocam_outlined,
+                        icon: _cameraToggleIcon,
                         size: actionSize,
                         onTap: _toggleCamera,
                         compact: compact,
@@ -8736,14 +8869,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
           ),
           _ctrlCircle(
             icon: _isVideo
-                ? ((!_videoEnabled || _cameraOff)
-                    ? Icons.videocam_off_rounded
-                    : Icons.videocam_rounded)
+                ? _cameraToggleIcon
                 : Icons.dialpad_rounded,
             onTap: _isVideo
                 ? _toggleCamera
                 : (_kScreenShareUiEnabled ? _toggleShare : _showDialPad),
-            active: _isVideo && !_cameraOff,
+            active: _isLocalCameraOn,
             size: buttonSize,
             iconSize: iconSize,
           ),
@@ -8898,11 +9029,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
             iconSize: compact ? 18 : 22,
           ),
           _ctrlCircle(
-            icon: (!_videoEnabled || _cameraOff)
-                ? Icons.videocam_off_rounded
-                : Icons.videocam_rounded,
+            icon: _cameraToggleIcon,
             onTap: _toggleCamera,
-            active: !_videoEnabled || _cameraOff,
+            active: _isLocalCameraOn,
             size: compact ? 42 : 52,
             iconSize: compact ? 18 : 22,
           ),
@@ -8955,32 +9084,33 @@ class _CallScreenState extends ConsumerState<CallScreen>
             size: compact ? 42 : 52,
             iconSize: compact ? 18 : 22,
           ),
+          if (!_isVoiceMeeting)
+            _ctrlCircle(
+              icon: _cameraToggleIcon,
+              onTap: _toggleCamera,
+              active: _isLocalCameraOn,
+              size: compact ? 42 : 52,
+              iconSize: compact ? 18 : 22,
+            ),
           _ctrlCircle(
-            icon: (!_videoEnabled || _cameraOff)
-                ? Icons.videocam_off_rounded
-                : Icons.videocam_rounded,
-            onTap: _toggleCamera,
-            active: !_videoEnabled || _cameraOff,
+            icon: _isVoiceMeeting
+                ? Icons.volume_up_rounded
+                : _audioRouteIcon(_route),
+            onTap: _isVoiceMeeting ? _toggleSpeakerRoute : _cycleAudioRoute,
+            active: _route == CallAudioRoute.speaker,
             size: compact ? 42 : 52,
             iconSize: compact ? 18 : 22,
           ),
-          _ctrlCircle(
-            icon: _audioRouteIcon(_route),
-            onTap: _cycleAudioRoute,
-            active: _route != CallAudioRoute.earpiece,
-            size: compact ? 42 : 52,
-            iconSize: compact ? 18 : 22,
-          ),
-          if (_kScreenShareUiEnabled)
-          _ctrlCircle(
-            icon: _sharing
-                ? Icons.stop_screen_share_rounded
-                : Icons.present_to_all_rounded,
-            onTap: _toggleShare,
-            active: _sharing,
-            size: compact ? 42 : 52,
-            iconSize: compact ? 18 : 22,
-          ),
+          if (!_isVoiceMeeting && _kScreenShareUiEnabled)
+            _ctrlCircle(
+              icon: _sharing
+                  ? Icons.stop_screen_share_rounded
+                  : Icons.present_to_all_rounded,
+              onTap: _toggleShare,
+              active: _sharing,
+              size: compact ? 42 : 52,
+              iconSize: compact ? 18 : 22,
+            ),
           _ctrlCircle(
             icon: _handRaised
                 ? Icons.front_hand_rounded
@@ -9047,7 +9177,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
                   borderRadius: BorderRadius.circular(BestieTokens.rPill),
                 ),
               ),
-              if (_kScreenShareUiEnabled)
+              if (!_isVoiceMeeting && _kScreenShareUiEnabled)
               tile(
                 _sharing
                     ? Icons.stop_screen_share_rounded

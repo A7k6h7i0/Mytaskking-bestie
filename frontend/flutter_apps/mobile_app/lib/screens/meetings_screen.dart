@@ -284,8 +284,6 @@ class MeetingsScreen extends ConsumerWidget {
                       options: const [
                         BestieSegmentOption(value: 'VOICE', label: 'Voice'),
                         BestieSegmentOption(value: 'VIDEO', label: 'Video'),
-                        BestieSegmentOption(value: 'WEBINAR', label: 'Webinar'),
-                        BestieSegmentOption(value: 'LIVESTREAM', label: 'Live'),
                       ],
                     ),
                     const SizedBox(height: BestieTokens.s3),

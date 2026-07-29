@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:mytaskking_core/mytaskking_core.dart';
 
@@ -283,6 +284,12 @@ class _EmployeeFormDialog extends ConsumerStatefulWidget {
 }
 
 class _EmployeeFormDialogState extends ConsumerState<_EmployeeFormDialog> {
+  static const _genderOptions = <String, String>{
+    'FEMALE': 'Female',
+    'MALE': 'Male',
+    'OTHER': 'Other',
+  };
+
   late final TextEditingController _userId;
   late final TextEditingController _password;
   late final TextEditingController _name;
@@ -291,7 +298,9 @@ class _EmployeeFormDialogState extends ConsumerState<_EmployeeFormDialog> {
   late final TextEditingController _phone;
   final _phoneKey = GlobalKey<BestiePhoneInputState>();
   String? _phoneError;
-  late final TextEditingController _avatarUrl;
+  String? _avatarUrl;
+  bool _uploadingAvatar = false;
+  String? _gender;
   late final Set<String> _supervisorIds;
   late String _role;
   late String _status;
@@ -300,6 +309,7 @@ class _EmployeeFormDialogState extends ConsumerState<_EmployeeFormDialog> {
   String? _error;
 
   bool get _editing => widget.employee != null;
+  bool get _hasAvatar => _avatarUrl != null && _avatarUrl!.isNotEmpty;
 
   @override
   void initState() {
@@ -312,8 +322,9 @@ class _EmployeeFormDialogState extends ConsumerState<_EmployeeFormDialog> {
         TextEditingController(text: employee?['customTitle']?.toString());
     _email = TextEditingController(text: employee?['email']?.toString());
     _phone = TextEditingController();
-    _avatarUrl =
-        TextEditingController(text: employee?['avatarUrl']?.toString());
+    _avatarUrl = employee?['avatarUrl']?.toString();
+    final rawGender = employee?['gender']?.toString();
+    _gender = _genderOptions.containsKey(rawGender) ? rawGender : null;
     _supervisorIds = ((employee?['supervisors'] as List?) ?? const [])
         .map((entry) => (entry as Map?)?['supervisorId']?.toString())
         .whereType<String>()
@@ -330,8 +341,146 @@ class _EmployeeFormDialogState extends ConsumerState<_EmployeeFormDialog> {
     _customTitle.dispose();
     _email.dispose();
     _phone.dispose();
-    _avatarUrl.dispose();
     super.dispose();
+  }
+
+  String _croppedFilename(String original) {
+    final base = original.contains('.')
+        ? original.substring(0, original.lastIndexOf('.'))
+        : original;
+    return '$base-cropped.jpg';
+  }
+
+  Future<void> _pickProfilePhoto() async {
+    if (_saving || _uploadingAvatar) return;
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 2048,
+        imageQuality: 92,
+      );
+      if (picked == null || !mounted) return;
+      final bytes = await picked.readAsBytes();
+      if (!mounted) return;
+      final cropped = await showAvatarCropSheet(
+        context,
+        imageBytes: bytes,
+      );
+      if (cropped == null || !mounted) return;
+      setState(() => _uploadingAvatar = true);
+      final asset = await ref.read(apiProvider).uploadFile(
+            bytes: cropped,
+            filename: _croppedFilename(picked.name),
+            mimeType: 'image/jpeg',
+          );
+      final url = asset['url']?.toString();
+      if (url == null || url.isEmpty) throw 'Upload returned no image URL';
+      if (!mounted) return;
+      setState(() {
+        _avatarUrl = url;
+        _uploadingAvatar = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _uploadingAvatar = false);
+      bestieToast(
+        context,
+        'Could not upload photo',
+        body: formatApiError(e),
+        kind: BestieToastKind.error,
+      );
+    }
+  }
+
+  Future<void> _removeProfilePhoto() async {
+    if (!_hasAvatar || _saving || _uploadingAvatar) return;
+    final ok = await bestieConfirm(
+      context,
+      title: 'Remove profile photo?',
+      description: 'This employee will use the default avatar.',
+      confirmLabel: 'Remove',
+    );
+    if (!ok || !mounted) return;
+    setState(() => _avatarUrl = null);
+  }
+
+  Widget _buildProfilePhotoHeader(BestieColors colors) {
+    final displayName = _name.text.trim().isEmpty ? '?' : _name.text.trim();
+    const size = 96.0;
+    return Column(
+      children: [
+        Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.center,
+          children: [
+            BestieAvatar(
+              name: displayName,
+              imageUrl: _hasAvatar ? _avatarUrl : null,
+              size: size,
+            ),
+            if (_uploadingAvatar)
+              SizedBox(
+                width: size,
+                height: size,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.45),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Center(
+                    child: SizedBox(
+                      width: 28,
+                      height: 28,
+                      child: CircularProgressIndicator(strokeWidth: 2.5),
+                    ),
+                  ),
+                ),
+              ),
+            Positioned(
+              right: -2,
+              bottom: -2,
+              child: Material(
+                color: colors.brand,
+                shape: const CircleBorder(),
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: (_saving || _uploadingAvatar) ? null : _pickProfilePhoto,
+                  child: const Padding(
+                    padding: EdgeInsets.all(8),
+                    child: Icon(
+                      Icons.camera_alt_rounded,
+                      color: Colors.white,
+                      size: 18,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 8,
+          runSpacing: 4,
+          children: [
+            TextButton.icon(
+              onPressed: (_saving || _uploadingAvatar) ? null : _pickProfilePhoto,
+              icon: const Icon(Icons.add_a_photo_outlined, size: 18),
+              label: Text(_hasAvatar ? 'Change photo' : 'Upload profile photo'),
+            ),
+            if (_hasAvatar)
+              TextButton.icon(
+                onPressed: (_saving || _uploadingAvatar) ? null : _removeProfilePhoto,
+                icon: Icon(Icons.delete_outline_rounded,
+                    size: 18, color: colors.danger),
+                label: Text('Remove', style: TextStyle(color: colors.danger)),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+      ],
+    );
   }
 
   InputDecoration _decoration(String label, {String? hint}) =>
@@ -380,7 +529,8 @@ class _EmployeeFormDialogState extends ConsumerState<_EmployeeFormDialog> {
       'customTitle': _optional(_customTitle),
       'email': _optional(_email),
       if (phoneValue != null) 'phone': phoneValue,
-      'avatarUrl': _optional(_avatarUrl),
+      if (_gender != null) 'gender': _gender,
+      'avatarUrl': _hasAvatar ? _avatarUrl : null,
       'supervisorIds': _supervisorIds.toList(),
       if (_password.text.isNotEmpty) 'password': _password.text,
     };
@@ -423,6 +573,7 @@ class _EmployeeFormDialogState extends ConsumerState<_EmployeeFormDialog> {
         child: SingleChildScrollView(
           padding: const EdgeInsets.only(top: 4, bottom: 8),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
+            _buildProfilePhotoHeader(c),
             TextField(
               controller: _userId,
               decoration: _decoration('User ID'),
@@ -454,6 +605,24 @@ class _EmployeeFormDialogState extends ConsumerState<_EmployeeFormDialog> {
               controller: _name,
               decoration: _decoration('Full name'),
               textInputAction: TextInputAction.next,
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String?>(
+              value: _gender,
+              isExpanded: true,
+              decoration: _decoration('Gender'),
+              hint: const Text('Select gender'),
+              items: [
+                for (final entry in _genderOptions.entries)
+                  DropdownMenuItem(
+                    value: entry.key,
+                    child: Text(entry.value),
+                  ),
+              ],
+              onChanged: _saving
+                  ? null
+                  : (value) => setState(() => _gender = value),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -475,13 +644,6 @@ class _EmployeeFormDialogState extends ConsumerState<_EmployeeFormDialog> {
               initialStoredPhone: widget.employee?['phone']?.toString(),
               label: 'Phone',
               errorText: _phoneError,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _avatarUrl,
-              decoration: _decoration('Avatar URL'),
-              keyboardType: TextInputType.url,
-              textInputAction: TextInputAction.next,
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(

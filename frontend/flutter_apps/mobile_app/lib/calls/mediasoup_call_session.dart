@@ -342,20 +342,22 @@ class MediasoupCallSession {
     _notifyStateChanged();
   }
 
-  void setCameraEnabled(bool enabled) {
+  Future<void> setCameraEnabled(bool enabled) async {
     _cameraEnabled = enabled;
     final videoTracks = localStream?.getVideoTracks() ?? [];
     for (final track in videoTracks) {
       track.enabled = enabled;
     }
     if (enabled) {
-      _videoProducer?.resume();
-      // Voice→video or camera-denied-at-join: produce webcam on demand.
       if (_videoProducer == null || videoTracks.isEmpty) {
-        unawaited(_ensureWebcamProduced());
+        await _ensureWebcamProduced();
       }
+      _videoProducer?.resume();
     } else {
       _videoProducer?.pause();
+      for (final track in videoTracks) {
+        track.enabled = false;
+      }
     }
     _notifyStateChanged();
   }
