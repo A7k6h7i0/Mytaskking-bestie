@@ -32,6 +32,7 @@ class ChatContactScreen extends StatefulWidget {
   final VoidCallback? onAddMember;
   final Future<void> Function(String memberId, String memberName)? onRemoveMember;
   final Future<void> Function()? onDeleteGroup;
+  final Future<void> Function()? onExitGroup;
 
   const ChatContactScreen({
     super.key,
@@ -60,6 +61,7 @@ class ChatContactScreen extends StatefulWidget {
     this.onAddMember,
     this.onRemoveMember,
     this.onDeleteGroup,
+    this.onExitGroup,
   });
 
   @override
@@ -543,6 +545,25 @@ class _ChatContactScreenState extends State<ChatContactScreen> {
                 ),
             ]),
           ],
+          if (!widget.isDm && widget.onExitGroup != null) ...[
+            const SizedBox(height: 8),
+            _section(colors, [
+              ListTile(
+                leading: Icon(Icons.logout_rounded, color: colors.danger),
+                title: Text(
+                  'Exit group',
+                  style: TextStyle(
+                    color: colors.danger,
+                    fontWeight: BestieTokens.fwSemibold,
+                  ),
+                ),
+                subtitle: const Text('Leave this group chat'),
+                onTap: () async {
+                  await widget.onExitGroup!();
+                },
+              ),
+            ]),
+          ],
           if (!widget.isDm && widget.canManageMembers && widget.onDeleteGroup != null) ...[
             const SizedBox(height: 8),
             _section(colors, [
@@ -661,6 +682,11 @@ class _MemberRow extends StatelessWidget {
     final isClient = u['isClient'] == true;
     final avatar = u['avatarUrl']?.toString();
     final userId = u['id']?.toString() ?? member['userId']?.toString() ?? '';
+    final memberRole = (member['memberRole'] ?? member['role'] ?? '')
+        .toString()
+        .toUpperCase();
+    final isOwner = memberRole == 'OWNER' || member['role'] == 'owner';
+    final isAdmin = memberRole == 'ADMIN' || member['role'] == 'admin';
     return ListTile(
       leading: GestureDetector(
         onTap: () {
@@ -687,7 +713,11 @@ class _MemberRow extends StatelessWidget {
         ),
       ),
       subtitle: Text(
-        (u['role'] ?? '').toString().replaceAll('_', ' ').toLowerCase(),
+        isOwner
+            ? 'group admin'
+            : isAdmin
+                ? 'admin'
+                : (u['role'] ?? '').toString().replaceAll('_', ' ').toLowerCase(),
         style: TextStyle(color: colors.textMuted, fontSize: 12),
       ),
       trailing: canRemove && userId.isNotEmpty && onRemove != null

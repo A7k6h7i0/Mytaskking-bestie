@@ -895,6 +895,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
         'meetingSlug': widget.meetingSlug,
       }));
     }
+
+    if (_isMeeting) {
+      _pruneMeetingRemoteTracking();
+      _refreshOngoingCallNotification();
+    }
   }
 
   List<Map<String, dynamic>> _liveParticipantsFromCallMeta(
@@ -1250,7 +1255,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
     if (userId == me) return;
     // Drop live tiles immediately — 4s grace left ghosts after hang-up.
     _removeRemotePeersForUser(userId);
-      if (mounted) setState(() {});
+    if (_isMeeting) {
+      _pruneMeetingRemoteTracking();
+      _refreshOngoingCallNotification();
+    }
+    if (mounted) setState(() {});
   }
 
   void _cancelRemoteOfflineGrace(int uid) {
@@ -1600,6 +1609,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
         }
       }
       _CallSession.socketIdToUid.remove(socketId);
+      if (_isMeeting) {
+        _pruneMeetingRemoteTracking();
+        _refreshOngoingCallNotification();
+      }
       return;
     }
     for (final uid in uids) {
@@ -1611,6 +1624,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
     }
     _CallSession.socketIdToUid.remove(socketId);
     _pruneGhostMediasoupRemotes();
+    if (_isMeeting) {
+      _pruneMeetingRemoteTracking();
+      _refreshOngoingCallNotification();
+    }
   }
 
   /// Drop remotes that no longer have an SFU socket / stream.
@@ -2745,15 +2762,92 @@ class _CallScreenState extends ConsumerState<CallScreen>
     if (mounted) setState(() => _status = 'Connected');
   }
 
+  /// Live remote names for the status-bar notification — meetings mirror the
+  /// participant grid ([`_joinedParticipants`]); calls keep SFU uid names.
+  List<String> _ongoingNotificationParticipantNames() {
+    final me = ref.read(authStoreProvider).user?.id;
+    if (_isMeeting) {
+      final names = <String>[];
+      for (final tile in _participantTilesForGrid()) {
+        if (tile.isLocal) continue;
+        final n = tile.name.trim();
+        if (n.isEmpty || n == 'Participant' || n == 'You') continue;
+        if (!names.contains(n)) names.add(n);
+      }
+      return names;
+    }
+
+    final names = <String>[];
+    for (final entry in _remoteNames.entries) {
+      if (_agoraUidToUserId[entry.key] == me) continue;
+      final n = entry.value.trim();
+      if (n.isNotEmpty && n != 'Participant' && !names.contains(n)) {
+        names.add(n);
+      }
+    }
+    if (names.isEmpty) {
+      for (final entry in _joinedParticipants.entries) {
+        if (entry.key == me) continue;
+        final n = entry.value.trim();
+        if (n.isNotEmpty && n != 'Participant' && !names.contains(n)) {
+          names.add(n);
+        }
+      }
+    }
+    return names;
+  }
+
+  String _ongoingNotificationBody() {
+    final names = _ongoingNotificationParticipantNames();
+    if (names.isEmpty) return 'Tap to return';
+    return names.join(', ');
+  }
+
+  /// Drop stale SFU uid/name rows after server roster shrinks (rejoin ghosts).
+  void _pruneMeetingRemoteTracking() {
+    if (!_isMeeting) return;
+    final me = ref.read(authStoreProvider).user?.id;
+    final liveRemoteUserIds = _joinedParticipants.keys.toSet()..remove(me);
+    final liveNames = _joinedParticipants.values
+        .map((v) => v.trim())
+        .where((v) => v.isNotEmpty && v != 'Participant')
+        .toSet();
+
+    for (final uid in _remoteUids.toList()) {
+      final userId = _agoraUidToUserId[uid];
+      if (userId != null && !liveRemoteUserIds.contains(userId)) {
+        _removeRemotePeerByUid(uid, userIdHint: userId);
+      }
+    }
+
+    for (final uid in _remoteNames.keys.toList()) {
+      final userId = _agoraUidToUserId[uid];
+      if (userId != null) {
+        if (!liveRemoteUserIds.contains(userId)) {
+          _removeRemotePeerByUid(uid, userIdHint: userId);
+        }
+        continue;
+      }
+      final name = _remoteNames[uid]?.trim();
+      if (name == null || name.isEmpty || name == 'Participant') continue;
+      if (!liveNames.contains(name)) {
+        _removeRemotePeerByUid(uid, nameHint: name);
+      }
+    }
+  }
+
+  void _refreshOngoingCallNotification() {
+    if (!_joined && _connectedAt == null) return;
+    unawaited(_showOngoingCallNotification());
+  }
+
   Future<void> _showOngoingCallNotification() async {
     try {
       await _callNotificationChannel.invokeMethod('show', {
         'title': widget.meetingSlug != null
             ? 'Meeting in progress'
             : 'Call in progress',
-        'body': _remoteNames.values.isNotEmpty
-            ? _remoteNames.values.join(', ')
-            : 'Tap to return',
+        'body': _ongoingNotificationBody(),
         'callId': widget.callId,
         'meetingSlug': widget.meetingSlug,
         'mode': widget.mode,
@@ -3779,6 +3873,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       _ensureMediasoupRemoteTracked(socketId, userName);
       unawaited(session.enableRemotePlayback());
       unawaited(_reassertAudio());
+      if (_isMeeting) _refreshOngoingCallNotification();
       if (mounted) setState(() {});
     };
     session.onRemoteLeft = (socketId, userName) {

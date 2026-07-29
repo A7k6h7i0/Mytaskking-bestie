@@ -29,8 +29,11 @@ class TaskActionsSheet extends ConsumerStatefulWidget {
 class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
   Map<String, dynamic>? _task;
   bool _loading = true;
-  bool _busy = false;
+  /// Which action is running — so Decline doesn't show the spinner on Accept.
+  String? _busyAction;
   String? _err;
+
+  bool get _isBusy => _busyAction != null;
 
   @override
   void initState() {
@@ -56,8 +59,11 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
   }
 
   Future<void> _act(
-      Future<Map<String, dynamic>> Function() op, String successMsg) async {
-    setState(() => _busy = true);
+    Future<Map<String, dynamic>> Function() op,
+    String successMsg, {
+    required String action,
+  }) async {
+    setState(() => _busyAction = action);
     try {
       final row = await op();
       widget.parentRef.invalidate(tasksKanbanProvider);
@@ -84,7 +90,7 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
         bestieToast(context, 'Action failed',
             body: formatApiError(e), kind: BestieToastKind.error);
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) setState(() => _busyAction = null);
     }
   }
 
@@ -292,18 +298,35 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
         return Column(children: [
           Row(children: [
             Expanded(
-              child: OutlinedButton.icon(
-                icon: const Icon(Icons.close),
-                label: const Text('Decline'),
+              child: OutlinedButton(
                 style: OutlinedButton.styleFrom(
-                    foregroundColor: c.danger),
-                onPressed: _busy
+                    foregroundColor: c.danger,
+                    minimumSize: const Size(0, 44)),
+                onPressed: _isBusy
                     ? null
                     : () => _act(
                           () =>
                               ref.read(apiProvider).declineTask(widget.taskId),
                           'Declined',
+                          action: 'decline',
                         ),
+                child: _busyAction == 'decline'
+                    ? SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: c.danger,
+                        ),
+                      )
+                    : const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.close, size: 18),
+                          SizedBox(width: 8),
+                          Text('Decline'),
+                        ],
+                      ),
               ),
             ),
             const SizedBox(width: 8),
@@ -311,11 +334,15 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
               child: BestiePrimaryButton(
                 label: 'Accept',
                 icon: Icons.check,
-                loading: _busy,
-                onPressed: () => _act(
-                  () => ref.read(apiProvider).acceptTask(widget.taskId),
-                  'Accepted',
-                ),
+                loading: _busyAction == 'accept',
+                onPressed: _isBusy
+                    ? null
+                    : () => _act(
+                          () =>
+                              ref.read(apiProvider).acceptTask(widget.taskId),
+                          'Accepted',
+                          action: 'accept',
+                        ),
               ),
             ),
           ]),
@@ -327,9 +354,9 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
           BestiePrimaryButton(
             label: 'Mark complete',
             icon: Icons.check_circle,
-            loading: _busy,
+            loading: _busyAction == 'complete',
             color: c.success,
-            onPressed: _completeWithReport,
+            onPressed: _isBusy ? null : _completeWithReport,
           ),
           const SizedBox(height: 8),
           _snoozeRow(),
@@ -360,6 +387,7 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
             reportRecipientIds: result.recipientIds,
           ),
       'Marked complete',
+      action: 'complete',
     );
   }
 
@@ -384,7 +412,7 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
       const SizedBox(width: 8),
       for (final opt in options) ...[
         OutlinedButton(
-          onPressed: _busy ? null : () => _snooze(opt.$2, opt.$1),
+          onPressed: _isBusy ? null : () => _snooze(opt.$2, opt.$1),
           style: OutlinedButton.styleFrom(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
             minimumSize: const Size(0, 30),
@@ -400,7 +428,7 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
   }
 
   Future<void> _snooze(Duration delta, String label) async {
-    setState(() => _busy = true);
+    setState(() => _busyAction = 'snooze');
     try {
       final newDue = DateTime.now().add(delta);
       await ref.read(apiProvider).updateTask(widget.taskId, {
@@ -421,7 +449,7 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
             body: formatApiError(e), kind: BestieToastKind.error);
       }
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) setState(() => _busyAction = null);
     }
   }
 

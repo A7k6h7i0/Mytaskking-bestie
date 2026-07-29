@@ -1443,6 +1443,169 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     }
   }
 
+  List<Map<String, dynamic>> _otherGroupMembers() {
+    final me = ref.read(authStoreProvider).user?.id;
+    final members =
+        (_channel?['members'] as List?)?.cast<Map<String, dynamic>>() ??
+            const [];
+    return members
+        .where((m) => m['userId']?.toString() != me)
+        .toList(growable: false);
+  }
+
+  String _memberDisplayName(Map<String, dynamic> member) {
+    final u = (member['user'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final name = (u['name'] ?? '').toString().trim();
+    if (name.isNotEmpty) return name;
+    return (u['userId'] ?? member['userId'] ?? 'Member').toString();
+  }
+
+  Future<String?> _pickNextGroupAdmin(List<Map<String, dynamic>> others) async {
+    if (others.isEmpty) return null;
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        final colors = BestieColors.of(ctx);
+        String? selected = others.first['userId']?.toString();
+        return StatefulBuilder(
+          builder: (ctx, setLocal) {
+            return AlertDialog(
+              title: const Text('Choose next group admin'),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'You are leaving. Tag who should manage this group next.',
+                      style: TextStyle(color: colors.textMuted, fontSize: 13),
+                    ),
+                    const SizedBox(height: 12),
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxHeight: MediaQuery.of(ctx).size.height * 0.45,
+                      ),
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: others.length,
+                        itemBuilder: (_, i) {
+                          final m = others[i];
+                          final userId = m['userId']?.toString() ?? '';
+                          final u = (m['user'] as Map?)
+                                  ?.cast<String, dynamic>() ??
+                              const {};
+                          final name = _memberDisplayName(m);
+                          final role = (m['memberRole'] ?? m['role'] ?? '')
+                              .toString()
+                              .toUpperCase();
+                          final tag = role == 'OWNER' || m['role'] == 'owner'
+                              ? 'Group admin'
+                              : role == 'ADMIN' || m['role'] == 'admin'
+                                  ? 'Admin'
+                                  : null;
+                          return RadioListTile<String>(
+                            value: userId,
+                            groupValue: selected,
+                            onChanged: userId.isEmpty
+                                ? null
+                                : (v) => setLocal(() => selected = v),
+                            title: BestieUserName(
+                              name: name,
+                              isClient: u['isClient'] == true,
+                              style: const TextStyle(
+                                fontWeight: BestieTokens.fwSemibold,
+                              ),
+                            ),
+                            subtitle: tag != null
+                                ? Text(tag,
+                                    style: TextStyle(
+                                      color: colors.textMuted,
+                                      fontSize: 12,
+                                    ))
+                                : null,
+                            secondary: BestieAvatar(
+                              name: name,
+                              imageUrl: u['avatarUrl']?.toString(),
+                              isClient: u['isClient'] == true,
+                              size: 36,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: selected == null || selected!.isEmpty
+                      ? null
+                      : () => Navigator.pop(ctx, selected),
+                  child: const Text('Exit group'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _exitGroup() async {
+    if (_channel == null || !_isGroupChat) return;
+    final me = ref.read(authStoreProvider).user;
+    if (me == null) return;
+
+    final others = _otherGroupMembers();
+    String? nextOwnerId;
+
+    if (_canManageGroupMembers && others.isNotEmpty) {
+      nextOwnerId = await _pickNextGroupAdmin(others);
+      if (nextOwnerId == null || !mounted) return;
+    } else if (others.isNotEmpty) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Exit group?'),
+          content: const Text('You will leave this group chat.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Exit'),
+            ),
+          ],
+        ),
+      );
+      if (ok != true || !mounted) return;
+    }
+
+    try {
+      await ref.read(apiProvider).leaveChannel(
+            widget.channelId,
+            nextOwnerId: nextOwnerId,
+          );
+      if (!mounted) return;
+      ref.invalidate(channelsProvider);
+      Navigator.of(context).pop();
+      context.go('/chat');
+      bestieToast(context, 'Left the group', kind: BestieToastKind.success);
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not exit group',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    }
+  }
+
   Future<void> _maybeOpenMentionPicker() async {
     if (!_isGroupChat || _mentionPickerOpen) return;
     final query = _activeMentionQuery();
@@ -2189,6 +2352,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
           onRemoveMember:
               !isDm && _canManageGroupMembers ? _removeGroupMember : null,
           onDeleteGroup: !isDm && _canManageGroupMembers ? _deleteGroup : null,
+          onExitGroup: !isDm ? _exitGroup : null,
           onVoiceCall: isDm
               ? () {
                   Navigator.of(context).pop();

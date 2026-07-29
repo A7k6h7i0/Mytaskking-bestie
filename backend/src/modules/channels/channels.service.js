@@ -348,7 +348,18 @@ function canManageGroupMembers(channel, actor) {
   });
 }
 
-async function removeMember(channelId, memberId, actor) {
+function isGroupOwnerOrAdmin(channel, userId) {
+  if (!channel || !userId) return false;
+  if (channel.createdById === userId) return true;
+  return (channel.members || []).some((m) => {
+    if (m.userId !== userId) return false;
+    const role = String(m.memberRole || m.role || '').toUpperCase();
+    return role === 'OWNER' || role === 'ADMIN' || m.role === 'owner' || m.role === 'admin';
+  });
+}
+
+async function removeMember(channelId, memberId, actor, options = {}) {
+  const { nextOwnerId } = options;
   const channel = await prisma.channel.findUnique({
     where: { id: channelId },
     include: { members: true },
@@ -360,9 +371,44 @@ async function removeMember(channelId, memberId, actor) {
     throw Forbidden('Only the group creator or admins can remove members');
   }
   if (channel.kind === 'DM') throw BadRequest('Cannot remove members from a DM');
+
+  const otherMembers = channel.members.filter((m) => m.userId !== memberId);
+
+  if (selfRemove && isGroupOwnerOrAdmin(channel, actor.id) && otherMembers.length > 0) {
+    if (!nextOwnerId) {
+      throw BadRequest('Select the next group admin before leaving');
+    }
+    if (!otherMembers.some((m) => m.userId === nextOwnerId)) {
+      throw BadRequest('Next admin must be a current group member');
+    }
+    await prisma.$transaction([
+      prisma.channelMember.update({
+        where: { channelId_userId: { channelId, userId: nextOwnerId } },
+        data: { memberRole: 'OWNER', role: 'owner' },
+      }),
+      prisma.channel.update({
+        where: { id: channelId },
+        data: { createdById: nextOwnerId },
+      }),
+      prisma.channelMember.delete({
+        where: { channelId_userId: { channelId, userId: memberId } },
+      }),
+    ]);
+    return { left: true, channelId, newOwnerId: nextOwnerId };
+  }
+
   await prisma.channelMember.delete({
     where: { channelId_userId: { channelId, userId: memberId } },
   }).catch(() => {});
+
+  if (selfRemove && otherMembers.length === 0) {
+    await prisma.channel.update({
+      where: { id: channelId },
+      data: { archived: true },
+    });
+    return { left: true, channelId, groupEnded: true };
+  }
+
   if (selfRemove) return { left: true, channelId };
   return getById(channelId, actor);
 }

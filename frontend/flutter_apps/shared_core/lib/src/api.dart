@@ -835,13 +835,26 @@ extension BestieApiExt on BestieApi {
     List<String> memberIds,
   ) => post('/channels/$channelId/members', body: {'memberIds': memberIds});
 
-  /// Remove a single member. Group creator / admin only.
+  /// Remove a single member. Group creator / admin only (unless leaving self).
   Future<Map<String, dynamic>> removeChannelMember(
     String channelId,
     String memberId,
   ) async {
     final r = await dio.delete('/channels/$channelId/members/$memberId');
     return (r.data as Map?)?.cast<String, dynamic>() ?? const {};
+  }
+
+  /// Leave a group. Pass [nextOwnerId] when the current user is creator/admin
+  /// and other members remain.
+  Future<Map<String, dynamic>> leaveChannel(
+    String channelId, {
+    String? nextOwnerId,
+  }) async {
+    final body = <String, dynamic>{};
+    if (nextOwnerId != null && nextOwnerId.isNotEmpty) {
+      body['nextOwnerId'] = nextOwnerId;
+    }
+    return post('/channels/$channelId/leave', body: body);
   }
 
   /// Archive/delete a group for everyone (creator or admin).

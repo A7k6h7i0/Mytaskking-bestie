@@ -66,9 +66,33 @@ router.post(
 
 router.delete(
   '/:id/members/:memberId',
+  validate({ body: Joi.object({ nextOwnerId: Joi.string().optional() }) }),
   asyncHandler(async (req, res) => {
-    const result = await service.removeMember(req.params.id, req.params.memberId, req.user);
+    const result = await service.removeMember(
+      req.params.id,
+      req.params.memberId,
+      req.user,
+      { nextOwnerId: req.body?.nextOwnerId },
+    );
     audit.record({ kind: 'channel.member_removed', entity: 'channel', entityId: req.params.id, payload: { memberId: req.params.memberId }, req });
+    res.json(result);
+  })
+);
+
+router.post(
+  '/:id/leave',
+  validate({ body: Joi.object({ nextOwnerId: Joi.string().optional() }) }),
+  asyncHandler(async (req, res) => {
+    const result = await service.removeMember(req.params.id, req.user.id, req.user, {
+      nextOwnerId: req.body?.nextOwnerId,
+    });
+    audit.record({
+      kind: 'channel.member_left',
+      entity: 'channel',
+      entityId: req.params.id,
+      payload: { userId: req.user.id, nextOwnerId: req.body?.nextOwnerId || null },
+      req,
+    });
     res.json(result);
   })
 );
