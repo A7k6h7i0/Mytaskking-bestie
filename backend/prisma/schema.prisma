@@ -1438,6 +1438,7 @@ model MeetingRoomParticipant {
   joinedVia   String      @default("GUEST")
   joinedAt    DateTime    @default(now())
   lastSeenAt  DateTime    @default(now())
+  videoEnabled Boolean    @default(false)
 
   @@index([roomId, joinedAt])
   @@index([userId])

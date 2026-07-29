@@ -340,8 +340,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
 
   void _closeMentionPickerIfOpen() {
     if (!_mentionPickerOpen) return;
-    final nav = Navigator.of(context);
-    if (nav.canPop()) nav.pop();
+    // Do not Navigator.pop here — the modal already closed itself, and an
+    // extra pop would leave the chat screen (user gets kicked to chat list).
     _mentionPickerOpen = false;
     _mentionPickerAtIndex = null;
   }
@@ -1472,6 +1472,7 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     );
     _mentionPickerOpen = false;
     if (!mounted || picked == null) return;
+    // Apply after clearing open flag so composer listeners never double-pop.
     _applyMention(picked);
   }
 

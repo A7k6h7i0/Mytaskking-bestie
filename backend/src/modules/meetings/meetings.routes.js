@@ -96,7 +96,17 @@ async function assertCanJoinMeeting(room, user) {
   }
 }
 
-async function recordParticipant({ room, userId = null, displayName, joinedVia }) {
+async function recordParticipant({
+  room,
+  userId = null,
+  displayName,
+  joinedVia,
+  videoEnabled = null,
+}) {
+  const defaultVideo =
+    videoEnabled != null
+      ? !!videoEnabled
+      : String(room.mode || '').toUpperCase() === 'VIDEO';
   if (userId) {
     const existing = await prisma.meetingRoomParticipant.findFirst({
       where: { roomId: room.id, userId },
@@ -108,13 +118,20 @@ async function recordParticipant({ room, userId = null, displayName, joinedVia }
         existing.joinedVia === 'LEFT' || existing.joinedVia === 'INVITED';
       const nextJoinedVia =
         joinedVia || (upgrading ? 'INTERNAL' : existing.joinedVia);
+      const data = {
+        lastSeenAt: new Date(),
+        displayName,
+        joinedVia: nextJoinedVia,
+      };
+      if (upgrading) {
+        data.videoEnabled =
+          videoEnabled != null ? !!videoEnabled : defaultVideo;
+      } else if (videoEnabled != null) {
+        data.videoEnabled = !!videoEnabled;
+      }
       return prisma.meetingRoomParticipant.update({
         where: { id: existing.id },
-        data: {
-          lastSeenAt: new Date(),
-          displayName,
-          joinedVia: nextJoinedVia,
-        },
+        data,
       });
     }
   }
@@ -125,8 +142,24 @@ async function recordParticipant({ room, userId = null, displayName, joinedVia }
       userId,
       displayName,
       joinedVia,
+      videoEnabled: defaultVideo,
     },
   });
+}
+
+/** Persist + return room when a participant toggles camera mid-meeting. */
+async function setMeetingParticipantVideoEnabled(meetingSlug, userId, enabled) {
+  if (!meetingSlug || !userId) return null;
+  const room = await prisma.meetingRoom.findUnique({
+    where: { slug: meetingSlug },
+    select: { id: true, endedAt: true, slug: true },
+  });
+  if (!room || room.endedAt) return null;
+  await prisma.meetingRoomParticipant.updateMany({
+    where: { roomId: room.id, userId },
+    data: { videoEnabled: !!enabled, lastSeenAt: new Date() },
+  });
+  return room;
 }
 
 async function meetingNotifyUserIds(room) {
@@ -259,6 +292,7 @@ function serializeMeetingRoster(participants = [], userById = {}) {
         lastSeenAt: p.lastSeenAt || null,
         agoraUid: agora.toAgoraUid(p.userId),
         mediaPeerId: agora.toAgoraUid(p.userId),
+        videoEnabled: p.videoEnabled === true,
         ...(user
           ? {
               user: {
@@ -890,6 +924,7 @@ router.post(
       userId: req.user.id,
       displayName: req.user.name,
       joinedVia: 'INTERNAL',
+      videoEnabled: req.body?.videoEnabled,
     });
 
     const rosterRows = await prisma.meetingRoomParticipant.findMany({
@@ -1074,3 +1109,5 @@ router.post(
 );
 
 module.exports = router;
+module.exports.setMeetingParticipantVideoEnabled = setMeetingParticipantVideoEnabled;
+module.exports.buildLiveMeetingRoster = buildLiveMeetingRoster;

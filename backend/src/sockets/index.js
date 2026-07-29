@@ -8,6 +8,9 @@ const { verifyAccessToken } = require('../services/tokens');
 const monitoring = require('../services/monitoring');
 const cache = require('../services/cache');
 const chatService = require('../modules/chat/chat.service');
+const {
+  setMeetingParticipantVideoEnabled,
+} = require('../modules/meetings/meetings.routes');
 const { clientAppFromSocket, userAppRoom } = require('../utils/clientApp');
 
 const presence = new Map(); // userId -> Set<socketId>
@@ -236,12 +239,14 @@ module.exports = function initSockets(server) {
       }
     }
 
-    socket.on('meeting.videoEnabled', ({ meetingSlug, enabled, agoraUid }) => {
+    socket.on('meeting.videoEnabled', async ({ meetingSlug, enabled, agoraUid }) => {
       if (!meetingSlug) return;
+      const on = normalizeCameraEnabled(enabled);
+      await setMeetingParticipantVideoEnabled(meetingSlug, userId, on).catch(() => {});
       fanoutToMeetingParticipants(meetingSlug, 'meeting.videoEnabled', {
         meetingSlug,
         userId,
-        enabled: normalizeCameraEnabled(enabled),
+        enabled: on,
         agoraUid: Number(agoraUid) > 0 ? Number(agoraUid) : null,
       }).catch(() => {});
     });

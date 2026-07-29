@@ -345,8 +345,14 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   bool get _isVideo => _isVoiceMeeting ? false : _videoEnabled;
   /// Local camera publishing + preview (distinct from "video call" layout mode).
-  bool get _isLocalCameraOn =>
-      !_isVoiceMeeting && !_cameraOff && (_videoEnabled || _routeWantsVideo);
+  bool get _isLocalCameraOn {
+    if (_isVoiceMeeting) return false;
+    if (_cameraOff) return false;
+    if (_CallSession.useMediasoup) {
+      return _CallSession.mediasoup?.isCameraEnabled ?? false;
+    }
+    return _videoEnabled || _routeWantsVideo;
+  }
   IconData get _cameraToggleIcon => _isLocalCameraOn
       ? Icons.videocam_rounded
       : Icons.videocam_off_rounded;
@@ -734,6 +740,33 @@ class _CallScreenState extends ConsumerState<CallScreen>
     }));
   }
 
+  /// Server roster / meeting.videoEnabled — authoritative for meeting tiles.
+  void _applyServerVideoEnabled({
+    required String? userId,
+    required int? agoraUid,
+    required bool enabled,
+  }) {
+    if (agoraUid != null && agoraUid > 0) {
+      _remoteVideoMuted[agoraUid] = !enabled;
+    }
+    if (userId != null && userId.isNotEmpty) {
+      for (final e in _agoraUidToUserId.entries) {
+        if (e.value == userId) _remoteVideoMuted[e.key] = !enabled;
+      }
+    }
+  }
+
+  bool? _serverVideoEnabledForUser(String? userId) {
+    if (userId == null || userId.isEmpty) return null;
+    for (final p in _participantsFromMeta()) {
+      if (p['userId']?.toString() != userId) continue;
+      if (p.containsKey('videoEnabled')) {
+        return p['videoEnabled'] == true;
+      }
+    }
+    return null;
+  }
+
   /// Apply backend live roster + count (authoritative for header chip).
   void _applyServerLiveRoster(
     Map<String, dynamic>? data, {
@@ -823,6 +856,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
         resolved,
         avatarUrl: _avatarUrlFromParticipantMap(p),
       );
+      if (p.containsKey('videoEnabled')) {
+        _applyServerVideoEnabled(
+          userId: userId,
+          agoraUid: agoraUid,
+          enabled: p['videoEnabled'] == true,
+        );
+      }
       if (!_CallSession.useMediasoup &&
           agoraUid != null &&
           agoraUid > 0) {
@@ -3702,6 +3742,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
     }
     _syncRemotePeerSnapshot();
 
+    if (_isMeeting && !_remoteVideoMuted.containsKey(uid)) {
+      _remoteVideoMuted[uid] = true;
+    }
+
     if (_waitingForAnswer) {
       // Ringback stops only when callee is confirmed on the server — not on
       // ghost SFU socket presence during outbound ring.
@@ -3741,7 +3785,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       for (final track in stream.getAudioTracks()) {
         track.enabled = true;
       }
-      if (!_isVoiceMeeting) {
+      if (!_isVoiceMeeting && !_isMeeting) {
         for (final track in stream.getVideoTracks()) {
           track.enabled = true;
         }
@@ -3761,12 +3805,24 @@ class _CallScreenState extends ConsumerState<CallScreen>
           if (mounted) setState(() {});
           return;
         }
-        // Clear "camera off" and flip voice → video UI on this device.
+        // Meetings: server roster controls tiles — SFU video track ≠ camera on.
         if (targetUid != null) {
-          _remoteVideoMuted[targetUid] = false;
+          if (_isMeeting) {
+            final serverOn = _remoteVideoMuted[targetUid] == false;
+            for (final track in stream.getVideoTracks()) {
+              track.enabled = serverOn;
+            }
+          } else {
+            _remoteVideoMuted[targetUid] = false;
+            if (!_videoEnabled) {
+              _upgradeToVideoUi(remoteUid: targetUid);
+            }
+          }
         }
-        if (!_videoEnabled) {
-          _upgradeToVideoUi(remoteUid: targetUid);
+        if (_isMeeting) {
+          if (mounted) setState(() {});
+        } else if (!_videoEnabled) {
+          // handled above via _upgradeToVideoUi
         } else if (mounted) {
           setState(() {});
         }
@@ -3924,7 +3980,12 @@ class _CallScreenState extends ConsumerState<CallScreen>
   /// True when this remote should show avatar/DP instead of a video surface.
   bool _isRemoteVideoOff(int? uid) {
     if (uid == null) return true;
-    if (_remoteVideoMuted[uid] == true) return true;
+    // Meetings: show video only when server explicitly enabled camera.
+    if (_isMeeting) {
+      if (_remoteVideoMuted[uid] != false) return true;
+    } else if (_remoteVideoMuted[uid] == true) {
+      return true;
+    }
     if (!_CallSession.useMediasoup) return false;
     final stream = _mediasoupRemoteVideoStreamForUid(uid);
     if (stream == null) return true;
@@ -4136,11 +4197,25 @@ class _CallScreenState extends ConsumerState<CallScreen>
       _CallSession.videoEnabled = false;
       await session.setCameraEnabled(false);
     } else if (_routeWantsVideo) {
-      _videoEnabled = true;
-      _cameraOff = false;
-      _CallSession.videoEnabled = true;
-      _CallSession.cameraOff = false;
-      await session.setCameraEnabled(true);
+      final me = ref.read(authStoreProvider).user;
+      final serverWant = _serverVideoEnabledForUser(me?.id);
+      final wantCamera = serverWant ?? true;
+      if (wantCamera) {
+        _videoEnabled = true;
+        _cameraOff = false;
+        _CallSession.videoEnabled = true;
+        _CallSession.cameraOff = false;
+        await session.setCameraEnabled(true);
+      } else {
+        _videoEnabled = true;
+        _cameraOff = true;
+        _CallSession.videoEnabled = true;
+        _CallSession.cameraOff = true;
+        await session.setCameraEnabled(false);
+      }
+    }
+    if (_isMeeting) {
+      _emitCameraStateToPeers(enabled: _isLocalCameraOn);
     }
 
     if (mounted) {
@@ -7703,7 +7778,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
             fit: StackFit.expand,
             children: [
               if (showVideo && isLocal)
-                _buildLocalVideoWidget() ?? const SizedBox.shrink()
+                _buildLocalVideoWidget() ??
+                    _participantAvatarFallback(
+                      name: name,
+                      imageUrl: resolvedImageUrl,
+                      height: height,
+                      speaking: speaking,
+                    )
               else if (showVideo && agoraUid != null)
                 _buildRemoteVideoWidget(agoraUid) ??
                     _participantAvatarFallback(

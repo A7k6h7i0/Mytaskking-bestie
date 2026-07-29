@@ -92,6 +92,7 @@ class _GroupMentionPickerSheet extends StatefulWidget {
 class _GroupMentionPickerSheetState extends State<_GroupMentionPickerSheet> {
   late final TextEditingController _search =
       TextEditingController(text: widget.initialQuery);
+  bool _closing = false;
 
   @override
   void initState() {
@@ -100,10 +101,17 @@ class _GroupMentionPickerSheetState extends State<_GroupMentionPickerSheet> {
   }
 
   void _onComposerChanged() {
+    if (_closing) return;
     if (widget.keepOpen != null && !widget.keepOpen!()) {
-      if (mounted && Navigator.of(context).canPop()) {
+      // Mention ended (@ removed or completed). Close sheet only if it is
+      // still the top route — never pop the chat underneath after a pick.
+      final route = ModalRoute.of(context);
+      if (mounted &&
+          route?.isCurrent == true &&
+          Navigator.of(context).canPop()) {
         Navigator.of(context).pop();
       }
+      return;
     } else if (widget.composer != null) {
       final q = _composerMentionFragment();
       if (q != null && q != _search.text) {
@@ -214,7 +222,11 @@ class _GroupMentionPickerSheetState extends State<_GroupMentionPickerSheet> {
                   subtitle: isBroadcast
                       ? Text(u['_desc']?.toString() ?? '')
                       : null,
-                  onTap: () => Navigator.pop(context, u),
+                  onTap: () {
+                    _closing = true;
+                    widget.composer?.removeListener(_onComposerChanged);
+                    Navigator.pop(context, u);
+                  },
                 );
               },
             ),
