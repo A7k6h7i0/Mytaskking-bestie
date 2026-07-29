@@ -57,6 +57,11 @@ Map<String, dynamic>? _myAssignment(Map<String, dynamic> task, String? meId) {
   return null;
 }
 
+bool _hasRejectedAssignment(Map<String, dynamic> task) {
+  return _assigneeMaps(task)
+      .any((a) => a['state']?.toString() == 'DECLINED');
+}
+
 /// Tasks home — single list view of every task the user can see, ordered by
 /// most-recently-touched. Tapping a card pushes `/tasks/:id` for the
 /// full-screen detail (no more bottom-sheet modal).
@@ -276,6 +281,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
                         _TaskFilter.mine => 'No tasks assigned to you',
                         _TaskFilter.dueToday => 'No tasks due today',
                         _TaskFilter.overdue => 'No overdue tasks',
+                        _TaskFilter.rejected => 'No rejected tasks',
                         _TaskFilter.done => 'No completed tasks',
                         _ => 'No tasks match',
                       },
@@ -285,6 +291,8 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
                         _TaskFilter.dueToday => 'Nothing is due today.',
                         _TaskFilter.overdue =>
                           'You\'re all caught up — no overdue tasks.',
+                        _TaskFilter.rejected =>
+                          'Tasks you decline will appear here.',
                         _TaskFilter.done =>
                           'Completed tasks will show here.',
                         _ => 'Try a different filter or search term.',
@@ -406,6 +414,9 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
       if (status == 'DONE' || myDone) {
         out[_TaskFilter.done] = out[_TaskFilter.done]! + 1;
       }
+      if (_hasRejectedAssignment(t)) {
+        out[_TaskFilter.rejected] = out[_TaskFilter.rejected]! + 1;
+      }
     }
     return out;
   }
@@ -440,6 +451,8 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
           final myDone = meId != null &&
               _myAssignment(t, meId)?['state']?.toString() == 'COMPLETED';
           return status == 'DONE' || myDone;
+        case _TaskFilter.rejected:
+          return _hasRejectedAssignment(t);
         case _TaskFilter.all:
           return true;
       }
@@ -875,6 +888,7 @@ enum _TaskFilter {
   mine('Mine'),
   dueToday('Due today'),
   overdue('Overdue'),
+  rejected('Rejected'),
   done('Done');
 
   final String label;

@@ -387,6 +387,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
     WidgetsBinding.instance.addObserver(this);
     if (!_CallSession.matches(widget.callId, widget.meetingSlug)) {
       _videoEnabled = _routeWantsVideo;
+      // Video meetings join with camera off; user opts in via the button.
+      if (widget.meetingSlug != null && _routeWantsVideo) {
+        _cameraOff = true;
+        _CallSession.cameraOff = true;
+      }
       // Voice calls default to earpiece (so Bluetooth/earpiece is used and the
       // call is private); video calls default to speaker.
       _route = _routeWantsVideo
@@ -3276,6 +3281,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
     ActiveCallState.clear();
     _CallSession.onCallScreen = true;
     _videoEnabled = _routeWantsVideo;
+    if (_isMeeting && _routeWantsVideo) {
+      _cameraOff = true;
+      _CallSession.cameraOff = true;
+    }
     _route = _routeWantsVideo ? CallAudioRoute.speaker : CallAudioRoute.earpiece;
     _CallSession._ping();
 
@@ -4188,7 +4197,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       connectUrl: connectUrl,
       roomId: roomId,
       userName: userName,
-      video: _routeWantsVideo,
+      video: _isMeeting ? false : _routeWantsVideo,
       joinToken: tokenResp['joinToken']?.toString(),
     );
     if (_isVoiceMeeting) {
@@ -4199,7 +4208,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     } else if (_routeWantsVideo) {
       final me = ref.read(authStoreProvider).user;
       final serverWant = _serverVideoEnabledForUser(me?.id);
-      final wantCamera = serverWant ?? true;
+      final wantCamera = serverWant ?? !_isMeeting;
       if (wantCamera) {
         _videoEnabled = true;
         _cameraOff = false;

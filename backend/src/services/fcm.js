@@ -53,7 +53,20 @@ async function sendToTokens(tokens, { title, body, data }) {
     (stringData?.type === 'chat.message' || stringData?.kind === 'CHAT' || stringData?.kind === 'MENTION') &&
     !!stringData?.channelId &&
     !!stringData?.actionToken;
-  const isDataOnly = isCallLike || isCallControl || isActionableChat;
+  const isDeepLinkPush =
+    isCallLike ||
+    isCallControl ||
+    isActionableChat ||
+    stringData?.type === 'emergency.alert' ||
+    stringData?.type === 'task.update' ||
+    (stringData?.kind === 'TASK' && !!stringData?.taskId) ||
+    stringData?.type === 'lead.followup' ||
+    stringData?.kind === 'LEAD_FOLLOWUP' ||
+    stringData?.type === 'announcement.new' ||
+    stringData?.type === 'support.ticket' ||
+    stringData?.type === 'system.notification' ||
+    stringData?.kind === 'SYSTEM';
+  const isDataOnly = isDeepLinkPush;
   const messages = tokens.map((token) => {
     const aps = { contentAvailable: true };
     if (!isCallControl) aps.sound = 'default';

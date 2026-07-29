@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../push_routes.dart';
 import '../state.dart';
 
 const _categoryLabels = {
@@ -188,7 +189,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
       } catch (_) {}
     }
     if (!context.mounted) return;
-    final route = _routeForNotification(n);
+    final route = routeForNotificationRecord(n);
     if (route != null) {
       // Tab roots use go so bottom nav selection stays correct.
       if (route == '/meetings' ||
@@ -451,32 +452,4 @@ class _QuietHours {
 
   String fmtStart() => '${startHour.toString().padLeft(2, '0')}:00';
   String fmtEnd() => '${endHour.toString().padLeft(2, '0')}:00';
-}
-
-String? _routeForNotification(Map<String, dynamic> n) {
-  final data = (n['data'] as Map?)?.cast<String, dynamic>() ?? const {};
-  final taskId = data['taskId']?.toString();
-  if (taskId != null && taskId.isNotEmpty) return '/tasks/$taskId';
-
-  final channelId = data['channelId']?.toString();
-  if (channelId != null && channelId.isNotEmpty) return '/chat/$channelId';
-
-  final callId = data['callId']?.toString();
-  if (callId != null && callId.isNotEmpty) {
-    final mode =
-        data['mode']?.toString().toLowerCase() == 'voice' ? 'voice' : 'video';
-    return '/call/$callId?mode=$mode';
-  }
-
-  final meetingSlug = data['meetingSlug']?.toString();
-  if (meetingSlug != null && meetingSlug.isNotEmpty) {
-    // Open Meet tab (list), not live CallScreen which hijacks shell highlight.
-    return '/meetings';
-  }
-
-  if ((n['kind'] ?? '').toString().toUpperCase() == 'LEAD_FOLLOWUP') {
-    return '/telecaller';
-  }
-
-  return '/chat';
 }

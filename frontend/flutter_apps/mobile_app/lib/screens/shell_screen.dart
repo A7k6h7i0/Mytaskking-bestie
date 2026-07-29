@@ -14,8 +14,9 @@ double shellNavClearance(BuildContext context) =>
 /// Mobile shell with role-aware bottom navigation (Stitch-styled).
 ///
 /// • EMPLOYEE / MANAGER / ADMIN — Chat · Tasks · Workday · Meet · More
-/// • TELECALLER — Chat · Leads · Home · Calls · More
-/// • SALES_HEAD — Home · Organisations · Notes · Settings
+/// • TELECALLER — Chat · Leads · Home · Meet · Calls · More
+/// • SALES_HEAD — Home · Organisations · Meet · Notes · Settings
+/// • EXECUTIVE — Home · Route · Outlets · Shops · Chat · Meet · Settings
 ///
 /// "More" opens a grid drawer (Profile, Settings, Employees, etc.).
 class ShellScreen extends ConsumerStatefulWidget {
@@ -46,6 +47,7 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
         'Leads'),
     _Tab('/dashboard', Icons.dashboard_outlined, Icons.dashboard_rounded,
         'Home'),
+    _Tab('/meetings', Icons.videocam_outlined, Icons.videocam_rounded, 'Meet'),
     _Tab('/calls', Icons.call_outlined, Icons.call_rounded, 'Calls'),
     _Tab('/more', Icons.apps_rounded, Icons.apps_rounded, 'More'),
   ];
@@ -55,6 +57,7 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
         'Home'),
     _Tab('/organizations', Icons.apartment_outlined, Icons.apartment_rounded,
         'Organisations'),
+    _Tab('/meetings', Icons.videocam_outlined, Icons.videocam_rounded, 'Meet'),
     _Tab('/admin-notes', Icons.sticky_note_2_outlined,
         Icons.sticky_note_2_rounded, 'Notes'),
     _Tab('/settings', Icons.settings_outlined, Icons.settings_rounded,
@@ -70,6 +73,7 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
         'Shops'),
     _Tab('/chat', Icons.chat_bubble_outline_rounded, Icons.chat_bubble_rounded,
         'Chat'),
+    _Tab('/meetings', Icons.videocam_outlined, Icons.videocam_rounded, 'Meet'),
     _Tab('/settings', Icons.settings_outlined, Icons.settings_rounded,
         'Settings'),
   ];

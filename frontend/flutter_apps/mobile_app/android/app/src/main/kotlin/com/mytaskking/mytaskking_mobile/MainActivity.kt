@@ -69,6 +69,9 @@ class MainActivity : FlutterFragmentActivity() {
         super.onCreate(savedInstanceState)
         BestieFirebaseMessagingService.createCallNotificationChannel(this)
         BestieFirebaseMessagingService.createMessageNotificationChannel(this)
+        BestieFirebaseMessagingService.createTaskNotificationChannel(this)
+        BestieFirebaseMessagingService.createLeadsNotificationChannel(this)
+        BestieFirebaseMessagingService.createSystemNotificationChannel(this)
         latestLaunchPayload = payloadFrom(intent)
         cancelNotificationFromIntent(intent)
         applyCallWindowFlags(latestLaunchPayload)
@@ -328,12 +331,31 @@ class MainActivity : FlutterFragmentActivity() {
     private fun payloadFrom(intent: Intent?): Map<String, String?>? {
         if (intent == null) return null
         val type = intent.getStringExtra("type")
+        val kind = intent.getStringExtra("kind")
         val hasCallTarget = type == "call.incoming" ||
             type == "call.active" ||
             type == "meeting.invited"
         val hasChatTarget = !intent.getStringExtra("channelId").isNullOrBlank()
         val hasTaskTarget = !intent.getStringExtra("taskId").isNullOrBlank()
-        if (!hasCallTarget && !hasChatTarget && !hasTaskTarget) return null
+        val hasEmergencyTarget = type == "emergency.alert" &&
+            !intent.getStringExtra("alertId").isNullOrBlank()
+        val hasLeadTarget = type == "lead.followup" || kind == "LEAD_FOLLOWUP"
+        val hasAnnouncementTarget = type == "announcement.new" &&
+            !intent.getStringExtra("announcementId").isNullOrBlank()
+        val hasSupportTarget = type == "support.ticket" &&
+            !intent.getStringExtra("ticketId").isNullOrBlank()
+        val hasSystemTarget = type == "system.notification" || kind == "SYSTEM"
+        if (!hasCallTarget &&
+            !hasChatTarget &&
+            !hasTaskTarget &&
+            !hasEmergencyTarget &&
+            !hasLeadTarget &&
+            !hasAnnouncementTarget &&
+            !hasSupportTarget &&
+            !hasSystemTarget
+        ) {
+            return null
+        }
         return mapOf(
             "type" to (type ?: if (hasChatTarget) "chat.message" else null),
             "callId" to intent.getStringExtra("callId"),
@@ -343,7 +365,17 @@ class MainActivity : FlutterFragmentActivity() {
             "channelId" to intent.getStringExtra("channelId"),
             "messageId" to intent.getStringExtra("messageId"),
             "taskId" to intent.getStringExtra("taskId"),
-            "kind" to intent.getStringExtra("kind"),
+            "leadId" to intent.getStringExtra("leadId"),
+            "announcementId" to intent.getStringExtra("announcementId"),
+            "ticketId" to intent.getStringExtra("ticketId"),
+            "alertId" to intent.getStringExtra("alertId"),
+            "message" to intent.getStringExtra("message"),
+            "escalation" to if (intent.hasExtra("escalation")) {
+                intent.getStringExtra("escalation")
+            } else {
+                null
+            },
+            "kind" to kind,
             "acceptCall" to intent.getBooleanExtra("acceptCall", false).toString(),
             "nativeRinging" to intent.getBooleanExtra("nativeRinging", false).toString(),
             "notificationId" to if (intent.hasExtra("notificationId")) {

@@ -20,6 +20,27 @@ function emitNotification(io, userId, notification) {
   io?.to(`user:${userId}`).emit('notification.created', notification);
 }
 
+function enrichPushData(kind, data = {}) {
+  const out = { ...data };
+  if (out.type) return out;
+  switch (kind) {
+    case 'TASK':
+      if (out.taskId) out.type = 'task.update';
+      break;
+    case 'LEAD_FOLLOWUP':
+      out.type = 'lead.followup';
+      break;
+    case 'SYSTEM':
+      if (out.announcementId) out.type = 'announcement.new';
+      else if (out.ticketId) out.type = 'support.ticket';
+      else out.type = 'system.notification';
+      break;
+    default:
+      break;
+  }
+  return out;
+}
+
 async function notify({ userId, kind, title, body, data, io }) {
   // Calls are time-critical — they always ring through, bypassing mute,
   // channel-off and quiet-hours suppression.
@@ -58,7 +79,11 @@ async function notify({ userId, kind, title, body, data, io }) {
 
   const devices = await prisma.deviceToken.findMany({ where: { userId } });
   if (devices.length) {
-    const basePushData = { kind, notificationId: notification.id, ...(data || {}) };
+    const basePushData = enrichPushData(kind, {
+      kind,
+      notificationId: notification.id,
+      ...(data || {}),
+    });
     if ((kind === 'CHAT' || kind === 'MENTION') && basePushData.channelId) {
       const androidTokens = devices.filter((d) => d.platform === 'ANDROID').map((d) => d.token);
       const otherTokens = devices.filter((d) => d.platform !== 'ANDROID').map((d) => d.token);

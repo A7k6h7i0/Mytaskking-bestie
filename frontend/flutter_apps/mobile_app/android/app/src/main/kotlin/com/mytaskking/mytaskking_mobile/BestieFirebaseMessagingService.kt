@@ -67,6 +67,40 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
         ) {
             if (isAppInForeground()) return
             showMessageNotification(data)
+            return
+        }
+
+        if ((type == "task.update" || kind == "TASK") && !data["taskId"].isNullOrBlank()) {
+            if (isAppInForeground()) return
+            showTaskNotification(data)
+            return
+        }
+
+        if (type == "lead.followup" || kind == "LEAD_FOLLOWUP") {
+            if (isAppInForeground()) return
+            showDeepLinkNotification(data, type ?: "lead.followup", LEADS_CHANNEL_ID)
+            return
+        }
+
+        if (type == "announcement.new") {
+            if (isAppInForeground()) return
+            showDeepLinkNotification(data, type, SYSTEM_CHANNEL_ID)
+            return
+        }
+
+        if (type == "support.ticket") {
+            if (isAppInForeground()) return
+            showDeepLinkNotification(data, type, SYSTEM_CHANNEL_ID)
+            return
+        }
+
+        if (type == "system.notification" || kind == "SYSTEM") {
+            if (isAppInForeground()) return
+            showDeepLinkNotification(
+                data,
+                type ?: "system.notification",
+                SYSTEM_CHANNEL_ID
+            )
         }
     }
 
@@ -237,6 +271,77 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
             .notify(notificationId, builder.build())
     }
 
+    private fun showTaskNotification(data: Map<String, String>) {
+        createTaskNotificationChannel(this)
+
+        val title = data["title"] ?: "Task update"
+        val body = data["body"] ?: "Tap to open"
+        val notificationId = notificationIdFor(
+            data["notificationId"] ?: data["taskId"] ?: body
+        )
+        val openIntent = targetIntent(data, data["type"] ?: "task.update", notificationId)
+        val openPendingIntent = PendingIntent.getActivity(
+            this,
+            notificationId,
+            openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val builder = notificationBuilder(TASKS_CHANNEL_ID)
+            .setSmallIcon(NotificationIcon.smallIcon(this))
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(Notification.BigTextStyle().bigText(body))
+            .setCategory(Notification.CATEGORY_REMINDER)
+            .setPriority(Notification.PRIORITY_HIGH)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setAutoCancel(true)
+            .setContentIntent(openPendingIntent)
+
+        getSystemService(NotificationManager::class.java)
+            .notify(notificationId, builder.build())
+    }
+
+    private fun showDeepLinkNotification(
+        data: Map<String, String>,
+        type: String,
+        channelId: String
+    ) {
+        when (channelId) {
+            LEADS_CHANNEL_ID -> createLeadsNotificationChannel(this)
+            SYSTEM_CHANNEL_ID -> createSystemNotificationChannel(this)
+            else -> createSystemNotificationChannel(this)
+        }
+
+        val title = data["title"] ?: "MyTaskKing"
+        val body = data["body"] ?: "Tap to open"
+        val notificationId = notificationIdFor(
+            data["notificationId"] ?: data["leadId"] ?: data["announcementId"]
+                ?: data["ticketId"] ?: body
+        )
+        val openIntent = targetIntent(data, type, notificationId)
+        val openPendingIntent = PendingIntent.getActivity(
+            this,
+            notificationId,
+            openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val builder = notificationBuilder(channelId)
+            .setSmallIcon(NotificationIcon.smallIcon(this))
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(Notification.BigTextStyle().bigText(body))
+            .setCategory(Notification.CATEGORY_STATUS)
+            .setPriority(Notification.PRIORITY_HIGH)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setAutoCancel(true)
+            .setContentIntent(openPendingIntent)
+
+        getSystemService(NotificationManager::class.java)
+            .notify(notificationId, builder.build())
+    }
+
     private fun targetIntent(
         data: Map<String, String>,
         type: String,
@@ -309,6 +414,9 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
     companion object {
         const val CALLS_CHANNEL_ID = "calls"
         private const val MESSAGES_CHANNEL_ID = "messages"
+        private const val TASKS_CHANNEL_ID = "tasks"
+        private const val LEADS_CHANNEL_ID = "leads"
+        private const val SYSTEM_CHANNEL_ID = "system"
         private const val EMERGENCY_CHANNEL_ID = "emergency"
 
         fun notificationIdFor(value: String): Int {
@@ -374,6 +482,69 @@ class BestieFirebaseMessagingService : FirebaseMessagingService() {
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = "Chat messages and mentions"
+                enableVibration(true)
+                setSound(soundUri, attrs)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            }
+            context.getSystemService(NotificationManager::class.java)
+                .createNotificationChannel(channel)
+        }
+
+        fun createTaskNotificationChannel(context: Context) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+            val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            val attrs = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            val channel = NotificationChannel(
+                TASKS_CHANNEL_ID,
+                "Tasks",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Task assignments, deadlines, and reminders"
+                enableVibration(true)
+                setSound(soundUri, attrs)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            }
+            context.getSystemService(NotificationManager::class.java)
+                .createNotificationChannel(channel)
+        }
+
+        fun createLeadsNotificationChannel(context: Context) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+            val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            val attrs = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            val channel = NotificationChannel(
+                LEADS_CHANNEL_ID,
+                "Telecaller leads",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Lead follow-up reminders"
+                enableVibration(true)
+                setSound(soundUri, attrs)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            }
+            context.getSystemService(NotificationManager::class.java)
+                .createNotificationChannel(channel)
+        }
+
+        fun createSystemNotificationChannel(context: Context) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+            val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            val attrs = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            val channel = NotificationChannel(
+                SYSTEM_CHANNEL_ID,
+                "System alerts",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Announcements, support tickets, and other alerts"
                 enableVibration(true)
                 setSound(soundUri, attrs)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC

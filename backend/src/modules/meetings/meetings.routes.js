@@ -104,9 +104,7 @@ async function recordParticipant({
   videoEnabled = null,
 }) {
   const defaultVideo =
-    videoEnabled != null
-      ? !!videoEnabled
-      : String(room.mode || '').toUpperCase() === 'VIDEO';
+    videoEnabled != null ? !!videoEnabled : false;
   if (userId) {
     const existing = await prisma.meetingRoomParticipant.findFirst({
       where: { roomId: room.id, userId },

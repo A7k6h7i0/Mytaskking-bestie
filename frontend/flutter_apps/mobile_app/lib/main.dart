@@ -16,6 +16,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'firebase_options.dart';
 import 'call_app.dart';
+import 'push_routes.dart';
 import 'router.dart';
 import 'screens/call_screen.dart';
 import 'screens/connectivity_banner.dart';
@@ -44,17 +45,12 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   try {
     await _initializeFirebase();
   } catch (_) {}
-  // Chat / mention pushes are sent data-only so we can attach reply actions.
-  // Android does NOT auto-display data-only messages, so without this the
-  // notification never reaches the tray while the app is backgrounded — and
-  // there's nothing for the user to tap to open the conversation. Render it
-  // ourselves here, carrying the payload so a tap deep-links correctly.
-  // Skip messages that already carry a `notification` block (the system tray
-  // shows those automatically — rendering again would double-notify) and
-  // calls, which have their own native incoming-call path.
+  // Deep-link pushes are data-only; Android renders them natively with tap
+  // targets. Skip duplicate local rendering on Android for those payloads.
   try {
     if (message.notification != null) return;
     if (_isIncomingCallPush(message.data)) return;
+    if (Platform.isAndroid && isAndroidNativeDeepLinkPush(message.data)) return;
     await _initializeLocalNotifications();
     await _showForegroundNotification(message);
   } catch (_) {/* best-effort */}
@@ -509,7 +505,11 @@ class _BestieAppState extends ConsumerState<BestieApp> {
           FirebaseMessaging.onMessageOpenedApp.listen(_openPushTarget);
     } catch (_) {/* Firebase is optional in local builds */}
     _localPushTapSub = _pushNavigationEvents.stream.listen((data) {
-      final route = _routeForPush(data);
+      if (isEmergencyPush(data)) {
+        showEmergencyFromPush(data);
+        return;
+      }
+      final route = routeForPushData(data);
       if (route != null) ref.read(routerProvider).go(route);
     });
     try {
@@ -519,10 +519,15 @@ class _BestieAppState extends ConsumerState<BestieApp> {
       if (launchDetails?.didNotificationLaunchApp == true &&
           payload != null &&
           payload.isNotEmpty) {
-        final raw = jsonDecode(payload);
-        if (raw is Map) {
+        final decoded = jsonDecode(payload);
+        if (decoded is Map) {
+          final data = Map<String, dynamic>.from(decoded);
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            final route = _routeForPush(Map<String, dynamic>.from(raw));
+            if (isEmergencyPush(data)) {
+              showEmergencyFromPush(data);
+              return;
+            }
+            final route = routeForPushData(data);
             if (route != null) ref.read(routerProvider).go(route);
           });
         }
@@ -578,45 +583,23 @@ class _BestieAppState extends ConsumerState<BestieApp> {
       unawaited(_openAcceptedCall(callId, mode));
       return;
     }
-    final route = _routeForPush(raw);
+    if (isEmergencyPush(raw)) {
+      showEmergencyFromPush(raw);
+      return;
+    }
+    final route = routeForPushData(raw);
     if (route != null) ref.read(routerProvider).go(route);
   }
 
   void _openPushTarget(RemoteMessage message) {
-    final route = _routeForPush(message.data);
+    final data = Map<String, dynamic>.from(message.data);
+    if (isEmergencyPush(data)) {
+      showEmergencyFromPush(data);
+      return;
+    }
+    final route = routeForPushData(data);
     if (route == null) return;
     ref.read(routerProvider).go(route);
-  }
-
-  String? _routeForPush(Map<String, dynamic> data) {
-    final type = data['type']?.toString();
-    if (type == 'call.ended') return null;
-    if (type == 'call.active' || type == 'call.incoming') {
-      final callId = data['callId']?.toString();
-      if (callId == null || callId.isEmpty) return null;
-      final mode =
-          data['mode']?.toString().toLowerCase() == 'voice' ? 'voice' : 'video';
-      return '/call/$callId?mode=$mode';
-    }
-    if (type == 'meeting.invited') {
-      final slug = data['meetingSlug']?.toString();
-      if (slug == null || slug.isEmpty) return null;
-      final mode =
-          data['mode']?.toString().toLowerCase() == 'voice' ? 'voice' : 'video';
-      return '/meeting/$slug?mode=$mode';
-    }
-    final channelId = data['channelId']?.toString();
-    if (channelId != null && channelId.isNotEmpty) {
-      return '/chat/$channelId';
-    }
-    final taskId = data['taskId']?.toString();
-    if (taskId != null && taskId.isNotEmpty) {
-      return '/tasks/$taskId';
-    }
-    final kind = data['kind']?.toString();
-    if (kind == 'LEAD_FOLLOWUP') return '/telecaller';
-    if (kind != null && kind.isNotEmpty) return '/notifications';
-    return null;
   }
 
   Future<void> _openAcceptedCall(String callId, String mode) async {

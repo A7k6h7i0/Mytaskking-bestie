@@ -11,6 +11,7 @@ import 'package:mytaskking_design/mytaskking_design.dart';
 import '../call_app.dart';
 import '../active_call_state.dart';
 import '../org_call_sounds.dart';
+import '../push_routes.dart';
 import '../router.dart';
 import '../state.dart';
 import '../windows_workspace.dart';
@@ -18,11 +19,17 @@ import 'call_screen.dart';
 
 final _incomingCallPushEvents =
     StreamController<Map<String, dynamic>>.broadcast();
+final _emergencyPushEvents =
+    StreamController<Map<String, dynamic>>.broadcast();
 const _nativeCallNotificationChannel =
     MethodChannel('mytaskking/call_notification');
 
 void showIncomingCallFromPush(Map<String, dynamic> data) {
   _incomingCallPushEvents.add(data);
+}
+
+void showEmergencyFromPush(Map<String, dynamic> data) {
+  _emergencyPushEvents.add(data);
 }
 
 /// Mounted once at the top of the router (inside [MaterialApp.router] via a
@@ -46,6 +53,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
   Timer? _autoMiss;
   Timer? _emergencyHaptic;
   StreamSubscription<Map<String, dynamic>>? _pushInviteSub;
+  StreamSubscription<Map<String, dynamic>>? _emergencyPushSub;
   final List<void Function()> _unsubs = [];
   String? _lastUserId;
   String? _ringingSoundUrl;
@@ -66,6 +74,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
         WidgetsBinding.instance.lifecycleState != AppLifecycleState.detached;
     WidgetsBinding.instance.addObserver(this);
     _pushInviteSub = _incomingCallPushEvents.stream.listen(_onPushInvite);
+    _emergencyPushSub = _emergencyPushEvents.stream.listen(_onEmergency);
   }
 
   @override
@@ -75,6 +84,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     _emergencyHaptic?.cancel();
     _bannerTimer?.cancel();
     _pushInviteSub?.cancel();
+    _emergencyPushSub?.cancel();
     _ringtone.stop();
     _customRingtone.dispose();
     _tts.stop();
@@ -657,21 +667,8 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     _bannerTimer?.cancel();
     if (mounted) setState(() => _banner = null);
     if (n == null) return;
-    final route = _routeForNotification(n);
+    final route = routeForNotificationRecord(Map<String, dynamic>.from(n));
     if (route != null) ref.read(routerProvider).go(route);
-  }
-
-  /// Maps a notification's inner `data` to an in-app route. Mirrors the push
-  /// deep-link logic in main.dart so a tap lands on the same screen.
-  String? _routeForNotification(Map n) {
-    final inner = (n['data'] as Map?)?.cast<String, dynamic>() ?? const {};
-    final taskId = inner['taskId']?.toString();
-    if (taskId != null && taskId.isNotEmpty) return '/tasks/$taskId';
-    final channelId = inner['channelId']?.toString();
-    if (channelId != null && channelId.isNotEmpty) return '/chat/$channelId';
-    final kind = (n['kind'] ?? '').toString();
-    if (kind == 'LEAD_FOLLOWUP') return '/telecaller';
-    return '/notifications';
   }
 
   /// Plays a single OS-default notification chime — used for incoming chat
