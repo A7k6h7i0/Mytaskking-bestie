@@ -47,9 +47,7 @@ function canViewSummary(user) {
 }
 
 function canViewUserWorkday(viewer, subject) {
-  if (!subject) return false;
-  if (subject.isClient === true) return false;
-  if (subject.status != null && subject.status !== 'ACTIVE') return false;
+  if (!subject || subject.isClient || subject.status !== 'ACTIVE') return false;
   if (isAdminViewer(viewer)) return true;
   if (!isManagerViewer(viewer)) return false;
   return !MANAGER_WORKDAY_ROLES.has(subject.role);
@@ -125,8 +123,6 @@ async function getSummary(req, { date, timezone }) {
       name: true,
       userId: true,
       role: true,
-      status: true,
-      isClient: true,
       avatarUrl: true,
       customTitle: true,
     },
