@@ -32,7 +32,7 @@ router.get(
       role: EmployeeRole.optional(),
       status: Joi.string().valid('ACTIVE', 'SUSPENDED', 'EXPIRED').optional(),
       page: Joi.number().integer().min(1).default(1),
-      pageSize: Joi.number().integer().min(1).max(200).default(25),
+      pageSize: Joi.number().integer().min(1).max(500).default(25),
       forChat: Joi.boolean().truthy('1', 'true').falsy('0', 'false').default(false),
     }),
   }),
