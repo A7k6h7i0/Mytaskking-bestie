@@ -30,14 +30,6 @@ class MeetingsScreen extends ConsumerWidget {
           readOnly ? 'Meeting history' : 'Meetings',
           style: TextStyle(color: colors.textMuted),
         ),
-        actions: [
-          if (!readOnly)
-            IconButton(
-              icon: Icon(Icons.input_rounded, color: colors.textMuted),
-              tooltip: 'Join by meeting ID',
-              onPressed: () => _joinById(context, ref),
-            ),
-        ],
       ),
       bottomNavigationBar: null,
       body: RefreshIndicator(
@@ -59,38 +51,13 @@ class MeetingsScreen extends ConsumerWidget {
               return Center(
                 child: Padding(
                   padding: EdgeInsets.fromLTRB(24, 24, 24, shellNavClearance),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.videocam_outlined,
-                          size: 64, color: colors.textFaint),
-                      const SizedBox(height: 16),
-                      Text(readOnly ? 'No meeting history yet' : 'No meetings yet',
-                          style: TextStyle(
-                              color: colors.text,
-                              fontSize: 18,
-                              fontWeight: BestieTokens.fwBold)),
-                      const SizedBox(height: 6),
-                      Text(
-                          readOnly
-                              ? 'Past and live meetings appear here for reference. Join meetings from your phone.'
-                              : 'Live rooms and recent ended meetings show here. Create one or join by ID.',
-                          textAlign: TextAlign.center,
-                          style:
-                              TextStyle(color: colors.textMuted, fontSize: 13)),
-                      if (!readOnly) ...[
-                        const SizedBox(height: 16),
-                        OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: colors.textMuted,
-                            side: BorderSide(color: colors.borderStrong),
-                          ),
-                          icon: const Icon(Icons.input_rounded, size: 16),
-                          label: const Text('Join by meeting ID'),
-                          onPressed: () => _joinById(context, ref),
-                        ),
-                      ],
-                    ],
+                  child: BestieEmptyState(
+                    icon: Icons.videocam_outlined,
+                    iconColor: colors.textFaint,
+                    title: readOnly ? 'No meeting history' : 'No meetings',
+                    description: readOnly
+                        ? 'Past and live meetings will appear here.'
+                        : 'Create a meeting to get started.',
                   ),
                 ),
               );
@@ -466,9 +433,6 @@ class MeetingsScreen extends ConsumerWidget {
     });
   }
 
-  /// Bottom sheet that takes an existing meeting slug / URL and jumps
-  /// straight into the call screen. Users who get a meeting link via email
-  /// or another app paste it here.
   /// Formats a scheduled-meeting start time — "Today 4:00 PM", "Tomorrow
   /// 10:30 AM", or "Mon 12 Mar · 9:00 AM" depending on how far out it is.
   String _fmtScheduled(DateTime dt) {
@@ -501,41 +465,6 @@ class MeetingsScreen extends ConsumerWidget {
       return '${dow[dt.weekday - 1]} $clock';
     }
     return '${dt.day} ${months[dt.month - 1]} · $clock';
-  }
-
-  Future<void> _joinById(BuildContext context, WidgetRef ref) async {
-    if (kWindowsWorkspaceNoCalls) return;
-    await bestieBottomSheet(
-      context,
-      title: 'Join by meeting ID',
-      builder: (ctx) => _JoinByMeetingIdSheet(
-        onJoin: (slug) async {
-          try {
-            final room = await ref.read(apiProvider).get('/meetings/$slug');
-            if (!context.mounted) return;
-            if (room['endedAt'] != null) {
-              bestieToast(context, 'Meeting already ended',
-                  kind: BestieToastKind.info);
-              return;
-            }
-            final mode =
-                (room['mode'] ?? 'VIDEO').toString().toLowerCase() == 'voice'
-                    ? 'voice'
-                    : 'video';
-            Navigator.pop(ctx);
-            context.go('/meeting/$slug?mode=$mode');
-          } catch (e) {
-            if (!context.mounted) return;
-            bestieToast(
-              context,
-              'Couldn\'t join',
-              body: formatApiError(e),
-              kind: BestieToastKind.error,
-            );
-          }
-        },
-      ),
-    );
   }
 
   Future<void> _join(
@@ -660,78 +589,6 @@ class MeetingsScreen extends ConsumerWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _JoinByMeetingIdSheet extends StatefulWidget {
-  final Future<void> Function(String slug) onJoin;
-  const _JoinByMeetingIdSheet({required this.onJoin});
-
-  @override
-  State<_JoinByMeetingIdSheet> createState() => _JoinByMeetingIdSheetState();
-}
-
-class _JoinByMeetingIdSheetState extends State<_JoinByMeetingIdSheet> {
-  late final TextEditingController _slugCtl;
-
-  @override
-  void initState() {
-    super.initState();
-    _slugCtl = TextEditingController();
-  }
-
-  @override
-  void dispose() {
-    _slugCtl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _submit() async {
-    final raw = _slugCtl.text.trim();
-    if (raw.isEmpty) return;
-    var slug = raw;
-    if (slug.contains('/')) {
-      slug = slug.split('?').first;
-      slug = slug.split('/').where((s) => s.isNotEmpty).last;
-    }
-    await widget.onJoin(slug);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final c = BestieColors.of(context);
-    final keyboard = MediaQuery.viewInsetsOf(context).bottom;
-    // Match "New meeting" sheet bottom padding (Create button).
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        BestieTokens.s4,
-        0,
-        BestieTokens.s4,
-        BestieTokens.s4 + keyboard,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            'Paste the meeting ID (or the full join URL) shared with you.',
-            style: TextStyle(color: c.textFaint, fontSize: 13),
-          ),
-          const SizedBox(height: BestieTokens.s3),
-          BestieTextField(
-            label: 'Meeting ID or URL',
-            controller: _slugCtl,
-            hint: 'e.g. b4QcZ8oN1V or https://mytaskking.com/…/abc123',
-          ),
-          const SizedBox(height: BestieTokens.s3),
-          BestiePrimaryButton(
-            label: 'Join',
-            icon: Icons.login_rounded,
-            onPressed: _submit,
-          ),
-        ],
       ),
     );
   }

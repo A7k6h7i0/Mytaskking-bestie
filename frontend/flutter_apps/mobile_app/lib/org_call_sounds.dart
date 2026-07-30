@@ -9,7 +9,7 @@ import 'app_sounds.dart';
 /// Built-in + org-upload call sounds.
 ///
 /// Ringback (caller): org URL → bundled ringing MP3 → desktop synth.
-/// Incoming ring (receiver): org URL only; otherwise device default (see overlay).
+/// Incoming ring (receiver): device default ringtone only (see overlay).
 /// Buzzer: org URL → bundled buzzer MP3.
 class OrgCallSounds {
   OrgCallSounds._();

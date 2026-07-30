@@ -26,6 +26,10 @@ bool canViewWorkdaySummary(String? role) {
       role == 'PROJECT_COORDINATOR_MANAGER';
 }
 
+bool isWorkdayAdminViewer(String? role) {
+  return role == 'ADMIN' || role == 'SUPER_ADMIN';
+}
+
 /// Daily workday log screen — backed by `/attendance/*`.
 ///
 /// Three-phase flow that mirrors the backend's lifecycle:
@@ -77,6 +81,28 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
       _loading = true;
       _error = null;
     });
+    final role = ref.read(authStoreProvider).user?.role;
+    if (isWorkdayAdminViewer(role)) {
+      try {
+        final summary = await ref.read(apiProvider).attendanceSummary();
+        if (!mounted) return;
+        final dateKey = summary['date']?.toString() ?? '';
+        if (dateKey.isNotEmpty) {
+          ref.invalidate(workdaySummaryProvider(dateKey));
+        }
+        setState(() {
+          _today = dateKey.isEmpty ? null : {'today': dateKey};
+          _loading = false;
+        });
+      } catch (e) {
+        if (!mounted) return;
+        setState(() {
+          _error = formatApiError(e);
+          _loading = false;
+        });
+      }
+      return;
+    }
     try {
       // `/attendance/today` returns the full config inline (minRequiredWords,
       // hours, lunch window) alongside today's entry — one round trip is enough.
@@ -266,6 +292,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
     final role = ref.watch(authStoreProvider).user?.role;
+    final adminOnly = isWorkdayAdminViewer(role);
     final showSummary = canViewWorkdaySummary(role);
     final dateKey = _today?['today']?.toString() ?? '';
 
@@ -291,7 +318,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
           },
         ),
         title: Text(
-          'Workday',
+          adminOnly ? 'Workday summary' : 'Workday',
           style: TextStyle(color: c.textMuted),
         ),
         actions: [
@@ -308,7 +335,9 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
               ? BestieEmptyState(
                   icon: Icons.error_outline_rounded,
                   iconColor: c.danger,
-                  title: 'Could not load today',
+                  title: adminOnly
+                      ? 'Could not load summary'
+                      : 'Could not load today',
                   description: _error,
                 )
               : RefreshIndicator(
@@ -318,7 +347,19 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
                     // content is short, and the list always reaches its end.
                     physics: const AlwaysScrollableScrollPhysics(),
                     padding: EdgeInsets.fromLTRB(16, 16, 16, bottomPad),
-                    children: [
+                    children: adminOnly
+                        ? [
+                            if (dateKey.isNotEmpty)
+                              _WorkdaySummarySection(dateKey: dateKey)
+                            else
+                              const BestieEmptyState(
+                                icon: Icons.calendar_today_outlined,
+                                title: 'No date loaded',
+                                description:
+                                    'Pull down to refresh the team workday summary.',
+                              ),
+                          ]
+                        : [
                       _StatusCard(today: _today, colors: c),
                       if (showSummary && dateKey.isNotEmpty) ...[
                         const SizedBox(height: 16),

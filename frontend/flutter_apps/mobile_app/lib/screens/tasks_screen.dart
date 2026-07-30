@@ -899,6 +899,29 @@ enum _TaskFilter {
 // Full create sheet: title + description + priority + date + time + assignees
 // ─────────────────────────────────────────────────────────────────────────────
 
+const _taskAssigneeExcludedRoles = {
+  'ADMIN',
+  'SUPER_ADMIN',
+  'MANAGER',
+  'PROJECT_COORDINATOR_MANAGER',
+  'EXECUTIVE',
+  'TELECALLER',
+};
+
+List<Map<String, dynamic>> _filterTaskAssignees(
+    List<Map<String, dynamic>> items) {
+  return items
+      .where((p) {
+        if (p['isClient'] == true) return false;
+        if (p['status'] != null && p['status'] != 'ACTIVE') return false;
+        final role = p['role']?.toString() ?? '';
+        return !_taskAssigneeExcludedRoles.contains(role);
+      })
+      .toList()
+    ..sort((a, b) =>
+        (a['name'] ?? '').toString().compareTo((b['name'] ?? '').toString()));
+}
+
 class _NewTaskSheet extends StatefulWidget {
   final WidgetRef ref;
   const _NewTaskSheet({required this.ref});
@@ -929,8 +952,12 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
 
   Future<void> _loadPeople([String? q]) async {
     try {
-      final items = await widget.ref.read(apiProvider).listEmployees(q: q);
-      if (mounted) setState(() => _people = items);
+      final query = q?.trim();
+      final items = await widget.ref.read(apiProvider).listEmployees(
+            q: query == null || query.isEmpty ? null : query,
+            pageSize: 500,
+          );
+      if (mounted) setState(() => _people = _filterTaskAssignees(items));
     } catch (_) {
       // swallow — empty suggestion list is fine
     }
@@ -1094,7 +1121,7 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
     final c = BestieColors.of(context);
     final pickedIds = _picked.map((p) => p['id']).toSet();
     final candidates =
-        _people.where((p) => !pickedIds.contains(p['id'])).take(8).toList();
+        _people.where((p) => !pickedIds.contains(p['id'])).toList();
     final me = widget.ref.read(authStoreProvider).user;
 
     return Padding(

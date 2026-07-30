@@ -56,7 +56,6 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
   StreamSubscription<Map<String, dynamic>>? _emergencyPushSub;
   final List<void Function()> _unsubs = [];
   String? _lastUserId;
-  String? _ringingSoundUrl;
   String? _buzzerSoundUrl;
   final _ringtone = FlutterRingtonePlayer();
   final _customRingtone = AudioPlayer();
@@ -285,7 +284,6 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
       final settings =
           await ref.read(apiProvider).settingsScope(scope: 'calls');
       final calls = (settings['calls'] as Map?)?.cast<String, dynamic>();
-      _ringingSoundUrl = calls?['ringingSoundUrl']?.toString();
       _buzzerSoundUrl = calls?['emergencyBuzzerSoundUrl']?.toString();
     } catch (_) {}
   }
@@ -729,19 +727,11 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     } catch (_) {/* best effort */}
   }
 
+  /// Incoming calls use the phone's default ringtone — not the org ringback
+  /// clip that the caller hears while waiting.
   Future<void> _playRingtone() async {
     try {
-      var url = _ringingSoundUrl?.trim();
-      if (url == null || url.isEmpty) {
-        await _loadOrgCallSounds();
-        url = _ringingSoundUrl?.trim();
-      }
-      if (url != null && url.isNotEmpty) {
-        await _customRingtone.stop();
-        await _customRingtone.setReleaseMode(ReleaseMode.loop);
-        await _customRingtone.play(UrlSource(url), volume: 1);
-        return;
-      }
+      await _customRingtone.stop();
       await _ringtone.play(
         android: AndroidSounds.ringtone,
         ios: IosSounds.electronic,
@@ -769,15 +759,12 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
         'Someone';
     final type = meetingSlug != null ? 'meeting.invited' : 'call.incoming';
     try {
-      await _loadOrgCallSounds();
-      final ringUrl = _ringingSoundUrl?.trim();
       await _nativeCallNotificationChannel.invokeMethod('startIncoming', {
         'type': type,
         if (callId != null) 'callId': callId,
         if (meetingSlug != null) 'meetingSlug': meetingSlug,
         'mode': mode,
         'fromName': fromName,
-        if (ringUrl != null && ringUrl.isNotEmpty) 'ringingSoundUrl': ringUrl,
       });
     } catch (_) {/* best effort */}
   }

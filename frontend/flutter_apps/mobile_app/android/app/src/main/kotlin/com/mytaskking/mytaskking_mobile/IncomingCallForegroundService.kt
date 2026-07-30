@@ -73,15 +73,8 @@ class IncomingCallForegroundService : Service() {
 
     private fun startRinging() {
         stopRinging()
-        val customUrl = ringingSoundUrl
-        if (!customUrl.isNullOrEmpty()) {
-            try {
-                startMediaPlayerLoop(Uri.parse(customUrl))
-                return
-            } catch (_: Exception) {
-                // Fall back to the device default ringtone below.
-            }
-        }
+        // Always use the device default call ringtone for incoming calls.
+        // Org "ringback" clips are for the caller's waiting tone only.
         val audioManager = getSystemService(AudioManager::class.java)
         try {
             @Suppress("DEPRECATION")
