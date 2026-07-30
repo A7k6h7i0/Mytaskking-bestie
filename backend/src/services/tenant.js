@@ -88,37 +88,26 @@ function normalizeTenantId(tenantId) {
 
 /** Prisma filter for org-scoped models (User, etc.). */
 function orgTenantWhere(tenantId) {
-  return { tenantId: normalizeTenantId(tenantId) };
-}
-
-async function backfillNullTenantUsers() {
-  try {
-    const updated = await prisma.$executeRaw`
-      UPDATE "User" SET "tenantId" = ${DEFAULT_TENANT_ID} WHERE "tenantId" IS NULL
-    `;
-    if (updated > 0) {
-      logger.info({ count: updated }, 'tenant.backfill_null_users');
-    }
-  } catch (err) {
-    logger.warn({ err: err.message }, 'tenant.backfill_null_users.failed');
+  const resolved = normalizeTenantId(tenantId);
+  if (resolved === DEFAULT_TENANT_ID) {
+    return { OR: [{ tenantId: DEFAULT_TENANT_ID }, { tenantId: null }] };
   }
+  return { tenantId: resolved };
 }
 
 async function ensureDefaultTenant() {
   try {
-    if (!(await prisma.tenant.findUnique({ where: { id: DEFAULT_TENANT_ID } }))) {
-      await prisma.tenant.create({
-        data: {
-          id: DEFAULT_TENANT_ID,
-          slug: 'default',
-          name: process.env.WORKSPACE_NAME || 'MyTaskKing',
-          status: 'ACTIVE',
-          storagePrefix: 'default',
-        },
-      });
-      logger.info({ id: DEFAULT_TENANT_ID }, 'tenant.default.created');
-    }
-    await backfillNullTenantUsers();
+    if (await prisma.tenant.findUnique({ where: { id: DEFAULT_TENANT_ID } })) return;
+    await prisma.tenant.create({
+      data: {
+        id: DEFAULT_TENANT_ID,
+        slug: 'default',
+        name: process.env.WORKSPACE_NAME || 'MyTaskKing',
+        status: 'ACTIVE',
+        storagePrefix: 'default',
+      },
+    });
+    logger.info({ id: DEFAULT_TENANT_ID }, 'tenant.default.created');
   } catch (err) {
     logger.warn({ err: err.message }, 'tenant.ensure_default.failed');
   }
