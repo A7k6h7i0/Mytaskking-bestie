@@ -11,10 +11,24 @@ final workActivitySummaryProvider = FutureProvider.autoDispose
   return api.workActivitySummary(date: date, timezone: 'Asia/Kolkata');
 });
 
-final workActivityClipsProvider = FutureProvider.autoDispose
-    .family<Map<String, dynamic>, String>((ref, userId) async {
+final workActivityUserDayProvider = FutureProvider.autoDispose
+    .family<Map<String, dynamic>, ({String userId, String date})>((ref, args) async {
   final api = ref.watch(apiProvider);
-  return api.workActivityClips(userId: userId, pageSize: 100);
+  return api.workActivityUserDay(
+    userId: args.userId,
+    date: args.date,
+    timezone: 'Asia/Kolkata',
+  );
+});
+
+final workActivityClipsProvider = FutureProvider.autoDispose
+    .family<Map<String, dynamic>, ({String userId, String date})>((ref, args) async {
+  final api = ref.watch(apiProvider);
+  return api.workActivityClips(
+    userId: args.userId,
+    date: args.date,
+    pageSize: 100,
+  );
 });
 
 class WorkActivityScreen extends ConsumerStatefulWidget {
@@ -50,6 +64,18 @@ class _WorkActivityScreenState extends ConsumerState<WorkActivityScreen> {
     }
   }
 
+  void _refresh() {
+    ref.invalidate(workActivitySummaryProvider(_dateKey));
+    if (_selectedUserId != null) {
+      ref.invalidate(workActivityUserDayProvider(
+        (userId: _selectedUserId!, date: _dateKey),
+      ));
+      ref.invalidate(workActivityClipsProvider(
+        (userId: _selectedUserId!, date: _dateKey),
+      ));
+    }
+  }
+
   Future<void> _openClip(String url) async {
     if (url.trim().isEmpty) return;
     final uri = Uri.tryParse(url);
@@ -61,12 +87,23 @@ class _WorkActivityScreenState extends ConsumerState<WorkActivityScreen> {
     }
   }
 
+  Future<void> _openMap(double lat, double lng) async {
+    final uri = Uri.parse(
+      'https://www.google.com/maps/search/?api=1&query=$lat,$lng',
+    );
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened && mounted) {
+      bestieToast(context, 'Could not open map', kind: BestieToastKind.error);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final me = ref.watch(authStoreProvider).user;
     final isAdmin = me?.role == 'ADMIN' || me?.role == 'SUPER_ADMIN';
     final colors = BestieColors.of(context);
     final summary = ref.watch(workActivitySummaryProvider(_dateKey));
+    final wide = MediaQuery.sizeOf(context).width >= 900;
 
     if (!isAdmin) {
       return const Scaffold(
@@ -82,10 +119,7 @@ class _WorkActivityScreenState extends ConsumerState<WorkActivityScreen> {
       backgroundColor: colors.surface,
       appBar: AppBar(
         foregroundColor: colors.textMuted,
-        title: Text(
-          'Work activity',
-          style: TextStyle(color: colors.textMuted),
-        ),
+        title: Text('Work activity', style: TextStyle(color: colors.textMuted)),
         actions: [
           IconButton(
             tooltip: 'Pick date',
@@ -94,12 +128,7 @@ class _WorkActivityScreenState extends ConsumerState<WorkActivityScreen> {
           ),
           IconButton(
             tooltip: 'Refresh',
-            onPressed: () {
-              ref.invalidate(workActivitySummaryProvider(_dateKey));
-              if (_selectedUserId != null) {
-                ref.invalidate(workActivityClipsProvider(_selectedUserId!));
-              }
-            },
+            onPressed: _refresh,
             icon: const Icon(Icons.refresh_rounded),
           ),
         ],
@@ -114,39 +143,65 @@ class _WorkActivityScreenState extends ConsumerState<WorkActivityScreen> {
         data: (data) {
           final items =
               (data['items'] as List? ?? const []).cast<Map<String, dynamic>>();
+          final interval = (data['intervalSeconds'] as num?)?.toInt();
+          if (wide) {
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  width: 420,
+                  child: _EmployeePanel(
+                    dateKey: _dateKey,
+                    intervalSeconds: interval,
+                    items: items,
+                    selectedUserId: _selectedUserId,
+                    onSelect: (userId, userName) => setState(() {
+                      _selectedUserId = userId;
+                      _selectedUserName = userName;
+                    }),
+                  ),
+                ),
+                VerticalDivider(width: 1, color: colors.border),
+                Expanded(
+                  child: _selectedUserId == null
+                      ? const BestieEmptyState(
+                          icon: Icons.visibility_outlined,
+                          title: 'Select an employee',
+                          description:
+                              'Choose someone who logged in on Windows today.',
+                        )
+                      : _EmployeeDetail(
+                          userId: _selectedUserId!,
+                          userName: _selectedUserName ?? 'Employee',
+                          dateKey: _dateKey,
+                          onOpenClip: _openClip,
+                          onOpenMap: _openMap,
+                        ),
+                ),
+              ],
+            );
+          }
+
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                child: Row(
-                  children: [
-                    Icon(Icons.monitor_heart_outlined,
-                        size: 18, color: colors.brandStrong),
-                    const SizedBox(width: 8),
-                    Text(
-                      _dateKey,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 15,
-                      ),
-                    ),
-                  ],
+              if (interval != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  child: Text(
+                    'Tracking interval: ${_intervalLabel(interval)}',
+                    style: TextStyle(color: colors.textMuted, fontSize: 12),
+                  ),
                 ),
-              ),
               if (_selectedUserId != null)
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                   child: Row(
                     children: [
                       Expanded(
                         child: Text(
-                          'Track: $_selectedUserName',
-                          style: TextStyle(
-                            color: colors.textMuted,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          ),
+                          _selectedUserName ?? 'Employee',
+                          style: const TextStyle(fontWeight: FontWeight.w800),
                         ),
                       ),
                       TextButton.icon(
@@ -162,16 +217,22 @@ class _WorkActivityScreenState extends ConsumerState<WorkActivityScreen> {
                 ),
               Expanded(
                 child: _selectedUserId == null
-                    ? _EmployeeList(
+                    ? _EmployeePanel(
+                        dateKey: _dateKey,
+                        intervalSeconds: interval,
                         items: items,
+                        selectedUserId: _selectedUserId,
                         onSelect: (userId, userName) => setState(() {
                           _selectedUserId = userId;
                           _selectedUserName = userName;
                         }),
                       )
-                    : _TrackHistory(
+                    : _EmployeeDetail(
                         userId: _selectedUserId!,
+                        userName: _selectedUserName ?? 'Employee',
+                        dateKey: _dateKey,
                         onOpenClip: _openClip,
+                        onOpenMap: _openMap,
                       ),
               ),
             ],
@@ -182,215 +243,442 @@ class _WorkActivityScreenState extends ConsumerState<WorkActivityScreen> {
   }
 }
 
-class _EmployeeList extends StatelessWidget {
+class _EmployeePanel extends StatelessWidget {
+  final String dateKey;
+  final int? intervalSeconds;
   final List<Map<String, dynamic>> items;
+  final String? selectedUserId;
   final void Function(String userId, String userName) onSelect;
 
-  const _EmployeeList({required this.items, required this.onSelect});
+  const _EmployeePanel({
+    required this.dateKey,
+    required this.intervalSeconds,
+    required this.items,
+    required this.selectedUserId,
+    required this.onSelect,
+  });
 
   @override
   Widget build(BuildContext context) {
-    if (items.isEmpty) {
-      return const BestieEmptyState(
-        icon: Icons.people_outline,
-        title: 'No activity today',
-        description: 'Desktop captures will appear after employees log in on Windows.',
-      );
-    }
     final colors = BestieColors.of(context);
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-      itemCount: items.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (context, index) {
-        final row = items[index];
-        final user = (row['user'] as Map).cast<String, dynamic>();
-        final status = row['status']?.toString() ?? 'Working';
-        return Material(
-          color: colors.surface,
-          borderRadius: BorderRadius.circular(BestieTokens.rMd),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(BestieTokens.rMd),
-            onTap: () => onSelect(
-              user['id']?.toString() ?? '',
-              user['name']?.toString() ?? 'Employee',
-            ),
-            child: Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(BestieTokens.rMd),
-                border: Border.all(color: colors.border),
-              ),
-              child: Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  BestieAvatar(
-                    name: user['name']?.toString() ?? 'Employee',
-                    imageUrl: user['avatarUrl']?.toString(),
-                    isClient: false,
-                    size: 44,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        BestieUserName(
-                          name: user['name']?.toString() ?? 'Employee',
-                          isClient: false,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w800,
-                            fontSize: 14,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${_hours(row['workingSeconds'])} worked · ${row['clipCount'] ?? 0} clips',
-                          style: TextStyle(color: colors.textMuted, fontSize: 12),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      BestieBadge(
-                        tone: status == 'Working'
-                            ? BestieTone.success
-                            : BestieTone.neutral,
-                        child: Text(status),
+                  Icon(Icons.monitor_heart_outlined,
+                      size: 18, color: colors.brandStrong),
+                  const SizedBox(width: 8),
+                  Text(dateKey,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w800, fontSize: 15)),
+                ],
+              ),
+              if (intervalSeconds != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Check every ${_intervalLabel(intervalSeconds!)}',
+                  style: TextStyle(color: colors.textMuted, fontSize: 12),
+                ),
+              ] else ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Admin has not set a tracking interval yet.',
+                  style: TextStyle(color: colors.warning, fontSize: 12),
+                ),
+              ],
+            ],
+          ),
+        ),
+        Expanded(
+          child: items.isEmpty
+              ? const BestieEmptyState(
+                  icon: Icons.people_outline,
+                  title: 'No Windows logins today',
+                  description:
+                      'Employees appear here after they sign in on the Windows app.',
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                  itemCount: items.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (context, index) {
+                    final row = items[index];
+                    final user =
+                        (row['user'] as Map).cast<String, dynamic>();
+                    final userId = user['id']?.toString() ?? '';
+                    final selected = userId == selectedUserId;
+                    return _EmployeeActivityTile(
+                      row: row,
+                      selected: selected,
+                      onTap: () => onSelect(
+                        userId,
+                        user['name']?.toString() ?? 'Employee',
                       ),
-                      const SizedBox(height: 8),
-                      TextButton.icon(
-                        onPressed: () => onSelect(
-                          user['id']?.toString() ?? '',
-                          user['name']?.toString() ?? 'Employee',
-                        ),
-                        icon: const Icon(Icons.visibility_outlined, size: 16),
-                        label: const Text('View track'),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+class _EmployeeActivityTile extends StatelessWidget {
+  final Map<String, dynamic> row;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _EmployeeActivityTile({
+    required this.row,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = BestieColors.of(context);
+    final user = (row['user'] as Map).cast<String, dynamic>();
+    final status = row['status']?.toString() ?? 'Offline';
+    return Material(
+      color: selected ? colors.brandSoft : colors.surface,
+      borderRadius: BorderRadius.circular(BestieTokens.rMd),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(BestieTokens.rMd),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(BestieTokens.rMd),
+            border: Border.all(color: selected ? colors.brand : colors.border),
+          ),
+          child: Row(
+            children: [
+              BestieAvatar(
+                name: user['name']?.toString() ?? 'Employee',
+                imageUrl: user['avatarUrl']?.toString(),
+                isClient: false,
+                size: 42,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    BestieUserName(
+                      name: user['name']?.toString() ?? 'Employee',
+                      isClient: false,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${_hours(row['workingSeconds'])} worked · ${row['clipCount'] ?? 0} clips',
+                      style: TextStyle(color: colors.textMuted, fontSize: 12),
+                    ),
+                    if (row['desktopLoginAt'] != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        'Login ${_formatDateTime(row['desktopLoginAt'])}',
+                        style: TextStyle(color: colors.textSoft, fontSize: 11),
                       ),
                     ],
+                  ],
+                ),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  BestieBadge(
+                    tone: _statusTone(status),
+                    child: Text(status),
+                  ),
+                  const SizedBox(height: 6),
+                  TextButton.icon(
+                    onPressed: onTap,
+                    icon: const Icon(Icons.visibility_outlined, size: 16),
+                    label: const Text('View track'),
                   ),
                 ],
               ),
-            ),
+            ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _EmployeeDetail extends ConsumerWidget {
+  final String userId;
+  final String userName;
+  final String dateKey;
+  final Future<void> Function(String url) onOpenClip;
+  final Future<void> Function(double lat, double lng) onOpenMap;
+
+  const _EmployeeDetail({
+    required this.userId,
+    required this.userName,
+    required this.dateKey,
+    required this.onOpenClip,
+    required this.onOpenMap,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final colors = BestieColors.of(context);
+    final day = ref.watch(workActivityUserDayProvider((userId: userId, date: dateKey)));
+    final clips = ref.watch(workActivityClipsProvider((userId: userId, date: dateKey)));
+
+    return day.when(
+      loading: () => const Center(child: BestieSpinner()),
+      error: (e, _) => BestieEmptyState(
+        icon: Icons.cloud_off_outlined,
+        title: 'Could not load work day',
+        description: formatApiError(e),
+      ),
+      data: (detail) {
+        final lat = (detail['loginLatitude'] as num?)?.toDouble();
+        final lng = (detail['loginLongitude'] as num?)?.toDouble();
+        final address = detail['loginAddress']?.toString();
+        final status = detail['status']?.toString() ?? 'Offline';
+
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Text(userName,
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 8),
+            BestieBadge(tone: _statusTone(status), child: Text(status)),
+            const SizedBox(height: 16),
+            _InfoCard(
+              title: 'Work day',
+              children: [
+                _InfoRow(
+                  icon: Icons.login_rounded,
+                  label: 'Login time',
+                  value: _formatDateTime(detail['desktopLoginAt']),
+                ),
+                _InfoRow(
+                  icon: Icons.timer_outlined,
+                  label: 'Work time',
+                  value: _hours(detail['workingSeconds']),
+                ),
+                _InfoRow(
+                  icon: Icons.place_outlined,
+                  label: 'Login location',
+                  value: address?.isNotEmpty == true
+                      ? address!
+                      : (lat != null && lng != null
+                          ? '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}'
+                          : 'Location not recorded'),
+                ),
+              ],
+            ),
+            if (lat != null && lng != null) ...[
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: () => onOpenMap(lat, lng),
+                icon: const Icon(Icons.map_outlined),
+                label: const Text('Open map view'),
+              ),
+            ],
+            const SizedBox(height: 20),
+            Text('Activity clips',
+                style: TextStyle(
+                  color: colors.textMuted,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                )),
+            const SizedBox(height: 10),
+            clips.when(
+              loading: () => const Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: BestieSpinner()),
+              ),
+              error: (e, _) => BestieEmptyState(
+                icon: Icons.cloud_off_outlined,
+                title: 'Could not load clips',
+                description: formatApiError(e),
+              ),
+              data: (clipData) {
+                final items = (clipData['items'] as List? ?? const [])
+                    .cast<Map<String, dynamic>>();
+                if (items.isEmpty) {
+                  return const BestieEmptyState(
+                    icon: Icons.video_file_outlined,
+                    title: 'No captures yet',
+                    description:
+                        'Clips appear when the desktop idle check runs.',
+                  );
+                }
+                return Column(
+                  children: [
+                    for (final clip in items) ...[
+                      _ClipTile(clip: clip, onOpenClip: onOpenClip),
+                      const SizedBox(height: 10),
+                    ],
+                  ],
+                );
+              },
+            ),
+          ],
         );
       },
     );
   }
 }
 
-class _TrackHistory extends ConsumerWidget {
-  final String userId;
-  final Future<void> Function(String url) onOpenClip;
+class _InfoCard extends StatelessWidget {
+  final String title;
+  final List<Widget> children;
 
-  const _TrackHistory({required this.userId, required this.onOpenClip});
+  const _InfoCard({required this.title, required this.children});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final colors = BestieColors.of(context);
-    final clips = ref.watch(workActivityClipsProvider(userId));
-    return clips.when(
-      loading: () => const Center(child: BestieSpinner()),
-      error: (e, _) => BestieEmptyState(
-        icon: Icons.cloud_off_outlined,
-        title: 'Could not load track history',
-        description: formatApiError(e),
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(BestieTokens.rMd),
+        border: Border.all(color: colors.border),
       ),
-      data: (data) {
-        final items =
-            (data['items'] as List? ?? const []).cast<Map<String, dynamic>>();
-        if (items.isEmpty) {
-          return const BestieEmptyState(
-            icon: Icons.video_file_outlined,
-            title: 'No captures yet',
-            description:
-                'Activity captures appear after the Windows desktop cycle runs.',
-          );
-        }
-        return ListView.separated(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-          itemCount: items.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 10),
-          itemBuilder: (context, index) {
-            final clip = items[index];
-            final url = clip['clipUrl']?.toString() ?? '';
-            final failed =
-                (clip['status'] ?? '').toString() == 'CAPTURE_FAILED';
-            return Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: colors.surface,
-                borderRadius: BorderRadius.circular(BestieTokens.rMd),
-                border: Border.all(color: colors.border),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: failed ? colors.dangerSoft : colors.brandSoft,
-                      borderRadius: BorderRadius.circular(BestieTokens.rMd),
-                    ),
-                    child: Icon(
-                      failed
-                          ? Icons.videocam_off_outlined
-                          : Icons.play_circle_outline,
-                      color: failed ? colors.danger : colors.brandStrong,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _formatDateTime(clip['captureStartedAt']),
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(height: 5),
-                        Text(
-                          (clip['note'] ?? 'working').toString(),
-                          style: TextStyle(
-                            color: colors.textSoft,
-                            height: 1.35,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          '${clip['platform'] ?? 'desktop'} · ${clip['durationSeconds'] ?? 5}s',
-                          style: TextStyle(
-                            color: colors.textMuted,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (url.isNotEmpty)
-                    IconButton.filledTonal(
-                      tooltip: 'Open capture',
-                      onPressed: () => onOpenClip(url),
-                      icon: const Icon(Icons.open_in_new_rounded),
-                    )
-                  else
-                    BestieBadge(
-                      tone: BestieTone.warning,
-                      child: Text(failed ? 'No video' : 'Pending'),
-                    ),
-                ],
-              ),
-            );
-          },
-        );
-      },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title,
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+          const SizedBox(height: 10),
+          ...children,
+        ],
+      ),
     );
   }
+}
+
+class _InfoRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _InfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = BestieColors.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: colors.brandStrong),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label,
+                    style: TextStyle(color: colors.textMuted, fontSize: 11)),
+                Text(value,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w600, fontSize: 13)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ClipTile extends StatelessWidget {
+  final Map<String, dynamic> clip;
+  final Future<void> Function(String url) onOpenClip;
+
+  const _ClipTile({required this.clip, required this.onOpenClip});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = BestieColors.of(context);
+    final url = clip['clipUrl']?.toString() ?? '';
+    final failed = (clip['status'] ?? '').toString() == 'CAPTURE_FAILED';
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(BestieTokens.rMd),
+        border: Border.all(color: colors.border),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            failed ? Icons.videocam_off_outlined : Icons.play_circle_outline,
+            color: failed ? colors.danger : colors.brandStrong,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(_formatDateTime(clip['captureStartedAt']),
+                    style: const TextStyle(fontWeight: FontWeight.w800)),
+                const SizedBox(height: 4),
+                Text((clip['note'] ?? 'working').toString(),
+                    style: TextStyle(color: colors.textSoft)),
+                const SizedBox(height: 4),
+                Text(
+                  '${clip['platform'] ?? 'desktop'} · ${clip['durationSeconds'] ?? 5}s',
+                  style: TextStyle(color: colors.textMuted, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          if (url.isNotEmpty)
+            IconButton.filledTonal(
+              tooltip: 'Open capture',
+              onPressed: () => onOpenClip(url),
+              icon: const Icon(Icons.open_in_new_rounded),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+BestieTone _statusTone(String status) {
+  switch (status.toLowerCase()) {
+    case 'working':
+      return BestieTone.success;
+    case 'idle':
+    case 'paused':
+      return BestieTone.warning;
+    case 'lunch':
+    case 'busy':
+    case 'leave':
+      return BestieTone.neutral;
+    default:
+      return BestieTone.neutral;
+  }
+}
+
+String _intervalLabel(int seconds) {
+  if (seconds % 3600 == 0) return '${seconds ~/ 3600} hour';
+  if (seconds % 60 == 0) return '${seconds ~/ 60} minutes';
+  return '$seconds seconds';
 }
 
 String _hours(dynamic raw) {
@@ -402,7 +690,7 @@ String _hours(dynamic raw) {
 
 String _formatDateTime(dynamic raw) {
   final parsed = DateTime.tryParse(raw?.toString() ?? '')?.toLocal();
-  if (parsed == null) return 'Unknown time';
+  if (parsed == null) return '—';
   final hour = parsed.hour % 12 == 0 ? 12 : parsed.hour % 12;
   final ampm = parsed.hour >= 12 ? 'PM' : 'AM';
   return '${parsed.day.toString().padLeft(2, '0')}-${parsed.month.toString().padLeft(2, '0')}-${parsed.year} '

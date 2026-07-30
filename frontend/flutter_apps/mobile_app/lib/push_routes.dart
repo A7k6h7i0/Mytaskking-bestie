@@ -1,3 +1,25 @@
+import 'package:go_router/go_router.dart';
+
+/// Shell tab roots — use [GoRouter.go] so bottom nav stays in sync.
+const _shellTabRoutes = {
+  '/meetings',
+  '/chat',
+  '/tasks',
+  '/telecaller',
+  '/dashboard',
+  '/notifications',
+};
+
+/// Open a route from a push / system notification without replacing the whole
+/// stack (which leaves nothing to pop back to after actions like task accept).
+void navigateFromPush(GoRouter router, String route) {
+  if (_shellTabRoutes.contains(route)) {
+    router.go(route);
+  } else {
+    router.push(route);
+  }
+}
+
 /// Maps push / notification payloads to in-app GoRouter paths.
 String? routeForPushData(Map<String, dynamic> data) {
   final type = data['type']?.toString();

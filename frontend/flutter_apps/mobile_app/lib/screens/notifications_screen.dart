@@ -191,16 +191,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
     if (!context.mounted) return;
     final route = routeForNotificationRecord(n);
     if (route != null) {
-      // Tab roots use go so bottom nav selection stays correct.
-      if (route == '/meetings' ||
-          route == '/chat' ||
-          route == '/tasks' ||
-          route == '/telecaller' ||
-          route == '/dashboard') {
-        context.go(route);
-      } else {
-        context.push(route);
-      }
+      navigateFromPush(GoRouter.of(context), route);
     }
   }
 

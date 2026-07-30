@@ -5,6 +5,27 @@ import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../state.dart';
 
+final workdaySummaryProvider = FutureProvider.autoDispose
+    .family<Map<String, dynamic>, String>((ref, dateKey) async {
+  return ref.read(apiProvider).attendanceSummary(date: dateKey);
+});
+
+final workdayUserDayProvider = FutureProvider.autoDispose
+    .family<Map<String, dynamic>, ({String userId, String date})>(
+        (ref, args) async {
+  return ref.read(apiProvider).attendanceUserDay(
+        userId: args.userId,
+        date: args.date,
+      );
+});
+
+bool canViewWorkdaySummary(String? role) {
+  return role == 'ADMIN' ||
+      role == 'SUPER_ADMIN' ||
+      role == 'MANAGER' ||
+      role == 'PROJECT_COORDINATOR_MANAGER';
+}
+
 /// Daily workday log screen — backed by `/attendance/*`.
 ///
 /// Three-phase flow that mirrors the backend's lifecycle:
@@ -61,6 +82,11 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
       // hours, lunch window) alongside today's entry — one round trip is enough.
       final today = await ref.read(apiProvider).attendanceToday();
       if (!mounted) return;
+      final dateKey = today['today']?.toString();
+      if (dateKey != null &&
+          canViewWorkdaySummary(ref.read(authStoreProvider).user?.role)) {
+        ref.invalidate(workdaySummaryProvider(dateKey));
+      }
       setState(() {
         _today = today;
         _config = {
@@ -239,6 +265,9 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
   @override
   Widget build(BuildContext context) {
     final c = BestieColors.of(context);
+    final role = ref.watch(authStoreProvider).user?.role;
+    final showSummary = canViewWorkdaySummary(role);
+    final dateKey = _today?['today']?.toString() ?? '';
 
     // Pad the list bottom past the shell's floating nav (70 + margin +
     // safe-area) so the checkout section clears it — without an empty
@@ -291,6 +320,10 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
                     padding: EdgeInsets.fromLTRB(16, 16, 16, bottomPad),
                     children: [
                       _StatusCard(today: _today, colors: c),
+                      if (showSummary && dateKey.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        _WorkdaySummarySection(dateKey: dateKey),
+                      ],
                       if (_streak > 0) ...[
                         const SizedBox(height: 12),
                         _streakCard(c),
@@ -965,4 +998,654 @@ class _ReadOnlyEntry extends StatelessWidget {
       ]),
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Workday summary (managers & admins)
+// ---------------------------------------------------------------------------
+
+class _WorkdaySummarySection extends ConsumerStatefulWidget {
+  final String dateKey;
+  const _WorkdaySummarySection({required this.dateKey});
+
+  @override
+  ConsumerState<_WorkdaySummarySection> createState() =>
+      _WorkdaySummarySectionState();
+}
+
+class _WorkdaySummarySectionState extends ConsumerState<_WorkdaySummarySection> {
+  String? _selectedUserId;
+  String? _selectedUserName;
+
+  void _selectEmployee(String userId, String userName) {
+    final wide = MediaQuery.sizeOf(context).width >= 900;
+    if (wide) {
+      setState(() {
+        _selectedUserId = userId;
+        _selectedUserName = userName;
+      });
+      return;
+    }
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.88,
+        minChildSize: 0.45,
+        maxChildSize: 0.95,
+        builder: (_, scrollController) => _WorkdayDetailSheet(
+          userId: userId,
+          userName: userName,
+          dateKey: widget.dateKey,
+          scrollController: scrollController,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = BestieColors.of(context);
+    final role = ref.watch(authStoreProvider).user?.role ?? '';
+    final isAdmin = role == 'ADMIN' || role == 'SUPER_ADMIN';
+    final summary = ref.watch(workdaySummaryProvider(widget.dateKey));
+    final wide = MediaQuery.sizeOf(context).width >= 900;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(BestieTokens.rLg),
+        border: Border.all(color: colors.border),
+      ),
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: colors.brand.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(BestieTokens.rSm),
+                ),
+                child: Icon(Icons.groups_rounded, color: colors.brand, size: 18),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Workday summary',
+                      style: TextStyle(
+                        fontWeight: BestieTokens.fwSemibold,
+                        fontSize: 15,
+                        color: colors.textMuted,
+                      ),
+                    ),
+                    Text(
+                      widget.dateKey,
+                      style: TextStyle(color: colors.textFaint, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              if (!isAdmin)
+                Tooltip(
+                  message: 'Manager workdays are visible to admins only',
+                  child: Icon(Icons.info_outline_rounded,
+                      size: 18, color: colors.textFaint),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          summary.when(
+            loading: () => const Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: Center(child: BestieSpinner()),
+            ),
+            error: (e, _) => BestieEmptyState(
+              icon: Icons.cloud_off_outlined,
+              title: 'Could not load summary',
+              description: formatApiError(e),
+            ),
+            data: (data) {
+              final items = (data['items'] as List? ?? const [])
+                  .cast<Map<String, dynamic>>();
+              if (items.isEmpty) {
+                return const BestieEmptyState(
+                  icon: Icons.people_outline,
+                  title: 'No employees to show',
+                  description:
+                      'Active team members will appear here once they start their workday.',
+                );
+              }
+
+              if (wide) {
+                return SizedBox(
+                  height: 420,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                        flex: 5,
+                        child: _WorkdaySummaryList(
+                          items: items,
+                          selectedUserId: _selectedUserId,
+                          onSelect: _selectEmployee,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 7,
+                        child: _selectedUserId == null
+                            ? BestieEmptyState(
+                                icon: Icons.touch_app_outlined,
+                                title: 'Select an employee',
+                                description:
+                                    'Tap someone to see their full workday.',
+                                iconColor: colors.textFaint,
+                              )
+                            : _WorkdayDetailBody(
+                                userId: _selectedUserId!,
+                                userName: _selectedUserName ?? 'Employee',
+                                dateKey: widget.dateKey,
+                              ),
+                      ),
+                    ],
+                  ),
+                );
+              }
+
+              return _WorkdaySummaryList(
+                items: items,
+                selectedUserId: null,
+                onSelect: _selectEmployee,
+                maxHeight: 360,
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WorkdaySummaryList extends StatelessWidget {
+  final List<Map<String, dynamic>> items;
+  final String? selectedUserId;
+  final void Function(String userId, String userName) onSelect;
+  final double? maxHeight;
+
+  const _WorkdaySummaryList({
+    required this.items,
+    required this.selectedUserId,
+    required this.onSelect,
+    this.maxHeight,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final list = ListView.separated(
+      shrinkWrap: maxHeight == null,
+      physics: maxHeight == null
+          ? const NeverScrollableScrollPhysics()
+          : const ClampingScrollPhysics(),
+      itemCount: items.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      itemBuilder: (context, index) {
+        final row = items[index];
+        final user = (row['user'] as Map).cast<String, dynamic>();
+        final userId = user['id']?.toString() ?? '';
+        final status = row['status']?.toString() ?? 'Not started';
+        final selected = userId == selectedUserId;
+        return _WorkdaySummaryTile(
+          user: user,
+          status: status,
+          onBreak: row['onBreak'] == true,
+          selected: selected,
+          onTap: () => onSelect(
+            userId,
+            user['name']?.toString() ?? 'Employee',
+          ),
+        );
+      },
+    );
+
+    if (maxHeight != null) {
+      return ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxHeight!),
+        child: list,
+      );
+    }
+    return list;
+  }
+}
+
+class _WorkdaySummaryTile extends StatelessWidget {
+  final Map<String, dynamic> user;
+  final String status;
+  final bool onBreak;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _WorkdaySummaryTile({
+    required this.user,
+    required this.status,
+    required this.onBreak,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = BestieColors.of(context);
+    final chip = _workdayStatusStyle(status, onBreak, colors);
+    return Material(
+      color: selected ? colors.brandSoft : colors.surface2,
+      borderRadius: BorderRadius.circular(BestieTokens.rMd),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(BestieTokens.rMd),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(BestieTokens.rMd),
+            border: Border.all(color: selected ? colors.brand : colors.border),
+          ),
+          child: Row(
+            children: [
+              BestieAvatar(
+                name: user['name']?.toString() ?? 'Employee',
+                imageUrl: user['avatarUrl']?.toString(),
+                isClient: false,
+                size: 40,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    BestieUserName(
+                      name: user['name']?.toString() ?? 'Employee',
+                      isClient: false,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                      ),
+                    ),
+                    if ((user['customTitle'] ?? '').toString().isNotEmpty)
+                      Text(
+                        user['customTitle'].toString(),
+                        style: TextStyle(color: colors.textFaint, fontSize: 11),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                  ],
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: chip.bg,
+                  borderRadius: BorderRadius.circular(BestieTokens.rPill),
+                  border: Border.all(color: chip.border),
+                ),
+                child: Text(
+                  status,
+                  style: TextStyle(
+                    color: chip.fg,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+              Icon(Icons.chevron_right_rounded, color: colors.textFaint, size: 20),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _WorkdayStatusStyle {
+  final Color bg;
+  final Color fg;
+  final Color border;
+  const _WorkdayStatusStyle(this.bg, this.fg, this.border);
+}
+
+_WorkdayStatusStyle _workdayStatusStyle(
+    String status, bool onBreak, BestieColors colors) {
+  if (status == 'Logged out') {
+    return _WorkdayStatusStyle(
+      colors.textMuted.withOpacity(0.12),
+      colors.textMuted,
+      colors.border,
+    );
+  }
+  if (status == 'Lunch') {
+    return _WorkdayStatusStyle(
+      colors.warning.withOpacity(0.14),
+      colors.warning,
+      colors.warning.withOpacity(0.35),
+    );
+  }
+  if (onBreak || status == 'Break') {
+    return _WorkdayStatusStyle(
+      colors.info.withOpacity(0.14),
+      colors.info,
+      colors.info.withOpacity(0.35),
+    );
+  }
+  if (status == 'Checked in') {
+    return _WorkdayStatusStyle(
+      colors.success.withOpacity(0.14),
+      colors.success,
+      colors.success.withOpacity(0.35),
+    );
+  }
+  return _WorkdayStatusStyle(
+    colors.surface2,
+    colors.textMuted,
+    colors.border,
+  );
+}
+
+class _WorkdayDetailSheet extends ConsumerWidget {
+  final String userId;
+  final String userName;
+  final String dateKey;
+  final ScrollController scrollController;
+
+  const _WorkdayDetailSheet({
+    required this.userId,
+    required this.userName,
+    required this.dateKey,
+    required this.scrollController,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final colors = BestieColors.of(context);
+    return Material(
+      color: colors.surface,
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      child: Column(
+        children: [
+          const SizedBox(height: 8),
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: colors.border,
+              borderRadius: BorderRadius.circular(99),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 8, 0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    userName,
+                    style: TextStyle(
+                      fontWeight: BestieTokens.fwBold,
+                      fontSize: 17,
+                      color: colors.textMuted,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: _WorkdayDetailBody(
+              userId: userId,
+              userName: userName,
+              dateKey: dateKey,
+              scrollController: scrollController,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WorkdayDetailBody extends ConsumerWidget {
+  final String userId;
+  final String userName;
+  final String dateKey;
+  final ScrollController? scrollController;
+
+  const _WorkdayDetailBody({
+    required this.userId,
+    required this.userName,
+    required this.dateKey,
+    this.scrollController,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final colors = BestieColors.of(context);
+    final detail = ref.watch(workdayUserDayProvider(
+      (userId: userId, date: dateKey),
+    ));
+
+    return detail.when(
+      loading: () => const Center(child: BestieSpinner()),
+      error: (e, _) => BestieEmptyState(
+        icon: Icons.error_outline_rounded,
+        title: 'Could not load workday',
+        description: formatApiError(e),
+      ),
+      data: (data) {
+        final entry = (data['entry'] as Map?)?.cast<String, dynamic>() ?? {};
+        final status = data['status']?.toString() ?? 'Not started';
+        final chip = _workdayStatusStyle(status, entry['onBreak'] == true, colors);
+
+        return ListView(
+          controller: scrollController,
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          children: [
+            Row(
+              children: [
+                BestieAvatar(
+                  name: userName,
+                  imageUrl: (data['user'] as Map?)?['avatarUrl']?.toString(),
+                  isClient: false,
+                  size: 48,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(dateKey,
+                          style: TextStyle(
+                            color: colors.textFaint,
+                            fontSize: 12,
+                          )),
+                      const SizedBox(height: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: chip.bg,
+                          borderRadius: BorderRadius.circular(BestieTokens.rPill),
+                          border: Border.all(color: chip.border),
+                        ),
+                        child: Text(
+                          status,
+                          style: TextStyle(
+                            color: chip.fg,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _WorkdayDetailBlock(
+              colors: colors,
+              title: 'Check-in',
+              time: entry['checkInAt']?.toString(),
+              body: entry['checkInPlan']?.toString(),
+              empty: 'Not checked in yet',
+            ),
+            const SizedBox(height: 12),
+            _WorkdayDetailBlock(
+              colors: colors,
+              title: 'Break',
+              time: entry['onBreak'] == true
+                  ? entry['onBreakSince']?.toString()
+                  : null,
+              body: entry['onBreak'] == true
+                  ? 'Currently on break'
+                  : _formatBreakTotal(entry['breakSeconds']),
+              empty: 'No breaks recorded',
+              subtitle: entry['onBreak'] == true ? 'Started' : 'Total today',
+            ),
+            const SizedBox(height: 12),
+            _WorkdayDetailBlock(
+              colors: colors,
+              title: 'Lunch',
+              time: entry['lunchStartedAt']?.toString(),
+              body: _lunchDetail(entry),
+              empty: 'Lunch not started',
+              subtitle: entry['lunchEndedAt'] != null
+                  ? 'Ended ${_formatWorkdayTime(entry['lunchEndedAt']?.toString())}'
+                  : null,
+            ),
+            const SizedBox(height: 12),
+            _WorkdayDetailBlock(
+              colors: colors,
+              title: 'Logout',
+              time: entry['checkOutAt']?.toString(),
+              body: entry['checkOutReport']?.toString(),
+              empty: 'Not logged out yet',
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _WorkdayDetailBlock extends StatelessWidget {
+  final BestieColors colors;
+  final String title;
+  final String? time;
+  final String? body;
+  final String empty;
+  final String? subtitle;
+
+  const _WorkdayDetailBlock({
+    required this.colors,
+    required this.title,
+    this.time,
+    this.body,
+    required this.empty,
+    this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hasContent =
+        (time != null && time!.isNotEmpty) || (body != null && body!.trim().isNotEmpty);
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colors.surface2,
+        borderRadius: BorderRadius.circular(BestieTokens.rMd),
+        border: Border.all(color: colors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title.toUpperCase(),
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: BestieTokens.fwBold,
+              color: colors.textMuted,
+              letterSpacing: BestieTokens.lsEyebrow,
+            ),
+          ),
+          if (!hasContent) ...[
+            const SizedBox(height: 6),
+            Text(empty, style: TextStyle(color: colors.textFaint, fontSize: 13)),
+          ] else ...[
+            if (time != null && time!.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                _formatWorkdayTime(time),
+                style: TextStyle(
+                  color: colors.textMuted,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+            if (subtitle != null) ...[
+              const SizedBox(height: 2),
+              Text(subtitle!,
+                  style: TextStyle(color: colors.textFaint, fontSize: 11)),
+            ],
+            if (body != null && body!.trim().isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(body!,
+                  style: TextStyle(
+                      color: colors.textMuted, height: 1.45, fontSize: 13.5)),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+String _formatWorkdayTime(String? iso) {
+  if (iso == null || iso.isEmpty) return '—';
+  final dt = DateTime.tryParse(iso)?.toLocal();
+  if (dt == null) return iso;
+  final h = dt.hour > 12 ? dt.hour - 12 : (dt.hour == 0 ? 12 : dt.hour);
+  final m = dt.minute.toString().padLeft(2, '0');
+  final ap = dt.hour >= 12 ? 'PM' : 'AM';
+  return '$h:$m $ap';
+}
+
+String _formatBreakTotal(dynamic seconds) {
+  final total = (seconds as num?)?.toInt() ?? 0;
+  if (total <= 0) return '';
+  final mins = total ~/ 60;
+  final secs = total % 60;
+  if (mins <= 0) return '$secs sec';
+  if (secs == 0) return '$mins min';
+  return '$mins min $secs sec';
+}
+
+String _lunchDetail(Map<String, dynamic> entry) {
+  final note = entry['lunchNote']?.toString().trim() ?? '';
+  if (note.isNotEmpty) return note;
+  if (entry['lunchStartedAt'] != null && entry['lunchEndedAt'] == null) {
+    return 'Lunch in progress';
+  }
+  if (entry['lunchStartedAt'] != null) return 'Lunch completed';
+  return '';
 }

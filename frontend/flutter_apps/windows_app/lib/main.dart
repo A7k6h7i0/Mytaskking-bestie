@@ -9,7 +9,7 @@ import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:mytaskking_core/mytaskking_core.dart' as core show ThemeMode;
 import 'package:mytaskking_mobile/router.dart' as mobile_router;
 import 'package:mytaskking_mobile/screens.dart'
-    hide ThemeMode, WorkActivityScreen;
+    hide ThemeMode;
 import 'package:mytaskking_mobile/screens/connectivity_banner.dart';
 import 'package:mytaskking_mobile/screens/incoming_call_overlay.dart';
 import 'package:mytaskking_mobile/screens/ongoing_call_bar.dart';
@@ -527,6 +527,7 @@ class _DesktopLifecycleHostState extends ConsumerState<DesktopLifecycleHost>
       if (!mounted) return;
       _startAutoLogoutMonitor();
       if (DesktopRuntime.shouldRunActivityAgent) {
+        unawaited(registerDesktopWorkSession(ref));
         _activityAgent.start(context, ref);
       }
     } else {

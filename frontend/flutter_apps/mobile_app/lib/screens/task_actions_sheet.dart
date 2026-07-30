@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
 import '../state.dart';
@@ -34,6 +35,17 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
   String? _err;
 
   bool get _isBusy => _busyAction != null;
+
+  /// Pop when opened via [context.push]; fall back to the tasks tab when this
+  /// screen was reached via a notification deep link ([context.go]).
+  void _leaveTaskDetail() {
+    if (!mounted) return;
+    if (Navigator.canPop(context)) {
+      Navigator.pop(context);
+    } else {
+      context.go('/tasks');
+    }
+  }
 
   @override
   void initState() {
@@ -83,7 +95,7 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
               : reason,
           kind: BestieToastKind.success,
         );
-        Navigator.pop(context);
+        _leaveTaskDetail();
       }
     } catch (e) {
       if (mounted)
@@ -439,9 +451,8 @@ class _TaskActionsSheetState extends ConsumerState<TaskActionsSheet> {
         bestieToast(context, 'Snoozed Â· $label',
             body: 'New due ${newDue.toLocal()}'.split('.').first,
             kind: BestieToastKind.success);
-        // Close the detail screen so the user lands back where they came
-        // from â€” matches the existing accept/decline/complete flow.
-        if (Navigator.canPop(context)) Navigator.pop(context);
+        // Close the detail screen so the user lands back where they came from.
+        _leaveTaskDetail();
       }
     } catch (e) {
       if (mounted) {

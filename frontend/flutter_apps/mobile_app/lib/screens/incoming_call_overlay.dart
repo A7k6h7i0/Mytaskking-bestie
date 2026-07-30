@@ -394,9 +394,15 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     if (type == 'call.incoming') {
       final callId = data['callId']?.toString();
       if (callId == null || callId.isEmpty) return;
-      unawaited(_showIncomingFromPush(
+      _onIncoming(_incomingPayloadFromPush(
         callId: callId,
         mode: mode,
+        fromName: fromName,
+        callerId: callerId,
+        callerAvatarUrl: avatarUrl,
+      ));
+      unawaited(_enrichIncomingFromToken(
+        callId: callId,
         fromName: fromName,
         callerId: callerId,
         callerAvatarUrl: avatarUrl,
@@ -435,9 +441,36 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     }
   }
 
-  Future<void> _showIncomingFromPush({
+  Map<String, dynamic> _incomingPayloadFromPush({
     required String callId,
     required String mode,
+    required String fromName,
+    String? callerId,
+    String? callerAvatarUrl,
+  }) {
+    final avatar = callerAvatarUrl?.trim().isNotEmpty == true
+        ? callerAvatarUrl!.trim()
+        : null;
+    return {
+      'call': {
+        'id': callId,
+        'kind': 'ONE_TO_ONE',
+        'mode': mode,
+        'initiator': {
+          if (callerId != null) 'id': callerId,
+          'name': fromName,
+          if (avatar != null) 'avatarUrl': avatar,
+        },
+      },
+      'mode': mode,
+      if (callerId != null) 'callerId': callerId,
+      if (avatar != null) 'callerAvatarUrl': avatar,
+    };
+  }
+
+  /// Best-effort caller enrichment after the ring has already started.
+  Future<void> _enrichIncomingFromToken({
+    required String callId,
     required String fromName,
     String? callerId,
     String? callerAvatarUrl,
@@ -451,11 +484,10 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
         tokenInitiator =
             (call['initiator'] as Map?)?.cast<String, dynamic>();
       }
-    } catch (e) {
-      await _cancelNativeIncomingNotification(callId: callId);
+    } catch (_) {
       return;
     }
-    if (!mounted) return;
+    if (!mounted || _pendingCallId() != callId || _pending == null) return;
     final resolvedId =
         callerId ?? tokenInitiator?['id']?.toString();
     final resolvedName =
@@ -465,21 +497,24 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     final resolvedAvatar = (tokenInitiator?['avatarUrl']?.toString().trim().isNotEmpty == true)
         ? tokenInitiator!['avatarUrl'].toString()
         : (callerAvatarUrl?.trim().isNotEmpty == true ? callerAvatarUrl : null);
-    _onIncoming({
-      'call': {
-        'id': callId,
-        'kind': 'ONE_TO_ONE',
-        'mode': mode,
-        'initiator': {
-          if (resolvedId != null) 'id': resolvedId,
-          'name': resolvedName,
-          if (resolvedAvatar != null) 'avatarUrl': resolvedAvatar,
-        },
-      },
-      'mode': mode,
-      'callerId': resolvedId,
-      if (resolvedAvatar != null) 'callerAvatarUrl': resolvedAvatar,
-    });
+    final enriched = Map<String, dynamic>.from(_pending!);
+    final call = Map<String, dynamic>.from(
+      (enriched['call'] as Map?)?.cast<String, dynamic>() ?? {},
+    );
+    final initiator = Map<String, dynamic>.from(
+      (call['initiator'] as Map?)?.cast<String, dynamic>() ?? {},
+    );
+    if (resolvedId != null) initiator['id'] = resolvedId;
+    initiator['name'] = resolvedName;
+    if (resolvedAvatar != null) initiator['avatarUrl'] = resolvedAvatar;
+    call['initiator'] = initiator;
+    enriched['call'] = call;
+    enriched['mode'] = call['mode'] ?? enriched['mode'];
+    if (resolvedId != null) enriched['callerId'] = resolvedId;
+    if (resolvedAvatar != null) {
+      enriched['callerAvatarUrl'] = resolvedAvatar;
+    }
+    setState(() => _pending = enriched);
   }
 
   void _onIncoming(dynamic data) {
@@ -668,7 +703,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     if (mounted) setState(() => _banner = null);
     if (n == null) return;
     final route = routeForNotificationRecord(Map<String, dynamic>.from(n));
-    if (route != null) ref.read(routerProvider).go(route);
+    if (route != null) navigateFromPush(ref.read(routerProvider), route);
   }
 
   /// Plays a single OS-default notification chime — used for incoming chat

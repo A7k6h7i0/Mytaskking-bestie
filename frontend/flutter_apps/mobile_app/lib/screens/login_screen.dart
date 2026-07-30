@@ -62,6 +62,64 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     _userId.text = _userId.text.trim();
   }
 
+  Future<(double?, double?, String?)> _tryDesktopLoginLocation() async {
+    if (!_skipSelfieOnDesktop) return (null, null, null);
+    try {
+      final enabled = await Geolocator.isLocationServiceEnabled();
+      if (!enabled) return (null, null, null);
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return (null, null, null);
+      }
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 12),
+        ),
+      );
+      String? address;
+      try {
+        final places = await placemarkFromCoordinates(
+          position.latitude,
+          position.longitude,
+        );
+        if (places.isNotEmpty) {
+          final p = places.first;
+          address = [
+            p.subLocality,
+            p.locality,
+            p.subAdministrativeArea,
+            p.administrativeArea,
+            p.postalCode,
+            p.country,
+          ].where((v) => v != null && v.trim().isNotEmpty).join(', ');
+        }
+      } catch (_) {
+        address = '${position.latitude}, ${position.longitude}';
+      }
+      return (position.latitude, position.longitude, address);
+    } catch (_) {
+      return (null, null, null);
+    }
+  }
+
+  Future<void> _registerDesktopWorkSession(BestieApi api) async {
+    if (!_skipSelfieOnDesktop) return;
+    final (latitude, longitude, address) = await _tryDesktopLoginLocation();
+    try {
+      await api.registerDesktopWorkSession(
+        sessionId: ref.read(authStoreProvider).sessionId,
+        latitude: latitude,
+        longitude: longitude,
+        address: address,
+      );
+    } catch (_) {}
+  }
+
   Future<void> _submit() async {
     if (_loading) return;
     _trimLoginFields();
@@ -144,6 +202,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         address: address,
       );
       if (!mounted) return;
+      await _registerDesktopWorkSession(api);
       final user = ref.read(authStoreProvider).user;
       if (defaultTargetPlatform == TargetPlatform.windows &&
           (user?.isClient ?? false)) {

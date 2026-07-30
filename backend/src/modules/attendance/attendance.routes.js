@@ -8,6 +8,7 @@ const validate = require('../../middleware/validate');
 const { requireAuth, requireInternal } = require('../../middleware/auth');
 const { BadRequest, Conflict } = require('../../utils/errors');
 const tenant = require('../../services/tenant');
+const attendanceService = require('./attendance.service');
 
 const router = Router();
 router.use(requireAuth, requireInternal);
@@ -92,40 +93,7 @@ async function getAttendanceConfig(req) {
 }
 
 function serializeEntry(entry) {
-  if (!entry) return null;
-  const lunchState = entry.lunchStartedAt && !entry.lunchEndedAt
-    ? 'ON_BREAK'
-    : entry.lunchStartedAt && entry.lunchEndedAt
-      ? 'COMPLETED'
-      : 'NOT_STARTED';
-  const status = entry.checkOutAt
-    ? 'CHECKED_OUT'
-    : entry.lunchStartedAt && !entry.lunchEndedAt
-      ? 'AT_LUNCH'
-      : entry.checkInAt
-        ? 'CHECKED_IN'
-        : 'PENDING';
-
-  return {
-    id: entry.id,
-    userId: entry.userId,
-    localDate: entry.localDate,
-    timezone: entry.timezone,
-    status,
-    lunchState,
-    checkInAt: entry.checkInAt,
-    checkInPlan: entry.checkInPlan,
-    checkInWordCount: entry.checkInWordCount,
-    lunchStartedAt: entry.lunchStartedAt,
-    lunchEndedAt: entry.lunchEndedAt,
-    lunchNote: entry.lunchNote,
-    checkOutAt: entry.checkOutAt,
-    checkOutReport: entry.checkOutReport,
-    checkOutWordCount: entry.checkOutWordCount,
-    onBreakSince: entry.onBreakSince,
-    onBreak: entry.onBreakSince != null,
-    breakSeconds: entry.breakSeconds || 0,
-  };
+  return attendanceService.serializeEntry(entry);
 }
 
 async function getOrCreateTodayLog(userId, timeZone) {
@@ -138,6 +106,38 @@ async function getOrCreateTodayLog(userId, timeZone) {
   });
   return { entry, local: parts, now };
 }
+
+router.get(
+  '/summary',
+  validate({
+    query: Joi.object({
+      date: Joi.string().allow('', null),
+      timezone: Joi.string().allow('', null),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    res.json(await attendanceService.getSummary(req, {
+      date: req.query.date || null,
+      timezone: req.query.timezone || null,
+    }));
+  })
+);
+
+router.get(
+  '/users/:userId/day',
+  validate({
+    query: Joi.object({
+      date: Joi.string().allow('', null),
+      timezone: Joi.string().allow('', null),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    res.json(await attendanceService.getUserDay(req, req.params.userId, {
+      date: req.query.date || null,
+      timezone: req.query.timezone || null,
+    }));
+  })
+);
 
 router.get(
   '/today',

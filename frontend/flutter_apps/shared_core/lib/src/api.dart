@@ -1104,9 +1104,64 @@ extension BestieApiExt on BestieApi {
     },
   );
 
+  /// Org-wide workday summary for managers and admins (today by default).
+  Future<Map<String, dynamic>> attendanceSummary({
+    String? date,
+    String? timezone,
+  }) => get(
+    '/attendance/summary',
+    query: {
+      if (date != null) 'date': date,
+      if (timezone != null) 'timezone': timezone,
+    },
+  );
+
+  /// Full workday detail for one employee on a given date.
+  Future<Map<String, dynamic>> attendanceUserDay({
+    required String userId,
+    String? date,
+    String? timezone,
+  }) => get(
+    '/attendance/users/$userId/day',
+    query: {
+      if (date != null) 'date': date,
+      if (timezone != null) 'timezone': timezone,
+    },
+  );
+
   // ---- desktop work activity ----
   Future<Map<String, dynamic>> workActivityState() =>
       get('/work-activity/me/state');
+
+  Future<Map<String, dynamic>> registerDesktopWorkSession({
+    String? sessionId,
+    double? latitude,
+    double? longitude,
+    String? address,
+  }) => post(
+    '/work-activity/desktop-session',
+    body: {
+      if (sessionId != null) 'sessionId': sessionId,
+      if (latitude != null) 'latitude': latitude,
+      if (longitude != null) 'longitude': longitude,
+      if (address != null) 'address': address,
+    },
+  );
+
+  Future<Map<String, dynamic>> workActivityHeartbeat({
+    required int idleSeconds,
+    required String platform,
+    String? deviceLabel,
+    String? sessionId,
+  }) => post(
+    '/work-activity/heartbeat',
+    body: {
+      'idleSeconds': idleSeconds,
+      'platform': platform,
+      if (deviceLabel != null) 'deviceLabel': deviceLabel,
+      if (sessionId != null) 'sessionId': sessionId,
+    },
+  );
 
   Future<Map<String, dynamic>> createWorkActivityClip({
     String? fileId,
@@ -1154,6 +1209,7 @@ extension BestieApiExt on BestieApi {
 
   Future<Map<String, dynamic>> workActivityClips({
     required String userId,
+    String? date,
     DateTime? from,
     DateTime? to,
     int page = 1,
@@ -1161,10 +1217,23 @@ extension BestieApiExt on BestieApi {
   }) => get(
     '/work-activity/users/$userId/clips',
     query: {
+      if (date != null) 'date': date,
       if (from != null) 'from': from.toUtc().toIso8601String(),
       if (to != null) 'to': to.toUtc().toIso8601String(),
       'page': page,
       'pageSize': pageSize,
+    },
+  );
+
+  Future<Map<String, dynamic>> workActivityUserDay({
+    required String userId,
+    String? date,
+    String? timezone,
+  }) => get(
+    '/work-activity/users/$userId/day',
+    query: {
+      if (date != null) 'date': date,
+      if (timezone != null) 'timezone': timezone,
     },
   );
 

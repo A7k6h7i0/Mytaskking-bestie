@@ -510,7 +510,7 @@ class _BestieAppState extends ConsumerState<BestieApp> {
         return;
       }
       final route = routeForPushData(data);
-      if (route != null) ref.read(routerProvider).go(route);
+      if (route != null) navigateFromPush(ref.read(routerProvider), route);
     });
     try {
       final launchDetails =
@@ -528,7 +528,9 @@ class _BestieAppState extends ConsumerState<BestieApp> {
               return;
             }
             final route = routeForPushData(data);
-            if (route != null) ref.read(routerProvider).go(route);
+            if (route != null) {
+              navigateFromPush(ref.read(routerProvider), route);
+            }
           });
         }
       }
@@ -588,7 +590,7 @@ class _BestieAppState extends ConsumerState<BestieApp> {
       return;
     }
     final route = routeForPushData(raw);
-    if (route != null) ref.read(routerProvider).go(route);
+    if (route != null) navigateFromPush(ref.read(routerProvider), route);
   }
 
   void _openPushTarget(RemoteMessage message) {
@@ -599,7 +601,7 @@ class _BestieAppState extends ConsumerState<BestieApp> {
     }
     final route = routeForPushData(data);
     if (route == null) return;
-    ref.read(routerProvider).go(route);
+    navigateFromPush(ref.read(routerProvider), route);
   }
 
   Future<void> _openAcceptedCall(String callId, String mode) async {

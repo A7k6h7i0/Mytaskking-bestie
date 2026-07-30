@@ -83,6 +83,7 @@ model User {
   eventAttendees  CalendarAttendee[]
   workdayLogs     WorkdayLog[]
   workActivityClips WorkActivityClip[]
+  workActivityDays WorkActivityDay[]
   announcements   Announcement[]     @relation("AnnouncementAuthor")
   adminNotesAuthored AdminNote[]       @relation("AdminNoteAuthor")
   adminNotesReviewed AdminNote[]       @relation("AdminNoteReviewer")
@@ -858,6 +859,30 @@ model WorkActivityClip {
   @@index([userId, captureStartedAt])
   @@index([tenantId, captureStartedAt])
   @@index([status])
+}
+
+model WorkActivityDay {
+  id               String    @id @default(cuid())
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId           String
+  localDate        String
+  tenantId         String?
+  desktopLoginAt   DateTime?
+  loginLatitude    Float?
+  loginLongitude   Float?
+  loginAddress     String?
+  sessionId        String?
+  workingSeconds   Int       @default(0)
+  lastHeartbeatAt  DateTime?
+  lastConfirmedAt  DateTime?
+  pausedAt         DateTime?
+  activityStatus   String    @default("OFFLINE")
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([userId, localDate])
+  @@index([localDate])
+  @@index([tenantId, localDate])
 }
 
 // ---------------------------------------------------------------------------

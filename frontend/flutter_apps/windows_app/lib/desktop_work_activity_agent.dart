@@ -11,14 +11,32 @@ import 'package:window_manager/window_manager.dart';
 import 'desktop_native.dart';
 import 'desktop_runtime.dart';
 
+/// Registers today's Windows/Linux desktop work session (login time + location).
+Future<void> registerDesktopWorkSession(WidgetRef ref, {
+  double? latitude,
+  double? longitude,
+  String? address,
+}) async {
+  if (!Platform.isWindows && !Platform.isLinux) return;
+  try {
+    final auth = ref.read(authStoreProvider);
+    await ref.read(apiProvider).registerDesktopWorkSession(
+          sessionId: auth.sessionId,
+          latitude: latitude,
+          longitude: longitude,
+          address: address,
+        );
+  } catch (_) {
+    // Best-effort — tracking must not block sign-in.
+  }
+}
+
 class DesktopWorkActivityAgent {
-  static const _defaultActivityInterval = Duration(minutes: 5);
-  static const _minActivityInterval = Duration(minutes: 2);
-  static const _maxActivityInterval = Duration(hours: 1);
+  static const _settingsPollInterval = Duration(seconds: 60);
   static const _allowedTrackIntervals = <int>{120, 300, 900, 1800, 3600};
 
   Timer? _timer;
-  Duration _activityInterval = _defaultActivityInterval;
+  int? _intervalSeconds;
   bool _running = false;
   bool _disposed = false;
   BestieApi? _api;
@@ -33,18 +51,25 @@ class DesktopWorkActivityAgent {
     unawaited(_bootstrapSchedule());
   }
 
-  Future<void> _bootstrapSchedule() async {
-    await _refreshIntervalFromAdminSettings();
-    if (_disposed) return;
-    _scheduleNext(_activityInterval);
-  }
-
   void dispose() {
     _disposed = true;
     _timer?.cancel();
     _timer = null;
     _api = null;
     _context = null;
+    _intervalSeconds = null;
+  }
+
+  Future<void> _bootstrapSchedule() async {
+    final seconds = await _fetchIntervalSeconds();
+    if (_disposed) return;
+    if (seconds == null) {
+      await _log('settings.interval_missing');
+      _scheduleNext(_settingsPollInterval);
+      return;
+    }
+    _intervalSeconds = seconds;
+    _scheduleNext(Duration(seconds: seconds));
   }
 
   void _scheduleNext(Duration delay) {
@@ -54,170 +79,12 @@ class DesktopWorkActivityAgent {
     _timer = Timer(delay, _tick);
   }
 
-  Future<void> _tick() async {
-    if (_disposed) return;
+  Future<int?> _fetchIntervalSeconds() async {
     final api = _api;
-    if (api == null) return;
-    if (_running) {
-      _scheduleNext(_activityInterval);
-      return;
-    }
-    _running = true;
+    if (api == null) return null;
     try {
-      await _log('timer.fired');
-      final apiClient = _api!;
-      final results = await Future.wait([
-        apiClient.workActivityState(),
-        _loadAdminTrackIntervalSeconds(apiClient),
-      ]);
-      final state = results[0] as Map<String, dynamic>;
-      final adminIntervalSeconds = results[1] as int?;
-      _activityInterval = _normalizedInterval(
-        adminIntervalSeconds ??
-            (state['intervalSeconds'] as num?)?.toInt(),
-      );
-      await _log('state.loaded', {
-        'shouldTrack': state['shouldTrack'] == true,
-        'availability': state['availability'],
-        'intervalSeconds': _activityInterval.inSeconds,
-        'adminIntervalSeconds': adminIntervalSeconds,
-      });
-      if (state['shouldTrack'] != true) {
-        await _log('state.skip_not_trackable');
-        return;
-      }
-
-      final idleThresholdSeconds = _activityInterval.inSeconds;
-      if (Platform.isWindows) {
-        final idleSeconds = await DesktopNative.getIdleSeconds();
-        await _log('idle.checked', {
-          'idleSeconds': idleSeconds,
-          'thresholdSeconds': idleThresholdSeconds,
-        });
-        if (idleSeconds < idleThresholdSeconds) {
-          await _log('idle.skip_user_active');
-          return;
-        }
-      }
-
-      final captureSeconds = (state['captureSeconds'] as num?)?.toInt() ?? 5;
-      final promptSeconds = (state['promptSeconds'] as num?)?.toInt() ?? 30;
-      final startedAt = DateTime.now();
-      String? fileId;
-      String? clipUrl;
-      String status = 'WORKING';
-      String? captureError;
-
-      try {
-        await _log('capture.clip.start', {'seconds': captureSeconds});
-        final clip = await _recordClip(captureSeconds);
-        final asset = await api.uploadFile(
-          bytes: clip.bytes,
-          filename: clip.filename,
-          mimeType: clip.mimeType,
-        );
-        fileId = asset['id']?.toString();
-        clipUrl = asset['url']?.toString();
-        await _log('capture.clip.success', {'fileId': fileId});
-      } catch (e) {
-        captureError = e.toString();
-        status = 'CAPTURE_FAILED';
-        await _log('capture.clip.failed', {'error': captureError});
-        try {
-          await _log('capture.screenshot.start');
-          final fallback = await _captureWindowsScreenshot();
-          final asset = await api.uploadFile(
-            bytes: fallback.bytes,
-            filename: fallback.filename,
-            mimeType: fallback.mimeType,
-          );
-          fileId = asset['id']?.toString();
-          clipUrl = asset['url']?.toString();
-          status = 'SCREENSHOT_FALLBACK';
-          await _log('capture.screenshot.success', {'fileId': fileId});
-        } catch (fallbackError) {
-          await _log('capture.screenshot.failed', {
-            'error': fallbackError.toString(),
-          });
-        }
-      }
-
-      final hostContext = _context;
-      if (hostContext != null && !hostContext.mounted) return;
-      final promptShownAt = DateTime.now();
-      String? note;
-      final nativePrompt = Platform.isWindows;
-      try {
-        await _log('prompt.show', {'seconds': promptSeconds});
-        if (nativePrompt) {
-          note = await DesktopNative.showWorkActivityPrompt(
-            seconds: promptSeconds,
-          );
-        } else {
-          if (hostContext == null || !hostContext.mounted) return;
-          note = await _showActivityPrompt(hostContext, promptSeconds);
-        }
-      } finally {
-        if (!nativePrompt) {
-          await _releasePromptFocus();
-        }
-      }
-      if (note == null) {
-        await _log('prompt.dismissed_without_response');
-        return;
-      }
-      final promptRespondedAt = DateTime.now();
-      await _log('prompt.responded', {'noteLength': note.trim().length});
-
-      await api.createWorkActivityClip(
-        fileId: fileId,
-        clipUrl: clipUrl,
-        note: _noteWithCaptureState(note, captureError, status),
-        status: status,
-        platform: Platform.isWindows ? 'windows' : 'linux',
-        deviceLabel: Platform.localHostname,
-        durationSeconds: captureSeconds,
-        captureStartedAt: startedAt,
-        captureEndedAt: DateTime.now(),
-        promptShownAt: promptShownAt,
-        promptRespondedAt: promptRespondedAt,
-      );
-      await _log('clip.created', {'status': status, 'fileId': fileId});
-    } catch (e) {
-      await _log('tick.failed', {'error': e.toString()});
-      // Best effort: activity tracking must never block the employee's work.
-    } finally {
-      _running = false;
-      if (!_disposed && _api != null) {
-        _scheduleNext(_activityInterval);
-      }
-    }
-  }
-
-  Duration _normalizedInterval(int? seconds) {
-    final value = seconds ?? _defaultActivityInterval.inSeconds;
-    final duration = Duration(seconds: value);
-    if (duration < _minActivityInterval) return _minActivityInterval;
-    if (duration > _maxActivityInterval) return _maxActivityInterval;
-    return duration;
-  }
-
-  Future<void> _refreshIntervalFromAdminSettings() async {
-    final api = _api;
-    if (api == null || _disposed) return;
-    final seconds = await _loadAdminTrackIntervalSeconds(api);
-    if (seconds == null || _disposed) return;
-    _activityInterval = _normalizedInterval(seconds);
-    await _log('settings.interval_loaded', {'seconds': seconds});
-  }
-
-  /// Same source as Settings → “Track activity every” (tenant-scoped GET /settings).
-  Future<int?> _loadAdminTrackIntervalSeconds(BestieApi api) async {
-    try {
-      final data = await api.settingsScope(scope: 'workActivity');
-      final workActivity =
-          (data['workActivity'] as Map?)?.cast<String, dynamic>();
-      final configured = (workActivity?['intervalSeconds'] as num?)?.toInt();
+      final state = await api.workActivityState();
+      final configured = (state['intervalSeconds'] as num?)?.toInt();
       if (configured != null && _allowedTrackIntervals.contains(configured)) {
         return configured;
       }
@@ -227,13 +94,159 @@ class DesktopWorkActivityAgent {
     return null;
   }
 
-  Future<void> _bringPromptToFront() async {
-    try {
-      await DesktopRuntime.revealAgentWindow();
-      await windowManager.setAlwaysOnTop(true);
-    } catch (_) {
-      // Best effort: tracking should still continue if the window manager fails.
+  Future<void> _tick() async {
+    if (_disposed) return;
+    final api = _api;
+    if (api == null) return;
+    if (_running) {
+      _scheduleNext(_intervalDelay());
+      return;
     }
+    _running = true;
+    try {
+      await _log('timer.fired');
+
+      final idleSeconds = Platform.isWindows
+          ? await DesktopNative.getIdleSeconds()
+          : 0;
+
+      final beat = await api.workActivityHeartbeat(
+        idleSeconds: idleSeconds,
+        platform: Platform.isWindows ? 'windows' : 'linux',
+        deviceLabel: Platform.localHostname,
+      );
+
+      final interval = (beat['intervalSeconds'] as num?)?.toInt();
+      if (interval != null && _allowedTrackIntervals.contains(interval)) {
+        _intervalSeconds = interval;
+      } else if (beat['trackingConfigured'] != true) {
+        await _log('tracking.not_configured');
+        _scheduleNext(_settingsPollInterval);
+        return;
+      }
+
+      final shouldTrack = beat['shouldTrack'] == true;
+      final shouldCapture = beat['shouldCapture'] == true;
+      await _log('heartbeat', {
+        'shouldTrack': shouldTrack,
+        'shouldCapture': shouldCapture,
+        'idleSeconds': idleSeconds,
+        'intervalSeconds': _intervalSeconds,
+        'workingSeconds': beat['workingSeconds'],
+      });
+
+      if (!shouldTrack) {
+        return;
+      }
+
+      if (shouldCapture) {
+        await _runCaptureCycle(
+          api,
+          captureSeconds: (beat['captureSeconds'] as num?)?.toInt() ?? 5,
+          promptSeconds: (beat['promptSeconds'] as num?)?.toInt() ?? 30,
+        );
+      }
+    } catch (e) {
+      await _log('tick.failed', {'error': e.toString()});
+    } finally {
+      _running = false;
+      if (!_disposed && _api != null) {
+        _scheduleNext(_intervalDelay());
+      }
+    }
+  }
+
+  Duration _intervalDelay() {
+    final seconds = _intervalSeconds;
+    if (seconds != null && _allowedTrackIntervals.contains(seconds)) {
+      return Duration(seconds: seconds);
+    }
+    return _settingsPollInterval;
+  }
+
+  Future<void> _runCaptureCycle(
+    BestieApi api, {
+    required int captureSeconds,
+    required int promptSeconds,
+  }) async {
+    final startedAt = DateTime.now();
+    String? fileId;
+    String? clipUrl;
+    String status = 'WORKING';
+    String? captureError;
+
+    try {
+      await _log('capture.clip.start', {'seconds': captureSeconds});
+      final clip = await _recordClip(captureSeconds);
+      final asset = await api.uploadFile(
+        bytes: clip.bytes,
+        filename: clip.filename,
+        mimeType: clip.mimeType,
+      );
+      fileId = asset['id']?.toString();
+      clipUrl = asset['url']?.toString();
+      await _log('capture.clip.success', {'fileId': fileId});
+    } catch (e) {
+      captureError = e.toString();
+      status = 'CAPTURE_FAILED';
+      await _log('capture.clip.failed', {'error': captureError});
+      try {
+        final fallback = await _captureWindowsScreenshot();
+        final asset = await api.uploadFile(
+          bytes: fallback.bytes,
+          filename: fallback.filename,
+          mimeType: fallback.mimeType,
+        );
+        fileId = asset['id']?.toString();
+        clipUrl = asset['url']?.toString();
+        status = 'SCREENSHOT_FALLBACK';
+      } catch (fallbackError) {
+        await _log('capture.screenshot.failed', {
+          'error': fallbackError.toString(),
+        });
+      }
+    }
+
+    final hostContext = _context;
+    if (hostContext != null && !hostContext.mounted) return;
+    final promptShownAt = DateTime.now();
+    String? note;
+    try {
+      await _log('prompt.show', {'seconds': promptSeconds});
+      if (Platform.isWindows) {
+        note = await DesktopNative.showWorkActivityPrompt(
+          seconds: promptSeconds,
+        );
+      } else {
+        if (hostContext == null || !hostContext.mounted) return;
+        note = await _showActivityPrompt(hostContext, promptSeconds);
+      }
+    } finally {
+      if (!Platform.isWindows) {
+        await _releasePromptFocus();
+      }
+    }
+
+    if (note == null || note.trim().isEmpty) {
+      await _log('prompt.dismissed_without_response');
+      return;
+    }
+
+    final promptRespondedAt = DateTime.now();
+    await api.createWorkActivityClip(
+      fileId: fileId,
+      clipUrl: clipUrl,
+      note: _noteWithCaptureState(note, captureError, status),
+      status: status,
+      platform: Platform.isWindows ? 'windows' : 'linux',
+      deviceLabel: Platform.localHostname,
+      durationSeconds: captureSeconds,
+      captureStartedAt: startedAt,
+      captureEndedAt: DateTime.now(),
+      promptShownAt: promptShownAt,
+      promptRespondedAt: promptRespondedAt,
+    );
+    await _log('clip.created', {'status': status, 'fileId': fileId});
   }
 
   Future<void> _releasePromptFocus() async {
@@ -249,7 +262,6 @@ class DesktopWorkActivityAgent {
     if (Platform.isWindows) {
       return DesktopNative.showWorkActivityPrompt(seconds: seconds);
     }
-    await _bringPromptToFront();
     if (!context.mounted) return null;
     return showDialog<String>(
       context: context,
@@ -269,9 +281,7 @@ class DesktopWorkActivityAgent {
       final line = '${DateTime.now().toIso8601String()} $event$payload\n';
       await File('${dir.path}${Platform.pathSeparator}work_activity_agent.log')
           .writeAsString(line, mode: FileMode.append, flush: true);
-    } catch (_) {
-      // Logging must not interrupt employee work.
-    }
+    } catch (_) {}
   }
 
   String _noteWithCaptureState(
@@ -373,171 +383,26 @@ class DesktopWorkActivityAgent {
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>MyTaskKing Work Capture</title>
   <style>
-    :root { color-scheme: dark; }
-    body {
-      margin: 0;
-      font-family: "Segoe UI", sans-serif;
-      background: radial-gradient(circle at top, #17345f 0%, #08111f 58%, #04070d 100%);
-      color: #eef4ff;
-      min-height: 100vh;
-      display: grid;
-      place-items: center;
-      padding: 24px;
-      box-sizing: border-box;
-    }
-    .shell {
-      width: min(1100px, 100%);
-      background: rgba(7, 15, 27, 0.84);
-      border: 1px solid rgba(110, 164, 255, 0.26);
-      border-radius: 22px;
-      overflow: hidden;
-      box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
-      backdrop-filter: blur(14px);
-    }
-    .topbar {
-      display: flex;
-      justify-content: space-between;
-      gap: 16px;
-      align-items: center;
-      padding: 18px 22px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-      background: linear-gradient(180deg, rgba(23, 42, 74, 0.88), rgba(7, 15, 27, 0.7));
-    }
-    .title {
-      font-size: 18px;
-      font-weight: 700;
-      letter-spacing: 0.2px;
-    }
-    .meta {
-      color: #9db0d3;
-      font-size: 13px;
-    }
-    .stage {
-      padding: 18px;
-      background: linear-gradient(180deg, rgba(17, 33, 60, 0.55), rgba(6, 12, 21, 0.94));
-    }
-    img {
-      width: 100%;
-      display: block;
-      border-radius: 14px;
-      background: #02060c;
-    }
-    .controls {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 16px 18px 18px;
-      flex-wrap: wrap;
-    }
-    button {
-      background: #0e6fff;
-      color: white;
-      border: 0;
-      border-radius: 999px;
-      padding: 10px 16px;
-      font: inherit;
-      font-weight: 600;
-      cursor: pointer;
-    }
-    button.secondary {
-      background: rgba(255, 255, 255, 0.08);
-      color: #d7e4ff;
-    }
-    input[type="range"] {
-      flex: 1 1 260px;
-      accent-color: #54a3ff;
-    }
-    .frame-label {
-      font-size: 13px;
-      color: #aabbd8;
-      min-width: 130px;
-      text-align: right;
-    }
+    body { margin: 0; font-family: "Segoe UI", sans-serif; background: #08111f; color: #eef4ff; }
+    .shell { max-width: 1100px; margin: 24px auto; padding: 18px; }
+    img { width: 100%; border-radius: 14px; }
   </style>
 </head>
 <body>
   <div class="shell">
-    <div class="topbar">
-      <div>
-        <div class="title">MyTaskKing Work Capture</div>
-        <div class="meta">${frameUrls.length} frames · about ${totalSeconds}s · requested ${seconds}s</div>
-      </div>
-      <div class="meta" id="clock"></div>
-    </div>
-    <div class="stage">
-      <img id="frame" alt="Desktop capture frame">
-    </div>
-    <div class="controls">
-      <button id="toggle">Pause</button>
-      <button class="secondary" id="restart">Restart</button>
-      <input id="scrubber" type="range" min="0" max="${frameUrls.length - 1}" value="0">
-      <div class="frame-label" id="label">Frame 1 / ${frameUrls.length}</div>
-    </div>
+    <h2>MyTaskKing Work Capture</h2>
+    <p>${frameUrls.length} frames · about ${totalSeconds}s · requested ${seconds}s</p>
+    <img id="frame" alt="Desktop capture frame">
   </div>
   <script>
     const frames = $framesJson;
     const delayMs = $delayMs;
-    const img = document.getElementById('frame');
-    const scrubber = document.getElementById('scrubber');
-    const label = document.getElementById('label');
-    const toggle = document.getElementById('toggle');
-    const restart = document.getElementById('restart');
-    const clock = document.getElementById('clock');
     let index = 0;
-    let timer = null;
-    let playing = true;
-
-    function render() {
-      img.src = frames[index];
-      scrubber.value = index;
-      label.textContent = 'Frame ' + (index + 1) + ' / ' + frames.length;
-      clock.textContent = new Date().toLocaleString();
-    }
-
-    function start() {
-      stop();
-      timer = setInterval(() => {
-        index = (index + 1) % frames.length;
-        render();
-      }, delayMs);
-      playing = true;
-      toggle.textContent = 'Pause';
-    }
-
-    function stop() {
-      if (timer) {
-        clearInterval(timer);
-        timer = null;
-      }
-      playing = false;
-      toggle.textContent = 'Play';
-    }
-
-    toggle.addEventListener('click', () => {
-      if (playing) {
-        stop();
-      } else {
-        start();
-      }
-    });
-
-    restart.addEventListener('click', () => {
-      index = 0;
-      render();
-      start();
-    });
-
-    scrubber.addEventListener('input', (event) => {
-      index = Number(event.target.value || 0);
-      render();
-      stop();
-    });
-
-    render();
-    start();
+    const img = document.getElementById('frame');
+    setInterval(() => { index = (index + 1) % frames.length; img.src = frames[index]; }, delayMs);
+    img.src = frames[0];
   </script>
 </body>
 </html>
@@ -592,9 +457,9 @@ class _WorkActivityPromptState extends State<WorkActivityPrompt> {
   }
 
   void _submit([String? value]) {
-    Navigator.of(context).pop((value ?? _controller.text).trim().isEmpty
-        ? 'working'
-        : (value ?? _controller.text).trim());
+    final text = (value ?? _controller.text).trim();
+    if (_needsNote && text.isEmpty) return;
+    Navigator.of(context).pop(text.isEmpty ? 'working' : text);
   }
 
   @override
@@ -602,40 +467,35 @@ class _WorkActivityPromptState extends State<WorkActivityPrompt> {
     final colors = BestieColors.of(context);
     return AlertDialog(
       title: Text(_needsNote ? 'What are you working on?' : 'Are you working?'),
-      content: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: _needsNote ? null : () => _submit('working'),
-        child: SizedBox(
-          width: 380,
-          child: _needsNote
-              ? TextField(
-                  controller: _controller,
-                  autofocus: true,
-                  maxLines: 4,
-                  maxLength: 1000,
-                  decoration: const InputDecoration(
-                    hintText: 'Type a short work update',
-                    border: OutlineInputBorder(),
-                  ),
-                )
-              : Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Click anywhere in this window to confirm.',
-                      style: TextStyle(color: colors.textSoft),
-                    ),
-                    const SizedBox(height: 16),
-                    LinearProgressIndicator(
-                      value:
-                          widget.seconds <= 0 ? 0 : _remaining / widget.seconds,
-                    ),
-                    const SizedBox(height: 8),
-                    Text('Message box opens in $_remaining seconds.'),
-                  ],
+      content: SizedBox(
+        width: 380,
+        child: _needsNote
+            ? TextField(
+                controller: _controller,
+                autofocus: true,
+                maxLines: 4,
+                maxLength: 1000,
+                decoration: const InputDecoration(
+                  hintText: 'Type a short work update',
+                  border: OutlineInputBorder(),
                 ),
-        ),
+              )
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Click I am working or wait for the message box.',
+                    style: TextStyle(color: colors.textSoft),
+                  ),
+                  const SizedBox(height: 16),
+                  LinearProgressIndicator(
+                    value: widget.seconds <= 0 ? 0 : _remaining / widget.seconds,
+                  ),
+                  const SizedBox(height: 8),
+                  Text('Message box opens in $_remaining seconds.'),
+                ],
+              ),
       ),
       actions: [
         if (!_needsNote)
