@@ -955,11 +955,19 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
       final query = q?.trim();
       final items = await widget.ref.read(apiProvider).listEmployees(
             q: query == null || query.isEmpty ? null : query,
-            pageSize: 500,
+            pageSize: 200,
           );
       if (mounted) setState(() => _people = _filterTaskAssignees(items));
-    } catch (_) {
-      // swallow — empty suggestion list is fine
+    } catch (e) {
+      if (mounted) {
+        setState(() => _people = []);
+        bestieToast(
+          context,
+          'Could not load employees',
+          body: formatApiError(e),
+          kind: BestieToastKind.error,
+        );
+      }
     }
   }
 

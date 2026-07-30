@@ -176,9 +176,7 @@ function scopedWhere(req, where = {}, { bypass = false } = {}) {
   if (bypass && isPlatformSuperAdmin(req.user)) return where;
   const tenantId = resolveTenantId(req);
   if (!tenantId) return where;
-  const tenantFilter = orgTenantWhere(tenantId);
-  if (!where || Object.keys(where).length === 0) return tenantFilter;
-  return { AND: [where, tenantFilter] };
+  return { ...where, ...orgTenantWhere(tenantId) };
 }
 
 /** Stamp tenantId on create payloads. */
