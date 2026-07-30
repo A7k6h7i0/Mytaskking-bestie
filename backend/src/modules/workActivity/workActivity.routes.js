@@ -17,7 +17,7 @@ router.get(
   '/me/state',
   requireInternal,
   asyncHandler(async (req, res) => {
-    res.json(await service.getStateForUser(req.user));
+    res.json(await service.getStateForUser(req));
   })
 );
 

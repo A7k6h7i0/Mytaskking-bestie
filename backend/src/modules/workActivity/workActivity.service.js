@@ -53,19 +53,20 @@ function normalizedNote(value) {
   return text || 'working';
 }
 
-async function workActivityIntervalSeconds() {
-  const row = await prisma.workspaceSetting.findUnique({
-    where: {
-      scope_key: {
-        scope: 'workActivity',
-        key: 'intervalSeconds',
-      },
-    },
-    select: { value: true },
-  });
-  const configured = Number(row?.value);
-  if (!TRACK_INTERVAL_OPTIONS.includes(configured)) return null;
-  return configured;
+async function workActivityIntervalSeconds(req) {
+  const scopes = [];
+  if (req) scopes.push(tenant.orgSettingScope(req, 'workActivity'));
+  if (!scopes.includes('workActivity')) scopes.push('workActivity');
+
+  for (const scope of scopes) {
+    const row = await prisma.workspaceSetting.findUnique({
+      where: { scope_key: { scope, key: 'intervalSeconds' } },
+      select: { value: true },
+    });
+    const configured = Number(row?.value);
+    if (TRACK_INTERVAL_OPTIONS.includes(configured)) return configured;
+  }
+  return null;
 }
 
 function formatDisplayStatus(raw) {
@@ -125,13 +126,13 @@ async function ensureDayForUser(req, userId, dateKey) {
   });
 }
 
-async function getStateForUser(user) {
-  const intervalSeconds = await workActivityIntervalSeconds();
+async function getStateForUser(req) {
+  const intervalSeconds = await workActivityIntervalSeconds(req);
   const presence = await prisma.userPresence.findUnique({
-    where: { userId: user.id },
+    where: { userId: req.user.id },
   });
   const availability = availabilityFromPresence(presence);
-  const trackable = shouldTrack({ user, presence });
+  const trackable = shouldTrack({ user: req.user, presence });
   return {
     shouldTrack: trackable && intervalSeconds != null,
     availability,
@@ -193,7 +194,7 @@ async function registerDesktopSession(req, body) {
 
 async function processHeartbeat(req, body) {
   if (!TRACKABLE_ROLES.has(req.user.role)) throw Forbidden('Work activity is employee-only');
-  const intervalSeconds = await workActivityIntervalSeconds();
+  const intervalSeconds = await workActivityIntervalSeconds(req);
   const presence = await prisma.userPresence.findUnique({
     where: { userId: req.user.id },
   });
@@ -334,7 +335,7 @@ async function createClip(req, body) {
 
 async function getSummary(req, { date, timezone = 'Asia/Kolkata' }) {
   const dateKey = date || localDateKey(new Date(), timezone);
-  const intervalSeconds = await workActivityIntervalSeconds();
+  const intervalSeconds = await workActivityIntervalSeconds(req);
   const { start, end } = localDateRange(dateKey);
   const now = new Date();
 
@@ -405,7 +406,7 @@ async function getSummary(req, { date, timezone = 'Asia/Kolkata' }) {
 async function getUserDay(req, userId, { date, timezone = 'Asia/Kolkata' }) {
   await tenant.assertUserSameTenant(req, userId);
   const dateKey = date || localDateKey(new Date(), timezone);
-  const intervalSeconds = await workActivityIntervalSeconds();
+  const intervalSeconds = await workActivityIntervalSeconds(req);
   const day = await prisma.workActivityDay.findUnique({
     where: { userId_localDate: { userId, localDate: dateKey } },
     include: {
