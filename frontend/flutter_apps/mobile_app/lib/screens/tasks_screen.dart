@@ -956,6 +956,7 @@ class _NewTaskSheetState extends State<_NewTaskSheet> {
       final items = await widget.ref.read(apiProvider).listEmployees(
             q: query == null || query.isEmpty ? null : query,
             pageSize: 200,
+            forTaskAssign: true,
           );
       if (mounted) setState(() => _people = _filterTaskAssignees(items));
     } catch (e) {

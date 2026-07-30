@@ -5,11 +5,14 @@ const { hashPassword, sanitize } = require('../auth/auth.service');
 const tenant = require('../../services/tenant');
 const { NotFound, Conflict, Forbidden, BadRequest } = require('../../utils/errors');
 
-async function list(req, { q, role, status, page = 1, pageSize = 25, forChat = false }) {
-  const effectivePageSize = forChat ? Math.max(pageSize, 100) : pageSize;
-  const where = tenant.scopedWhere(req, {
-    isClient: false,
-    ...(role
+const TASK_ASSIGN_ROLES = ['EMPLOYEE', 'SALES_HEAD'];
+
+async function list(req, { q, role, status, page = 1, pageSize = 25, forChat = false, forTaskAssign = false }) {
+  const effectivePageSize =
+    forChat || forTaskAssign ? Math.max(pageSize, 100) : pageSize;
+  const roleFilter = forTaskAssign
+    ? { role: { in: TASK_ASSIGN_ROLES } }
+    : role
       ? { role }
       : forChat
         ? {
@@ -26,8 +29,11 @@ async function list(req, { q, role, status, page = 1, pageSize = 25, forChat = f
               ],
             },
           }
-        : { role: { notIn: ['SUPER_ADMIN'] } }),
-    ...(status ? { status } : forChat ? { status: 'ACTIVE' } : {}),
+        : { role: { notIn: ['SUPER_ADMIN'] } };
+  const where = tenant.scopedWhere(req, {
+    isClient: false,
+    ...roleFilter,
+    ...(status ? { status } : forChat || forTaskAssign ? { status: 'ACTIVE' } : {}),
     ...(q
       ? {
           OR: [
@@ -42,7 +48,7 @@ async function list(req, { q, role, status, page = 1, pageSize = 25, forChat = f
     prisma.user.count({ where }),
     prisma.user.findMany({
       where,
-      orderBy: forChat ? { name: 'asc' } : { createdAt: 'desc' },
+      orderBy: forChat || forTaskAssign ? { name: 'asc' } : { createdAt: 'desc' },
       skip: (page - 1) * effectivePageSize,
       take: effectivePageSize,
       include: {

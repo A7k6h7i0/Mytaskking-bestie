@@ -34,6 +34,7 @@ router.get(
       page: Joi.number().integer().min(1).default(1),
       pageSize: Joi.number().integer().min(1).max(500).default(25),
       forChat: Joi.boolean().truthy('1', 'true').falsy('0', 'false').default(false),
+      forTaskAssign: Joi.boolean().truthy('1', 'true').falsy('0', 'false').default(false),
     }),
   }),
   asyncHandler(async (req, res) => {
