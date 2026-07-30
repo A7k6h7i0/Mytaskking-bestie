@@ -531,7 +531,6 @@ extension BestieApiExt on BestieApi {
     String? role,
     int? pageSize,
     bool? forChat,
-    bool? forTaskAssign,
   }) => get(
     '/employees',
     query: {
@@ -539,7 +538,6 @@ extension BestieApiExt on BestieApi {
       if (role != null) 'role': role,
       if (pageSize != null) 'pageSize': pageSize,
       if (forChat == true) 'forChat': 'true',
-      if (forTaskAssign == true) 'forTaskAssign': 'true',
     },
   ).then((r) => List<Map<String, dynamic>>.from(r['items'] ?? const []));
   Future<Map<String, dynamic>> createEmployee(Map<String, dynamic> data) =>
