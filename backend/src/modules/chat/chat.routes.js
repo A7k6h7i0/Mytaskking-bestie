@@ -170,6 +170,7 @@ router.post(
           userId: req.user.id,
           state: req.body.state,
           at: receipt.at,
+          status: receipt.status,
         });
     }
     res.json({ ok: true });
@@ -185,7 +186,7 @@ router.post(
     }),
   }),
   asyncHandler(async (req, res) => {
-    await service.recordReceiptsBulk({
+    const result = await service.recordReceiptsBulk({
       messageIds: req.body.messageIds,
       userId: req.user.id,
       state: req.body.state,
@@ -195,6 +196,7 @@ router.post(
       userId: req.user.id,
       state: req.body.state,
       messageIds: req.body.messageIds,
+      statuses: result.statuses || {},
     });
     res.json({ ok: true });
   })

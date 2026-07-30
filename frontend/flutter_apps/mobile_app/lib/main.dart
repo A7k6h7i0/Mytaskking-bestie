@@ -16,6 +16,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'firebase_options.dart';
 import 'call_app.dart';
+import 'external_call_guard.dart';
 import 'push_routes.dart';
 import 'router.dart';
 import 'screens/call_screen.dart';
@@ -438,8 +439,44 @@ class _BestieAppState extends ConsumerState<BestieApp> {
     // Theme Riverpod state is seeded via ProviderScope overrides in main()
     // (writing providers here during first mount causes '!_dirty' assertion).
     _wirePushDeepLinks();
+    ExternalCallGuard.init(onExternalAccepted: _endCallForExternalInterrupt);
     WidgetsBinding.instance
         .addPostFrameCallback((_) => _requestStartupPermissions());
+  }
+
+  @override
+  void dispose() {
+    ExternalCallGuard.dispose();
+    _pushTapSub?.cancel();
+    _localPushTapSub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _endCallForExternalInterrupt() async {
+    if (!CallSession.isActive) return;
+    final callId = CallSession.activeCallId;
+    final slug = CallSession.activeMeetingSlug;
+    final hadScreenHandler = CallSession.endForExternalCallHandler != null;
+    await CallSession.endForExternalCall();
+    if (!hadScreenHandler) {
+      if (callId != null) {
+        try {
+          await ref.read(apiProvider).post('/calls/$callId/leave');
+        } catch (_) {}
+      }
+      if (slug != null) {
+        try {
+          await ref.read(apiProvider).leaveMeeting(slug);
+        } catch (_) {}
+      }
+      try {
+        await const MethodChannel('mytaskking/call_notification')
+            .invokeMethod<void>('hide');
+      } catch (_) {}
+    }
+    if (mounted) {
+      ref.read(routerProvider).go('/chat');
+    }
   }
 
   /// Ask for the permissions the app needs up front, once, on first launch —
@@ -477,13 +514,6 @@ class _BestieAppState extends ConsumerState<BestieApp> {
         await prefs.setBool('perms.onboarded_v1', true);
       }
     } catch (_) {/* best-effort — features re-prompt on first use */}
-  }
-
-  @override
-  void dispose() {
-    _pushTapSub?.cancel();
-    _localPushTapSub?.cancel();
-    super.dispose();
   }
 
   Future<void> _wirePushDeepLinks() async {

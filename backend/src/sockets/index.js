@@ -99,6 +99,7 @@ module.exports = function initSockets(server) {
             userId,
             state: 'DELIVERED',
             messageIds: group.messageIds,
+            statuses: group.statuses || {},
           });
         }
       })

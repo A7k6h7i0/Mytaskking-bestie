@@ -20,6 +20,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../active_call_state.dart';
 import '../app_sounds.dart';
+import '../external_call_guard.dart';
 import '../org_call_sounds.dart';
 import '../call_proximity.dart';
 import '../call_screen_theme.dart';
@@ -135,6 +136,22 @@ class CallSession {
   /// outside the call screen (e.g. the "ongoing call" return pill) can
   /// rebuild without polling.
   static final ValueNotifier<int> revision = ValueNotifier<int>(0);
+
+  /// Set by [CallScreen] while mounted so external-call guard can hang up
+  /// with server notify + UI feedback. When null, [endForExternalCall] falls
+  /// back to media teardown only.
+  static Future<void> Function()? endForExternalCallHandler;
+
+  static Future<void> endForExternalCall() async {
+    final handler = endForExternalCallHandler;
+    if (handler != null) {
+      await handler();
+      return;
+    }
+    await teardown();
+    ActiveCallState.clear();
+    _ping();
+  }
   static void _ping() {
     revision.value = revision.value + 1;
   }
@@ -303,6 +320,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   Map<String, dynamic>? _callMeta;
   final List<void Function()> _callUnsubs = [];
   bool _remoteClosed = false;
+  bool _ownsExternalCallHandler = false;
   bool _hangingUp = false;
   bool _handRaised = false;
   bool _sendingCallFile = false;
@@ -418,6 +436,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
     if (!_routeWantsVideo && widget.meetingSlug == null) {
       unawaited(_startProximityIfVoice());
     }
+    CallSession.endForExternalCallHandler = _endDueToExternalCall;
+    _ownsExternalCallHandler = true;
+    ExternalCallGuard.onRingingUi = _warnExternalCallRinging;
     _bootstrap();
   }
 
@@ -457,6 +478,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
     // ends the session, so the call keeps running in the background.)
     _CallSession.onCallScreen = false;
     _CallSession._ping();
+    if (_ownsExternalCallHandler) {
+      CallSession.endForExternalCallHandler = null;
+      _ownsExternalCallHandler = false;
+    }
+    if (ExternalCallGuard.onRingingUi == _warnExternalCallRinging) {
+      ExternalCallGuard.onRingingUi = null;
+    }
     super.dispose();
   }
 
@@ -483,6 +511,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
       unawaited(_stopRingback());
       _reassertAudio();
       _showOngoingCallNotification();
+      ExternalCallGuard.notifyAppBackgroundedDuringCall();
     }
   }
 
@@ -2351,6 +2380,34 @@ class _CallScreenState extends ConsumerState<CallScreen>
         kind: BestieToastKind.info,
       );
     }
+  }
+
+  void _warnExternalCallRinging() {
+    if (!mounted || !_isLiveCallActive) return;
+    bestieToast(
+      context,
+      'Another call is ringing',
+      body: 'If you answer it, this MyTaskKing call will end automatically.',
+      kind: BestieToastKind.warning,
+    );
+  }
+
+  Future<void> _endDueToExternalCall() async {
+    if (_remoteClosed || _hangingUp) return;
+    _remoteClosed = true;
+    _hangingUp = true;
+    _cancelOutgoingRingTimeout();
+    await _stopRingback();
+    await _teardown(notifyServer: true);
+    ref.invalidate(meetingsProvider);
+    if (!mounted) return;
+    bestieToast(
+      context,
+      'Call ended',
+      body: 'MyTaskKing hung up because another call started on your phone.',
+      kind: BestieToastKind.info,
+    );
+    context.go('/chat');
   }
 
   void _startTimer() {

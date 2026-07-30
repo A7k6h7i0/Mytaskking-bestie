@@ -238,18 +238,27 @@ export default function ChatPage() {
     const s = getSocket();
     if (!s) return;
     s.emit('channel.join', active.id);
-    const promoteReceipts = (messageIds: string[], state: 'DELIVERED' | 'SEEN') => {
+    const promoteReceipts = (
+      messageIds: string[],
+      state: 'DELIVERED' | 'SEEN',
+      statuses?: Record<string, string>
+    ) => {
       const ids = new Set(messageIds);
       if (!ids.size) return;
       qc.setQueryData<{ items: Message[]; nextCursor: string | null }>(['chat.messages', active.id], (prev) =>
         prev
           ? {
               ...prev,
-              items: prev.items.map((message) =>
-                message.authorId === me.id && ids.has(message.id)
-                  ? { ...message, status: promoteMessageStatus(message.status, state) }
-                  : message
-              ),
+              items: prev.items.map((message) => {
+                if (message.authorId !== me.id || !ids.has(message.id)) return message;
+                const nextStatus = statuses?.[message.id];
+                return {
+                  ...message,
+                  status: nextStatus
+                    ? (nextStatus as Message['status'])
+                    : promoteMessageStatus(message.status, state),
+                };
+              }),
             }
           : prev
       );
@@ -266,13 +275,22 @@ export default function ChatPage() {
         );
       }
     };
-    const onReceipt = (payload: { messageId?: string; state?: 'DELIVERED' | 'SEEN' }) => {
+    const onReceipt = (payload: { messageId?: string; state?: 'DELIVERED' | 'SEEN'; status?: string }) => {
       if (!payload?.messageId || !payload.state) return;
-      promoteReceipts([payload.messageId], payload.state);
+      promoteReceipts(
+        [payload.messageId],
+        payload.state,
+        payload.status ? { [payload.messageId]: payload.status } : undefined
+      );
     };
-    const onBulkReceipt = (payload: { channelId?: string; messageIds?: string[]; state?: 'DELIVERED' | 'SEEN' }) => {
+    const onBulkReceipt = (payload: {
+      channelId?: string;
+      messageIds?: string[];
+      state?: 'DELIVERED' | 'SEEN';
+      statuses?: Record<string, string>;
+    }) => {
       if (payload?.channelId !== active.id || !payload.state || !Array.isArray(payload.messageIds)) return;
-      promoteReceipts(payload.messageIds, payload.state);
+      promoteReceipts(payload.messageIds, payload.state, payload.statuses);
     };
     s.on('chat.message.created', onNew);
     s.on('chat.message.receipt', onReceipt);

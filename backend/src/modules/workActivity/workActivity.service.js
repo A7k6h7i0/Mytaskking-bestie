@@ -12,6 +12,44 @@ const TRACKABLE_ROLES = new Set([
 ]);
 const TRACK_INTERVAL_OPTIONS = [120, 300, 900, 1800, 3600];
 
+function parseIntervalValue(raw) {
+  if (raw == null) return null;
+  if (typeof raw === 'object') {
+    if (Array.isArray(raw) && raw.length) return parseIntervalValue(raw[0]);
+    if ('intervalSeconds' in raw) return parseIntervalValue(raw.intervalSeconds);
+    if ('value' in raw) return parseIntervalValue(raw.value);
+    return null;
+  }
+  const configured = Math.round(Number(raw));
+  if (!Number.isFinite(configured)) return null;
+  return TRACK_INTERVAL_OPTIONS.includes(configured) ? configured : null;
+}
+
+async function workActivityIntervalSeconds(req) {
+  const scopes = [];
+  if (req) {
+    scopes.push(tenant.orgSettingScope(req, 'workActivity'));
+    const tenantId = tenant.resolveTenantId(req);
+    if (tenantId) scopes.push(`org:${tenantId}:workActivity`);
+    // Legacy rows saved before scope helpers matched env toggles.
+    scopes.push('org:default:workActivity');
+  }
+  scopes.push('workActivity');
+
+  const seen = new Set();
+  for (const scope of scopes) {
+    if (!scope || seen.has(scope)) continue;
+    seen.add(scope);
+    const row = await prisma.workspaceSetting.findUnique({
+      where: { scope_key: { scope, key: 'intervalSeconds' } },
+      select: { value: true },
+    });
+    const configured = parseIntervalValue(row?.value);
+    if (configured != null) return configured;
+  }
+  return null;
+}
+
 function localDateKey(date = new Date(), timeZone = 'Asia/Kolkata') {
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat('en-CA', {
@@ -51,22 +89,6 @@ function shouldTrack({ user, presence }) {
 function normalizedNote(value) {
   const text = String(value || '').trim();
   return text || 'working';
-}
-
-async function workActivityIntervalSeconds(req) {
-  const scopes = [];
-  if (req) scopes.push(tenant.orgSettingScope(req, 'workActivity'));
-  if (!scopes.includes('workActivity')) scopes.push('workActivity');
-
-  for (const scope of scopes) {
-    const row = await prisma.workspaceSetting.findUnique({
-      where: { scope_key: { scope, key: 'intervalSeconds' } },
-      select: { value: true },
-    });
-    const configured = Number(row?.value);
-    if (TRACK_INTERVAL_OPTIONS.includes(configured)) return configured;
-  }
-  return null;
 }
 
 function formatDisplayStatus(raw) {

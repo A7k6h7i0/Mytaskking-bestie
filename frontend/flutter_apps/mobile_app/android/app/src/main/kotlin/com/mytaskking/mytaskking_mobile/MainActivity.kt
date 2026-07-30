@@ -31,6 +31,8 @@ class MainActivity : FlutterFragmentActivity() {
     private val telecallerRecordingChannel = "mytaskking/telecaller_recording"
     private val callSettingsChannel = "mytaskking/call_settings"
     private val callRecordingStorageChannel = "mytaskking/call_recording_storage"
+    private val externalCallChannel = "mytaskking/external_call"
+    private val externalCallEventChannel = "mytaskking/external_call_events"
     private var latestLaunchPayload: Map<String, String?>? = null
     private var pendingStorageResult: MethodChannel.Result? = null
 
@@ -234,6 +236,34 @@ class MainActivity : FlutterFragmentActivity() {
 
                 override fun onCancel(arguments: Any?) {
                     proximitySink = null
+                }
+            })
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, externalCallChannel)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "startMonitoring" -> {
+                        ExternalCallMonitor.start(this)
+                        result.success(null)
+                    }
+                    "stopMonitoring" -> {
+                        ExternalCallMonitor.stop()
+                        result.success(null)
+                    }
+                    "notifyAppBackgrounded" -> {
+                        ExternalCallMonitor.notifyAppBackgrounded()
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, externalCallEventChannel)
+            .setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    ExternalCallMonitor.setEventSink(events)
+                }
+
+                override fun onCancel(arguments: Any?) {
+                    ExternalCallMonitor.setEventSink(null)
                 }
             })
     }

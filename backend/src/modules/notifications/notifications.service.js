@@ -53,6 +53,7 @@ async function notify({ userId, kind, title, body, data, io }) {
     if (pref.muteUntil && pref.muteUntil > new Date()) return null;
     const channelPref = (pref.channels || {})[categoryFor(kind)];
     if (channelPref === 'off') return null;
+    if (channelPref === 'mentions' && kind === 'CHAT') return null;
     if (inQuietHours(pref)) {
       // Persist in-app but skip push so we don't buzz the user.
       const notification = await prisma.notification.create({

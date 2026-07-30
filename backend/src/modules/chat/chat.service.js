@@ -33,19 +33,57 @@ async function listMessages(channelId, user, { cursor, limit = 40 } = {}) {
   return { items: messages.reverse(), nextCursor: messages.length ? messages[0].id : null };
 }
 
-const _RECEIPT_ORDER = { SENT: 0, DELIVERED: 1, SEEN: 2 };
+/** Channel kinds that should notify members on every new message (not just @mentions). */
+const CHAT_NOTIFY_KINDS = new Set(['DM', 'GROUP', 'PROJECT', 'CLIENT']);
 
 /**
- * Promote a Message's aggregate `status` to the highest state implied by an
- * incoming receipt. SENT < DELIVERED < SEEN. Idempotent — re-receiving the
- * same state never lowers the field.
+ * Recompute aggregate Message.status from per-member receipts.
+ * DM: one recipient — first SEEN turns ticks blue.
+ * Group / project / client: SEEN only when every non-author member has SEEN;
+ * DELIVERED only when every non-author member has at least DELIVERED (or SEEN).
  */
-async function _promoteStatus(messageId, state) {
-  const target = state === 'SEEN' ? 'SEEN' : state === 'DELIVERED' ? 'DELIVERED' : 'SENT';
-  const current = await prisma.message.findUnique({ where: { id: messageId }, select: { status: true } });
-  if (!current) return;
-  if ((_RECEIPT_ORDER[current.status] ?? 0) >= _RECEIPT_ORDER[target]) return;
-  await prisma.message.update({ where: { id: messageId }, data: { status: target } });
+async function recomputeMessageStatus(messageId) {
+  const message = await prisma.message.findUnique({
+    where: { id: messageId },
+    select: {
+      id: true,
+      authorId: true,
+      status: true,
+      channel: {
+        select: {
+          kind: true,
+          members: { select: { userId: true } },
+        },
+      },
+      receipts: { select: { userId: true, state: true } },
+    },
+  });
+  if (!message) return null;
+
+  const recipients = message.channel.members
+    .map((m) => m.userId)
+    .filter((id) => id !== message.authorId);
+  if (!recipients.length) return message.status;
+
+  const seenUsers = new Set(
+    message.receipts.filter((r) => r.state === 'SEEN').map((r) => r.userId)
+  );
+  const deliveredUsers = new Set(
+    message.receipts.filter((r) => r.state === 'DELIVERED').map((r) => r.userId)
+  );
+  const effectivelyDelivered = (userId) =>
+    deliveredUsers.has(userId) || seenUsers.has(userId);
+
+  let status = 'SENT';
+  const allSeen = recipients.every((id) => seenUsers.has(id));
+  const allDelivered = recipients.every((id) => effectivelyDelivered(id));
+  if (allSeen) status = 'SEEN';
+  else if (allDelivered) status = 'DELIVERED';
+
+  if (status !== message.status) {
+    await prisma.message.update({ where: { id: messageId }, data: { status } });
+  }
+  return status;
 }
 
 async function sendMessage({ channelId, user, body, kind = 'TEXT', attachmentIds = [], replyToId = null, threadRootId = null, io = null }) {
@@ -103,11 +141,13 @@ async function sendMessage({ channelId, user, body, kind = 'TEXT', attachmentIds
       })),
       skipDuplicates: true,
     });
-    message = await prisma.message.update({
-      where: { id: message.id },
-      data: { status: 'DELIVERED' },
-      include: messageInclude,
-    });
+    const status = await recomputeMessageStatus(message.id);
+    if (status) {
+      message = await prisma.message.findUnique({
+        where: { id: message.id },
+        include: messageInclude,
+      });
+    }
   }
 
   // Update the thread root counters in the background — never block the send.
@@ -138,25 +178,33 @@ async function sendMessage({ channelId, user, body, kind = 'TEXT', attachmentIds
     )
   );
 
-  if (channel.kind === 'DM') {
+  if (CHAT_NOTIFY_KINDS.has(channel.kind)) {
     const mentionedIds = new Set(mentionTargets.map((target) => target.id));
     const recipients = channel.members
       .map((member) => member.user)
       .filter((member) => member && member.id !== user.id && !mentionedIds.has(member.id));
-    const preview = body || (attachmentIds.length ? 'Sent an attachment' : 'New message');
+    if (recipients.length) {
+      const preview = body || (attachmentIds.length ? 'Sent an attachment' : 'New message');
+      const title =
+        channel.kind === 'DM'
+          ? `New message from ${user.name}`
+          : channel.name
+            ? `New message in #${channel.name}`
+            : `New message from ${user.name}`;
 
-    await Promise.all(
-      recipients.map((recipient) =>
-        notifications.notify({
-          userId: recipient.id,
-          kind: 'CHAT',
-          title: `New message from ${user.name}`,
-          body: preview,
-          data: { channelId, messageId: message.id, authorId: user.id },
-          io,
-        }).catch(() => {})
-      )
-    );
+      await Promise.all(
+        recipients.map((recipient) =>
+          notifications.notify({
+            userId: recipient.id,
+            kind: 'CHAT',
+            title,
+            body: preview,
+            data: { channelId, messageId: message.id, authorId: user.id },
+            io,
+          }).catch(() => {})
+        )
+      );
+    }
   }
 
   return message;
@@ -244,10 +292,8 @@ async function recordReceipt({ messageId, userId, state }) {
     update: { at: new Date() },
     create: { messageId, userId, state },
   });
-  // Promote the aggregate so the sender's ticks turn double-grey / blue
-  // without needing to re-fetch.
-  await _promoteStatus(messageId, state);
-  return { ...receipt, message };
+  const status = await recomputeMessageStatus(messageId);
+  return { ...receipt, message, status };
 }
 
 async function recordReceiptsBulk({ messageIds, userId, state }) {
@@ -260,9 +306,13 @@ async function recordReceiptsBulk({ messageIds, userId, state }) {
   const rows = messages.map((m) => ({ messageId: m.id, userId, state }));
   if (rows.length === 0) return { count: 0 };
   await prisma.messageReceipt.createMany({ data: rows, skipDuplicates: true });
-  // Promote each message's aggregate status in parallel.
-  await Promise.all(rows.map((r) => _promoteStatus(r.messageId, state)));
-  return { count: rows.length };
+  const statuses = {};
+  await Promise.all(
+    rows.map(async (r) => {
+      statuses[r.messageId] = await recomputeMessageStatus(r.messageId);
+    })
+  );
+  return { count: rows.length, statuses };
 }
 
 async function onlineMembersForDelivery(members, authorId) {
@@ -305,13 +355,13 @@ async function markDeliveredForUser({ userId, channelIds, limit = 500 }) {
     })),
     skipDuplicates: true,
   });
-  await prisma.message.updateMany({
-    where: {
-      id: { in: messages.map((message) => message.id) },
-      status: 'SENT',
-    },
-    data: { status: 'DELIVERED' },
-  });
+
+  const statuses = {};
+  await Promise.all(
+    messages.map(async (message) => {
+      statuses[message.id] = await recomputeMessageStatus(message.id);
+    })
+  );
 
   const grouped = new Map();
   for (const message of messages) {
@@ -322,6 +372,7 @@ async function markDeliveredForUser({ userId, channelIds, limit = 500 }) {
   return Array.from(grouped.entries()).map(([channelId, messageIds]) => ({
     channelId,
     messageIds,
+    statuses: Object.fromEntries(messageIds.map((id) => [id, statuses[id]])),
   }));
 }
 

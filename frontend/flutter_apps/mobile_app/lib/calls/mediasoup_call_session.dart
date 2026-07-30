@@ -268,7 +268,6 @@ class MediasoupCallSession {
             appleAudioCategory: AppleAudioCategory.playAndRecord,
             appleAudioCategoryOptions: {
               AppleAudioCategoryOption.allowBluetooth,
-              AppleAudioCategoryOption.mixWithOthers,
               if (video) AppleAudioCategoryOption.defaultToSpeaker,
             },
             // videoChat unlocks louder speaker path; voiceChat for earpiece VoIP.
