@@ -115,22 +115,16 @@ if (!process.env.QUEUE_DRIVER || process.env.QUEUE_DRIVER === 'memory') {
   email.registerWorker();
 }
 
-async function startServer() {
-  try {
-    await tenant.ensureDefaultTenant();
-  } catch (err) {
-    logger.warn({ err: err.message }, 'tenant.ensure_default.failed');
-  }
+tenant.ensureDefaultTenant().catch((err) =>
+  logger.warn({ err: err.message }, 'tenant.ensure_default.failed')
+);
 
-  server.listen(config.port, () => {
-    logger.info(
-      { port: config.port, env: config.env, multiTenant: tenant.MULTI_TENANT, cache: cache.mode },
-      'bestie.api.listening'
-    );
-  });
-}
-
-startServer();
+server.listen(config.port, () => {
+  logger.info(
+    { port: config.port, env: config.env, multiTenant: tenant.MULTI_TENANT, cache: cache.mode },
+    'bestie.api.listening'
+  );
+});
 
 process.on('unhandledRejection', (reason) => logger.error({ reason }, 'unhandled.rejection'));
 process.on('uncaughtException', (err) => logger.error({ err }, 'uncaught.exception'));
