@@ -509,6 +509,7 @@ class _BestieAppState extends ConsumerState<BestieApp> {
         if (Platform.isAndroid) {
           toRequest.add(Permission.photos);
           toRequest.add(Permission.bluetoothConnect);
+          toRequest.add(Permission.phone);
         }
         await toRequest.request();
         await prefs.setBool('perms.onboarded_v1', true);

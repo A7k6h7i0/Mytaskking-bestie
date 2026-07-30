@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import 'screens/call_screen.dart';
 
@@ -56,8 +57,30 @@ class ExternalCallGuard {
       _externalRinging = false;
     }
     try {
+      if (enabled && Platform.isAndroid) {
+        await _ensureAndroidPhonePermission();
+      }
       await _channel.invokeMethod<void>(enabled ? 'startMonitoring' : 'stopMonitoring');
     } catch (_) {}
+  }
+
+  /// Cellular call detection needs READ_PHONE_STATE on Android 6+.
+  static Future<void> _ensureAndroidPhonePermission() async {
+    try {
+      final status = await Permission.phone.status;
+      if (status.isGranted) return;
+      if (status.isPermanentlyDenied) return;
+      await Permission.phone.request();
+    } catch (_) {}
+  }
+
+  /// Call when joining a MyTaskKing call so telephony hooks register early.
+  static Future<void> prepareForCall() async {
+    if (!Platform.isAndroid) return;
+    await _ensureAndroidPhonePermission();
+    if (CallSession.isActive) {
+      await _setMonitoring(true);
+    }
   }
 
   static void _onNativeEvent(dynamic raw) {
@@ -77,12 +100,12 @@ class ExternalCallGuard {
 
   /// When another call is ringing and the user switches to answer it, end MTK.
   static void notifyAppBackgroundedDuringCall() {
-    if (!CallSession.isActive || !_externalRinging || _ending) return;
+    if (!CallSession.isActive || _ending) return;
     if (!Platform.isAndroid && !Platform.isIOS) return;
+    // Native decides whether a cellular call took over and emits "accepted" if so.
     try {
       _channel.invokeMethod<void>('notifyAppBackgrounded');
     } catch (_) {}
-    unawaited(_handleAccepted());
   }
 
   static Future<void> _handleAccepted() async {
