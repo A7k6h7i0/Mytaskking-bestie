@@ -81,20 +81,6 @@ function resolveTenantId(req) {
   return req.tenantId || req.user.tenantId || DEFAULT_TENANT_ID;
 }
 
-/** DB rows with NULL tenantId are legacy default-org users. */
-function normalizeTenantId(tenantId) {
-  return tenantId || DEFAULT_TENANT_ID;
-}
-
-/** Prisma filter for org-scoped models (User, etc.). */
-function orgTenantWhere(tenantId) {
-  const resolved = normalizeTenantId(tenantId);
-  if (resolved === DEFAULT_TENANT_ID) {
-    return { OR: [{ tenantId: DEFAULT_TENANT_ID }, { tenantId: null }] };
-  }
-  return { tenantId: resolved };
-}
-
 async function ensureDefaultTenant() {
   try {
     if (await prisma.tenant.findUnique({ where: { id: DEFAULT_TENANT_ID } })) return;
@@ -165,9 +151,7 @@ function scopedWhere(req, where = {}, { bypass = false } = {}) {
   if (bypass && isPlatformSuperAdmin(req.user)) return where;
   const tenantId = resolveTenantId(req);
   if (!tenantId) return where;
-  const tenantFilter = orgTenantWhere(tenantId);
-  if (!where || Object.keys(where).length === 0) return tenantFilter;
-  return { AND: [where, tenantFilter] };
+  return { ...where, tenantId };
 }
 
 /** Stamp tenantId on create payloads. */
@@ -264,13 +248,13 @@ async function findUserForLogin({ tenantSlug, userId }) {
 
 async function assertUserSameTenant(req, userId) {
   if (!MULTI_TENANT || !userId) return;
-  const actorTenant = normalizeTenantId(resolveTenantId(req));
+  const actorTenant = resolveTenantId(req);
   const target = await prisma.user.findUnique({
     where: { id: userId },
     select: { tenantId: true },
   });
   if (!target) throw NotFound('User not found');
-  if (normalizeTenantId(target.tenantId) !== actorTenant && !isPlatformSuperAdmin(req.user)) {
+  if (target.tenantId !== actorTenant && !isPlatformSuperAdmin(req.user)) {
     throw Forbidden('That user belongs to another organisation');
   }
 }
@@ -279,7 +263,7 @@ async function filterUserIdsInTenant(req, userIds) {
   if (!MULTI_TENANT || !userIds?.length) return userIds || [];
   const tenantId = resolveTenantId(req);
   const rows = await prisma.user.findMany({
-    where: { id: { in: userIds }, ...orgTenantWhere(tenantId) },
+    where: { id: { in: userIds }, tenantId },
     select: { id: true },
   });
   return rows.map((r) => r.id);
@@ -289,7 +273,7 @@ async function filterUserIdsForUser(user, userIds) {
   if (!MULTI_TENANT || !userIds?.length) return userIds || [];
   const tenantId = userTenantId(user);
   const rows = await prisma.user.findMany({
-    where: { id: { in: userIds }, ...orgTenantWhere(tenantId) },
+    where: { id: { in: userIds }, tenantId },
     select: { id: true },
   });
   return rows.map((r) => r.id);
