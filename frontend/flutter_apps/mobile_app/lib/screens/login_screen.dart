@@ -290,7 +290,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         error: _error,
         loading: _loading,
         onSubmit: _submit,
-        onRegister: _openRegister,
       );
     }
 
@@ -511,7 +510,6 @@ class _DesktopLoginShell extends StatefulWidget {
   final String? error;
   final bool loading;
   final VoidCallback onSubmit;
-  final VoidCallback onRegister;
 
   const _DesktopLoginShell({
     required this.tenantSlug,
@@ -521,7 +519,6 @@ class _DesktopLoginShell extends StatefulWidget {
     required this.error,
     required this.loading,
     required this.onSubmit,
-    required this.onRegister,
   });
 
   @override
@@ -693,35 +690,6 @@ class _DesktopLoginShellState extends State<_DesktopLoginShell>
                                         Icon(Icons.arrow_forward_rounded),
                                       ],
                                     ),
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                          OutlinedButton.icon(
-                            onPressed: widget.loading ? null : widget.onRegister,
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              side: const BorderSide(color: Color(0xFFDDE4F1)),
-                            ),
-                            icon: const Icon(Icons.add_business_outlined, size: 18),
-                            label: const Text(
-                              'Register organisation',
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          const Text(
-                            'New company? Register and wait for platform approval before signing in.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: Color(0xFF8A94A8),
-                              fontSize: 13,
-                              height: 1.35,
                             ),
                           ),
                         ],

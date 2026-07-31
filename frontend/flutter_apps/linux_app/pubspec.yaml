@@ -1,0 +1,52 @@
+name: mytaskking_linux
+description: MyTaskKing — Linux desktop workspace.
+version: 1.0.0+1
+publish_to: "none"
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  mytaskking_design:
+    path: ../shared_design_system
+  mytaskking_core:
+    path: ../shared_core
+  mytaskking_mobile:
+    path: ../mobile_app
+  file_picker: ^8.3.7
+  flutter_riverpod: ^2.6.1
+  go_router: ^14.6.1
+  window_manager: ^0.4.3
+  tray_manager: ^0.5.3
+  shared_preferences: ^2.5.5
+
+dev_dependencies:
+  flutter_lints: ^4.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/logo.png
+
+# record's Linux federated package resolves to an old 0.7.2 that is
+# API-incompatible with record_platform_interface 1.6.0 (compile error in the
+# kernel snapshot, even on macOS/Windows where Linux code is unused). Pin the
+# 1.x line which implements the current interface.
+dependency_overrides:
+  record_linux: ^1.0.0
+  record_windows: ^1.0.0
+  gal:
+    path: desktop_stubs/gal
+  firebase_core:
+    path: desktop_stubs/firebase_core
+  firebase_messaging:
+    path: desktop_stubs/firebase_messaging
+  flutter_tts:
+    path: desktop_stubs/flutter_tts
+  flutter_secure_storage_windows:
+    path: desktop_stubs/flutter_secure_storage_windows

@@ -26,6 +26,7 @@ import '../state.dart';
 import '../windows_workspace.dart';
 import 'call_screen.dart';
 import '../widgets/group_chat_helpers.dart';
+import '../widgets/chat_message_text.dart';
 import '../widgets/profile_avatar_viewer.dart';
 import 'chat_contact_screen.dart';
 import 'chat_media_library.dart';
@@ -109,11 +110,30 @@ class ChatDetailScreen extends ConsumerStatefulWidget {
     this.hideHeader = false,
   });
   @override
-  ConsumerState<ChatDetailScreen> createState() => _ChatDetailScreenState();
+  ConsumerState<ChatDetailScreen> createState() => ChatDetailScreenState();
 }
 
-class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
+/// Public state so desktop split-pane hosts can invoke chat header actions
+/// when [hideHeader] is true.
+class ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     with WidgetsBindingObserver {
+  void showMoreMenu() => _showChatMoreMenu();
+
+  void openContactScreen() => _openContactScreen();
+
+  void showProfileAvatar() => _showProfileAvatar();
+
+  String headerTitle() => _headerTitle();
+
+  String headerSubtitle() => _headerSubtitle();
+
+  String? headerAvatarUrl() => _headerAvatarUrl();
+
+  String? groupIconUrl() => _groupIconUrl();
+
+  bool get isDmChannel => (_channel?['kind'] ?? '').toString() == 'DM';
+
+  bool get isClientChannel => _channel?['isClientChannel'] == true;
   final _composer = TextEditingController();
   final _scroll = ScrollController();
   bool _sending = false;
@@ -825,6 +845,14 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     try {
       final file = File(path);
       final bytes = await file.readAsBytes();
+      final limitMsg = uploadSizeLimitMessage(bytes.length);
+      if (limitMsg != null) {
+        if (mounted) {
+          bestieToast(context, 'File too large',
+              body: limitMsg, kind: BestieToastKind.warning);
+        }
+        return;
+      }
       final asset = await ref.read(apiProvider).uploadFile(
             bytes: bytes,
             filename: 'voice-note-${DateTime.now().millisecondsSinceEpoch}.m4a',
@@ -969,18 +997,36 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     setState(() => _attaching = true);
     try {
       final picker = ImagePicker();
-      final files = <({List<int> bytes, String filename, String mimeType})>[];
+      final uploads = <({
+        List<int>? bytes,
+        String? filePath,
+        String filename,
+        String mimeType,
+      })>[];
 
       if (kind == 'gallery') {
         final picked = await picker.pickMultiImage(imageQuality: 85);
         if (picked.isEmpty) return;
         for (final x in picked.take(10)) {
           final bytes = await x.readAsBytes();
+          final limitMsg = uploadSizeLimitMessage(bytes.length);
+          if (limitMsg != null) {
+            if (mounted) {
+              bestieToast(context, 'File too large',
+                  body: limitMsg, kind: BestieToastKind.warning);
+            }
+            continue;
+          }
           final mime = x.mimeType ??
               _mimeFromExt(
                   x.name.contains('.') ? x.name.split('.').last : null) ??
               'image/jpeg';
-          files.add((bytes: bytes, filename: x.name, mimeType: mime));
+          uploads.add((
+            bytes: bytes,
+            filePath: null,
+            filename: x.name,
+            mimeType: mime,
+          ));
         }
       } else if (kind == 'camera' ||
           kind == 'gallery_single' ||
@@ -996,41 +1042,69 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
         }
         if (x == null) return;
         final bytes = await x.readAsBytes();
+        final limitMsg = uploadSizeLimitMessage(bytes.length);
+        if (limitMsg != null) {
+          if (mounted) {
+            bestieToast(context, 'File too large',
+                body: limitMsg, kind: BestieToastKind.warning);
+          }
+          return;
+        }
         final mime = x.mimeType ??
             _mimeFromExt(
                 x.name.contains('.') ? x.name.split('.').last : null) ??
             'application/octet-stream';
-        files.add((bytes: bytes, filename: x.name, mimeType: mime));
+        uploads.add((
+          bytes: bytes,
+          filePath: null,
+          filename: x.name,
+          mimeType: mime,
+        ));
       } else {
         final res = await FilePicker.platform.pickFiles(
-          withData: true,
           allowMultiple: true,
+          withData: false,
         );
         if (res == null || res.files.isEmpty) return;
         for (final f in res.files.take(10)) {
-          final bytes = f.bytes;
-          if (bytes == null) continue;
-          files.add((
-            bytes: bytes,
+          final path = f.path;
+          if (path == null || path.isEmpty) continue;
+          final file = File(path);
+          if (!await file.exists()) continue;
+          final size = await file.length();
+          final limitMsg = uploadSizeLimitMessage(size);
+          if (limitMsg != null) {
+            if (mounted) {
+              bestieToast(context, 'File too large',
+                  body: limitMsg, kind: BestieToastKind.warning);
+            }
+            continue;
+          }
+          uploads.add((
+            bytes: null,
+            filePath: path,
             filename: f.name,
             mimeType: _mimeFromExt(f.extension) ?? 'application/octet-stream',
           ));
         }
-        if (files.isEmpty) throw 'Could not read the picked file(s)';
+        if (uploads.isEmpty) return;
       }
+
+      if (uploads.isEmpty) return;
 
       // One message per file so deleting one photo does not wipe the rest
       // (no special backend attachment API needed).
-      for (var i = 0; i < files.length; i++) {
-        final file = files[i];
+      for (var i = 0; i < uploads.length; i++) {
+        final file = uploads[i];
         final asset = await ref.read(apiProvider).uploadFile(
               bytes: file.bytes,
+              filePath: file.filePath,
               filename: file.filename,
               mimeType: file.mimeType,
               onProgress: (sent, total) {
                 if (!mounted || total <= 0) return;
-                final base = i / files.length;
-                final frac = sent / total / files.length;
+                final base = i / uploads.length;
+                final frac = sent / total / uploads.length;
                 setState(() => _uploadProgress = base + frac);
               },
             );
@@ -1089,6 +1163,8 @@ class _ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
       case 'xls':
       case 'xlsx':
         return 'application/vnd.ms-excel';
+      case 'apk':
+        return 'application/vnd.android.package-archive';
       default:
         return null;
     }
@@ -3932,14 +4008,14 @@ class _MessageBubble extends ConsumerWidget {
       enabled: !isDeleted,
       mine: mine,
       onReply: () => context
-          .findAncestorStateOfType<_ChatDetailScreenState>()
+          .findAncestorStateOfType<ChatDetailScreenState>()
           ?._startReply(message),
       child: GestureDetector(
         onLongPress: isDeleted ? null : () => _showActions(context, ref),
         // Tap a failed-to-send message to retry immediately.
         onTap: (isFailed && isPending)
             ? () => context
-                .findAncestorStateOfType<_ChatDetailScreenState>()
+                .findAncestorStateOfType<ChatDetailScreenState>()
                 ?._retryFailed(message['id'].toString())
             : null,
         child: Align(
@@ -4045,7 +4121,7 @@ class _MessageBubble extends ConsumerWidget {
                   Padding(
                     padding: const EdgeInsets.fromLTRB(6, 2, 6, 2),
                     child: highlightMentions
-                        ? MentionText(
+                        ? MentionLinkText(
                             text: body,
                             style: TextStyle(
                               color: fg,
@@ -4053,10 +4129,17 @@ class _MessageBubble extends ConsumerWidget {
                               height: 1.35,
                             ),
                             mentionColor: mine ? c.brandStrong : c.brand,
+                            linkColor: mine ? c.brandStrong : c.brand,
                           )
-                        : Text(body,
+                        : LinkText(
+                            text: body,
                             style: TextStyle(
-                                color: fg, fontSize: 14, height: 1.35)),
+                              color: fg,
+                              fontSize: 14,
+                              height: 1.35,
+                            ),
+                            linkColor: mine ? c.brandStrong : c.brand,
+                          ),
                   ),
                   // OG link preview — silent if the message has no URL or
                   // the unfurl came back empty.
@@ -4245,7 +4328,7 @@ class _MessageBubble extends ConsumerWidget {
                     onTap: () {
                       Navigator.pop(ctx);
                       context
-                          .findAncestorStateOfType<_ChatDetailScreenState>()
+                          .findAncestorStateOfType<ChatDetailScreenState>()
                           ?._startReply(message);
                     },
                   ),
@@ -4502,7 +4585,7 @@ class _MessageBubble extends ConsumerWidget {
   void _showSeenBy(BuildContext context) {
     final c = BestieColors.of(context);
     final parentState =
-        context.findAncestorStateOfType<_ChatDetailScreenState>();
+        context.findAncestorStateOfType<ChatDetailScreenState>();
     final channel = parentState?._channel;
     if (channel == null) {
       bestieToast(context, 'Loading members…', kind: BestieToastKind.info);
@@ -5174,11 +5257,39 @@ class _Attachment extends ConsumerWidget {
         child: _fileChip(context, ref, mime, name, size, tappable: true),
       );
     }
+    final isApk = isApkAttachment(name: name, mime: mime);
     return GestureDetector(
-      onTap: () => _openExternal(context, ref),
+      onTap: isApk && Platform.isAndroid
+          ? () => _installApk(context, ref)
+          : () => _openExternal(context, ref),
       onLongPress: () => _saveAsset(context, ref),
-      child: _fileChip(context, ref, mime, name, size, tappable: true),
+      child: _fileChip(
+        context,
+        ref,
+        mime,
+        name,
+        size,
+        tappable: true,
+        isApk: isApk,
+        onInstall: isApk && Platform.isAndroid
+            ? () => _installApk(context, ref)
+            : null,
+      ),
     );
+  }
+
+  Future<void> _installApk(BuildContext context, WidgetRef ref) async {
+    try {
+      await ChatMediaSaver.installApkAttachment(
+        api: ref.read(apiProvider),
+        asset: asset,
+      );
+    } catch (e) {
+      if (context.mounted) {
+        bestieToast(context, 'Could not install APK',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    }
   }
 
   Future<void> _saveAsset(BuildContext context, WidgetRef ref) async {
@@ -5231,11 +5342,15 @@ class _Attachment extends ConsumerWidget {
     String name,
     Object? size, {
     bool tappable = false,
+    bool isApk = false,
+    VoidCallback? onInstall,
   }) {
     final accent = colors.brand;
     final fg = colors.text;
     final sizeStr = size is int ? _formatBytes(size) : '';
-    final icon = mime.contains('pdf')
+    final icon = isApk
+        ? Icons.android_rounded
+        : mime.contains('pdf')
         ? Icons.picture_as_pdf_rounded
         : mime.startsWith('video/')
             ? Icons.movie_rounded
@@ -5280,9 +5395,24 @@ class _Attachment extends ConsumerWidget {
                   Text(sizeStr,
                       style:
                           TextStyle(color: fg.withOpacity(0.7), fontSize: 11)),
+                if (isApk && Platform.isAndroid)
+                  Text('Tap to install',
+                      style: TextStyle(
+                          color: accent,
+                          fontSize: 10,
+                          fontWeight: BestieTokens.fwSemibold)),
               ]),
         ),
-        if (tappable)
+        if (onInstall != null)
+          IconButton(
+            tooltip: 'Install APK',
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            icon: Icon(Icons.install_mobile_rounded, size: 18, color: accent),
+            onPressed: onInstall,
+          )
+        else if (tappable)
           IconButton(
             tooltip: 'Save',
             visualDensity: VisualDensity.compact,

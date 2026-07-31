@@ -293,4 +293,13 @@ router.get(
   })
 );
 
+router.use((err, req, res, next) => {
+  if (err && err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({
+      error: "You can't upload more than 50 MB.",
+    });
+  }
+  return next(err);
+});
+
 module.exports = router;

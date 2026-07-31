@@ -3,6 +3,8 @@
 /// same widgets without copy-paste.
 library mytaskking_mobile.screens;
 
+export 'chat_typing.dart';
+export 'desktop_chat_screen.dart';
 export 'screens/login_screen.dart';
 export 'screens/shell_screen.dart';
 export 'screens/dashboard_screen.dart';

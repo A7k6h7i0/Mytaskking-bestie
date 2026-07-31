@@ -32,7 +32,10 @@ final workActivityClipsProvider = FutureProvider.autoDispose
 });
 
 class WorkActivityScreen extends ConsumerStatefulWidget {
-  const WorkActivityScreen({super.key});
+  const WorkActivityScreen({super.key, this.embedded = false});
+
+  /// When true, omits the scaffold app bar (desktop settings sub-route).
+  final bool embedded;
 
   @override
   ConsumerState<WorkActivityScreen> createState() => _WorkActivityScreenState();
@@ -106,8 +109,9 @@ class _WorkActivityScreenState extends ConsumerState<WorkActivityScreen> {
     final wide = MediaQuery.sizeOf(context).width >= 900;
 
     if (!isAdmin) {
-      return const Scaffold(
-        body: BestieEmptyState(
+      return Scaffold(
+        backgroundColor: colors.surface,
+        body: const BestieEmptyState(
           icon: Icons.lock_outline,
           title: 'Admin access only',
           description: 'Work activity is available to admins and super admins.',
@@ -115,25 +119,7 @@ class _WorkActivityScreenState extends ConsumerState<WorkActivityScreen> {
       );
     }
 
-    return Scaffold(
-      backgroundColor: colors.surface,
-      appBar: AppBar(
-        foregroundColor: colors.textMuted,
-        title: Text('Work activity', style: TextStyle(color: colors.textMuted)),
-        actions: [
-          IconButton(
-            tooltip: 'Pick date',
-            onPressed: _pickDate,
-            icon: const Icon(Icons.calendar_month_outlined),
-          ),
-          IconButton(
-            tooltip: 'Refresh',
-            onPressed: _refresh,
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-        ],
-      ),
-      body: summary.when(
+    final body = summary.when(
         loading: () => const Center(child: BestieSpinner()),
         error: (e, _) => BestieEmptyState(
           icon: Icons.cloud_off_outlined,
@@ -238,7 +224,56 @@ class _WorkActivityScreenState extends ConsumerState<WorkActivityScreen> {
             ],
           );
         },
+      );
+
+    if (widget.embedded) {
+      return ColoredBox(
+        color: colors.surface,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+              child: Row(
+                children: [
+                  TextButton.icon(
+                    onPressed: _pickDate,
+                    icon: const Icon(Icons.calendar_month_outlined, size: 18),
+                    label: Text(_dateKey),
+                  ),
+                  IconButton(
+                    tooltip: 'Refresh',
+                    onPressed: _refresh,
+                    icon: const Icon(Icons.refresh_rounded),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(child: body),
+          ],
+        ),
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: colors.surface,
+      appBar: AppBar(
+        foregroundColor: colors.textMuted,
+        title: Text('Work activity', style: TextStyle(color: colors.textMuted)),
+        actions: [
+          IconButton(
+            tooltip: 'Pick date',
+            onPressed: _pickDate,
+            icon: const Icon(Icons.calendar_month_outlined),
+          ),
+          IconButton(
+            tooltip: 'Refresh',
+            onPressed: _refresh,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
       ),
+      body: body,
     );
   }
 }

@@ -10,5 +10,6 @@ export 'src/realtime.dart';
 export 'src/phone_utils.dart';
 export 'src/support_access.dart';
 export 'src/subscription_status.dart';
+export 'src/upload_limits.dart';
 export 'src/widgets/phone_input.dart';
 export 'src/widgets/calendar_view.dart';

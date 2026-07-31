@@ -3,9 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'widgets/call_screen_design.dart';
 
-/// Call-screen-only light/dark toggle for Mute–Buzzer button borders.
-/// `false` (default) = blue neon borders; `true` = white borders.
-final callScreenLightControlsProvider = StateProvider<bool>((_) => false);
+/// Call-screen brightness — toggled only on the call screen. Does not change
+/// app-wide light/dark mode or any of the four color themes.
+final callScreenBrightnessProvider =
+    StateProvider<Brightness>((_) => Brightness.dark);
 
 /// Theme-aware palette for 1:1 call screens (voice + video backdrop).
 class OneToOneCallPalette {

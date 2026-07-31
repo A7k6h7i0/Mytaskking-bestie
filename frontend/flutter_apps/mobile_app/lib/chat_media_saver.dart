@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:gal/gal.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:open_filex/open_filex.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import 'package:mytaskking_core/mytaskking_core.dart';
@@ -26,6 +27,15 @@ class ChatMediaSaver {
 
     if (mime.startsWith('image/')) {
       await _ensureGalleryAccess();
+      if (!kIsWeb &&
+          (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+        await saveBytesWithSaveDialog(
+          bytes,
+          suggestedName: _withExtension(name, '.jpg'),
+          dialogTitle: 'Save image',
+        );
+        return;
+      }
       await Gal.putImageBytes(
         bytes,
         name: _withExtension(name, '.jpg'),
@@ -35,6 +45,15 @@ class ChatMediaSaver {
 
     if (mime.startsWith('video/')) {
       await _ensureGalleryAccess();
+      if (!kIsWeb &&
+          (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+        await saveBytesWithSaveDialog(
+          bytes,
+          suggestedName: _withExtension(name, '.mp4'),
+          dialogTitle: 'Save video',
+        );
+        return;
+      }
       final tmp = await _writeTemp(bytes, _withExtension(name, '.mp4'));
       try {
         await Gal.putVideo(tmp.path, album: 'MyTaskKing');
@@ -45,6 +64,37 @@ class ChatMediaSaver {
     }
 
     await _saveToDownloads(bytes, name);
+  }
+
+  /// Download an APK attachment and open the Android package installer.
+  static Future<void> installApkAttachment({
+    required BestieApi api,
+    required Map<String, dynamic> asset,
+  }) async {
+    if (!Platform.isAndroid) {
+      throw 'APK install is only supported on Android';
+    }
+    final name = _safeFilename((asset['originalName'] ?? 'update.apk').toString());
+    final bytes = await _downloadAttachmentBytes(api, asset);
+    final limitMsg = uploadSizeLimitMessage(bytes.length);
+    if (limitMsg != null) throw limitMsg;
+    final tmp = await _writeTemp(bytes, _withExtension(name, '.apk'));
+    try {
+      final result = await OpenFilex.open(
+        tmp.path,
+        type: 'application/vnd.android.package-archive',
+      );
+      if (result.type != ResultType.done) {
+        throw result.message.isNotEmpty
+            ? result.message
+            : 'Could not start APK installer';
+      }
+    } finally {
+      // Installer copies the APK — temp can be removed after a short delay.
+      Future<void>.delayed(const Duration(seconds: 30), () async {
+        if (await tmp.exists()) await tmp.delete();
+      });
+    }
   }
 
   static Future<void> saveAllAttachments({
@@ -60,6 +110,15 @@ class ChatMediaSaver {
   static Future<void> saveImageUrl(String url, {String? name}) async {
     final bytes = await _downloadUrlBytes(url);
     await _ensureGalleryAccess();
+    if (!kIsWeb &&
+        (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+      await saveBytesWithSaveDialog(
+        bytes,
+        suggestedName: _safeFilename(name ?? 'mytaskking-link.jpg'),
+        dialogTitle: 'Save image',
+      );
+      return;
+    }
     await Gal.putImageBytes(
       bytes,
       name: _safeFilename(name ?? 'mytaskking-link.jpg'),
@@ -70,6 +129,18 @@ class ChatMediaSaver {
   static Future<void> saveVideoUrl(String url, {String? name}) async {
     final bytes = await _downloadUrlBytes(url);
     await _ensureGalleryAccess();
+    if (!kIsWeb &&
+        (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+      await saveBytesWithSaveDialog(
+        bytes,
+        suggestedName: _withExtension(
+          _safeFilename(name ?? 'mytaskking-video.mp4'),
+          '.mp4',
+        ),
+        dialogTitle: 'Save video',
+      );
+      return;
+    }
     final tmp = await _writeTemp(
       bytes,
       _withExtension(_safeFilename(name ?? 'mytaskking-video.mp4'), '.mp4'),

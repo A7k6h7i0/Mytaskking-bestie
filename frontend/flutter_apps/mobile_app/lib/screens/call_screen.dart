@@ -27,7 +27,6 @@ import '../call_screen_theme.dart';
 import '../calls/mediasoup_call_session.dart';
 import '../calls/mediasoup_video_view.dart';
 import '../router.dart';
-import '../mobile_local_settings.dart';
 import '../state.dart' hide ThemeMode;
 import '../widgets/call_dialpad_sheet.dart';
 import '../widgets/call_screen_design.dart';
@@ -439,6 +438,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
     CallSession.endForExternalCallHandler = _endDueToExternalCall;
     _ownsExternalCallHandler = true;
     ExternalCallGuard.onRingingUi = _warnExternalCallRinging;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(callScreenBrightnessProvider.notifier).state =
+          Theme.of(context).brightness;
+    });
     _bootstrap();
   }
 
@@ -1284,6 +1288,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
     if (userId == me) return;
     // Drop live tiles immediately — 4s grace left ghosts after hang-up.
     _removeRemotePeersForUser(userId);
+    _pruneGhostMediasoupRemotes();
+    final rosterSize = max(1, _joinedParticipants.length);
+    if (_CallSession.serverLiveCount > rosterSize) {
+      _CallSession.serverLiveCount = rosterSize;
+    }
     if (_isMeeting) {
       _pruneMeetingRemoteTracking();
       _refreshOngoingCallNotification();
@@ -1315,17 +1324,22 @@ class _CallScreenState extends ConsumerState<CallScreen>
     });
   }
 
+  Brightness get _callBrightness => ref.watch(callScreenBrightnessProvider);
+
+  /// Live roster size — not persisted `call.kind` (GROUP never reverts on server).
   bool _isOneToOneCall() {
     if (_isMeeting) return false;
-    final call = (_callMeta?['call'] as Map?)?.cast<String, dynamic>();
-    return call?['kind']?.toString() != 'GROUP';
+    return _participantCount <= 2 && _distinctRemoteUserCount <= 1;
   }
 
   bool get _oneToOneLightUi =>
-      _isOneToOneCall() && Theme.of(context).brightness == Brightness.light;
+      _isOneToOneCall() && _callBrightness == Brightness.light;
+
+  bool get _callHeaderOnLightSurface =>
+      _useWhiteMultiParticipantBackdrop || _oneToOneLightUi;
 
   OneToOneCallPalette get _oneToOnePalette =>
-      OneToOneCallPalette.forBrightness(Theme.of(context).brightness);
+      OneToOneCallPalette.forBrightness(_callBrightness);
 
   BoxDecoration _oneToOneBackgroundDecoration() {
     final p = _oneToOnePalette;
@@ -2102,12 +2116,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     return 'Connecting…';
   }
 
-  /// Stable participant count for the header chip — server roster is
-  /// authoritative; SFU/client maps are fallback for older backends.
-  int get _participantCount {
-    final server = _CallSession.serverLiveCount;
-    if (server > 0) return server;
-
+  int get _clientSideParticipantCount {
     final me = ref.read(authStoreProvider).user?.id;
     if (_isMeeting && _joinedParticipants.isNotEmpty) {
       return _joinedParticipants.length;
@@ -2141,6 +2150,16 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final backend = _joinedParticipants.length;
     if (backend > 0) return backend;
     return max(1, 1 + _remoteUids.length);
+  }
+
+  /// Stable participant count for the header chip — server roster is
+  /// authoritative; SFU/client maps are fallback for older backends.
+  int get _participantCount {
+    final server = _CallSession.serverLiveCount;
+    final client = _clientSideParticipantCount;
+    if (server > 0 && client > 0 && client < server) return client;
+    if (server > 0) return server;
+    return client;
   }
 
   /// Distinct remote people — not raw Agora/mediasoup uids (one person can
@@ -2216,7 +2235,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   /// Multi-party voice stage used a forced white WhatsApp backdrop that ignored
   /// app dark mode. Never force white in dark theme.
   bool get _useWhiteMultiParticipantBackdrop {
-    if (Theme.of(context).brightness == Brightness.dark) return false;
+    if (_callBrightness == Brightness.dark) return false;
     return !_isVideo &&
         _participantCount > 2 &&
         _useWhatsAppParticipantGrid;
@@ -2225,8 +2244,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   bool get _isMultiPartyCallUi =>
       _participantCount > 2 ||
       _joinedParticipants.length > 2 ||
-      ((_callMeta?['call'] as Map?)?['kind'] == 'GROUP' &&
-          _participantCount >= 2);
+      _distinctRemoteUserCount > 1;
 
   /// Voice 1:1 must stay on the avatar stage. Grid only when SFU (or
   /// participant maps) clearly show 2+ remote people — never because one
@@ -2253,9 +2271,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     }
     return _participantCount > 2 ||
         _joinedParticipants.length > 2 ||
-        _distinctRemoteUserCount > 1 ||
-      ((_callMeta?['call'] as Map?)?['kind'] == 'GROUP' &&
-          _participantCount >= 3);
+        _distinctRemoteUserCount > 1;
   }
 
   Future<void> _enableSpeakerHighlight() async {
@@ -2534,9 +2550,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     final displayTitle = _callDisplayTitle();
     final multiParty = _isMeeting ||
         _participantCount > 2 ||
-        _remoteUids.length > 1 ||
-        ((_callMeta?['call'] as Map?)?['kind'] == 'GROUP' &&
-            _participantCount >= 2);
+        _distinctRemoteUserCount > 1;
     String? liveRemoteName;
     if (multiParty &&
         displayTitle != 'Connecting…' &&
@@ -5372,10 +5386,10 @@ class _CallScreenState extends ConsumerState<CallScreen>
       child: Scaffold(
         backgroundColor: oneToOneThemed
             ? (isLightOneToOne ? Colors.white : const Color(0xFF050A18))
-            : (Theme.of(context).brightness == Brightness.light
+            : (_callBrightness == Brightness.light
                 ? (_useWhiteMultiParticipantBackdrop
                     ? Colors.white
-                    : BestieColors.of(context).bg)
+                    : const Color(0xFFF8FAFC))
                 : const Color(0xFF0A1628)),
         body: Stack(
           fit: StackFit.expand,
@@ -6134,7 +6148,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   /// Small translucent circle button used in both call + meeting headers.
   Widget _circleHeaderIcon(IconData icon, VoidCallback onTap,
       {String? tooltip}) {
-    final onWhite = _useWhiteMultiParticipantBackdrop;
+    final onWhite = _callHeaderOnLightSurface;
     return Tooltip(
       message: tooltip ?? '',
       child: GestureDetector(
@@ -6164,16 +6178,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
   Widget _callThemeToggleButton() {
     return Consumer(
       builder: (context, ref, _) {
-        final isDark = Theme.of(context).brightness == Brightness.dark;
+        final isDark = _callBrightness == Brightness.dark;
         return _callHeaderGlassButton(
           icon: isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
-          tooltip: isDark ? 'Light mode' : 'Dark mode',
-          onTap: () async {
-            final next = isDark
-                ? core.ThemeMode.light
-                : core.ThemeMode.dark;
-            await MobileLocalSettings.setThemeMode(next);
-            ref.read(themeModeProvider.notifier).state = next;
+          tooltip: isDark ? 'Light call screen' : 'Dark call screen',
+          onTap: () {
+            ref.read(callScreenBrightnessProvider.notifier).state =
+                isDark ? Brightness.light : Brightness.dark;
           },
         );
       },
@@ -6185,7 +6196,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     required VoidCallback onTap,
     String? tooltip,
   }) {
-    final onWhite = _useWhiteMultiParticipantBackdrop || _oneToOneLightUi;
+    final onWhite = _callHeaderOnLightSurface;
     return Tooltip(
       message: tooltip ?? '',
       child: Material(
@@ -6355,7 +6366,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     if (!showingVideo) {
       if (_useWhatsAppParticipantGrid) {
         final names = _callDisplayTitle();
-        final onWhite = _useWhiteMultiParticipantBackdrop;
+        final onWhite = _callHeaderOnLightSurface;
         return Padding(
           padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
           child: Row(children: [
@@ -8053,7 +8064,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     double size = 52,
     double iconSize = 22,
   }) {
-    final onLight = _useWhiteMultiParticipantBackdrop || _oneToOneLightUi;
+    final onLight = _callHeaderOnLightSurface;
     final Color bg = background ??
         (onLight
             ? (active
@@ -8295,8 +8306,11 @@ class _CallScreenState extends ConsumerState<CallScreen>
 
   /// Top status chips: HD Voice / Network / Secure calling.
   Widget _topChips() {
-    final palette = _isOneToOneCall() ? _oneToOnePalette : null;
-    final light = palette?.lightControls ?? false;
+    final oneToOne = _isOneToOneCall();
+    final palette = oneToOne ? _oneToOnePalette : null;
+    final light = oneToOne
+        ? _oneToOnePalette.lightControls
+        : _callHeaderOnLightSurface;
     final net = _reconnecting ? 'Reconnecting' : 'Excellent';
     final netColor = _reconnecting
         ? const Color(0xFFFBBF24)
@@ -8740,7 +8754,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   Widget _premiumCallControlsCore({bool compact = false}) {
     final lightControls = _isOneToOneCall()
         ? _oneToOnePalette.lightControls
-        : ref.watch(callScreenLightControlsProvider);
+        : _callBrightness == Brightness.light;
     final rowGap = compact ? 6.0 : _kPremiumControlColumnGap;
     final actionBarHeight = compact ? 62.0 : 72.0;
     final actionSize = compact ? 42.0 : 48.0;
@@ -8997,6 +9011,8 @@ class _CallScreenState extends ConsumerState<CallScreen>
         return 'audio/mpeg';
       case 'm4a':
         return 'audio/mp4';
+      case 'apk':
+        return 'application/vnd.android.package-archive';
       default:
         return 'application/octet-stream';
     }
@@ -9016,20 +9032,31 @@ class _CallScreenState extends ConsumerState<CallScreen>
     setState(() => _sendingCallFile = true);
     try {
       final picked = await FilePicker.platform.pickFiles(
-        withData: true,
+        withData: false,
         allowMultiple: true,
       );
       if (picked == null || picked.files.isEmpty) return;
 
       final api = ref.read(apiProvider);
       var sent = 0;
-      for (final file in picked.files.take(10)) {
-        final bytes = file.bytes;
-        if (bytes == null || bytes.isEmpty) continue;
+      for (final pickedFile in picked.files.take(10)) {
+        final path = pickedFile.path;
+        if (path == null || path.isEmpty) continue;
+        final diskFile = File(path);
+        if (!await diskFile.exists()) continue;
+        final size = await diskFile.length();
+        final limitMsg = uploadSizeLimitMessage(size);
+        if (limitMsg != null) {
+          if (mounted) {
+            bestieToast(context, 'File too large',
+                body: limitMsg, kind: BestieToastKind.warning);
+          }
+          continue;
+        }
         final asset = await api.uploadFile(
-          bytes: bytes,
-          filename: file.name,
-          mimeType: _mimeForCallAttachment(file.extension),
+          filePath: path,
+          filename: pickedFile.name,
+          mimeType: _mimeForCallAttachment(pickedFile.extension),
         );
         final assetId = asset['id']?.toString();
         if (assetId == null) continue;
@@ -9240,7 +9267,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   /// more · camera · speaker · mic · end. Share / Record live in the
   /// `_showMore` sheet to keep the bar uncluttered.
   Widget _callControls({bool compact = false}) {
-    final onLight = _oneToOneLightUi;
+    final onLight = _callHeaderOnLightSurface;
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 14),
       child: Container(

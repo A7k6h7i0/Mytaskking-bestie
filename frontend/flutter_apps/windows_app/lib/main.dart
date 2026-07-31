@@ -8,8 +8,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:mytaskking_core/mytaskking_core.dart' as core show ThemeMode;
 import 'package:mytaskking_mobile/router.dart' as mobile_router;
-import 'package:mytaskking_mobile/screens.dart'
-    hide ThemeMode;
+import 'package:mytaskking_mobile/screens.dart' hide ThemeMode;
 import 'package:mytaskking_mobile/screens/connectivity_banner.dart';
 import 'package:mytaskking_mobile/screens/incoming_call_overlay.dart';
 import 'package:mytaskking_mobile/screens/ongoing_call_bar.dart';
@@ -18,9 +17,6 @@ import 'package:mytaskking_mobile/branding.dart';
 import 'package:mytaskking_mobile/mobile_appearance_providers.dart';
 import 'package:mytaskking_mobile/mobile_local_settings.dart';
 import 'package:mytaskking_mobile/mobile_theme_palettes.dart';
-import 'package:mytaskking_mobile/screens/organizations_screen.dart';
-import 'package:mytaskking_mobile/screens/admin_notes_screen.dart';
-import 'package:mytaskking_mobile/screens/subscription_screen.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -28,26 +24,54 @@ import 'desktop_local_settings.dart';
 import 'desktop_profile_screen.dart';
 import 'desktop_runtime.dart';
 import 'desktop_work_activity_agent.dart';
-import 'desktop_calendar_screen.dart';
-import 'desktop_chat_screen.dart';
-import 'desktop_calls_screen.dart';
-import 'desktop_task_detail_screen.dart';
-import 'desktop_notifications_screen.dart';
-import 'work_activity_screen.dart';
 
-/// Desktop home after login — mirrors mobile role routing where it differs.
-String _desktopHomeRoute(BestieUser? user) {
-  if (user?.isSalesHead == true) return '/dashboard';
-  if (user?.isExecutive == true) return '/field';
-  return '/dashboard';
-}
+/// Desktop home after login — chat-first workspace for every role.
+String _desktopHomeRoute(BestieUser? user) => '/chat';
 
-const _salesHeadShellRoutes = {
+const _desktopShellRoutes = {
+  '/chat',
+  '/profile',
+  '/search',
+  '/deleted-chats',
+};
+
+const _desktopLegacyRoutes = {
+  '/',
   '/dashboard',
+  '/employees',
+  '/clients',
+  '/calls',
+  '/calendar',
+  '/telecaller',
+  '/ai-review',
+  '/subscription',
+  '/announcements',
+  '/saved',
+  '/sessions',
+  '/reports',
+  '/recordings',
   '/organizations',
   '/admin-notes',
-  '/settings',
+  '/tasks',
+  '/attendance',
+  '/attendence',
+  '/meetings',
+  '/login-activity',
+  '/notifications',
+  '/field',
+  '/field/manager',
+  '/marketing/outlets',
+  '/marketing/shops',
+  '/marketing/catalog',
+  '/marketing/orders',
+  '/register-organization',
 };
+
+bool _isAllowedDesktopRoute(String loc) {
+  if (_desktopShellRoutes.contains(loc)) return true;
+  if (loc.startsWith('/chat/')) return true;
+  return false;
+}
 
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -121,13 +145,13 @@ class _BestieWindowsAppState extends ConsumerState<BestieWindowsApp> {
         if (isLoggedIn && loginPath) {
           return _desktopHomeRoute(auth.user);
         }
-        // Sales head: same shell as mobile — no chat workspace.
-        if (isLoggedIn && auth.user?.isSalesHead == true) {
-          if (loc == '/chat' || loc.startsWith('/chat/')) {
-            return '/dashboard';
-          }
-          if (!_salesHeadShellRoutes.contains(loc)) {
-            return '/dashboard';
+        if (loc == '/register-organization') return '/login';
+        if (isLoggedIn && !_isAllowedDesktopRoute(loc)) {
+          if (_desktopLegacyRoutes.contains(loc) ||
+              _desktopLegacyRoutes.any(
+                (legacy) => loc.startsWith('$legacy/'),
+              )) {
+            return '/chat';
           }
         }
         return null;
@@ -136,157 +160,35 @@ class _BestieWindowsAppState extends ConsumerState<BestieWindowsApp> {
         GoRoute(
           path: '/',
           redirect: (_, __) =>
-              auth.accessToken != null ? '/dashboard' : '/login',
+              auth.accessToken != null ? '/chat' : '/login',
         ),
         GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
         GoRoute(
-          path: '/search',
-          builder: (_, s) => SearchScreen(
-            initialQuery: s.uri.queryParameters['q'],
-            initialKind: s.uri.queryParameters['k'],
-          ),
-        ),
-        GoRoute(
-          path: '/call/:id',
-          redirect: (_, __) =>
-              kWindowsWorkspaceNoCalls ? '/calls' : null,
-          builder: (_, s) => CallScreen(
-            callId: s.pathParameters['id'],
-            mode: s.uri.queryParameters['mode'] ?? 'video',
-          ),
-        ),
-        GoRoute(
-          path: '/meeting/:slug',
-          redirect: (_, __) =>
-              kWindowsWorkspaceNoCalls ? '/meetings' : null,
-          builder: (_, s) => CallScreen(
-            meetingSlug: s.pathParameters['slug'],
-            mode: s.uri.queryParameters['mode'] ?? 'video',
-          ),
-        ),
-        GoRoute(
           path: '/chat/:channelId',
-          builder: (_, s) =>
-              ChatDetailScreen(channelId: s.pathParameters['channelId']!),
-        ),
-        GoRoute(
-          path: '/tasks/:id',
-          builder: (_, s) =>
-              DesktopTaskDetailScreen(taskId: s.pathParameters['id']!),
-        ),
-        GoRoute(
-          path: '/marketing/outlets/:id',
-          builder: (_, s) => MarketingOutletVisitScreen(
-            outletId: s.pathParameters['id']!,
-          ),
-        ),
-        GoRoute(
-          path: '/field/hr',
-          builder: (_, __) => const FieldHrScreen(),
-        ),
-        GoRoute(
-          path: '/field/manager',
-          builder: (_, __) => const FieldManagerScreen(),
-        ),
-        GoRoute(
-          path: '/field/visits',
-          builder: (_, __) => const FieldMyVisitsScreen(),
-        ),
-        GoRoute(
-          path: '/field/gps',
-          builder: (_, __) => const FieldGpsScreen(),
-        ),
-        GoRoute(
-          path: '/marketing/catalog',
-          builder: (_, __) => const MarketingCatalogScreen(),
-        ),
-        GoRoute(
-          path: '/marketing/orders',
-          builder: (_, s) => MarketingOrdersScreen(
-            outletId: s.uri.queryParameters['outletId'],
+          builder: (_, s) => DesktopChatScreen(
+            initialChannelId: s.pathParameters['channelId'],
           ),
         ),
         ShellRoute(
           builder: (_, __, child) => DesktopShell(child: child),
           routes: [
             GoRoute(
-                path: '/dashboard',
-                builder: (_, __) => const DashboardScreen()),
-            GoRoute(
                 path: '/chat', builder: (_, __) => const DesktopChatScreen()),
             GoRoute(
-                path: '/employees',
-                builder: (_, __) => const EmployeesScreen()),
-            GoRoute(
-                path: '/clients', builder: (_, __) => const ClientsScreen()),
-            GoRoute(path: '/calls', builder: (_, __) => const DesktopCallsScreen()),
-            GoRoute(
-                path: '/calendar',
-                builder: (_, __) => const DesktopCalendarScreen()),
-            GoRoute(
-                path: '/telecaller',
-                builder: (_, __) =>
-                    const TelecallerScreen(embeddedInShell: true),
+              path: '/search',
+              builder: (_, s) => SearchScreen(
+                initialQuery: s.uri.queryParameters['q'],
+                initialKind: s.uri.queryParameters['kind'],
+              ),
             ),
             GoRoute(
-                path: '/ai-review',
-                builder: (_, __) => const AiReviewScreen(),
+              path: '/deleted-chats',
+              builder: (_, __) => const DeletedChatsScreen(),
             ),
-            GoRoute(
-                path: '/subscription',
-                builder: (_, __) => const SubscriptionScreen(),
-            ),
-            GoRoute(
-                path: '/announcements',
-                builder: (_, __) => const AnnouncementsScreen()),
-            GoRoute(path: '/saved', builder: (_, __) => const SavedScreen()),
-            GoRoute(
-                path: '/sessions', builder: (_, __) => const SessionsScreen()),
-            GoRoute(
-                path: '/settings', builder: (_, __) => const SettingsScreen()),
-            GoRoute(
-                path: '/reports', builder: (_, __) => const ReportsScreen()),
-            GoRoute(
-                path: '/recordings',
-                builder: (_, __) => const RecordingsScreen()),
-            GoRoute(
-                path: '/organizations',
-                builder: (_, __) => const OrganizationsScreen()),
-            GoRoute(
-                path: '/admin-notes',
-                builder: (_, __) => const AdminNotesScreen()),
-            GoRoute(path: '/tasks', builder: (_, __) => const TasksScreen()),
-            GoRoute(
-                path: '/attendance',
-                builder: (_, __) => const AttendanceScreen()),
-            GoRoute(path: '/attendence', redirect: (_, __) => '/attendance'),
-            GoRoute(
-                path: '/meetings', builder: (_, __) => const MeetingsScreen()),
-            GoRoute(
-                path: '/work-activity',
-                builder: (_, __) => const WorkActivityScreen()),
-            GoRoute(
-                path: '/login-activity',
-                builder: (_, __) => const LoginActivityScreen()),
-            GoRoute(
-                path: '/notifications',
-                builder: (_, __) => const DesktopNotificationsScreen()),
             GoRoute(
               path: '/profile',
               builder: (_, __) => const DesktopProfileScreen(),
             ),
-            GoRoute(
-                path: '/field',
-                builder: (_, __) => const FieldDashboardScreen()),
-            GoRoute(
-                path: '/field/manager',
-                builder: (_, __) => const FieldManagerScreen()),
-            GoRoute(
-                path: '/marketing/outlets',
-                builder: (_, __) => const MarketingOutletsScreen()),
-            GoRoute(
-                path: '/marketing/shops',
-                builder: (_, __) => const MarketingShopSearchScreen()),
           ],
         ),
       ],
@@ -684,194 +586,29 @@ class DesktopShell extends ConsumerStatefulWidget {
 
 class _DesktopShellState extends ConsumerState<DesktopShell> {
   List<BestieSidebarItem> _itemsFor(BestieUser? user) {
-    final isAdmin = user?.role == 'ADMIN' || user?.role == 'SUPER_ADMIN';
-    final isManager = isAdmin || user?.role == 'MANAGER';
-    final isTelecallerOnly = user?.role == 'TELECALLER';
-    final isTelecaller = isTelecallerOnly || isAdmin || user?.role == 'SUPER_ADMIN';
-    final isPlatformSuperAdmin = user?.isPlatformSuperAdmin == true;
-    final isSalesHead = user?.isSalesHead == true;
-    final isOrgBillingAdmin =
-        isAdmin && !isPlatformSuperAdmin && !isTelecallerOnly && !isSalesHead;
-
-    if (isSalesHead) {
-      return const [
-        BestieSidebarItem(
-            icon: Icons.dashboard_outlined,
-            label: 'Home',
-            route: '/dashboard'),
-        BestieSidebarItem(
-            icon: Icons.apartment_rounded,
-            label: 'Organisations',
-            route: '/organizations'),
-        BestieSidebarItem(
-            icon: Icons.sticky_note_2_outlined,
-            label: 'Notes',
-            route: '/admin-notes'),
-        BestieSidebarItem(
-            icon: Icons.settings_outlined,
-            label: 'Settings',
-            route: '/settings'),
-      ];
-    }
-
-    if (user?.isExecutive == true) {
-      return const [
-        BestieSidebarItem(
-            icon: Icons.dashboard_outlined,
-            label: 'Home',
-            route: '/field'),
-        BestieSidebarItem(
-            icon: Icons.storefront_outlined,
-            label: 'Outlets',
-            route: '/marketing/outlets'),
-        BestieSidebarItem(
-            icon: Icons.search_rounded,
-            label: 'Shops',
-            route: '/marketing/shops'),
-        BestieSidebarItem(
-            icon: Icons.chat_bubble_outline,
-            label: 'Chat',
-            route: '/chat'),
-        BestieSidebarItem(
-            icon: Icons.settings_outlined,
-            label: 'Settings',
-            route: '/settings'),
-      ];
-    }
-
-    if (isTelecallerOnly) {
-      return const [
-        BestieSidebarItem(
-            icon: Icons.chat_bubble_outline, label: 'Chats', route: '/chat'),
-        BestieSidebarItem(
-            icon: Icons.dashboard_outlined,
-            label: 'Dashboard',
-            route: '/dashboard'),
-        BestieSidebarItem(
-            icon: Icons.headset_mic_outlined,
-            label: 'Telecaller Leads',
-            route: '/telecaller'),
-        BestieSidebarItem(
-            icon: Icons.person_outline, label: 'Profile', route: '/profile'),
-        BestieSidebarItem(
-            icon: Icons.settings_outlined,
-            label: 'Settings',
-            route: '/settings'),
-      ];
-    }
-
-    return [
-      const BestieSidebarItem(
-          icon: Icons.dashboard_outlined,
-          label: 'Dashboard',
-          route: '/dashboard'),
-      const BestieSidebarItem(
-          icon: Icons.chat_bubble_outline, label: 'Chat', route: '/chat'),
-      const BestieSidebarItem(
-          icon: Icons.view_kanban_outlined, label: 'Tasks', route: '/tasks'),
-      const BestieSidebarItem(
-          icon: Icons.videocam_outlined, label: 'Meetings', route: '/meetings'),
-      if (isAdmin)
-        const BestieSidebarItem(
-            icon: Icons.monitor_heart_outlined,
-            label: 'Work Activity',
-            route: '/work-activity'),
-      if (isAdmin)
-        const BestieSidebarItem(
-            icon: Icons.login_rounded,
-            label: 'Login activity',
-            route: '/login-activity'),
-      if (isPlatformSuperAdmin)
-        const BestieSidebarItem(
-            icon: Icons.apartment_rounded,
-            label: 'Organisations',
-            route: '/organizations'),
-      if (isAdmin)
-        const BestieSidebarItem(
-            icon: Icons.people_outline_rounded,
-            label: 'Employees',
-            route: '/employees'),
-      if (isManager)
-        const BestieSidebarItem(
-            icon: Icons.business_center_outlined,
-            label: 'Clients',
-            route: '/clients'),
-      if (user?.hasFieldForceAccess == true && user?.isExecutive != true)
-        const BestieSidebarItem(
-            icon: Icons.storefront_outlined,
-            label: 'Field team',
-            route: '/field'),
-      if (user?.isFieldManager == true)
-        const BestieSidebarItem(
-            icon: Icons.groups_outlined,
-            label: 'Team visits',
-            route: '/field/manager'),
-      if (isTelecaller)
-        const BestieSidebarItem(
-            icon: Icons.headset_mic_outlined,
-            label: 'Telecaller Leads',
-            route: '/telecaller'),
-      if (isAdmin)
-        const BestieSidebarItem(
-            icon: Icons.psychology_outlined,
-            label: 'AI Review',
-            route: '/ai-review'),
-      if (isOrgBillingAdmin)
-        const BestieSidebarItem(
-            icon: Icons.card_membership_outlined,
-            label: 'Subscription',
-            route: '/subscription'),
-      const BestieSidebarItem(
-          icon: Icons.history_rounded, label: 'Calls', route: '/calls'),
-      const BestieSidebarItem(
-          icon: Icons.event_outlined, label: 'Calendar', route: '/calendar'),
-      if (isAdmin)
-        const BestieSidebarItem(
-            icon: Icons.description_outlined,
-            label: 'Reports',
-            route: '/reports'),
-      if (isAdmin)
-        const BestieSidebarItem(
-            icon: Icons.download_for_offline_outlined,
-            label: 'Recordings',
-            route: '/recordings'),
-      const BestieSidebarItem(
-          icon: Icons.notifications_outlined,
-          label: 'Notifications',
-          route: '/notifications'),
-      const BestieSidebarItem(
-          icon: Icons.settings_outlined, label: 'Settings', route: '/settings'),
-      const BestieSidebarItem(
-          icon: Icons.person_outline, label: 'Profile', route: '/profile'),
+    return const [
+      BestieSidebarItem(
+        icon: Icons.chat_bubble_outline,
+        label: 'Chat',
+        route: '/chat',
+      ),
+      BestieSidebarItem(
+        icon: Icons.person_outline,
+        label: 'Profile',
+        route: '/profile',
+      ),
     ];
   }
 
   String _activeRoute(BuildContext context) {
     final path = GoRouterState.of(context).uri.path;
-    if (path.startsWith('/chat')) return '/chat';
-    if (path.startsWith('/tasks')) return '/tasks';
-    if (path.startsWith('/meetings')) return '/meetings';
-    if (path.startsWith('/work-activity')) return '/work-activity';
-    if (path.startsWith('/login-activity')) return '/login-activity';
-    if (path.startsWith('/organizations')) return '/organizations';
-    if (path.startsWith('/admin-notes')) return '/admin-notes';
-    if (path.startsWith('/employees')) return '/employees';
-    if (path.startsWith('/clients')) return '/clients';
-    if (path.startsWith('/telecaller')) return '/telecaller';
-    if (path.startsWith('/ai-review')) return '/ai-review';
-    if (path.startsWith('/subscription')) return '/subscription';
-    if (path.startsWith('/calls')) return '/calls';
-    if (path.startsWith('/calendar')) return '/calendar';
-    if (path.startsWith('/reports')) return '/reports';
-    if (path.startsWith('/recordings')) return '/recordings';
-    if (path.startsWith('/notifications')) return '/notifications';
-    if (path.startsWith('/settings')) return '/settings';
+    if (path.startsWith('/chat') ||
+        path.startsWith('/search') ||
+        path.startsWith('/deleted-chats')) {
+      return '/chat';
+    }
     if (path.startsWith('/profile')) return '/profile';
-    if (path.startsWith('/field/manager')) return '/field/manager';
-    if (path.startsWith('/field')) return '/field';
-    if (path.startsWith('/marketing/outlets')) return '/marketing/outlets';
-    if (path.startsWith('/marketing/shops')) return '/marketing/shops';
-    return '/dashboard';
+    return '/chat';
   }
 
   @override

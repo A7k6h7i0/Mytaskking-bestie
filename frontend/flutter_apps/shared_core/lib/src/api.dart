@@ -1250,22 +1250,31 @@ extension BestieApiExt on BestieApi {
   );
 
   // ---- file upload (multipart) ----
-  /// Uploads [bytes] to `POST /files/upload` and returns the created file
-  /// asset (`{ id, url, mimeType, size, ... }`). The chat composer then sends
-  /// the message with `attachmentIds: [asset.id]`.
+  /// Uploads a file to `POST /files/upload`. Prefer [filePath] for large
+  /// documents so the client streams from disk instead of loading all bytes.
   Future<Map<String, dynamic>> uploadFile({
-    required List<int> bytes,
+    List<int>? bytes,
+    String? filePath,
     required String filename,
     String? mimeType,
     void Function(int sent, int total)? onProgress,
   }) async {
-    final form = FormData.fromMap({
-      'file': MultipartFile.fromBytes(
-        bytes,
+    assert(bytes != null || filePath != null, 'bytes or filePath required');
+    final MultipartFile part;
+    if (filePath != null) {
+      part = await MultipartFile.fromFile(
+        filePath,
         filename: filename,
         contentType: mimeType != null ? DioMediaType.parse(mimeType) : null,
-      ),
-    });
+      );
+    } else {
+      part = MultipartFile.fromBytes(
+        bytes!,
+        filename: filename,
+        contentType: mimeType != null ? DioMediaType.parse(mimeType) : null,
+      );
+    }
+    final form = FormData.fromMap({'file': part});
     final r = await dio.post(
       '/files/upload',
       data: form,
