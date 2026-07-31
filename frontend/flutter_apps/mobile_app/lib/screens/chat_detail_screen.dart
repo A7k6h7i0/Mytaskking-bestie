@@ -9,7 +9,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:flutter_tts/flutter_tts.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
@@ -18,6 +17,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
+import '../app_tts.dart';
 import '../call_event_text.dart';
 import '../chat_clear.dart';
 import '../chat_mute.dart';
@@ -1224,12 +1224,8 @@ class ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
       if (busy != null && ch == 'ONE_TO_ONE') {
         if (busy['status'] == 'ON_CALL' && res['waiting'] == true) {
           unawaited(_announceAvailability(_headerTitle(), busy));
-          try {
-            final tts = FlutterTts();
-            await tts.setSpeechRate(0.36);
-            await tts.speak(
-                '${_headerTitle()} is busy on another call. Waiting for them to respond.');
-          } catch (_) {}
+          unawaited(speakAppMessageFresh(
+              '${_headerTitle()} is busy on another call. Waiting for them to respond.'));
           if (mounted) {
             bestieToast(context, '${_headerTitle()} is busy',
                 body: 'Waiting for them to accept and add you to their call.',
@@ -1288,10 +1284,7 @@ class ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
         ? '$name is $label. Please call again later.'
         : '$name is $label. Please leave a message.';
     try {
-      final tts = FlutterTts();
-      await tts.setSpeechRate(0.36);
-      await tts.setVolume(1.0);
-      await tts.speak(text);
+      await speakAppMessageFresh(text);
     } catch (_) {/* TTS is best-effort */}
   }
 

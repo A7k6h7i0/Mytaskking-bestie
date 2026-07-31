@@ -1,9 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_tts/flutter_tts.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
+import '../app_tts.dart';
 import '../active_call_state.dart';
 import '../state.dart';
 import 'call_screen.dart';
@@ -571,12 +573,8 @@ class _CallRow extends ConsumerWidget {
                     ? 'on leave'
                     : 'busy';
         if (status == 'ON_CALL' && res['waiting'] == true) {
-          try {
-            final tts = FlutterTts();
-            await tts.setSpeechRate(0.36);
-            await tts.speak(
-                '$name is busy with another call. Please wait for them to respond or call again later.');
-          } catch (_) {}
+          unawaited(speakAppMessageFresh(
+              '$name is busy with another call. Please wait for them to respond or call again later.'));
           if (context.mounted) {
             bestieToast(context, 'Call waiting',
                 body: '$name can accept and add you to the current call.',
@@ -584,11 +582,7 @@ class _CallRow extends ConsumerWidget {
           }
           return;
         }
-        try {
-          final tts = FlutterTts();
-          await tts.setSpeechRate(0.36);
-          await tts.speak('$name is $label. Please leave a message.');
-        } catch (_) {}
+        unawaited(speakAppMessageFresh('$name is $label. Please leave a message.'));
         if (context.mounted) {
           bestieToast(context, '$name is unavailable',
               body: label, kind: BestieToastKind.warning);

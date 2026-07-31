@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
+import '../app_tts.dart';
 import '../call_app.dart';
 import '../active_call_state.dart';
 import '../org_call_sounds.dart';
@@ -660,12 +661,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
   }
 
   Future<void> _speak(String text) async {
-    try {
-      await _tts.setLanguage('en-US');
-      await _tts.setPitch(1.02);
-      await _tts.setSpeechRate(0.36);
-      await _tts.speak(text);
-    } catch (_) {}
+    await speakAppMessage(_tts, text);
   }
 
   DateTime? _lastNotifChime;

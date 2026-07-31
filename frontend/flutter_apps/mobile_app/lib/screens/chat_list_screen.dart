@@ -3,10 +3,10 @@ import 'dart:async';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_tts/flutter_tts.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 
+import '../app_tts.dart';
 import '../branding.dart';
 import '../call_event_text.dart';
 import '../chat_clear.dart';
@@ -42,6 +42,88 @@ bool _isPlatformSuperAdmin(Map<String, dynamic>? user) =>
 bool _isOrgAdmin(BestieUser? user) {
   final role = user?.role ?? '';
   return role == 'ADMIN' || role == 'SUPER_ADMIN';
+}
+
+/// Start a 1:1 call from the chat list or new-chat sheet.
+Future<void> startDmCallFromList(
+  BuildContext context,
+  WidgetRef ref, {
+  required Map<String, dynamic> peerUser,
+  required String mode,
+  String? channelId,
+}) async {
+  if (kWindowsWorkspaceNoCalls) return;
+  final me = ref.read(authStoreProvider).user;
+  if (_isPlatformSuperAdmin(peerUser)) {
+    if (context.mounted) {
+      bestieToast(
+        context,
+        'Calling unavailable',
+        body:
+            'Platform administrators cannot be called from direct messages.',
+        kind: BestieToastKind.warning,
+      );
+    }
+    return;
+  }
+  final targetRole = peerUser['role']?.toString();
+  final viewerIsAdmin = _isOrgAdmin(me);
+  if (!viewerIsAdmin && targetRole == 'ADMIN') {
+    if (context.mounted) {
+      bestieToast(
+        context,
+        'Calling unavailable',
+        body: 'Only admins can start calls with administrators.',
+        kind: BestieToastKind.warning,
+      );
+    }
+    return;
+  }
+  final peerId = peerUser['id']?.toString();
+  if (peerId == null || peerId.isEmpty) return;
+
+  await CallSession.prepareForNewCall();
+  final api = ref.read(apiProvider);
+  final res = await api.initiateCall(
+    participantIds: [peerId],
+    kind: 'ONE_TO_ONE',
+    channelId: channelId,
+    mode: mode == 'voice' ? 'VOICE' : 'VIDEO',
+  );
+  final presence = (res['targetPresence'] as Map?)?.cast<String, dynamic>();
+  final name = (peerUser['name'] ?? 'Contact').toString();
+  if (presence != null &&
+      !(presence['status'] == 'ON_CALL' && res['waiting'] == true)) {
+    final custom = (presence['customStatus'] ?? '').toString();
+    if (presence['status'] == 'ON_CALL' ||
+        custom.toLowerCase().contains('another call')) {
+      unawaited(speakAppMessageFresh(
+          '$name is busy with another call. Please call again later.'));
+    } else {
+      unawaited(speakAppMessageFresh(
+          '$name is ${(presence['customStatus'] ?? presence['status']).toString()}. Please leave a message.'));
+    }
+    if (context.mounted) {
+      bestieToast(context, '$name is unavailable',
+          body: (presence['customStatus'] ?? presence['status']).toString(),
+          kind: BestieToastKind.warning);
+    }
+    return;
+  }
+  final id = (res['call'] as Map?)?['id']?.toString();
+  if (presence?['status'] == 'ON_CALL' && res['waiting'] == true) {
+    unawaited(speakAppMessageFresh(
+        '$name is busy on another call. Waiting for them to respond.'));
+    if (context.mounted) {
+      bestieToast(context, '$name is busy',
+          body: 'Waiting for them to accept and add you to their call.',
+          kind: BestieToastKind.info);
+    }
+    return;
+  }
+  if (id != null && context.mounted) {
+    context.go('/call/$id?mode=$mode');
+  }
 }
 
 /// Other participant in a DM — skips self, prefers nested `user` payload.
@@ -519,79 +601,12 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
       },
       onStartCall: kWindowsWorkspaceNoCalls
           ? null
-          : (user, mode) async {
-        if (_isPlatformSuperAdmin(user)) {
-          if (context.mounted) {
-            bestieToast(
-              context,
-              'Calling unavailable',
-              body:
-                  'Platform administrators cannot be called from direct messages.',
-              kind: BestieToastKind.warning,
-            );
-          }
-          return;
-        }
-        final targetRole = user['role']?.toString();
-        final viewerIsAdmin = me?.role == 'ADMIN' || me?.role == 'SUPER_ADMIN';
-        if (!viewerIsAdmin && targetRole == 'ADMIN') {
-          if (context.mounted) {
-            bestieToast(
-              context,
-              'Calling unavailable',
-              body: 'Only admins can start calls with administrators.',
-              kind: BestieToastKind.warning,
-            );
-          }
-          return;
-        }
-        await CallSession.prepareForNewCall();
-        final res = await api.initiateCall(
-          participantIds: [user['id'].toString()],
-          kind: 'ONE_TO_ONE',
-          mode: mode == 'voice' ? 'VOICE' : 'VIDEO',
-        );
-        final presence =
-            (res['targetPresence'] as Map?)?.cast<String, dynamic>();
-        if (presence != null &&
-            !(presence['status'] == 'ON_CALL' && res['waiting'] == true)) {
-          final custom = (presence['customStatus'] ?? '').toString();
-          if (presence['status'] == 'ON_CALL' ||
-              custom.toLowerCase().contains('another call')) {
-            try {
-              final tts = FlutterTts();
-              await tts.setSpeechRate(0.36);
-              await tts.speak(
-                  '${user['name']} is busy with another call. Please call again later.');
-            } catch (_) {}
-          }
-          if (context.mounted) {
-            bestieToast(context, '${user['name']} is unavailable',
-                body:
-                    (presence['customStatus'] ?? presence['status']).toString(),
-                kind: BestieToastKind.warning);
-          }
-          return;
-        }
-        final id = (res['call'] as Map?)?['id']?.toString();
-        if (presence?['status'] == 'ON_CALL' && res['waiting'] == true) {
-          try {
-            final tts = FlutterTts();
-            await tts.setSpeechRate(0.36);
-            await tts.speak(
-                '${user['name']} is busy on another call. Waiting for them to respond.');
-          } catch (_) {}
-          if (context.mounted) {
-            bestieToast(context, '${user['name']} is busy',
-                body: 'Waiting for them to accept and add you to their call.',
-                kind: BestieToastKind.info);
-          }
-          return;
-        }
-        if (id != null && context.mounted) {
-          context.go('/call/$id?mode=$mode');
-        }
-      },
+          : (user, mode) => startDmCallFromList(
+                context,
+                ref,
+                peerUser: user,
+                mode: mode,
+              ),
     );
     if (channel != null && context.mounted) {
       ref.invalidate(channelsProvider);
@@ -1179,13 +1194,63 @@ class _ChatTile extends ConsumerWidget {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text(
-                    timestamp,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: c.textMuted,
-                      fontWeight: FontWeight.w400,
-                    ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (kind == 'DM' &&
+                          dmOtherUser != null &&
+                          !kWindowsWorkspaceNoCalls)
+                        PopupMenuButton<String>(
+                          icon: Icon(Icons.more_vert_rounded,
+                              size: 20, color: c.textMuted),
+                          padding: EdgeInsets.zero,
+                          tooltip: 'Call options',
+                          onSelected: (value) {
+                            if (value != 'voice' && value != 'video') return;
+                            startDmCallFromList(
+                              context,
+                              ref,
+                              peerUser: dmOtherUser!,
+                              mode: value,
+                              channelId: channelId,
+                            );
+                          },
+                          itemBuilder: (ctx) => [
+                            PopupMenuItem(
+                              value: 'voice',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.call_rounded,
+                                      size: 20, color: c.brand),
+                                  const SizedBox(width: 10),
+                                  Text('Voice call',
+                                      style: TextStyle(color: c.text)),
+                                ],
+                              ),
+                            ),
+                            PopupMenuItem(
+                              value: 'video',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.videocam_rounded,
+                                      size: 20, color: c.brand),
+                                  const SizedBox(width: 10),
+                                  Text('Video call',
+                                      style: TextStyle(color: c.text)),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      Text(
+                        timestamp,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: c.textMuted,
+                          fontWeight: FontWeight.w400,
+                        ),
+                      ),
+                    ],
                   ),
                   if (unread) ...[
                     const SizedBox(height: 6),

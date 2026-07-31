@@ -18,6 +18,7 @@ import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../app_tts.dart';
 import '../active_call_state.dart';
 import '../app_sounds.dart';
 import '../external_call_guard.dart';
@@ -3289,12 +3290,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   Future<void> _speak(String text) async {
-    try {
-      await _tts.setLanguage('en-US');
-      await _tts.setPitch(1.02);
-      await _tts.setSpeechRate(0.36);
-      await _tts.speak(text);
-    } catch (_) {}
+    await speakAppMessage(_tts, text);
   }
 
   Future<void> _playEmergencyBuzzer(String? fromName,
