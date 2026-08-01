@@ -10,7 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
-import 'package:mytaskking_core/mytaskking_core.dart' show MeetingPresence;
+import 'package:mytaskking_core/mytaskking_core.dart' show MeetingPresence, OrgTtsSettings;
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -18,6 +18,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
 import '../app_tts.dart';
+import '../org_tts_provider.dart';
 import '../call_event_text.dart';
 import '../chat_clear.dart';
 import '../chat_mute.dart';
@@ -1225,8 +1226,12 @@ class ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
       if (busy != null && ch == 'ONE_TO_ONE') {
         if (busy['status'] == 'ON_CALL' && res['waiting'] == true) {
           unawaited(_announceAvailability(_headerTitle(), busy));
+          final settings = ref.read(orgTtsSettingsProvider).valueOrNull ??
+              OrgTtsSettings.defaults;
           unawaited(speakAppMessageFresh(
-              '${_headerTitle()} is busy on another call. Waiting for them to respond.'));
+            settings.chatListWaitingMessage(_headerTitle()),
+            settings: settings,
+          ));
           if (mounted) {
             bestieToast(context, '${_headerTitle()} is busy',
                 body: 'Waiting for them to accept and add you to their call.',
@@ -1266,27 +1271,8 @@ class ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
   /// "Ravi is currently in a meeting. Please wait while they respond."
   Future<void> _announceAvailability(
       String name, Map<String, dynamic> presence) async {
-    final status = (presence['status'] ?? 'BUSY').toString();
-    final custom = (presence['customStatus'] ?? '').toString().trim();
-    final callBusy =
-        status == 'ON_CALL' || custom.toLowerCase().contains('another call');
-    final String text;
-    if (callBusy) {
-      text = '$name is currently on another call. Please call again later.';
-    } else if (MeetingPresence.isMeetingMap(presence)) {
-      text = MeetingPresence.callerTtsFromPresence(name, presence);
-    } else {
-      final label = custom.toLowerCase().contains('lunch')
-          ? 'currently at lunch'
-          : custom.toLowerCase().contains('leave')
-              ? 'currently on leave'
-              : status == 'INVISIBLE'
-                  ? 'currently away'
-                  : 'currently busy with work';
-      text = '$name is $label. Please leave a message.';
-    }
     try {
-      await speakAppMessageFresh(text);
+      await speakOrgPresence(ref, name, presence);
     } catch (_) {/* TTS is best-effort */}
   }
 

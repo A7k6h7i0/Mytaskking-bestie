@@ -12,5 +12,6 @@ export 'src/support_access.dart';
 export 'src/subscription_status.dart';
 export 'src/upload_limits.dart';
 export 'src/meeting_presence.dart';
+export 'src/org_tts_settings.dart';
 export 'src/widgets/phone_input.dart';
 export 'src/widgets/calendar_view.dart';

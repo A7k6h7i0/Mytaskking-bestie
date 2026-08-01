@@ -5,9 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
-import 'package:mytaskking_core/mytaskking_core.dart' show MeetingPresence;
+import 'package:mytaskking_core/mytaskking_core.dart' show MeetingPresence, OrgTtsSettings;
 
 import '../app_tts.dart';
+import '../org_tts_provider.dart';
 import '../branding.dart';
 import '../call_event_text.dart';
 import '../chat_clear.dart';
@@ -95,18 +96,12 @@ Future<void> startDmCallFromList(
   final name = (peerUser['name'] ?? 'Contact').toString();
   if (presence != null &&
       !(presence['status'] == 'ON_CALL' && res['waiting'] == true)) {
-    final custom = (presence['customStatus'] ?? '').toString();
-    if (presence['status'] == 'ON_CALL' ||
-        custom.toLowerCase().contains('another call')) {
-      unawaited(speakAppMessageFresh(
-          '$name is busy with another call. Please call again later.'));
-    } else if (MeetingPresence.isMeetingMap(presence)) {
-      unawaited(speakAppMessageFresh(
-          MeetingPresence.callerTtsFromPresence(name, presence)));
-    } else {
-      unawaited(speakAppMessageFresh(
-          '$name is ${(presence['customStatus'] ?? presence['status']).toString()}. Please leave a message.'));
-    }
+    final settings = ref.read(orgTtsSettingsProvider).valueOrNull ??
+        OrgTtsSettings.defaults;
+    unawaited(speakAppMessageFresh(
+      settings.chatListBlockedMessage(name, presence),
+      settings: settings,
+    ));
     if (context.mounted) {
       bestieToast(context, '$name is unavailable',
           body: (presence['customStatus'] ?? presence['status']).toString(),
@@ -116,8 +111,12 @@ Future<void> startDmCallFromList(
   }
   final id = (res['call'] as Map?)?['id']?.toString();
   if (presence?['status'] == 'ON_CALL' && res['waiting'] == true) {
+    final settings = ref.read(orgTtsSettingsProvider).valueOrNull ??
+        OrgTtsSettings.defaults;
     unawaited(speakAppMessageFresh(
-        '$name is busy on another call. Waiting for them to respond.'));
+      settings.chatListWaitingMessage(name),
+      settings: settings,
+    ));
     if (context.mounted) {
       bestieToast(context, '$name is busy',
           body: 'Waiting for them to accept and add you to their call.',

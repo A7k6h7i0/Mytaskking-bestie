@@ -7,8 +7,10 @@ import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
+import 'package:mytaskking_core/mytaskking_core.dart' show OrgTtsSettings;
 
 import '../app_tts.dart';
+import '../org_tts_provider.dart';
 import '../call_app.dart';
 import '../active_call_state.dart';
 import '../org_call_sounds.dart';
@@ -656,12 +658,13 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     } else {
       unawaited(_ensureNativeIncomingNotification());
     }
-    _speak(
-        '$caller is calling while you are on another call. Accept to add them, or reject.');
+    final settings = ref.read(orgTtsSettingsProvider).valueOrNull ??
+        OrgTtsSettings.defaults;
+    _speak(settings.incomingWaitingCallMessage(caller));
   }
 
   Future<void> _speak(String text) async {
-    await speakAppMessage(_tts, text);
+    await speakOrgMessage(ref, text, tts: _tts);
   }
 
   DateTime? _lastNotifChime;

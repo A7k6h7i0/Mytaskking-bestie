@@ -8,6 +8,7 @@ const { requireAuth, requireAdmin } = require('../../middleware/auth');
 const prisma = require('../../database/prisma');
 const audit = require('../../services/audit');
 const tenant = require('../../services/tenant');
+const callTtsDefaults = require('./callTtsDefaults');
 
 const router = Router();
 router.use(requireAuth);
@@ -42,6 +43,11 @@ router.get(
       out[publicScope] = out[publicScope] || {};
       out[publicScope][r.key] = r.value;
     }
+    if (out.calls) {
+      out.calls = { ...callTtsDefaults, ...out.calls };
+    } else if (!req.query.scope || req.query.scope === 'calls') {
+      out.calls = { ...callTtsDefaults };
+    }
     res.json(out);
   })
 );
@@ -54,13 +60,18 @@ router.put(
   }),
   asyncHandler(async (req, res) => {
     const scopedScope = tenant.orgSettingScope(req, req.params.scope);
+    const value =
+      req.params.scope === 'calls' &&
+      callTtsDefaults.TTS_KEYS.includes(req.params.key)
+        ? callTtsDefaults.sanitizeTtsPatch(req.params.key, req.body.value)
+        : req.body.value;
     const row = await prisma.workspaceSetting.upsert({
       where: { scope_key: { scope: scopedScope, key: req.params.key } },
-      update: { value: req.body.value, updatedById: req.user.id },
+      update: { value, updatedById: req.user.id },
       create: {
         scope: scopedScope,
         key: req.params.key,
-        value: req.body.value,
+        value,
         updatedById: req.user.id,
       },
     });

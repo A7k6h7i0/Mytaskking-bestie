@@ -5,8 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:mytaskking_core/mytaskking_core.dart' as core;
+import 'package:mytaskking_core/mytaskking_core.dart' show OrgTtsSettings;
 
 import '../mobile_themes_section.dart';
+import '../org_tts_provider.dart';
 import '../state.dart' hide ThemeMode;
 import '../widgets/profile_avatar_editor.dart';
 import 'marketing/field_settings_section.dart';
@@ -34,6 +36,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String? _ringingSoundUrl;
   String? _uploadingSound;
   int _trackActivitySeconds = 300;
+  String _ttsVoiceGender = 'female';
+  Map<String, String> _ttsTemplates =
+      Map<String, String>.from(OrgTtsSettings.defaultTemplates);
+  String? _savingTtsKey;
 
   @override
   void initState() {
@@ -52,6 +58,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final configuredInterval =
           (workActivityMap?['intervalSeconds'] as num?)?.toInt();
       final emergencyBuzzerEnabled = calls?['emergencyBuzzerEnabled'];
+      final tts = OrgTtsSettings.fromCallsMap(calls);
       if (mounted) {
         setState(() {
           _buzzerEnabled =
@@ -63,8 +70,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               _trackActivityOptions.containsKey(configuredInterval)
                   ? configuredInterval!
                   : 300;
+          _ttsVoiceGender = tts.voiceGender;
+          _ttsTemplates = Map<String, String>.from(tts.templates);
         });
       }
+      ref.invalidate(orgTtsSettingsProvider);
     } catch (_) {}
   }
 
@@ -148,6 +158,63 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         bestieToast(context, 'Could not update buzzer setting',
             body: formatApiError(e), kind: BestieToastKind.error);
       }
+    }
+  }
+
+  Future<void> _setTtsVoiceGender(String gender) async {
+    if (gender == _ttsVoiceGender) return;
+    try {
+      await ref.read(apiProvider).setSetting(
+            scope: 'calls',
+            key: OrgTtsSettings.voiceGenderKey,
+            value: gender,
+          );
+      if (!mounted) return;
+      setState(() => _ttsVoiceGender = gender);
+      ref.invalidate(orgTtsSettingsProvider);
+      bestieToast(context, 'Voice updated', kind: BestieToastKind.success);
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not update voice',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    }
+  }
+
+  Future<void> _editTtsPhrase(String storageKey) async {
+    final label = OrgTtsSettings.templateKeys[storageKey] ?? storageKey;
+    final initial = _ttsTemplates[storageKey] ??
+        OrgTtsSettings.defaultTemplates[storageKey] ??
+        '';
+    final next = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _TtsPhraseDialog(
+        title: label,
+        initial: initial,
+        storageKey: storageKey,
+      ),
+    );
+    if (next == null || next.trim().isEmpty || next.trim() == initial.trim()) {
+      return;
+    }
+    setState(() => _savingTtsKey = storageKey);
+    try {
+      await ref.read(apiProvider).setSetting(
+            scope: 'calls',
+            key: storageKey,
+            value: next.trim(),
+          );
+      if (!mounted) return;
+      setState(() => _ttsTemplates[storageKey] = next.trim());
+      ref.invalidate(orgTtsSettingsProvider);
+      bestieToast(context, '$label updated', kind: BestieToastKind.success);
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not save phrase',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    } finally {
+      if (mounted) setState(() => _savingTtsKey = null);
     }
   }
 
@@ -415,6 +482,56 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 onTap: _editTrackActivityInterval,
               ),
             if (user?.role == 'ADMIN' || user?.role == 'SUPER_ADMIN')
+              _SectionLabel('Voice prompts (TTS)', colors: c),
+            if (user?.role == 'ADMIN' || user?.role == 'SUPER_ADMIN')
+              ListTile(
+                leading: Icon(Icons.record_voice_over_outlined, color: c.text),
+                title: Text('Caller voice', style: TextStyle(color: c.text)),
+                subtitle: Text(
+                  _ttsVoiceGender == 'male' ? 'Male voice' : 'Female voice',
+                  style: TextStyle(color: c.textMuted, fontSize: 12),
+                ),
+                trailing: DropdownButton<String>(
+                  value: _ttsVoiceGender,
+                  underline: const SizedBox.shrink(),
+                  items: const [
+                    DropdownMenuItem(value: 'female', child: Text('Female')),
+                    DropdownMenuItem(value: 'male', child: Text('Male')),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) _setTtsVoiceGender(value);
+                  },
+                ),
+              ),
+            if (user?.role == 'ADMIN' || user?.role == 'SUPER_ADMIN')
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text(
+                  'Use {name}, {caller}, {start}, {end}, or {status} in phrases. All employees hear these when calling.',
+                  style: TextStyle(color: c.textFaint, fontSize: 12),
+                ),
+              ),
+            if (user?.role == 'ADMIN' || user?.role == 'SUPER_ADMIN')
+              for (final entry in OrgTtsSettings.templateKeys.entries)
+                ListTile(
+                  leading: Icon(Icons.chat_bubble_outline_rounded, color: c.text),
+                  title: Text(entry.value, style: TextStyle(color: c.text)),
+                  subtitle: Text(
+                    _savingTtsKey == entry.key
+                        ? 'Saving…'
+                        : (_ttsTemplates[entry.key] ??
+                            OrgTtsSettings.defaultTemplates[entry.key] ??
+                            ''),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: c.textMuted, fontSize: 12),
+                  ),
+                  trailing: Icon(Icons.edit_outlined, color: c.textMuted),
+                  onTap: _savingTtsKey == entry.key
+                      ? null
+                      : () => _editTtsPhrase(entry.key),
+                ),
+            if (user?.role == 'ADMIN' || user?.role == 'SUPER_ADMIN')
               _SectionLabel('Field force', colors: c),
             if (user?.role == 'ADMIN' || user?.role == 'SUPER_ADMIN')
               const FieldSettingsSection(),
@@ -679,6 +796,88 @@ class _HeadOfficeNameDialogState extends State<_HeadOfficeNameDialog> {
             final text = _controller.text.trim();
             Navigator.pop(context, text.isEmpty ? null : text);
           },
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
+class _TtsPhraseDialog extends StatefulWidget {
+  const _TtsPhraseDialog({
+    required this.title,
+    required this.initial,
+    required this.storageKey,
+  });
+
+  final String title;
+  final String initial;
+  final String storageKey;
+
+  @override
+  State<_TtsPhraseDialog> createState() => _TtsPhraseDialogState();
+}
+
+class _TtsPhraseDialogState extends State<_TtsPhraseDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initial);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  String _placeholderHint() {
+    if (widget.storageKey.contains('Meeting')) {
+      return 'Use {name}, {start}, {end}';
+    }
+    if (widget.storageKey == 'ttsIncomingWaitingCall') {
+      return 'Use {caller}';
+    }
+    if (widget.storageKey == 'ttsGenericUnavailable') {
+      return 'Use {name}, {status}';
+    }
+    return 'Use {name}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            _placeholderHint(),
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _controller,
+            autofocus: true,
+            maxLength: 240,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              hintText: 'e.g. {name} is now busy rey',
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _controller.text.trim()),
           child: const Text('Save'),
         ),
       ],

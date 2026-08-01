@@ -19,6 +19,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../app_tts.dart';
+import '../org_tts_provider.dart';
 import '../active_call_state.dart';
 import '../app_sounds.dart';
 import '../external_call_guard.dart';
@@ -542,7 +543,9 @@ class _CallScreenState extends ConsumerState<CallScreen>
       if (data is! Map || data['callId'] != callId) return;
       unawaited(_stopRingback());
       final name = (data['userName'] ?? 'The person').toString();
-      _speak('$name is currently on another call. Please leave a message.');
+      unawaited(_speak((ref.read(orgTtsSettingsProvider).valueOrNull ??
+              core.OrgTtsSettings.defaults)
+          .callBusyEventMessage(name)));
       if (mounted) setState(() => _status = '$name is busy');
     }));
     _callUnsubs.add(rt.onAny('call.transferred', ([data]) {
@@ -3290,7 +3293,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   Future<void> _speak(String text) async {
-    await speakAppMessage(_tts, text);
+    await speakOrgMessage(ref, text, tts: _tts);
   }
 
   Future<void> _playEmergencyBuzzer(String? fromName,
@@ -7952,7 +7955,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
                       imageUrl: resolvedImageUrl,
                       height: height,
                       speaking: speaking,
-                    )
+                )
               else if (showVideo && agoraUid != null)
                 _buildRemoteVideoWidget(agoraUid) ??
                     _participantAvatarFallback(
@@ -9350,13 +9353,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
             iconSize: compact ? 18 : 22,
           ),
           if (!_isVoiceMeeting)
-            _ctrlCircle(
+          _ctrlCircle(
               icon: _cameraToggleIcon,
-              onTap: _toggleCamera,
+            onTap: _toggleCamera,
               active: _isLocalCameraOn,
-              size: compact ? 42 : 52,
-              iconSize: compact ? 18 : 22,
-            ),
+            size: compact ? 42 : 52,
+            iconSize: compact ? 18 : 22,
+          ),
           _ctrlCircle(
             icon: _isVoiceMeeting
                 ? Icons.volume_up_rounded
@@ -9367,15 +9370,15 @@ class _CallScreenState extends ConsumerState<CallScreen>
             iconSize: compact ? 18 : 22,
           ),
           if (!_isVoiceMeeting && _kScreenShareUiEnabled)
-            _ctrlCircle(
-              icon: _sharing
-                  ? Icons.stop_screen_share_rounded
-                  : Icons.present_to_all_rounded,
-              onTap: _toggleShare,
-              active: _sharing,
-              size: compact ? 42 : 52,
-              iconSize: compact ? 18 : 22,
-            ),
+          _ctrlCircle(
+            icon: _sharing
+                ? Icons.stop_screen_share_rounded
+                : Icons.present_to_all_rounded,
+            onTap: _toggleShare,
+            active: _sharing,
+            size: compact ? 42 : 52,
+            iconSize: compact ? 18 : 22,
+          ),
           _ctrlCircle(
             icon: _handRaised
                 ? Icons.front_hand_rounded

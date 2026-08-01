@@ -4,10 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
-import 'package:mytaskking_core/mytaskking_core.dart' show MeetingPresence;
+import 'package:mytaskking_core/mytaskking_core.dart' show MeetingPresence, OrgTtsSettings;
 
 import '../app_tts.dart';
-import '../active_call_state.dart';
+import '../org_tts_provider.dart';
 import '../state.dart';
 import 'call_screen.dart';
 
@@ -566,9 +566,13 @@ class _CallRow extends ConsumerWidget {
       if (availability != null) {
         final custom = (availability['customStatus'] ?? '').toString().trim();
         final status = (availability['status'] ?? 'BUSY').toString();
+        final settings = ref.read(orgTtsSettingsProvider).valueOrNull ??
+            OrgTtsSettings.defaults;
         if (status == 'ON_CALL' && res['waiting'] == true) {
           unawaited(speakAppMessageFresh(
-              '$name is busy with another call. Please wait for them to respond or call again later.'));
+            settings.chatListWaitingMessage(name),
+            settings: settings,
+          ));
           if (context.mounted) {
             bestieToast(context, 'Call waiting',
                 body: '$name can accept and add you to the current call.',
@@ -576,18 +580,10 @@ class _CallRow extends ConsumerWidget {
           }
           return;
         }
-        if (MeetingPresence.isMeetingMap(availability)) {
-          unawaited(speakAppMessageFresh(
-              MeetingPresence.callerTtsFromPresence(name, availability)));
-        } else {
-          final label = custom.toLowerCase().contains('lunch')
-              ? 'at lunch'
-              : custom.toLowerCase().contains('leave')
-                  ? 'on leave'
-                  : 'busy';
-          unawaited(
-              speakAppMessageFresh('$name is $label. Please leave a message.'));
-        }
+        unawaited(speakAppMessageFresh(
+          settings.chatListBlockedMessage(name, availability),
+          settings: settings,
+        ));
         if (context.mounted) {
           final body = MeetingPresence.isMeetingMap(availability)
               ? MeetingPresence.displayLabel(
