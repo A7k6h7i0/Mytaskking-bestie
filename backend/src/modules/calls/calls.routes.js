@@ -215,6 +215,83 @@ router.post(
   })
 );
 
+/** Buzz colleague(s) from chat when they cannot take a call (busy, in meeting, etc.). */
+router.post(
+  '/buzzer/direct',
+  validate({
+    body: Joi.object({
+      userId: Joi.string(),
+      channelId: Joi.string().required(),
+    }),
+  }),
+  asyncHandler(async (req, res) => {
+    const channelId = (req.body.channelId || '').trim();
+    const channel = await prisma.channel.findUnique({
+      where: { id: channelId },
+      include: { members: { select: { userId: true } } },
+    });
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+    const memberIds = new Set((channel.members || []).map((m) => m.userId));
+    if (!memberIds.has(req.user.id)) {
+      return res.status(403).json({ error: 'Not a member of this chat' });
+    }
+
+    let targetIds;
+    if (req.body.userId) {
+      const targetId = req.body.userId;
+      if (targetId === req.user.id) {
+        return res.status(400).json({ error: 'Cannot buzz yourself' });
+      }
+      if (!memberIds.has(targetId)) {
+        return res.status(403).json({ error: 'Not a member of this chat' });
+      }
+      const target = await prisma.user.findUnique({
+        where: { id: targetId },
+        select: { id: true, tenantId: true },
+      });
+      if (!target) return res.status(404).json({ error: 'User not found' });
+      await tenant.assertSameTenant(req.user, target.tenantId);
+      targetIds = [targetId];
+    } else {
+      targetIds = [...memberIds].filter((id) => id !== req.user.id);
+      if (!targetIds.length) {
+        return res.status(400).json({ error: 'No one to buzz in this chat' });
+      }
+      for (const targetId of targetIds) {
+        const target = await prisma.user.findUnique({
+          where: { id: targetId },
+          select: { tenantId: true },
+        });
+        if (target) await tenant.assertSameTenant(req.user, target.tenantId);
+      }
+    }
+
+    const orgCallSounds = await loadOrgCallSettings(req);
+    if (!orgCallSounds.emergencyBuzzerEnabled) {
+      return res.status(403).json({ error: 'Emergency buzzer is disabled' });
+    }
+    const buzzerUrl = orgCallSounds.emergencyBuzzerSoundUrl || null;
+    const io = req.app.get('io');
+    for (const targetId of targetIds) {
+      io?.to(`user:${targetId}`).emit('call.buzzer', {
+        callId: null,
+        fromName: req.user.name,
+        audioUrl: buzzerUrl,
+        channelId,
+        groupName: channel.name || null,
+      });
+      audit.record({
+        kind: 'call.buzzer.direct',
+        entity: 'user',
+        entityId: targetId,
+        payload: { channelId, group: !req.body.userId },
+        req,
+      });
+    }
+    res.json({ ok: true, count: targetIds.length });
+  }),
+);
+
 router.get(
   '/:id/token',
   asyncHandler(async (req, res) => res.json(await service.tokenFor({ callId: req.params.id, user: req.user })))

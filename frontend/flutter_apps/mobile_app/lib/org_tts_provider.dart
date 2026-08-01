@@ -1,17 +1,22 @@
-import 'package:flutter/foundation.dart';
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_tts/flutter_tts.dart';
 import 'package:mytaskking_core/mytaskking_core.dart';
 
+import 'app_tts.dart';
 import 'state.dart';
 
 /// Org-wide TTS prompts from workspace settings (calls scope).
 final orgTtsSettingsProvider = FutureProvider<OrgTtsSettings>((ref) async {
+  ref.keepAlive();
   try {
     final data = await ref.watch(apiProvider).settingsScope(scope: 'calls');
     final calls = (data['calls'] as Map?)?.cast<String, dynamic>();
-    return OrgTtsSettings.fromCallsMap(calls);
+    final settings = OrgTtsSettings.fromCallsMap(calls);
+    unawaited(warmAppTts(settings));
+    return settings;
   } catch (_) {
+    unawaited(warmAppTts(OrgTtsSettings.defaults));
     return OrgTtsSettings.defaults;
   }
 });
@@ -24,15 +29,10 @@ OrgTtsSettings _resolveOrgTts(WidgetRef? ref) {
 
 Future<void> speakOrgMessage(
   WidgetRef ref,
-  String text, {
-  FlutterTts? tts,
-}) async {
+  String text,
+) async {
   final settings = _resolveOrgTts(ref);
-  if (tts != null) {
-    await speakAppMessage(tts, text, settings: settings);
-  } else {
-    await speakAppMessageFresh(text, settings: settings);
-  }
+  await AppTts.instance.speak(text, settings: settings);
 }
 
 Future<void> speakOrgPresence(
@@ -41,7 +41,7 @@ Future<void> speakOrgPresence(
   Map<String, dynamic> presence,
 ) async {
   final settings = _resolveOrgTts(ref);
-  await speakAppMessageFresh(
+  await AppTts.instance.speak(
     settings.unavailableMessage(name, presence),
     settings: settings,
   );

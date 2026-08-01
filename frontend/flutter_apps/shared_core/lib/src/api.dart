@@ -211,6 +211,14 @@ extension BestieApiExt on BestieApi {
       get('/calls/history', query: {'page': page, 'pageSize': pageSize});
   Future<Map<String, dynamic>> joinCall(String callId) =>
       post('/calls/$callId/join');
+  Future<Map<String, dynamic>> sendDirectEmergencyBuzzer({
+    String? userId,
+    required String channelId,
+  }) =>
+      post('/calls/buzzer/direct', body: {
+        'channelId': channelId,
+        if (userId != null && userId.isNotEmpty) 'userId': userId,
+      });
   Future<Map<String, dynamic>> initiateCall({
     required List<String> participantIds,
     String kind = 'ONE_TO_ONE',

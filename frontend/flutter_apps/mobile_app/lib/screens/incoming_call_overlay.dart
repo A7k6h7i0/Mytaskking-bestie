@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_tts/flutter_tts.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
 import 'package:mytaskking_core/mytaskking_core.dart' show OrgTtsSettings;
 
@@ -62,7 +61,6 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
   String? _buzzerSoundUrl;
   final _ringtone = FlutterRingtonePlayer();
   final _customRingtone = AudioPlayer();
-  final _tts = FlutterTts();
   bool _appResumed = true;
   String? _acceptedCallId;
   String? _acceptedMeetingSlug;
@@ -89,7 +87,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     _emergencyPushSub?.cancel();
     _ringtone.stop();
     _customRingtone.dispose();
-    _tts.stop();
+    unawaited(stopAppTts());
     for (final u in _unsubs) {
       u();
     }
@@ -293,7 +291,9 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
 
   Future<void> _onCallBuzzer(dynamic data) async {
     if (data is! Map) return;
-    if (CallSession.onCallScreen) return;
+    final callId = data['callId']?.toString();
+    final directChatBuzzer = callId == null || callId.isEmpty;
+    if (CallSession.onCallScreen && !directChatBuzzer) return;
     HapticFeedback.heavyImpact();
     try {
       var url = data['audioUrl']?.toString();
@@ -311,10 +311,14 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
         await OrgCallSounds.playBuzzer(_customRingtone, orgUrl: url);
       }
       if (mounted) {
+        final groupName = data['groupName']?.toString();
+        final fromName = data['fromName'] ?? 'A participant';
+        final body = groupName != null && groupName.isNotEmpty
+            ? '$fromName needs your attention in $groupName.'
+            : '$fromName needs your attention.';
         setState(() => _banner = {
               'title': 'Emergency buzzer',
-              'body':
-                  '${data['fromName'] ?? 'A participant'} needs your attention.',
+              'body': body,
               'kind': 'CALL',
             });
       }
@@ -664,7 +668,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
   }
 
   Future<void> _speak(String text) async {
-    await speakOrgMessage(ref, text, tts: _tts);
+    await speakOrgMessage(ref, text);
   }
 
   DateTime? _lastNotifChime;
@@ -791,7 +795,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay>
     _hapticTimer?.cancel();
     _ringtone.stop();
     _customRingtone.stop();
-    _tts.stop();
+    unawaited(stopAppTts());
   }
 
   Future<void> _cancelNativeIncomingNotification({

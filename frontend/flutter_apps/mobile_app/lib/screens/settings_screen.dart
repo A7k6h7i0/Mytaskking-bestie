@@ -8,6 +8,7 @@ import 'package:mytaskking_core/mytaskking_core.dart' as core;
 import 'package:mytaskking_core/mytaskking_core.dart' show OrgTtsSettings;
 
 import '../mobile_themes_section.dart';
+import '../app_tts.dart';
 import '../org_tts_provider.dart';
 import '../state.dart' hide ThemeMode;
 import '../widgets/profile_avatar_editor.dart';
@@ -171,6 +172,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           );
       if (!mounted) return;
       setState(() => _ttsVoiceGender = gender);
+      invalidateAppTtsVoice();
       ref.invalidate(orgTtsSettingsProvider);
       bestieToast(context, 'Voice updated', kind: BestieToastKind.success);
     } catch (e) {
@@ -206,6 +208,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           );
       if (!mounted) return;
       setState(() => _ttsTemplates[storageKey] = next.trim());
+      invalidateAppTtsVoice();
       ref.invalidate(orgTtsSettingsProvider);
       bestieToast(context, '$label updated', kind: BestieToastKind.success);
     } catch (e) {

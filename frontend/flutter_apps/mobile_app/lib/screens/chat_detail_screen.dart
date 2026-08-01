@@ -2475,10 +2475,85 @@ class ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     }
   }
 
+  int _otherGroupMemberCount() {
+    final me = ref.read(authStoreProvider).user?.id;
+    final members =
+        (_channel?['members'] as List?)?.cast<Map<String, dynamic>>() ??
+            const [];
+    return members.where((m) => m['userId']?.toString() != me).length;
+  }
+
+  Future<void> _sendEmergencyBuzzer() async {
+    final kind = (_channel?['kind'] ?? '').toString();
+    final isDm = kind == 'DM';
+    if (isDm) {
+      final other = _dmOtherUser();
+      final targetId = other?['id']?.toString();
+      if (targetId == null || targetId.isEmpty) return;
+      final name = (other?['name'] ?? 'this contact').toString();
+      final ok = await bestieConfirm(
+        context,
+        title: 'Send emergency buzzer?',
+        description:
+            '$name will hear an urgent alert on their device — even if they are '
+            'busy, in a meeting, or cannot take your call.',
+        confirmLabel: 'Send buzzer',
+      );
+      if (!ok) return;
+      try {
+        await ref.read(apiProvider).sendDirectEmergencyBuzzer(
+              userId: targetId,
+              channelId: widget.channelId,
+            );
+        if (mounted) {
+          bestieToast(context, 'Emergency buzzer sent',
+              body: '$name has been alerted.', kind: BestieToastKind.warning);
+        }
+      } catch (e) {
+        if (mounted) {
+          bestieToast(context, 'Could not send buzzer',
+              body: formatApiError(e), kind: BestieToastKind.error);
+        }
+      }
+      return;
+    }
+
+    final count = _otherGroupMemberCount();
+    if (count <= 0) return;
+    final groupName = _headerTitle();
+    final ok = await bestieConfirm(
+      context,
+      title: 'Send emergency buzzer to group?',
+      description:
+          'All $count members in $groupName will hear an urgent alert on their '
+          'devices — even if they are busy or in a meeting.',
+      confirmLabel: 'Send to group',
+    );
+    if (!ok) return;
+    try {
+      final res = await ref.read(apiProvider).sendDirectEmergencyBuzzer(
+            channelId: widget.channelId,
+          );
+      final alerted = (res['count'] as num?)?.toInt() ?? count;
+      if (mounted) {
+        bestieToast(context, 'Emergency buzzer sent',
+            body: '$alerted member${alerted == 1 ? '' : 's'} alerted.',
+            kind: BestieToastKind.warning);
+      }
+    } catch (e) {
+      if (mounted) {
+        bestieToast(context, 'Could not send buzzer',
+            body: formatApiError(e), kind: BestieToastKind.error);
+      }
+    }
+  }
+
   void _showChatMoreMenu() {
     final colors = BestieColors.of(context);
     final kind = (_channel?['kind'] ?? '').toString();
     final isDm = kind == 'DM';
+    final canBuzz = (isDm && _dmOtherUser() != null) ||
+        (!isDm && _otherGroupMemberCount() > 0);
     final muted = ref
             .watch(chatMutedChannelsProvider)
             .asData
@@ -2559,6 +2634,21 @@ class ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
                   _toggleMuteNotifications();
                 },
               ),
+              if (canBuzz)
+                ListTile(
+                  leading: Icon(Icons.campaign_rounded, color: colors.warning),
+                  title: const Text('Emergency buzzer'),
+                  subtitle: Text(
+                    isDm
+                        ? 'Alert ${_headerTitle()} if they cannot take your call'
+                        : 'Alert all group members who cannot take your call',
+                    style: TextStyle(color: colors.textMuted, fontSize: 12),
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    unawaited(_sendEmergencyBuzzer());
+                  },
+                ),
               ListTile(
                 leading: Icon(Icons.group_add_outlined, color: colors.text),
                 title: const Text('New group'),

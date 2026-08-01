@@ -29,6 +29,7 @@ import 'mobile_local_settings.dart';
 import 'mobile_appearance_providers.dart';
 import 'mobile_theme_palettes.dart';
 import 'org_call_sounds.dart';
+import 'org_tts_provider.dart';
 import 'telecaller_recording_setup.dart';
 import 'services/device_integrity_gate.dart';
 import 'services/employee_gps_lifecycle.dart';
@@ -697,8 +698,9 @@ class _BestieAppState extends ConsumerState<BestieApp> {
                       BestieTheme.dark(),
                       palette,
                     );
-                    // Warm branding fetch so admin primaryColor is applied.
+                    // Warm branding + org TTS settings at startup (logged-in users).
                     ref.watch(orgBrandingProvider);
+                    ref.watch(orgTtsSettingsProvider);
                     return MaterialApp.router(
                       key: ValueKey(
                         'theme-$themeEpoch-${mode.name}-${paletteId.storageKey}-$adminPrimary',

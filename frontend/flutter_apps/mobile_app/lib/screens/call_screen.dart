@@ -10,7 +10,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_tts/flutter_tts.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mytaskking_core/mytaskking_core.dart' as core;
@@ -336,7 +335,6 @@ class _CallScreenState extends ConsumerState<CallScreen>
   Duration _elapsed = Duration.zero;
   final _ringtone = FlutterRingtonePlayer();
   final _tonePlayer = AudioPlayer();
-  final _tts = FlutterTts();
   String _headOfficeName = 'HQ India';
   String? _ringingSoundUrl;
   String? _buzzerSoundUrl;
@@ -473,7 +471,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     _stopMeetingHeartbeat();
     _ringtone.stop();
     _tonePlayer.dispose();
-    _tts.stop();
+    unawaited(stopAppTts());
     unawaited(_proximity?.stop());
     _proximity = null;
     if (_CallSession.engine != null && _CallSession.joined) {
@@ -2968,7 +2966,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
     await _stopProximity();
     _cancelOutgoingRingTimeout();
     await _stopRingback();
-    await _tts.stop();
+    await stopAppTts();
     _connectedAt = null;
     _syncedActiveSpeakerUserId = null;
     _lastEmittedSpeakerUserId = null;
@@ -3293,7 +3291,7 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   Future<void> _speak(String text) async {
-    await speakOrgMessage(ref, text, tts: _tts);
+    await speakOrgMessage(ref, text);
   }
 
   Future<void> _playEmergencyBuzzer(String? fromName,
