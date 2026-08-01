@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
+import 'package:mytaskking_core/mytaskking_core.dart' show MeetingPresence;
 
 import '../app_tts.dart';
 import '../active_call_state.dart';
@@ -565,13 +566,6 @@ class _CallRow extends ConsumerWidget {
       if (availability != null) {
         final custom = (availability['customStatus'] ?? '').toString().trim();
         final status = (availability['status'] ?? 'BUSY').toString();
-        final label = status == 'ON_CALL'
-            ? 'on another call'
-            : custom.toLowerCase().contains('lunch')
-                ? 'at lunch'
-                : custom.toLowerCase().contains('leave')
-                    ? 'on leave'
-                    : 'busy';
         if (status == 'ON_CALL' && res['waiting'] == true) {
           unawaited(speakAppMessageFresh(
               '$name is busy with another call. Please wait for them to respond or call again later.'));
@@ -582,10 +576,27 @@ class _CallRow extends ConsumerWidget {
           }
           return;
         }
-        unawaited(speakAppMessageFresh('$name is $label. Please leave a message.'));
+        if (MeetingPresence.isMeetingMap(availability)) {
+          unawaited(speakAppMessageFresh(
+              MeetingPresence.callerTtsFromPresence(name, availability)));
+        } else {
+          final label = custom.toLowerCase().contains('lunch')
+              ? 'at lunch'
+              : custom.toLowerCase().contains('leave')
+                  ? 'on leave'
+                  : 'busy';
+          unawaited(
+              speakAppMessageFresh('$name is $label. Please leave a message.'));
+        }
         if (context.mounted) {
+          final body = MeetingPresence.isMeetingMap(availability)
+              ? MeetingPresence.displayLabel(
+                  MeetingPresence.decodeTimes(custom)?.start,
+                  MeetingPresence.decodeTimes(custom)?.end,
+                )
+              : (custom.isNotEmpty ? custom : status);
           bestieToast(context, '$name is unavailable',
-              body: label, kind: BestieToastKind.warning);
+              body: body, kind: BestieToastKind.warning);
         }
         return;
       }

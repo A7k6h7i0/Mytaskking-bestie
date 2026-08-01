@@ -10,9 +10,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
+import 'package:mytaskking_core/mytaskking_core.dart' show MeetingPresence;
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
-import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
@@ -799,17 +799,16 @@ class ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     _attemptSend(tempId);
   }
 
-  /// Start recording a voice note to a temp file. Mic permission is requested
-  /// once by the recorder package itself; on denial the gesture is silently
-  /// cancelled with a toast.
-  Future<void> _startVoiceRecording() async {
+  /// Start recording a voice note to a temp file. Returns false if mic access
+  /// was denied or recording could not start.
+  Future<bool> _startVoiceRecording() async {
     try {
       if (!await _recorder.hasPermission()) {
         if (mounted)
           bestieToast(context, 'Mic permission needed',
               body: 'Enable microphone access in Settings.',
               kind: BestieToastKind.warning);
-        return;
+        return false;
       }
       final dir = await getTemporaryDirectory();
       final path =
@@ -820,10 +819,12 @@ class ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
         path: path,
       );
       _recordPath = path;
+      return true;
     } catch (e) {
       if (mounted)
         bestieToast(context, 'Couldn\'t start recording',
             body: e.toString(), kind: BestieToastKind.error);
+      return false;
     }
   }
 
@@ -1269,20 +1270,21 @@ class ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     final custom = (presence['customStatus'] ?? '').toString().trim();
     final callBusy =
         status == 'ON_CALL' || custom.toLowerCase().contains('another call');
-    final label = status == 'IN_MEETING'
-        ? 'currently in a meeting'
-        : callBusy
-            ? 'currently on another call'
-            : custom.toLowerCase().contains('lunch')
-                ? 'currently at lunch'
-                : custom.toLowerCase().contains('leave')
-                    ? 'currently on leave'
-                    : status == 'INVISIBLE'
-                        ? 'currently away'
-                        : 'currently busy with work';
-    final text = callBusy
-        ? '$name is $label. Please call again later.'
-        : '$name is $label. Please leave a message.';
+    final String text;
+    if (callBusy) {
+      text = '$name is currently on another call. Please call again later.';
+    } else if (MeetingPresence.isMeetingMap(presence)) {
+      text = MeetingPresence.callerTtsFromPresence(name, presence);
+    } else {
+      final label = custom.toLowerCase().contains('lunch')
+          ? 'currently at lunch'
+          : custom.toLowerCase().contains('leave')
+              ? 'currently on leave'
+              : status == 'INVISIBLE'
+                  ? 'currently away'
+                  : 'currently busy with work';
+      text = '$name is $label. Please leave a message.';
+    }
     try {
       await speakAppMessageFresh(text);
     } catch (_) {/* TTS is best-effort */}
@@ -1294,8 +1296,11 @@ class ChatDetailScreenState extends ConsumerState<ChatDetailScreen>
     final c = BestieColors.of(context);
     final status = (presence['status'] ?? 'BUSY').toString();
     final custom = (presence['customStatus'] ?? '').toString().trim();
-    final label = status == 'IN_MEETING'
-        ? 'in a meeting'
+    final meetingTimes = MeetingPresence.decodeTimes(custom);
+    final label = MeetingPresence.isMeetingMap(presence)
+        ? (meetingTimes != null
+            ? 'in a meeting from ${meetingTimes.start} to ${meetingTimes.end}'
+            : 'in a meeting')
         : status == 'ON_CALL'
             ? 'on another call'
             : custom.toLowerCase().contains('lunch')
@@ -3188,7 +3193,7 @@ class _Composer extends StatefulWidget {
   final Future<void> Function(
       {List<String>? attachmentIds, String? overrideBody}) onSend;
   final VoidCallback onAttach;
-  final Future<void> Function() onStartRecording;
+  final Future<bool> Function() onStartRecording;
   final Future<String?> Function() onStopRecording;
   final Future<void> Function(String path) onSendVoice;
 
@@ -3215,107 +3220,44 @@ class _Composer extends StatefulWidget {
 
 class _ComposerState extends State<_Composer> {
   bool _hasText = false;
-  bool _recording = false;
+  _VoiceUiPhase _voicePhase = _VoiceUiPhase.idle;
   int _seconds = 0;
   Timer? _ticker;
+  String? _previewPath;
+  bool _slideCancel = false;
+  double? _downGlobalX;
+  bool _recordStarting = false;
+  bool _recordStopPending = false;
+  bool _previewPlaying = false;
+  Duration _previewDuration = Duration.zero;
 
-  // Dictation (speech → text) + AI grammar-fix state.
-  final stt.SpeechToText _speech = stt.SpeechToText();
-  bool _dictating = false;
-  bool _correcting = false;
-  String _dictateBaseText = '';
-
-  // A state-owned focus node — without this the TextField creates a fresh
-  // internal node on the setState that flips `_hasText` (first keystroke /
-  // clearing the field), which drops focus and closes the keyboard.
+  final AudioPlayer _previewPlayer = AudioPlayer();
   final FocusNode _focusNode = FocusNode();
+  bool _correcting = false;
 
   @override
   void initState() {
     super.initState();
     widget.controller.addListener(_onTextChanged);
     _hasText = widget.controller.text.trim().isNotEmpty;
+    _previewPlayer.onPlayerStateChanged.listen((s) {
+      if (mounted) setState(() => _previewPlaying = s == PlayerState.playing);
+    });
+    _previewPlayer.onDurationChanged.listen((d) {
+      if (mounted) setState(() => _previewDuration = d);
+    });
+    _previewPlayer.onPlayerComplete.listen((_) {
+      if (mounted) setState(() => _previewPlaying = false);
+    });
   }
 
   @override
   void dispose() {
     widget.controller.removeListener(_onTextChanged);
     _ticker?.cancel();
-    _speech.stop();
+    _previewPlayer.dispose();
     _focusNode.dispose();
     super.dispose();
-  }
-
-  /// Toggle continuous on-device dictation. Single press starts; it keeps
-  /// listening across pauses (auto-restarting each recognition session and
-  /// committing the text) until the user taps the mic again to stop. New
-  /// speech is appended to whatever was already typed.
-  Future<void> _toggleDictation() async {
-    if (_dictating) {
-      await _stopDictation();
-      return;
-    }
-    final available = await _speech.initialize(
-      onStatus: (s) {
-        // A session ends on a natural pause. If the user hasn't stopped,
-        // commit the text and start a fresh session so dictation feels
-        // continuous instead of cutting off after one sentence.
-        if ((s == 'done' || s == 'notListening') && _dictating && mounted) {
-          _dictateBaseText = widget.controller.text;
-          _restartDictation();
-        }
-      },
-      onError: (_) {
-        // Transient errors (e.g. no speech) — keep going if still active.
-        if (_dictating && mounted) {
-          _dictateBaseText = widget.controller.text;
-          _restartDictation();
-        }
-      },
-    );
-    if (!available) {
-      if (mounted) {
-        bestieToast(context, 'Speech not available',
-            body: 'Enable microphone + speech in Settings.',
-            kind: BestieToastKind.warning);
-      }
-      return;
-    }
-    _dictateBaseText = widget.controller.text;
-    setState(() => _dictating = true);
-    _restartDictation();
-  }
-
-  void _restartDictation() {
-    if (!_dictating) return;
-    _speech.listen(
-      onResult: (r) {
-        final sep = _dictateBaseText.isEmpty || _dictateBaseText.endsWith(' ')
-            ? ''
-            : ' ';
-        final text = '$_dictateBaseText$sep${r.recognizedWords}';
-        widget.controller.value = TextEditingValue(
-          text: text,
-          selection: TextSelection.collapsed(offset: text.length),
-        );
-      },
-      // Long session window + generous pause so we rarely cut off; the
-      // onStatus handler restarts us anyway if the OS ends a session.
-      listenFor: const Duration(minutes: 5),
-      pauseFor: const Duration(seconds: 8),
-      listenOptions: stt.SpeechListenOptions(
-        listenMode: stt.ListenMode.dictation,
-        partialResults: true,
-        cancelOnError: false,
-      ),
-    );
-  }
-
-  Future<void> _stopDictation() async {
-    if (mounted) setState(() => _dictating = false);
-    try {
-      await _speech.stop();
-    } catch (_) {}
   }
 
   /// Run the composer text through the AI grammar/clarity fixer and replace
@@ -3397,27 +3339,123 @@ class _ComposerState extends State<_Composer> {
     );
   }
 
-  Future<void> _startRecording() async {
+  Future<void> _onMicDown() async {
+    if (_hasText || widget.sending || _voicePhase != _VoiceUiPhase.idle) return;
+    HapticFeedback.mediumImpact();
+    _recordStarting = true;
+    _recordStopPending = false;
+    _slideCancel = false;
+    final started = await widget.onStartRecording();
+    _recordStarting = false;
+    if (!mounted) return;
+    if (!started) {
+      _downGlobalX = null;
+      return;
+    }
+    if (_recordStopPending) {
+      await _onMicUp(cancelled: true);
+      return;
+    }
     setState(() {
-      _recording = true;
+      _voicePhase = _VoiceUiPhase.recording;
       _seconds = 0;
     });
+    _ticker?.cancel();
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() => _seconds++);
     });
-    await widget.onStartRecording();
   }
 
-  Future<void> _stopAndSend({bool cancelled = false}) async {
-    _ticker?.cancel();
-    final path = await widget.onStopRecording();
-    setState(() {
-      _recording = false;
-      _seconds = 0;
-    });
-    if (!cancelled && path != null) {
-      await widget.onSendVoice(path);
+  Future<void> _onMicUp({bool cancelled = false}) async {
+    if (_recordStarting) {
+      _recordStopPending = true;
+      return;
     }
+    if (_voicePhase != _VoiceUiPhase.recording) return;
+    _ticker?.cancel();
+    HapticFeedback.lightImpact();
+    final path = await widget.onStopRecording();
+    final tooShort = _seconds < 1;
+    if (!mounted) return;
+    if (cancelled || _slideCancel || tooShort || path == null) {
+      if (tooShort && !cancelled && !_slideCancel && mounted) {
+        bestieToast(context, 'Hold to record',
+            body: 'Keep holding the mic for at least one second.',
+            kind: BestieToastKind.info);
+      }
+      if (path != null) {
+        try {
+          await File(path).delete();
+        } catch (_) {}
+      }
+      setState(() {
+        _voicePhase = _VoiceUiPhase.idle;
+        _seconds = 0;
+        _slideCancel = false;
+        _downGlobalX = null;
+      });
+      return;
+    }
+    setState(() {
+      _voicePhase = _VoiceUiPhase.preview;
+      _previewPath = path;
+      _slideCancel = false;
+      _downGlobalX = null;
+    });
+    try {
+      await _previewPlayer.setSource(DeviceFileSource(path));
+      final dur = await _previewPlayer.getDuration();
+      if (mounted && dur != null) setState(() => _previewDuration = dur);
+    } catch (_) {}
+  }
+
+  Future<void> _discardPreview() async {
+    final path = _previewPath;
+    await _previewPlayer.stop();
+    if (path != null) {
+      try {
+        await File(path).delete();
+      } catch (_) {}
+    }
+    if (mounted) {
+      setState(() {
+        _voicePhase = _VoiceUiPhase.idle;
+        _previewPath = null;
+        _seconds = 0;
+        _previewPlaying = false;
+        _previewDuration = Duration.zero;
+      });
+    }
+  }
+
+  Future<void> _togglePreviewPlay() async {
+    final path = _previewPath;
+    if (path == null) return;
+    if (_previewPlaying) {
+      await _previewPlayer.pause();
+      return;
+    }
+    await _previewPlayer.play(DeviceFileSource(path));
+  }
+
+  Future<void> _sendPreview() async {
+    final path = _previewPath;
+    if (path == null) return;
+    await _previewPlayer.stop();
+    setState(() {
+      _voicePhase = _VoiceUiPhase.idle;
+      _previewPath = null;
+      _seconds = 0;
+      _previewPlaying = false;
+      _previewDuration = Duration.zero;
+    });
+    await widget.onSendVoice(path);
+  }
+
+  String _formatDuration(int totalSeconds) {
+    final mm = (totalSeconds ~/ 60).toString().padLeft(2, '0');
+    final ss = (totalSeconds % 60).toString().padLeft(2, '0');
+    return '$mm:$ss';
   }
 
   @override
@@ -3425,13 +3463,37 @@ class _ComposerState extends State<_Composer> {
     final colors = widget.colors;
     return SafeArea(
       top: false,
-      child: Container(
-        decoration: BoxDecoration(
-          color: colors.surface,
-          border: Border(top: BorderSide(color: colors.border)),
+      child: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerMove: (e) {
+          if (_voicePhase != _VoiceUiPhase.recording || _downGlobalX == null) {
+            return;
+          }
+          final cancel = e.position.dx < _downGlobalX! - 80;
+          if (cancel != _slideCancel) setState(() => _slideCancel = cancel);
+        },
+        onPointerUp: (_) {
+          if (_voicePhase == _VoiceUiPhase.recording) {
+            unawaited(_onMicUp(cancelled: _slideCancel));
+          }
+        },
+        onPointerCancel: (_) {
+          if (_voicePhase == _VoiceUiPhase.recording) {
+            unawaited(_onMicUp(cancelled: true));
+          }
+        },
+        child: Container(
+          decoration: BoxDecoration(
+            color: colors.surface,
+            border: Border(top: BorderSide(color: colors.border)),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          child: switch (_voicePhase) {
+            _VoiceUiPhase.recording => _holdRecordingBar(colors),
+            _VoiceUiPhase.preview => _previewBar(colors),
+            _ => _normalBar(colors),
+          },
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        child: _recording ? _recordingBar(colors) : _normalBar(colors),
       ),
     );
   }
@@ -3517,66 +3579,141 @@ class _ComposerState extends State<_Composer> {
         ),
       ),
       const SizedBox(width: 6),
-      // Circular send / mic button — mirrors WhatsApp. With text it's Send.
-      // Empty: tap to dictate (speech→text), press-and-hold to record a
-      // voice note. While dictating it turns into a stop control.
+      // Circular send / mic — WhatsApp-style: hold mic to record a voice note.
       widget.sending
           ? const Padding(
               padding: EdgeInsets.all(10), child: BestieSpinner(size: 18))
-          : GestureDetector(
-              onLongPress: _hasText ? null : _startRecording,
-              child: Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: _dictating ? colors.danger : colors.brand,
-                  shape: BoxShape.circle,
-                ),
-                child: IconButton(
-                  icon: Icon(
-                    _hasText
-                        ? Icons.send_rounded
-                        : (_dictating ? Icons.stop_rounded : Icons.mic_rounded),
-                    color: Colors.white,
-                    size: 22,
+          : _hasText
+              ? Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: colors.brand,
+                    shape: BoxShape.circle,
                   ),
-                  onPressed:
-                      _hasText ? () => widget.onSend() : _toggleDictation,
+                  child: IconButton(
+                    icon: const Icon(Icons.send_rounded,
+                        color: Colors.white, size: 22),
+                    onPressed: () => widget.onSend(),
+                  ),
+                )
+              : Listener(
+                  behavior: HitTestBehavior.opaque,
+                  onPointerDown: (e) {
+                    _downGlobalX = e.position.dx;
+                    unawaited(_onMicDown());
+                  },
+                  child: Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: colors.brand,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.mic_rounded,
+                        color: Colors.white, size: 22),
+                  ),
                 ),
-              ),
-            ),
     ]);
   }
 
-  Widget _recordingBar(BestieColors colors) {
-    final mm = (_seconds ~/ 60).toString().padLeft(2, '0');
-    final ss = (_seconds % 60).toString().padLeft(2, '0');
+  Widget _holdRecordingBar(BestieColors colors) {
+    return Row(children: [
+      Icon(Icons.mic_rounded, color: colors.danger, size: 22),
+      const SizedBox(width: 8),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              _slideCancel ? 'Release to cancel' : 'Recording…',
+              style: TextStyle(
+                color: _slideCancel ? colors.danger : colors.textSoft,
+                fontSize: 13,
+                fontWeight: BestieTokens.fwSemibold,
+              ),
+            ),
+            if (!_slideCancel)
+              Text(
+                'Slide left to cancel',
+                style: TextStyle(color: colors.textMuted, fontSize: 11),
+              ),
+          ],
+        ),
+      ),
+      Container(
+        width: 10,
+        height: 10,
+        decoration: BoxDecoration(
+          color: colors.danger,
+          shape: BoxShape.circle,
+        ),
+      ),
+      const SizedBox(width: 8),
+      Text(
+        _formatDuration(_seconds),
+        style: TextStyle(
+          color: colors.text,
+          fontWeight: BestieTokens.fwBold,
+          fontFeatures: const [FontFeature.tabularFigures()],
+        ),
+      ),
+    ]);
+  }
+
+  Widget _previewBar(BestieColors colors) {
+    final durSecs = _previewDuration.inSeconds > 0
+        ? _previewDuration.inSeconds
+        : _seconds;
     return Row(children: [
       IconButton(
         icon: Icon(Icons.delete_outline_rounded, color: colors.danger),
-        tooltip: 'Cancel',
-        onPressed: () => _stopAndSend(cancelled: true),
+        tooltip: 'Discard',
+        onPressed: () => unawaited(_discardPreview()),
       ),
-      Expanded(
-        child: Row(children: [
-          Container(
-            width: 10,
-            height: 10,
-            decoration: BoxDecoration(
-              color: colors.danger,
-              shape: BoxShape.circle,
-            ),
+      GestureDetector(
+        onTap: () => unawaited(_togglePreviewPlay()),
+        child: Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: colors.brand,
+            shape: BoxShape.circle,
           ),
-          const SizedBox(width: 10),
-          Text('Recording  ',
-              style: TextStyle(color: colors.textSoft, fontSize: 13)),
-          Text('$mm:$ss',
-              style: TextStyle(
-                color: colors.text,
-                fontWeight: BestieTokens.fwBold,
-                fontFeatures: const [FontFeature.tabularFigures()],
-              )),
-        ]),
+          child: Icon(
+            _previewPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+            color: Colors.white,
+            size: 22,
+          ),
+        ),
+      ),
+      const SizedBox(width: 10),
+      Expanded(
+        child: Row(
+          children: List.generate(24, (i) {
+            final h = 4 + ((i * 3 + 5) % 14).toDouble();
+            return Expanded(
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 1),
+                height: h,
+                decoration: BoxDecoration(
+                  color: colors.brand.withOpacity(0.45),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            );
+          }),
+        ),
+      ),
+      const SizedBox(width: 8),
+      Text(
+        _formatDuration(durSecs),
+        style: TextStyle(
+          color: colors.textSoft,
+          fontSize: 12,
+          fontFeatures: const [FontFeature.tabularFigures()],
+        ),
       ),
       IconButton.filled(
         style: IconButton.styleFrom(
@@ -3585,11 +3722,13 @@ class _ComposerState extends State<_Composer> {
         ),
         icon: const Icon(Icons.send_rounded, size: 18),
         tooltip: 'Send voice note',
-        onPressed: () => _stopAndSend(),
+        onPressed: () => unawaited(_sendPreview()),
       ),
     ]);
   }
 }
+
+enum _VoiceUiPhase { idle, recording, preview }
 
 class _MemberTile extends StatelessWidget {
   final Map<String, dynamic> member;
@@ -5241,7 +5380,7 @@ class _Attachment extends ConsumerWidget {
       );
     }
     if (isAudio && url.isNotEmpty) {
-      return _VoiceNote(url: url, mine: mine, colors: colors);
+      return _VoiceNote(asset: asset, mine: mine, colors: colors);
     }
     if (isVideo) {
       return GestureDetector(
@@ -5882,25 +6021,27 @@ class _ReactionChip extends StatelessWidget {
   }
 }
 
-/// Voice-note bubble — play/pause + duration + minimal waveform-style bars
-/// that fill as playback progresses. Self-contained: owns its AudioPlayer.
-class _VoiceNote extends StatefulWidget {
-  final String url;
+/// Voice-note bubble — play/pause + duration + minimal waveform-style bars.
+/// Prefetches audio locally when the bubble appears (WhatsApp-style).
+class _VoiceNote extends ConsumerStatefulWidget {
+  final Map<String, dynamic> asset;
   final bool mine;
   final BestieColors colors;
   const _VoiceNote(
-      {required this.url, required this.mine, required this.colors});
+      {required this.asset, required this.mine, required this.colors});
 
   @override
-  State<_VoiceNote> createState() => _VoiceNoteState();
+  ConsumerState<_VoiceNote> createState() => _VoiceNoteState();
 }
 
-class _VoiceNoteState extends State<_VoiceNote> {
+class _VoiceNoteState extends ConsumerState<_VoiceNote> {
   final AudioPlayer _player = AudioPlayer();
   Duration _duration = Duration.zero;
   Duration _position = Duration.zero;
   bool _playing = false;
   double _speed = 1.0;
+  String? _localPath;
+  bool _loading = true;
   late final List<StreamSubscription> _subs;
 
   @override
@@ -5915,13 +6056,34 @@ class _VoiceNoteState extends State<_VoiceNote> {
       _player.onPositionChanged
           .listen((p) => mounted ? setState(() => _position = p) : null),
       _player.onPlayerComplete.listen((_) {
-        if (mounted)
+        if (mounted) {
           setState(() {
             _playing = false;
             _position = Duration.zero;
           });
+        }
       }),
     ];
+    unawaited(_prefetch());
+  }
+
+  Future<void> _prefetch() async {
+    try {
+      final path = await ChatMediaSaver.cacheVoiceNote(
+        api: ref.read(apiProvider),
+        asset: widget.asset,
+      );
+      if (!mounted) return;
+      setState(() {
+        _localPath = path;
+        _loading = false;
+      });
+      await _player.setSource(DeviceFileSource(path));
+      final dur = await _player.getDuration();
+      if (mounted && dur != null) setState(() => _duration = dur);
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   @override
@@ -5934,14 +6096,19 @@ class _VoiceNoteState extends State<_VoiceNote> {
   }
 
   Future<void> _toggle() async {
+    if (_loading) return;
     if (_playing) {
       await _player.pause();
-    } else {
-      await _player.play(UrlSource(widget.url));
-      // Apply current speed after play() — setPlaybackRate before play()
-      // is a no-op in audioplayers 6.x.
-      await _player.setPlaybackRate(_speed);
+      return;
     }
+    if (_localPath != null) {
+      await _player.play(DeviceFileSource(_localPath!));
+    } else {
+      final url = widget.asset['url']?.toString() ?? '';
+      if (url.isEmpty) return;
+      await _player.play(UrlSource(url));
+    }
+    await _player.setPlaybackRate(_speed);
   }
 
   Future<void> _cycleSpeed() async {
@@ -5986,11 +6153,19 @@ class _VoiceNoteState extends State<_VoiceNote> {
               color: accent,
               shape: BoxShape.circle,
             ),
-            child: Icon(
-              _playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
-              color: Colors.white,
-              size: 22,
-            ),
+            child: _loading
+                ? const Padding(
+                    padding: EdgeInsets.all(8),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : Icon(
+                    _playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                    color: Colors.white,
+                    size: 22,
+                  ),
           ),
         ),
         const SizedBox(width: 10),

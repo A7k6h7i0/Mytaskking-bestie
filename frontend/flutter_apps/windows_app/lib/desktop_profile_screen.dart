@@ -22,6 +22,8 @@ class _DesktopProfileScreenState extends ConsumerState<DesktopProfileScreen> {
   bool _uploadingAvatar = false;
   bool _savingLogout = false;
   String _availability = 'ACTIVE';
+  String? _meetingStart;
+  String? _meetingEnd;
 
   @override
   void initState() {
@@ -40,16 +42,23 @@ class _DesktopProfileScreenState extends ConsumerState<DesktopProfileScreen> {
       final rows = await ref.read(apiProvider).presenceFor([user.id]);
       if (rows.isEmpty || !mounted) return;
       final status = (rows.first['status'] ?? 'ACTIVE').toString();
-      final custom =
-          (rows.first['customStatus'] ?? '').toString().toLowerCase();
-      final value = custom.contains('lunch')
-          ? 'LUNCH'
-          : custom.contains('leave')
-              ? 'LEAVE'
-              : status == 'BUSY'
-                  ? 'BUSY'
-                  : 'ACTIVE';
-      setState(() => _availability = value);
+      final custom = (rows.first['customStatus'] ?? '').toString();
+      final customLower = custom.toLowerCase();
+      final meetingTimes = core.MeetingPresence.decodeTimes(custom);
+      final value = status == 'IN_MEETING' || meetingTimes != null
+          ? 'MEETING'
+          : customLower.contains('lunch')
+              ? 'LUNCH'
+              : customLower.contains('leave')
+                  ? 'LEAVE'
+                  : status == 'BUSY'
+                      ? 'BUSY'
+                      : 'ACTIVE';
+      setState(() {
+        _availability = value;
+        _meetingStart = meetingTimes?.start;
+        _meetingEnd = meetingTimes?.end;
+      });
     } catch (_) {}
   }
 
@@ -109,13 +118,73 @@ class _DesktopProfileScreenState extends ConsumerState<DesktopProfileScreen> {
   }
 
   Future<void> _setAvailability(String value) async {
-    final (status, customStatus) = switch (value) {
-      'BUSY' => ('BUSY', 'Busy'),
-      'LUNCH' => ('AWAY', 'Lunch time'),
-      'LEAVE' => ('AWAY', 'On leave'),
-      _ => ('ACTIVE', null),
-    };
-    setState(() => _availability = value);
+    if (value == 'MEETING') {
+      final times = await core.showMeetingTimeDialog(
+        context,
+        initialStart: _meetingStart,
+        initialEnd: _meetingEnd,
+      );
+      if (times == null) {
+        await _loadAvailability();
+        return;
+      }
+      await _applyPresence(
+        availability: 'MEETING',
+        status: 'IN_MEETING',
+        customStatus: core.MeetingPresence.encodeTimes(times.start, times.end),
+        meetingStart: times.start,
+        meetingEnd: times.end,
+      );
+      return;
+    }
+
+    await _applyPresence(
+      availability: value,
+      status: switch (value) {
+        'BUSY' => 'BUSY',
+        'LUNCH' => 'AWAY',
+        'LEAVE' => 'AWAY',
+        _ => 'ACTIVE',
+      },
+      customStatus: switch (value) {
+        'BUSY' => 'Busy',
+        'LUNCH' => 'Lunch time',
+        'LEAVE' => 'On leave',
+        _ => null,
+      },
+      meetingStart: null,
+      meetingEnd: null,
+    );
+  }
+
+  Future<void> _editMeetingTimes() async {
+    final times = await core.showMeetingTimeDialog(
+      context,
+      initialStart: _meetingStart,
+      initialEnd: _meetingEnd,
+    );
+    if (times == null) return;
+    await _applyPresence(
+      availability: 'MEETING',
+      status: 'IN_MEETING',
+      customStatus: core.MeetingPresence.encodeTimes(times.start, times.end),
+      meetingStart: times.start,
+      meetingEnd: times.end,
+    );
+  }
+
+  Future<void> _applyPresence({
+    required String availability,
+    required String status,
+    required String? customStatus,
+    required String? meetingStart,
+    required String? meetingEnd,
+  }) async {
+    setState(() {
+      _availability = availability;
+      _meetingStart = meetingStart;
+      _meetingEnd = meetingEnd;
+    });
     ref.read(presenceStatusProvider.notifier).state = status;
     try {
       await ref
@@ -133,6 +202,7 @@ class _DesktopProfileScreenState extends ConsumerState<DesktopProfileScreen> {
           kind: BestieToastKind.error,
         );
       }
+      await _loadAvailability();
     }
   }
 
@@ -300,6 +370,7 @@ class _DesktopProfileScreenState extends ConsumerState<DesktopProfileScreen> {
                 items: const [
                   DropdownMenuItem(value: 'ACTIVE', child: Text('Available')),
                   DropdownMenuItem(value: 'BUSY', child: Text('Busy')),
+                  DropdownMenuItem(value: 'MEETING', child: Text('Meeting')),
                   DropdownMenuItem(value: 'LUNCH', child: Text('Lunch time')),
                   DropdownMenuItem(value: 'LEAVE', child: Text('Leave')),
                 ],
@@ -308,6 +379,16 @@ class _DesktopProfileScreenState extends ConsumerState<DesktopProfileScreen> {
                 },
               ),
             ),
+            if (_availability == 'MEETING')
+              ListTile(
+                leading: const Icon(Icons.schedule_rounded),
+                title: Text(
+                  core.MeetingPresence.displayLabel(_meetingStart, _meetingEnd),
+                ),
+                subtitle: const Text('Tap to edit meeting time'),
+                trailing: const Icon(Icons.edit_outlined),
+                onTap: _editMeetingTimes,
+              ),
           ]),
           _section(context, 'Desktop safety', [
             if (autoLogoutExempt)
@@ -499,6 +580,7 @@ class _DesktopProfileScreenState extends ConsumerState<DesktopProfileScreen> {
   Color _availabilityColor(String s) => switch (s) {
         'ACTIVE' => BestieTokens.cSuccess,
         'BUSY' => BestieTokens.cDanger,
+        'MEETING' => BestieTokens.cBrand,
         'LUNCH' => BestieTokens.cWarning,
         'LEAVE' => BestieTokens.cAccent,
         _ => BestieTokens.cTextMuted,

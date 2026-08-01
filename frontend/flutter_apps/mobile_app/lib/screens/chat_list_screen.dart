@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mytaskking_design/mytaskking_design.dart';
+import 'package:mytaskking_core/mytaskking_core.dart' show MeetingPresence;
 
 import '../app_tts.dart';
 import '../branding.dart';
@@ -99,6 +100,9 @@ Future<void> startDmCallFromList(
         custom.toLowerCase().contains('another call')) {
       unawaited(speakAppMessageFresh(
           '$name is busy with another call. Please call again later.'));
+    } else if (MeetingPresence.isMeetingMap(presence)) {
+      unawaited(speakAppMessageFresh(
+          MeetingPresence.callerTtsFromPresence(name, presence)));
     } else {
       unawaited(speakAppMessageFresh(
           '$name is ${(presence['customStatus'] ?? presence['status']).toString()}. Please leave a message.'));
@@ -1194,63 +1198,13 @@ class _ChatTile extends ConsumerWidget {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (kind == 'DM' &&
-                          dmOtherUser != null &&
-                          !kWindowsWorkspaceNoCalls)
-                        PopupMenuButton<String>(
-                          icon: Icon(Icons.more_vert_rounded,
-                              size: 20, color: c.textMuted),
-                          padding: EdgeInsets.zero,
-                          tooltip: 'Call options',
-                          onSelected: (value) {
-                            if (value != 'voice' && value != 'video') return;
-                            startDmCallFromList(
-                              context,
-                              ref,
-                              peerUser: dmOtherUser!,
-                              mode: value,
-                              channelId: channelId,
-                            );
-                          },
-                          itemBuilder: (ctx) => [
-                            PopupMenuItem(
-                              value: 'voice',
-                              child: Row(
-                                children: [
-                                  Icon(Icons.call_rounded,
-                                      size: 20, color: c.brand),
-                                  const SizedBox(width: 10),
-                                  Text('Voice call',
-                                      style: TextStyle(color: c.text)),
-                                ],
-                              ),
-                            ),
-                            PopupMenuItem(
-                              value: 'video',
-                              child: Row(
-                                children: [
-                                  Icon(Icons.videocam_rounded,
-                                      size: 20, color: c.brand),
-                                  const SizedBox(width: 10),
-                                  Text('Video call',
-                                      style: TextStyle(color: c.text)),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      Text(
-                        timestamp,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: c.textMuted,
-                          fontWeight: FontWeight.w400,
-                        ),
-                      ),
-                    ],
+                  Text(
+                    timestamp,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: c.textMuted,
+                      fontWeight: FontWeight.w400,
+                    ),
                   ),
                   if (unread) ...[
                     const SizedBox(height: 6),

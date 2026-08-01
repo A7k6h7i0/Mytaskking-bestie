@@ -106,6 +106,28 @@ class ChatMediaSaver {
     }
   }
 
+  /// Cache a voice-note attachment locally so playback is instant offline.
+  static Future<String> cacheVoiceNote({
+    required BestieApi api,
+    required Map<String, dynamic> asset,
+  }) async {
+    final id = asset['id']?.toString() ?? '';
+    final direct = asset['url']?.toString() ?? '';
+    final cacheKey = id.isNotEmpty ? id : direct;
+    if (cacheKey.isEmpty) throw 'Voice note has no id or url';
+
+    final dir = await getApplicationCacheDirectory();
+    final voiceDir = Directory(p.join(dir.path, 'voice_notes'));
+    if (!await voiceDir.exists()) await voiceDir.create(recursive: true);
+    final safeName = cacheKey.replaceAll(RegExp(r'[^\w\-]'), '_');
+    final file = File(p.join(voiceDir.path, '$safeName.m4a'));
+    if (await file.exists()) return file.path;
+
+    final bytes = await _downloadAttachmentBytes(api, asset);
+    await file.writeAsBytes(bytes, flush: true);
+    return file.path;
+  }
+
   /// Save a link-preview image or direct image URL to the gallery.
   static Future<void> saveImageUrl(String url, {String? name}) async {
     final bytes = await _downloadUrlBytes(url);

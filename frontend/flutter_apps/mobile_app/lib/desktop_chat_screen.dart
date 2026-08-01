@@ -1265,12 +1265,17 @@ String _presenceLabel(Map<String, dynamic>? user) {
           '')
       .toString()
       .trim();
+  if (MeetingPresence.isMeetingMap(presence)) {
+    final times = MeetingPresence.decodeTimes(custom);
+    return MeetingPresence.displayLabel(times?.start, times?.end);
+  }
   if (custom.isNotEmpty) return custom;
   final status = (presence?['status'] ?? user?['status'] ?? '').toString();
   if (_isReallyOnline(user) && (status == 'ACTIVE' || status == 'ONLINE')) {
     return 'Online';
   }
   if (status == 'BUSY') return 'Busy';
+  if (status == 'IN_MEETING') return 'Meeting';
   if (status == 'LUNCH') return 'Lunch Time';
   if (status == 'ON_CALL') return 'On a call';
   return 'Offline';
