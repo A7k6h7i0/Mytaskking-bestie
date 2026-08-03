@@ -44,7 +44,7 @@ router.post(
   validate({
     body: Joi.object({
       idleSeconds: Joi.number().integer().min(0).required(),
-      platform: Joi.string().valid('windows', 'linux').required(),
+      platform: Joi.string().valid('windows', 'linux', 'macos').required(),
       deviceLabel: Joi.string().max(120).allow('', null),
       sessionId: Joi.string().allow('', null),
     }),
@@ -63,7 +63,7 @@ router.post(
       clipUrl: Joi.string().uri().allow('', null),
       note: Joi.string().max(1000).allow('', null),
       status: Joi.string().max(48).default('WORKING'),
-      platform: Joi.string().valid('windows', 'linux').required(),
+      platform: Joi.string().valid('windows', 'linux', 'macos').required(),
       deviceLabel: Joi.string().max(120).allow('', null),
       durationSeconds: Joi.number().integer().min(0).max(30).default(5),
       captureStartedAt: Joi.date().iso().allow(null),

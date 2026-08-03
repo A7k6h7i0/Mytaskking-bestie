@@ -28,5 +28,11 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>MyTaskKing needs the microphone for voice and video calls.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>MyTaskKing needs the camera for video calls.</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>MyTaskKing captures your screen during work-activity check-ins when enabled by your organization.</string>
 </dict>
 </plist>

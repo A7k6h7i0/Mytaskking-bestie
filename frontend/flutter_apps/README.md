@@ -23,7 +23,8 @@ flutter_apps/
 │                           screen via `screens.dart` so desktop apps reuse.
 ├── windows_app/            Windows desktop — sidebar shell consuming
 │                           `package:mytaskking_mobile/screens.dart`.
-└── macos_app/              macOS desktop — same shape as windows_app.
+├── linux_app/              Linux desktop — full chat + calls/meetings.
+└── macos_app/              macOS desktop — same as Linux (chat, calls, work activity, background agent).
 ```
 
 ## What's built (mobile)

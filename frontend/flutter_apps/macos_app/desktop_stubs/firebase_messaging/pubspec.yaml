@@ -1,0 +1,12 @@
+name: firebase_messaging
+description: Desktop-only no-op Firebase Messaging stub for the Windows app.
+version: 15.2.10
+publish_to: "none"
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter

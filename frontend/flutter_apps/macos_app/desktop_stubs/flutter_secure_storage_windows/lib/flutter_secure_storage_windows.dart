@@ -1,0 +1,2 @@
+library flutter_secure_storage_windows;
+

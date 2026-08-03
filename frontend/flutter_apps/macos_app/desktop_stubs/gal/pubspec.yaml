@@ -1,0 +1,11 @@
+name: gal
+description: Desktop stub for gal used by the Windows app.
+version: 2.3.2
+publish_to: "none"
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
